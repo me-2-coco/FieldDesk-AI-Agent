@@ -64,21 +64,7 @@ function Profile({
     <div className="page">
 
 
-      <div className="page-header-row">
 
-        <button
-          type="button"
-          className="compact-back-button"
-          onClick={() => setPage("home")}
-        >
-          <span className="back-arrow">
-            ‹
-          </span>
-
-          返回
-        </button>
-
-      </div>
 
 
       <h1>

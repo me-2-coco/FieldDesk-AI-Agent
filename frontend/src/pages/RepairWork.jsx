@@ -1,769 +1,561 @@
-import { useEffect, useMemo, useState } from "react"
-
-import {
-  getInventory,
-  saveInventory
-} from "../shared/inventoryStore.js"
-
-import {
-  getCurrentRepairOrder,
-  updateRepairOrder,
-  updateRepairStatus
-} from "../shared/repairOrderStore.js"
+import { useState } from "react";
 
 
 function RepairWork({ setPage }) {
 
-  const technicianName = "张师傅"
+
+  const [repairOrder, setRepairOrder] = useState(() => {
+
+    const data = localStorage.getItem("currentRepair");
+
+    return data ? JSON.parse(data) : {};
+
+  });
 
 
-  const [repairOrder, setRepairOrder] = useState(() =>
-    getCurrentRepairOrder()
-  )
 
-  const [inventory, setInventory] = useState(() =>
-    getInventory()
-  )
+  const [keyword, setKeyword] = useState("");
 
-  const [sn, setSn] = useState(
-    repairOrder.sn || ""
-  )
+  const [quantity, setQuantity] = useState(1);
 
-  const [keyword, setKeyword] = useState("")
-  const [selectedPart, setSelectedPart] = useState(null)
-  const [quantity, setQuantity] = useState(1)
-  const [message, setMessage] = useState("")
+  const [warranty, setWarranty] = useState(
+    repairOrder.warranty || ""
+  );
 
 
-  const [appliedParts, setAppliedParts] = useState(() => {
+  const [message, setMessage] = useState("");
 
-    try {
 
-      return JSON.parse(
-        localStorage.getItem("currentRepairParts") || "[]"
-      )
 
-    } catch (error) {
+  // 模拟库存数据
+  const partsDatabase = [
 
-      console.error("当前配件数据读取失败：", error)
+    {
+      code: "00100123",
+      name: "主刷电机",
+      stock: 50
+    },
 
-      return []
+    {
+      code: "00100234",
+      name: "电池组件",
+      stock: 20
+    },
 
+    {
+      code: "00100345",
+      name: "滚刷",
+      stock: 100
     }
 
-  })
+  ];
 
 
-  useEffect(() => {
 
-    const updatedOrder = updateRepairStatus("维修中")
+  const matchedPart = partsDatabase.find(item =>
 
-    setRepairOrder(updatedOrder)
+    item.code.includes(keyword) ||
+    item.name.includes(keyword)
 
-  }, [])
-
-
-  const technicianParts =
-    inventory.technicianStock[technicianName] || []
+  );
 
 
-  const searchResults = useMemo(() => {
-
-    const text = keyword.trim().toLowerCase()
-
-    if (text === "" || selectedPart) {
-      return []
-    }
-
-    return inventory.totalStock.filter((item) => {
-
-      return (
-        item.code.toLowerCase().includes(text) ||
-        item.name.toLowerCase().includes(text)
-      )
-
-    })
-
-  }, [
-    keyword,
-    selectedPart,
-    inventory.totalStock
-  ])
 
 
-  function getTechnicianStock(partCode) {
 
-    const part = technicianParts.find(
-      (item) => item.code === partCode
-    )
-
-    return part?.stock || 0
-  }
+  function applyPart(){
 
 
-  function handleSnChange(event) {
+    if(!matchedPart){
 
-    const value = event.target.value
+      setMessage("请选择有效配件");
 
-    setSn(value)
-
-    const updatedOrder = updateRepairOrder({
-      sn: value
-    })
-
-    setRepairOrder(updatedOrder)
-  }
-
-
-  function handleKeywordChange(event) {
-
-    setKeyword(event.target.value)
-    setSelectedPart(null)
-    setMessage("")
-  }
-
-
-  function choosePart(part) {
-
-    setSelectedPart(part)
-    setKeyword(`${part.code} ${part.name}`)
-    setQuantity(1)
-    setMessage("")
-  }
-
-
-  function applyPart() {
-
-    if (sn.trim() === "") {
-
-      setMessage("请先填写机器 SN")
-
-      return
+      return;
 
     }
 
 
-    if (!selectedPart) {
 
-      setMessage("请先从搜索结果中选择配件")
-
-      return
-
-    }
+    const part={
 
 
-    const requestQuantity = Number(quantity)
+      code: matchedPart.code,
 
 
-    if (
-      !Number.isInteger(requestQuantity) ||
-      requestQuantity <= 0
-    ) {
-
-      setMessage("申请数量必须是大于 0 的整数")
-
-      return
-
-    }
+      name: matchedPart.name,
 
 
-    if (selectedPart.stock < requestQuantity) {
-
-      const updatedOrder = updateRepairStatus("等待配件")
-
-      setRepairOrder(updatedOrder)
-
-      setMessage(
-        `总库库存不足，当前最多可申请 ${selectedPart.stock} 个，机器状态已自动变更为“等待配件”`
-      )
-
-      return
-
-    }
+      quantity:Number(quantity),
 
 
-    const updatedInventory = structuredClone(inventory)
+      stock:matchedPart.stock,
 
 
-    const totalPart = updatedInventory.totalStock.find(
-      (item) => item.code === selectedPart.code
-    )
+      phone:repairOrder.phone,
 
 
-    if (!totalPart) {
-
-      setMessage("库存中没有找到该配件")
-
-      return
-
-    }
+      sn:repairOrder.sn,
 
 
-    totalPart.stock -= requestQuantity
+      status:"申请中"
 
 
-    if (!updatedInventory.technicianStock[technicianName]) {
-
-      updatedInventory.technicianStock[technicianName] = []
-
-    }
+    };
 
 
-    const currentTechnicianParts =
-      updatedInventory.technicianStock[technicianName]
 
 
-    const technicianPart = currentTechnicianParts.find(
-      (item) => item.code === selectedPart.code
-    )
+
+    const update={
 
 
-    if (technicianPart) {
-
-      technicianPart.stock += requestQuantity
-
-    } else {
-
-      currentTechnicianParts.push({
-        code: selectedPart.code,
-        name: selectedPart.name,
-        stock: requestQuantity
-      })
-
-    }
+      ...repairOrder,
 
 
-    saveInventory(updatedInventory)
+      parts:[
 
-    setInventory(updatedInventory)
+        ...(repairOrder.parts || []),
 
+        part
 
-    const existingAppliedPart = appliedParts.find(
-      (item) => item.code === selectedPart.code
-    )
-
-
-    let updatedAppliedParts
+      ],
 
 
-    if (existingAppliedPart) {
-
-      updatedAppliedParts = appliedParts.map((item) => {
-
-        if (item.code !== selectedPart.code) {
-          return item
-        }
-
-        return {
-          ...item,
-          quantity: item.quantity + requestQuantity,
-          sn: sn.trim()
-        }
-
-      })
-
-    } else {
-
-      updatedAppliedParts = [
-        ...appliedParts,
-        {
-          id: `${selectedPart.code}-${Date.now()}`,
-          code: selectedPart.code,
-          name: selectedPart.name,
-          quantity: requestQuantity,
-          technician: technicianName,
-          sn: sn.trim(),
-          usageStatus: "used",
-          status: "已申请"
-        }
-      ]
-
-    }
+      warranty:warranty
 
 
-    setAppliedParts(updatedAppliedParts)
+    };
+
+
+
 
 
     localStorage.setItem(
-      "currentRepairParts",
-      JSON.stringify(updatedAppliedParts)
-    )
 
-
-    const updatedOrder = updateRepairStatus("维修中")
-
-    setRepairOrder(updatedOrder)
-
-
-    setMessage(
-      `${selectedPart.name} × ${requestQuantity} 申请成功`
-    )
-
-
-    setKeyword("")
-    setSelectedPart(null)
-    setQuantity(1)
-  }
-
-
-  function removeAppliedPart(part) {
-
-    const updatedInventory = structuredClone(inventory)
-
-
-    const totalPart = updatedInventory.totalStock.find(
-      (item) => item.code === part.code
-    )
-
-
-    const technicianPart =
-      updatedInventory.technicianStock[technicianName]?.find(
-        (item) => item.code === part.code
-      )
-
-
-    if (totalPart) {
-
-      totalPart.stock += part.quantity
-
-    }
-
-
-    if (technicianPart) {
-
-      technicianPart.stock = Math.max(
-        0,
-        technicianPart.stock - part.quantity
-      )
-
-    }
-
-
-    const updatedAppliedParts = appliedParts.filter(
-      (item) => item.id !== part.id
-    )
-
-
-    saveInventory(updatedInventory)
-
-    setInventory(updatedInventory)
-    setAppliedParts(updatedAppliedParts)
-
-
-    localStorage.setItem(
-      "currentRepairParts",
-      JSON.stringify(updatedAppliedParts)
-    )
-
-
-    setMessage(
-      `${part.name}申请已取消，库存已恢复`
-    )
-  }
-
-
-  function handleBackToRepairList() {
-
-    const updatedOrder = updateRepairStatus("暂停维修")
-
-    setRepairOrder(updatedOrder)
-
-
-    localStorage.setItem(
-      "currentRepairParts",
-      JSON.stringify(appliedParts)
-    )
-
-
-    setPage("repair")
-  }
-
-
-  function handleRepairFinish() {
-
-    if (sn.trim() === "") {
-
-      setMessage("请先填写机器 SN")
-
-      return
-
-    }
-
-
-    const updatedOrder = updateRepairOrder({
-      sn: sn.trim(),
-      technician: technicianName,
-      status: "待维修确认"
-    })
-
-
-    setRepairOrder(updatedOrder)
-
-
-    localStorage.setItem(
       "currentRepair",
-      JSON.stringify(updatedOrder)
-    )
+
+      JSON.stringify(update)
+
+    );
+
+
+
+    setRepairOrder(update);
+
+
+    setKeyword("");
+
+    setQuantity(1);
+
+
+    setMessage("配件申请成功");
+
+
+  }
+
+
+
+
+
+
+
+  function goFinish(){
+
+
+    const update={
+
+      ...repairOrder,
+
+      warranty:warranty
+
+    };
+
 
 
     localStorage.setItem(
-      "currentRepairParts",
-      JSON.stringify(appliedParts)
-    )
+
+      "currentRepair",
+
+      JSON.stringify(update)
+
+    );
 
 
-    setPage("repairFinish")
+
+    setPage("repairFinish");
+
+
   }
 
 
-  function getStatusClassName(status) {
-
-    const statusClassMap = {
-      "待维修": "status-waiting",
-      "维修中": "status-working",
-      "暂停维修": "status-paused",
-      "等待配件": "status-parts",
-      "待维修确认": "status-confirm",
-      "已完成": "status-completed"
-    }
-
-    return statusClassMap[status] || "status-default"
-  }
 
 
-  return (
-
-    <div className="page repair-work-page">
 
 
-      <div className="page-header-row">
-
-        <button
-          type="button"
-          className="compact-back-button"
-          onClick={handleBackToRepairList}
-        >
-          <span className="back-arrow">
-            ‹
-          </span>
-
-          返回
-        </button>
-
-      </div>
 
 
-      <h1>
-        维修工作台
-      </h1>
+
+  return(
 
 
-      <div className="card">
-
-        <div className="machine-card-header">
-
-          <h2>
-            机器信息
-          </h2>
+<div className="page repair-work-page">
 
 
-          <span
-            className={
-              `repair-status-badge ${getStatusClassName(
-                repairOrder.status
-              )}`
-            }
-          >
-            {repairOrder.status}
-          </span>
-
-        </div>
 
 
-        <div className="machine-info-list">
 
-          <p>
-            <span className="info-label">
-              客户：
-            </span>
-
-            {repairOrder.customer || "张三"}
-          </p>
+<div className="top-bar">
 
 
-          <p>
-            <span className="info-label">
-              电话：
-            </span>
+<button
 
-            {repairOrder.phone || "138****8888"}
-          </p>
+className="arrow-back"
+
+onClick={()=>setPage("repair")}
+
+>
+
+←
+
+</button>
 
 
-          <p>
-  <span className="info-label">
-    产品：
-  </span>
+<h1>
+检测
+</h1>
 
-  {repairOrder.product || "扫地机器人 X1"}
+
+</div>
+
+
+
+
+
+
+
+
+
+<div className="card machine-info-card">
+
+
+<div className="machine-card-header">
+
+
+<h2>
+📦机器信息
+</h2>
+
+
+<span className="repair-status-badge status-working">
+检测中
+</span>
+
+
+</div>
+
+
+
+
+
+<div className="machine-info-list">
+
+
+<p>
+
+客户：
+
+{repairOrder.customer || "王先生"}
+
 </p>
 
 
 <p>
-  <span className="info-label">
-    SN：
-  </span>
 
-  {repairOrder.sn || "-"}
+电话：
+
+{repairOrder.phone || "13688886666"}
+
+</p>
+
+
+
+<p>
+
+产品：
+
+{repairOrder.product || "扫地机器人X2"}
+
+</p>
+
+
+
+<p>
+
+SN：
+
+{repairOrder.sn || "-"}
+
+</p>
+
+
+
+<p>
+
+用户故障描述：
+
+{repairOrder.fault || "机器运行时异响"}
+
+</p>
+
+
+</div>
+
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div className="card">
+
+
+<h2>
+📦 配件申请
+</h2>
+
+
+
+
+
+<label className="part-title">
+物料搜索
+</label>
+
+
+<input
+
+className="part-search-input"
+
+placeholder="请输入物料编码"
+
+value={keyword}
+
+onChange={(e)=>setKeyword(e.target.value)}
+
+ />
+
+
+
+
+
+
+{
+matchedPart && (
+
+
+<div className="part-search-result">
+
+
+<p>
+物料编码：
+<strong>
+{matchedPart.code}
+</strong>
 </p>
 
 
 <p>
-  <span className="info-label">
-    用户故障描述：
-  </span>
-
-  {repairOrder.originalFault || "无法开机"}
+配件名称：
+<strong>
+{matchedPart.name}
+</strong>
 </p>
 
-        </div>
 
+<p>
+总库库存：
+<strong>
+{matchedPart.stock}
+</strong>
+</p>
 
-        <div className="status-time-row">
 
-          <span>
-            状态更新时间
-          </span>
+</div>
 
-          <span>
-            {repairOrder.statusUpdatedAt || "-"}
-          </span>
 
-        </div>
-
-
-
-      </div>
-
-
-      <div className="card">
-
-        <h2>
-          配件申请
-        </h2>
-
-
-        <input
-          value={keyword}
-          onChange={handleKeywordChange}
-          placeholder="输入物料编码或配件名称"
-        />
-
-
-        {searchResults.length > 0 && (
-
-          <div className="part-search-results">
-
-            {searchResults.map((item) => (
-
-              <button
-                type="button"
-                className="part-search-item"
-                key={item.code}
-                onClick={() => choosePart(item)}
-              >
-
-                <strong>
-                  {item.name}
-                </strong>
-
-
-                <span>
-                  物料编码：{item.code}
-                </span>
-
-
-                <span>
-                  总库库存：{item.stock}
-                </span>
-
-
-                <span>
-                  师傅库存：
-                  {getTechnicianStock(item.code)}
-                </span>
-
-              </button>
-
-            ))}
-
-          </div>
-
-        )}
-
-
-        {keyword.trim() !== "" &&
-          !selectedPart &&
-          searchResults.length === 0 && (
-
-            <p className="error-text">
-              没有找到匹配的配件
-            </p>
-
-          )}
-
-      </div>
-
-
-      {selectedPart && (
-
-        <div className="card">
-
-          <h2>
-            配件库存详情
-          </h2>
-
-
-          <p>
-            物料编码：
-            {selectedPart.code}
-          </p>
-
-
-          <p>
-            配件名称：
-            {selectedPart.name}
-          </p>
-
-
-          <p>
-            公司总库存：
-            {selectedPart.stock}
-          </p>
-
-
-          <p>
-            师傅个人库存：
-            {getTechnicianStock(selectedPart.code)}
-          </p>
-
-
-          <label htmlFor="apply-quantity">
-            申请数量
-          </label>
-
-
-          <input
-            id="apply-quantity"
-            type="number"
-            min="1"
-            step="1"
-            value={quantity}
-            onChange={(event) =>
-              setQuantity(Number(event.target.value))
-            }
-          />
-
-
-          <button
-            type="button"
-            onClick={applyPart}
-          >
-            申请配件
-          </button>
-
-        </div>
-
-      )}
-
-
-      <div className="card">
-
-        <h2>
-          本次已申请配件
-        </h2>
-
-
-        {appliedParts.length === 0 ? (
-
-          <p>
-            暂无申请配件
-          </p>
-
-        ) : (
-
-          appliedParts.map((item) => (
-
-            <div
-              className="inventory-item"
-              key={item.id}
-            >
-
-              <p>
-                <strong>
-                  {item.name}
-                </strong>
-              </p>
-
-
-              <p>
-                物料编码：{item.code}
-              </p>
-
-
-              <p>
-                申请数量：{item.quantity}
-              </p>
-
-
-              <p>
-                绑定 SN：{item.sn}
-              </p>
-
-
-              <button
-                type="button"
-                className="cancel-part-button"
-                onClick={() => removeAppliedPart(item)}
-              >
-                取消申请
-              </button>
-
-            </div>
-
-          ))
-
-        )}
-
-      </div>
-
-
-      {message && (
-
-        <div className="card message-card">
-
-          <p>
-            {message}
-          </p>
-
-        </div>
-
-      )}
-
-
-      <button
-        type="button"
-        className="finish"
-        onClick={handleRepairFinish}
-      >
-        维修完成，进入确认
-      </button>
-
-    </div>
-
-  )
+)
 
 }
 
 
-export default RepairWork
+
+
+
+
+
+<label>
+
+申请数量
+
+</label>
+
+
+<input
+
+
+type="number"
+
+min="1"
+
+value={quantity}
+
+
+onChange={(e)=>setQuantity(e.target.value)}
+
+
+/>
+
+
+
+
+
+
+<button
+
+className="primary-btn"
+
+onClick={applyPart}
+
+>
+
+申请配件
+
+</button>
+
+
+
+<p>
+{message}
+</p>
+
+
+</div>
+
+
+
+
+
+
+
+
+
+<div className="card">
+
+
+<h2>
+本次申请配件
+</h2>
+
+
+
+
+
+{
+
+repairOrder.parts && repairOrder.parts.length>0 ?
+
+
+repairOrder.parts.map((item,index)=>(
+
+
+<div key={index}>
+
+
+<p>
+
+物料编码：
+{item.code}
+
+</p>
+
+
+<p>
+
+名称：
+{item.name}
+
+×
+
+{item.quantity}
+
+</p>
+
+
+</div>
+
+
+))
+
+
+:
+
+
+<p>
+暂无申请
+</p>
+
+
+}
+
+
+
+</div>
+
+
+
+
+
+
+
+
+<button
+
+className="primary-btn"
+
+onClick={()=>setPage("repairProcess")}
+
+>
+
+进入维修
+
+</button>
+
+
+
+
+
+
+
+</div>
+
+
+  );
+
+
+}
+
+
+export default RepairWork;

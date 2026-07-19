@@ -178,15 +178,16 @@ export function canAccessPage(
   const rolePermissions = {
 
     technician: [
-      "home",
-      "repair",
-      "repairTask",
-      "repairWork",
-      "repairFinish",
-      "records",
-      "inventory",
-      "profile"
-    ],
+    "home",
+    "repair",
+    "repairTask",
+    "repairWork",
+    "repairProcess",
+    "repairFinish",
+    "records",
+    "inventory",
+    "profile"
+],
 
     warehouse: [
       "home",
@@ -195,17 +196,18 @@ export function canAccessPage(
       "profile"
     ],
 
-    admin: [
-      "home",
-      "repair",
-      "repairTask",
-      "repairWork",
-      "repairFinish",
-      "records",
-      "inventory",
-      "warehouse",
-      "profile"
-    ]
+   admin: [
+  "home",
+  "repair",
+  "repairTask",
+  "repairWork",
+  "repairProcess",
+  "repairFinish",
+  "records",
+  "inventory",
+  "warehouse",
+  "profile"
+],
 
   }
 

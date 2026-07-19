@@ -1,6 +1,6 @@
 function Home(){
 
-return (
+return(
 
 <div className="page home-page">
 
@@ -8,6 +8,7 @@ return (
 {/* 今日维修 */}
 
 <div className="card">
+
 
 <h2>
 今日维修
@@ -19,13 +20,13 @@ return (
 
 <div>
 
-待签收
+<div>
+待维修
+</div>
 
-<br/>
-
-<span>
+<strong>
 3
-</span>
+</strong>
 
 </div>
 
@@ -33,13 +34,13 @@ return (
 
 <div>
 
+<div>
 维修中
+</div>
 
-<br/>
-
-<span>
+<strong>
 5
-</span>
+</strong>
 
 </div>
 
@@ -47,13 +48,13 @@ return (
 
 <div>
 
+<div>
 已完成
+</div>
 
-<br/>
-
-<span>
+<strong>
 12
-</span>
+</strong>
 
 </div>
 
@@ -67,119 +68,64 @@ return (
 
 
 
-{/* 我的任务 */}
+{/* 个人库存 */}
 
 <div className="card">
 
 
 <h2>
-我的任务
+个人配件库存
 </h2>
 
 
-<div className="task-list">
 
+<div className="inventory-item">
 
-<p>
+<span>
+电池
+</span>
 
-待处理维修：
-
-<strong>
-8
-</strong>
-
-</p>
-
-
-<p>
-
-暂停维修：
-
-<strong>
+<b>
 2
-</strong>
-
-</p>
-
-
-<p>
-
-等待配件：
-
-<strong>
-1
-</strong>
-
-</p>
-
-
-</div>
-
+</b>
 
 </div>
 
 
 
-
-
-
-{/* 我的库存 */}
-
-<div className="card">
-
-
-<h2>
-我的配件库存
-</h2>
-
-
-
-<div className="inventory-preview">
-
-
-<p>
-
-电池组件
+<div className="inventory-item">
 
 <span>
-3
+主刷
 </span>
 
-</p>
-
-
-<p>
-
-边刷
-
-<span>
+<b>
 5
-</span>
+</b>
 
-</p>
+</div>
 
 
-<p>
 
-滚刷
+<div className="inventory-item">
 
 <span>
-2
+滤网
 </span>
 
-</p>
-
-
+<b>
+8
+</b>
 
 </div>
 
 
 
 <button
-className="secondary-btn"
+className="primary-btn"
 >
 
-查看全部库存
+查看库存
 
 </button>
 
@@ -193,46 +139,79 @@ className="secondary-btn"
 
 
 
-{/* 最近维修 */}
+{/* 待处理任务 */}
 
 <div className="card">
 
 
 <h2>
-最近维修
+待处理任务
 </h2>
 
 
 
-<div className="repair-record">
+<div className="task-summary">
 
 
 <p>
-扫地机器人 X2
+
+待维修机器：
+
+<strong>
+3
+</strong>
+
+台
+
 </p>
+
 
 
 <p>
-SN：R1234567A001
+
+待确认配件：
+
+<strong>
+2
+</strong>
+
+个
+
 </p>
+
 
 
 <p>
-更换：主刷组件
+
+异常提醒：
+
+<strong>
+1
+</strong>
+
+条
+
 </p>
 
-
-<p>
-昨天 16:30
-</p>
 
 
 </div>
 
 
 
-</div>
+<button
 
+className="primary-btn"
+
+>
+
+进入维修任务
+
+</button>
+
+
+
+</div>
 
 
 

@@ -521,30 +521,60 @@ button:active:not(:disabled) {
   border-bottom: none;
 }
 .page-header-row {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  width: 100%;
-  margin-bottom: 8px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width:100%;
+    margin-bottom:8px;
 }
 
 .compact-back-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  width: auto;
-  min-width: 68px;
-  min-height: 36px;
-  margin: 0;
-  padding: 6px 13px 6px 9px;
-  color: #1677ff;
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid #d6e4ff;
-  border-radius: 11px;
-  box-shadow: 0 4px 12px rgba(22, 119, 255, 0.08);
-  font-size: 14px;
-  font-weight: 600;
+
+  position: absolute;
+
+  top: 20px;
+
+  left: 20px;   /* 改这里 */
+
+  width: 45px;
+
+  height: 45px;
+
+  padding:0;
+
+  border:none;
+
+  background:transparent;
+
+  color:#222;
+
+  font-size:0;
+
+  box-shadow:none;
+
+}
+
+
+.compact-back-button .back-arrow {
+
+  font-size:42px;
+
+  line-height:45px;
+
+  font-weight:300;
+
+}
+
+
+.compact-back-button .back-arrow{
+
+  font-size:42px;
+
+  line-height:45px;
+
+  font-weight:300;
+
 }
 
 .compact-back-button:hover {
@@ -1995,4 +2025,76 @@ border-radius:16px;
 
 background:#fafafa;
 
+}
+.arrow-back {
+  position: absolute;
+
+  top: 50px;
+  left: 400px;
+
+  width: 32px;
+  height: 32px;
+
+  padding: 0;
+
+  border: none;
+  background: transparent;
+
+  color: #1677ff;
+
+  font-size: 28px;
+  font-weight: 400;
+
+  box-shadow: none;
+
+  z-index: 20;
+}
+.machine-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.machine-card-header h2 {
+  margin: 0;
+}
+.machine-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.machine-info-card {
+  text-align: left;
+}
+
+.machine-info-card p {
+  text-align: left;
+  margin-left: 0;
+}
+.machine-info-card p {
+  text-align: left;
+  margin-left: 0;
+}
+
+.machine-info-card {
+  text-align: left;
+}
+.scan-input-row{
+  display:flex;
+  gap:8px;
+  align-items:center;
+}
+
+.scan-input-row input{
+  flex:1;
+}
+
+.scan-btn{
+  width:45px;
+  height:45px;
+  border-radius:10px;
+  border:1px solid #ddd;
+  background:white;
+  font-size:22px;
 }

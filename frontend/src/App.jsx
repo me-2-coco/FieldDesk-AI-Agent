@@ -3,8 +3,8 @@ import { useState } from "react"
 import Login from "./pages/Login.jsx"
 import Home from "./pages/Home.jsx"
 import Repair from "./pages/Repair.jsx"
-import RepairTask from "./pages/RepairTask.jsx"
 import RepairWork from "./pages/RepairWork.jsx"
+import RepairProcess from "./pages/RepairProcess.jsx"
 import RepairFinish from "./pages/RepairFinish.jsx"
 import Records from "./pages/Records.jsx"
 import Inventory from "./pages/Inventory.jsx"
@@ -23,27 +23,38 @@ import "./App.css"
 
 function App() {
 
+
   const [isLoggedIn, setIsLoggedIn] = useState(
     localStorage.getItem("isLoggedIn") === "true"
   )
+
 
   const [currentUser, setCurrentUser] = useState(() =>
     getCurrentUser()
   )
 
+
   const [page, setPageState] = useState("home")
+
 
   const [permissionMessage, setPermissionMessage] =
     useState("")
 
 
+
   function handleLogin(user) {
 
     setCurrentUser(user)
+
     setIsLoggedIn(true)
+
     setPageState("home")
+
     setPermissionMessage("")
+
   }
+
+
 
 
   function handleLogout() {
@@ -51,36 +62,62 @@ function App() {
     localStorage.removeItem("isLoggedIn")
 
     setIsLoggedIn(false)
+
     setPageState("home")
+
     setPermissionMessage("")
+
   }
+
+
+
 
 
   function setPage(nextPage) {
 
-    const latestUser = getCurrentUser()
 
-    setCurrentUser(latestUser)
+   const latestUser = getCurrentUser()
+
+
+
+    if (!latestUser) {
+
+      setPageState("login")
+
+      return
+
+    }
+
 
 
     if (!canAccessPage(nextPage, latestUser)) {
 
+
       setPermissionMessage(
-        `${latestUser.name}没有权限访问该页面`
+        `${latestUser.name || "当前用户"}没有权限访问该页面`
       )
 
-      setPageState("home")
 
       return
+
     }
 
 
+
     setPermissionMessage("")
+
+
     setPageState(nextPage)
+
+
   }
 
 
+
+
+
   if (!isLoggedIn) {
+
 
     return (
 
@@ -89,14 +126,21 @@ function App() {
       />
 
     )
+
   }
+
+
+
 
 
   return (
 
     <div className="app">
 
+
       <main className="app-content">
+
+
 
         {permissionMessage && (
 
@@ -109,6 +153,8 @@ function App() {
         )}
 
 
+
+
         {page === "home" && (
 
           <Home
@@ -117,6 +163,8 @@ function App() {
           />
 
         )}
+
+
 
 
         {page === "repair" && (
@@ -128,13 +176,11 @@ function App() {
         )}
 
 
-        {page === "repairTask" && (
 
-          <RepairTask
-            setPage={setPage}
-          />
 
-        )}
+
+
+
 
 
         {page === "repairWork" && (
@@ -146,6 +192,21 @@ function App() {
         )}
 
 
+
+
+
+        {page === "repairProcess" && (
+
+          <RepairProcess
+            setPage={setPage}
+          />
+
+        )}
+
+
+
+
+
         {page === "repairFinish" && (
 
           <RepairFinish
@@ -153,6 +214,9 @@ function App() {
           />
 
         )}
+
+
+
 
 
         {page === "records" && (
@@ -164,6 +228,9 @@ function App() {
         )}
 
 
+
+
+
         {page === "inventory" && (
 
           <Inventory
@@ -171,6 +238,9 @@ function App() {
           />
 
         )}
+
+
+
 
 
         {page === "warehouse" && (
@@ -182,6 +252,9 @@ function App() {
         )}
 
 
+
+
+
         {page === "profile" && (
 
           <Profile
@@ -191,18 +264,32 @@ function App() {
 
         )}
 
+
+
+
       </main>
 
 
+
+
+
       <BottomNav
+
         page={page}
+
         setPage={setPage}
+
       />
+
+
 
     </div>
 
   )
+
+
 }
+
 
 
 export default App
