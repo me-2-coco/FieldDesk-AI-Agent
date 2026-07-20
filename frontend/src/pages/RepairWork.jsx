@@ -1,561 +1,155 @@
-import { useState } from "react";
+import { useState } from "react"
+import {
+  getCurrentRepairOrder,
+  updateRepairOrder,
+  updateStatusByAction
+} from "../shared/repairOrderStore.js"
 
 
+// 维修阶段：故障分类 + 维修措施 + 上传 + 维修完成
 function RepairWork({ setPage }) {
 
+  const [repairOrder, setRepairOrder] = useState(() =>
+    getCurrentRepairOrder()
+  )
 
-  const [repairOrder, setRepairOrder] = useState(() => {
-
-    const data = localStorage.getItem("currentRepair");
-
-    return data ? JSON.parse(data) : {};
-
-  });
-
-
-
-  const [keyword, setKeyword] = useState("");
-
-  const [quantity, setQuantity] = useState(1);
-
-  const [warranty, setWarranty] = useState(
-    repairOrder.warranty || ""
-  );
+  const [faultKeyword, setFaultKeyword] = useState(
+    repairOrder.level3Fault || ""
+  )
+  const [selectedFault, setSelectedFault] = useState(null)
+  const [solution, setSolution] = useState(
+    repairOrder.solution || ""
+  )
 
 
-  const [message, setMessage] = useState("");
+  const faultList = [
+    { system: "电源系统", fault: "电池容量不足", solution: "更换电池", part: "电池包" },
+    { system: "主机系统", fault: "运行异响", solution: "检查电机并更换异常部件", part: "主刷电机" },
+    { system: "导航系统", fault: "无法定位", solution: "检查传感器", part: "雷达模块" }
+  ]
+
+  const resultList = faultList.filter(item =>
+    item.fault.includes(faultKeyword) ||
+    item.system.includes(faultKeyword)
+  )
 
 
-
-  // 模拟库存数据
-  const partsDatabase = [
-
-    {
-      code: "00100123",
-      name: "主刷电机",
-      stock: 50
-    },
-
-    {
-      code: "00100234",
-      name: "电池组件",
-      stock: 20
-    },
-
-    {
-      code: "00100345",
-      name: "滚刷",
-      stock: 100
+  function chooseFault(item) {
+    setSelectedFault(item)
+    setFaultKeyword(item.fault)
+    if (!solution) {
+      setSolution(item.solution)
     }
-
-  ];
-
-
-
-  const matchedPart = partsDatabase.find(item =>
-
-    item.code.includes(keyword) ||
-    item.name.includes(keyword)
-
-  );
-
-
-
-
-
-  function applyPart(){
-
-
-    if(!matchedPart){
-
-      setMessage("请选择有效配件");
-
-      return;
-
-    }
-
-
-
-    const part={
-
-
-      code: matchedPart.code,
-
-
-      name: matchedPart.name,
-
-
-      quantity:Number(quantity),
-
-
-      stock:matchedPart.stock,
-
-
-      phone:repairOrder.phone,
-
-
-      sn:repairOrder.sn,
-
-
-      status:"申请中"
-
-
-    };
-
-
-
-
-
-    const update={
-
-
-      ...repairOrder,
-
-
-      parts:[
-
-        ...(repairOrder.parts || []),
-
-        part
-
-      ],
-
-
-      warranty:warranty
-
-
-    };
-
-
-
-
-
-    localStorage.setItem(
-
-      "currentRepair",
-
-      JSON.stringify(update)
-
-    );
-
-
-
-    setRepairOrder(update);
-
-
-    setKeyword("");
-
-    setQuantity(1);
-
-
-    setMessage("配件申请成功");
-
-
   }
 
 
+  function finishRepair() {
 
+    const updated = updateRepairOrder({
+      faultSystem: selectedFault ? selectedFault.system : repairOrder.faultSystem,
+      level3Fault: faultKeyword,
+      solution
+    })
 
+    updateStatusByAction("FINISH_REPAIR")
 
-
-
-  function goFinish(){
-
-
-    const update={
-
-      ...repairOrder,
-
-      warranty:warranty
-
-    };
-
-
-
-    localStorage.setItem(
-
-      "currentRepair",
-
-      JSON.stringify(update)
-
-    );
-
-
-
-    setPage("repairFinish");
-
-
+    setRepairOrder(updated)
+    setPage("repairFinish")
   }
 
 
-
-
-
-
-
-
-
-  return(
-
-
-<div className="page repair-work-page">
-
-
-
-
-
-<div className="top-bar">
-
-
-<button
-
-className="arrow-back"
-
-onClick={()=>setPage("repair")}
-
->
-
-←
-
-</button>
-
-
-<h1>
-检测
-</h1>
-
-
-</div>
-
-
-
-
-
-
-
-
-
-<div className="card machine-info-card">
-
-
-<div className="machine-card-header">
-
-
-<h2>
-📦机器信息
-</h2>
-
-
-<span className="repair-status-badge status-working">
-检测中
-</span>
-
-
-</div>
-
-
-
-
-
-<div className="machine-info-list">
-
-
-<p>
-
-客户：
-
-{repairOrder.customer || "王先生"}
-
-</p>
-
-
-<p>
-
-电话：
-
-{repairOrder.phone || "13688886666"}
-
-</p>
-
-
-
-<p>
-
-产品：
-
-{repairOrder.product || "扫地机器人X2"}
-
-</p>
-
-
-
-<p>
-
-SN：
-
-{repairOrder.sn || "-"}
-
-</p>
-
-
-
-<p>
-
-用户故障描述：
-
-{repairOrder.fault || "机器运行时异响"}
-
-</p>
-
-
-</div>
-
-
-</div>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-<div className="card">
-
-
-<h2>
-📦 配件申请
-</h2>
-
-
-
-
-
-<label className="part-title">
-物料搜索
-</label>
-
-
-<input
-
-className="part-search-input"
-
-placeholder="请输入物料编码"
-
-value={keyword}
-
-onChange={(e)=>setKeyword(e.target.value)}
-
- />
-
-
-
-
-
-
-{
-matchedPart && (
-
-
-<div className="part-search-result">
-
-
-<p>
-物料编码：
-<strong>
-{matchedPart.code}
-</strong>
-</p>
-
-
-<p>
-配件名称：
-<strong>
-{matchedPart.name}
-</strong>
-</p>
-
-
-<p>
-总库库存：
-<strong>
-{matchedPart.stock}
-</strong>
-</p>
-
-
-</div>
-
-
-)
-
+  return (
+    <div className="page repair-work-page">
+
+      <div className="top-bar">
+        <button className="arrow-back" onClick={() => setPage("repairProcess")}>
+          ←
+        </button>
+        <h1>维修</h1>
+      </div>
+
+      <div className="card machine-info-card">
+
+        <div className="machine-card-header">
+          <h2>📦机器信息</h2>
+          <span className="repair-status-badge status-working">维修中</span>
+        </div>
+
+        <p>客户：{repairOrder.customer || "王先生"}</p>
+        <p>电话：{repairOrder.phone || "13688886666"}</p>
+        <p>产品：{repairOrder.product || "扫地机器人X2"}</p>
+        <p>SN：{repairOrder.sn || "暂无"}</p>
+        <p>用户故障描述：{repairOrder.originalFault || "机器运行时异响"}</p>
+
+      </div>
+
+      <div className="card">
+
+        <h2>🧩CRM故障分类</h2>
+
+        <input
+          value={faultKeyword}
+          placeholder="搜索三级故障"
+          onChange={e => setFaultKeyword(e.target.value)}
+        />
+
+        {faultKeyword && resultList.length > 0 && (
+          <div>
+            {resultList.map((item, index) => (
+              <div key={index} className="fault-item" onClick={() => chooseFault(item)}>
+                <div>系统：{item.system}</div>
+                <div>故障：{item.fault}</div>
+                <div>维修方案：{item.solution}</div>
+                <div>配件：{item.part}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {selectedFault && (
+          <div className="selected-card">
+            <h3>已选择故障</h3>
+            <p>系统：{selectedFault.system}</p>
+            <p>三级故障：{selectedFault.fault}</p>
+            <p>维修方案：{selectedFault.solution}</p>
+            <p>建议配件：{selectedFault.part}</p>
+          </div>
+        )}
+
+      </div>
+
+      <div className="card">
+        <h2>🛠维修措施</h2>
+        <textarea
+          value={solution}
+          placeholder="填写维修措施"
+          onChange={e => setSolution(e.target.value)}
+        />
+      </div>
+
+      <div className="card upload-card">
+        <h2>📷 上传照片/视频</h2>
+        <input type="file" accept="image/*,video/*" multiple />
+        <p className="upload-tip">支持上传维修前后照片、维修视频</p>
+      </div>
+
+      <div className="card">
+        <h2>📦本次申请配件</h2>
+        {repairOrder.parts && repairOrder.parts.length > 0 ? (
+          repairOrder.parts.map((item, index) => (
+            <p key={index}>{item.name} × {item.quantity}</p>
+          ))
+        ) : (
+          <p>暂无配件</p>
+        )}
+      </div>
+
+      <button className="primary-btn" onClick={finishRepair}>
+        维修完成
+      </button>
+
+    </div>
+  )
 }
 
-
-
-
-
-
-
-<label>
-
-申请数量
-
-</label>
-
-
-<input
-
-
-type="number"
-
-min="1"
-
-value={quantity}
-
-
-onChange={(e)=>setQuantity(e.target.value)}
-
-
-/>
-
-
-
-
-
-
-<button
-
-className="primary-btn"
-
-onClick={applyPart}
-
->
-
-申请配件
-
-</button>
-
-
-
-<p>
-{message}
-</p>
-
-
-</div>
-
-
-
-
-
-
-
-
-
-<div className="card">
-
-
-<h2>
-本次申请配件
-</h2>
-
-
-
-
-
-{
-
-repairOrder.parts && repairOrder.parts.length>0 ?
-
-
-repairOrder.parts.map((item,index)=>(
-
-
-<div key={index}>
-
-
-<p>
-
-物料编码：
-{item.code}
-
-</p>
-
-
-<p>
-
-名称：
-{item.name}
-
-×
-
-{item.quantity}
-
-</p>
-
-
-</div>
-
-
-))
-
-
-:
-
-
-<p>
-暂无申请
-</p>
-
-
-}
-
-
-
-</div>
-
-
-
-
-
-
-
-
-<button
-
-className="primary-btn"
-
-onClick={()=>setPage("repairProcess")}
-
->
-
-进入维修
-
-</button>
-
-
-
-
-
-
-
-</div>
-
-
-  );
-
-
-}
-
-
-export default RepairWork;
+export default RepairWork
