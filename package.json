@@ -1,0 +1,10 @@
+{
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "playwright": "^1.61.1"
+  }
+}

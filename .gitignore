@@ -1,3 +1,9 @@
 .idea/
 __pycache__/
 *.pyc
+node_modules/
+.env
+.env.*
+!.env.example
+connectors/recloud-state.json
+connectors/recloud-storage.json

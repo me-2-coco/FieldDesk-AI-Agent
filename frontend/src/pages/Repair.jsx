@@ -1,5 +1,8 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import ScannerModal from "../components/ScannerModal";
+import {
+  queryCrmOrderByLogisticsNo
+} from "../shared/crmService.js"
 
 
 function Repair({ setPage }) {
@@ -7,26 +10,46 @@ function Repair({ setPage }) {
 
   const [orderNo, setOrderNo] = useState("");
   const [showScanner, setShowScanner] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
 
 
-  const searchRepair = () => {
+  const searchRepair = async () => {
 
-    if (!orderNo) {
+  if (!orderNo) {
 
-      alert("请输入物流单号");
+    alert("请输入物流单号")
 
-      return;
+    return
 
-    }
+  }
 
 
-    // 后续这里接 CRM 查询
-    // 查询成功进入维修流程
+  try {
+    setIsLoading(true)
 
-    setPage("repairWork");
+    const result =
+      await queryCrmOrderByLogisticsNo(orderNo)
 
-  };
+
+    console.log(
+      "CRM查询结果:",
+      result
+    )
+
+
+    setPage("repairProcess")
+
+
+  } catch(error) {
+
+    alert(error.message)
+
+  } finally {
+    setIsLoading(false)
+  }
+
+}
 
 
 
@@ -84,7 +107,11 @@ function Repair({ setPage }) {
   <input
   value={orderNo}
   onChange={(e)=>setOrderNo(e.target.value)}
+  onKeyDown={(e) => {
+    if (e.key === "Enter" && !isLoading) searchRepair()
+  }}
   placeholder="请输入物流单号"
+  disabled={isLoading}
 />
 
   <button
@@ -104,10 +131,11 @@ function Repair({ setPage }) {
         <button
 
           onClick={searchRepair}
+          disabled={isLoading}
 
         >
 
-          查询
+          {isLoading ? "正在安全联调..." : "查询并填写签收信息"}
 
         </button>
 

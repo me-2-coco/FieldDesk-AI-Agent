@@ -4,100 +4,74 @@ import {
   setCurrentRepairOrderId
 } from "./repairOrderStore.js"
 
+const API_BASE_URL = String(
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:3000"
+).replace(/\/$/, "")
 
-const MOCK_CRM_ORDERS = [
-  {
-    crmOrderNo: "CRM-20260716001",
-    logisticsNo: "SF202607160001",
-    customer: "王先生",
-    phone: "13688886666",
-    address: "浙江省杭州市",
-    product: "扫地机器人 X2",
-    model: "X2",
-    sn: "R12345067A001",
-    originalFault: "机器运行时异响",
-    technician: "张师傅",
-    warrantyType: "待确认"
-  },
-  {
-    crmOrderNo: "CRM-20260716002",
-    logisticsNo: "YT202607160002",
-    customer: "赵女士",
-    phone: "13777775555",
-    address: "江苏省南京市",
-    product: "洗地机 W1",
-    model: "W1",
-    sn: "W67890056B002",
-    originalFault: "无法出水",
-    technician: "张师傅",
-    warrantyType: "待确认"
+async function request(path, body) {
+  let response
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    })
+  } catch {
+    throw new Error("无法连接 FieldDesk 后端，请确认 API 已启动")
   }
-]
 
-
-function wait(milliseconds) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, milliseconds)
-  })
+  const result = await response.json().catch(() => null)
+  if (!response.ok || !result?.success) {
+    throw new Error(result?.message || `CRM 请求失败（${response.status}）`)
+  }
+  return result.data
 }
 
-
-export async function queryCrmOrderByLogisticsNo(
-  logisticsNo
-) {
-
-  const searchText = String(logisticsNo || "")
-    .trim()
-    .toLowerCase()
-
-
-  if (!searchText) {
-    throw new Error("请输入物流单号")
-  }
-
-
-  await wait(500)
-
-
-  const existingOrder =
-    findRepairOrderByLogisticsNo(searchText)
-
-
-  if (existingOrder) {
-
-    setCurrentRepairOrderId(existingOrder.id)
-
-    return {
-      source: "local",
-      isNew: false,
-      order: existingOrder
-    }
-  }
-
-
-  const crmOrder = MOCK_CRM_ORDERS.find(
-    (item) =>
-      item.logisticsNo
-        .trim()
-        .toLowerCase() === searchText
-  )
-
-
-  if (!crmOrder) {
-    throw new Error("没有查询到对应的寄修工单")
-  }
-
-
-  const newOrder = createRepairOrder({
-    ...crmOrder,
-    status: "待签收",
-    statusReason: "从瑞云 CRM 查询到寄修工单"
-  })
-
-
+function toRepairOrder(data, logisticsNo) {
+  const isDryRun = data.receipt?.dryRun !== false
   return {
-    source: "mock-crm",
-    isNew: true,
-    order: newOrder
+    crmOrderNo: data.crmOrderNo || data.rmaNo || "",
+    logisticsNo: data.logisticsNo || logisticsNo,
+    customer: data.customer || "",
+    phone: data.phone || "",
+    address: data.address || "",
+    product: data.product || data.productType || "",
+    model: data.model || "",
+    sn: data.sn || "",
+    originalFault: data.originalFault || "",
+    warrantyType: data.warrantyType || "待确认",
+    status: isDryRun ? "待签收" : "待维修",
+    statusReason: isDryRun
+      ? "DRY_RUN：已填写 SN 和备注，尚未确认签收"
+      : "瑞云 CRM 已确认签收",
+    crmSyncStatus: isDryRun ? "待确认" : "已同步",
+    crmSyncMessage:
+      data.receipt?.message ||
+      (isDryRun ? "DRY_RUN：未确认签收" : "签收完成")
   }
+}
+
+export async function queryCrmOrderByLogisticsNo(logisticsNo) {
+  const value = String(logisticsNo || "").trim()
+  if (!value) throw new Error("请输入物流单号")
+
+  const existingOrder = findRepairOrderByLogisticsNo(value)
+  if (existingOrder) {
+    setCurrentRepairOrderId(existingOrder.id)
+    return { source: "local", isNew: false, order: existingOrder }
+  }
+
+  const crmOrder = await request("/api/crm/repairs/receive", {
+    logisticsNo: value
+  })
+  const newOrder = createRepairOrder(toRepairOrder(crmOrder, value))
+  return { source: "recloud-crm", isNew: true, order: newOrder }
+}
+
+export async function queryCrmRepair(logisticsNo) {
+  return request("/api/crm/repairs/query", { logisticsNo })
+}
+
+export async function receiveCrmRepair(logisticsNo, sn, remark) {
+  return request("/api/crm/repairs/receive", { logisticsNo, sn, remark })
 }
