@@ -1,6 +1,7 @@
 {
   "scripts": {
     "start": "node server.js",
+    "recloud:login": "node init-recloud-login.js",
     "test": "node --test test/*.test.js"
   },
   "dependencies": {

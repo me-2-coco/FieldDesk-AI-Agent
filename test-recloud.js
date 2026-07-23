@@ -1,6 +1,5 @@
 const {
     openRecloud,
-    saveLogin,
     scanSign,
     getRepairDetail,
     confirmSign
@@ -17,26 +16,8 @@ async function main(){
 
     const {
         browser,
-        context,
         page
     } = await openRecloud();
-
-
-
-    // ==============================
-    // 第一次运行需要登录
-    // 登录后保存
-    // ==============================
-
-    await page.waitForTimeout(
-        5000
-    );
-
-
-    await saveLogin(
-        context
-    );
-
 
 
     // ==============================

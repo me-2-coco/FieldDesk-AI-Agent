@@ -6,6 +6,7 @@ const LOGIN_STATE = path.join(__dirname, "recloud-state.json");
 const RECLOUD_URL =
   "https://crm2.recloud.com.cn/t/dreame/webapp/dreame/?mainNavName=serviceprovider#/scanSignin/query";
 const DEFAULT_TIMEOUT = Number(process.env.RECLOUD_TIMEOUT_MS) || 15000;
+const LOGIN_REQUIRED_MESSAGE = "请重新初始化瑞云登录状态";
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -42,7 +43,10 @@ async function openRecloud(options = {}) {
   });
 
   const context = await browser.newContext({
-    storageState: fs.existsSync(LOGIN_STATE) ? LOGIN_STATE : undefined,
+    storageState:
+      options.useStorageState !== false && fs.existsSync(LOGIN_STATE)
+        ? LOGIN_STATE
+        : undefined,
   });
   const page = await context.newPage();
   page.setDefaultTimeout(DEFAULT_TIMEOUT);
@@ -55,14 +59,40 @@ async function saveLogin(context) {
   await context.storageState({ path: LOGIN_STATE });
 }
 
+function isRecloudLoginPage(url) {
+  try {
+    return new URL(url).hostname.toLowerCase() === "auth4.recloud.com.cn";
+  } catch {
+    return false;
+  }
+}
+
+function assertRecloudAuthenticated(page) {
+  if (isRecloudLoginPage(page.url())) {
+    const error = new Error(LOGIN_REQUIRED_MESSAGE);
+    error.code = "RECLOUD_LOGIN_REQUIRED";
+    throw error;
+  }
+}
+
+function getLogisticsInput(page) {
+  return page
+    .locator('input[placeholder*="物流"], input[placeholder*="快递"]')
+    .first();
+}
+
 async function scanSign(page, logisticsNo) {
   const value = normalizeText(logisticsNo);
   if (!value) throw new Error("缺少物流单号");
 
-  const input = page
-    .locator('input[placeholder*="物流"], input[placeholder*="快递"]')
-    .first();
-  await input.waitFor({ state: "visible" });
+  assertRecloudAuthenticated(page);
+  const input = getLogisticsInput(page);
+  try {
+    await input.waitFor({ state: "visible" });
+  } catch (error) {
+    assertRecloudAuthenticated(page);
+    throw error;
+  }
   await input.fill(value);
   await input.press("Enter");
 
@@ -185,8 +215,13 @@ async function confirmSign(page, sn, productType, remark, options = {}) {
 
 module.exports = {
   RECLOUD_URL,
+  LOGIN_STATE,
+  LOGIN_REQUIRED_MESSAGE,
   openRecloud,
   saveLogin,
+  isRecloudLoginPage,
+  assertRecloudAuthenticated,
+  getLogisticsInput,
   scanSign,
   getRepairDetail,
   confirmSign,

@@ -94,9 +94,14 @@ function createApp(connector = recloudConnector) {
   app.use((error, req, res, next) => {
     console.error("CRM request failed:", error.message);
     if (res.headersSent) return next(error);
+    const loginRequired =
+      error.code === "RECLOUD_LOGIN_REQUIRED" ||
+      /auth4\.recloud\.com\.cn/i.test(String(error.message || ""));
     return res.status(502).json({
       success: false,
-      message: error.message || "瑞云 CRM 请求失败",
+      message: loginRequired
+        ? "请重新初始化瑞云登录状态"
+        : error.message || "瑞云 CRM 请求失败",
     });
   });
 

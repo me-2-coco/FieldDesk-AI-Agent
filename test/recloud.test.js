@@ -1,6 +1,11 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { parseRepairDetail } = require("../connectors/recloud");
+const {
+  LOGIN_REQUIRED_MESSAGE,
+  isRecloudLoginPage,
+  parseRepairDetail,
+} = require("../connectors/recloud");
+const { isCrmQueryUrl } = require("../init-recloud-login");
 const { createApp, isDryRun } = require("../server");
 
 async function startServer(connector) {
@@ -34,6 +39,21 @@ test("DRY_RUN is enabled unless explicitly disabled", () => {
   assert.equal(isDryRun({}), true);
   assert.equal(isDryRun({ DRY_RUN: "true" }), true);
   assert.equal(isDryRun({ DRY_RUN: "false" }), false);
+});
+
+test("recognizes Recloud login and CRM query URLs", () => {
+  assert.equal(
+    isRecloudLoginPage("https://auth4.recloud.com.cn/login?redirect=crm"),
+    true
+  );
+  assert.equal(isRecloudLoginPage("https://crm2.recloud.com.cn/"), false);
+  assert.equal(
+    isCrmQueryUrl(
+      "https://crm2.recloud.com.cn/t/dreame/webapp/dreame/#/scanSignin/query"
+    ),
+    true
+  );
+  assert.equal(isCrmQueryUrl("https://auth4.recloud.com.cn/login"), false);
 });
 
 test("receive API queries and fills receipt without confirmation", async (t) => {
@@ -108,4 +128,33 @@ test("API validates logistics number without opening CRM", async (t) => {
 
   assert.equal(response.status, 400);
   assert.equal((await response.json()).success, false);
+});
+
+test("API gives a clear message when Recloud login has expired", async (t) => {
+  const connector = {
+    async openRecloud() {
+      return {
+        page: {},
+        browser: { close: async () => {} },
+      };
+    },
+    async scanSign() {
+      const error = new Error("redirected to auth4.recloud.com.cn");
+      error.code = "RECLOUD_LOGIN_REQUIRED";
+      throw error;
+    },
+  };
+  const { server, url } = await startServer(connector);
+  t.after(() => server.close());
+
+  const response = await fetch(`${url}/api/crm/repairs/query`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ logisticsNo: "SF001" }),
+  });
+  const result = await response.json();
+
+  assert.equal(response.status, 502);
+  assert.equal(result.success, false);
+  assert.equal(result.message, LOGIN_REQUIRED_MESSAGE);
 });
