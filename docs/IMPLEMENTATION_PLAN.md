@@ -13,8 +13,8 @@
 | 能力 | 现有位置 | 现状判断 |
 | --- | --- | --- |
 | 瑞云扫码签收页面入口 | `connectors/recloud.js` | 已有 Playwright 打开固定页面和登录失效识别 |
-| 物流单输入与查询动作 | `connectors/recloud.js` 的 `scanSign` | 已能填写物流单号并等待页面；选择器和结果判定仍是原型 |
-| 基础详情解析 | `parseRepairDetail/getRepairDetail` | 仅从整页文本正则提取寄修单、SN、手机号和粗略产品类型 |
+| 物流单输入与查询动作 | `connectors/recloud.js` 的 `enterRmaQuery` | 已按精确 placeholder 填写物流单号并回车，不点击签收 |
+| RMA 详情解析 | `connectors/recloud-rma-parser.js` | 已有结构化标签解析器和脱敏 HTML fixture；真实详情 DOM 定位待采集 |
 | 只读查询路由 | `POST /api/crm/repairs/query` | 已存在，但接口版本、返回字段、错误码和只读契约需完善 |
 | 签收 DRY_RUN 原型 | `/api/crm/repairs/receive`、`confirmSign` | 默认不点最终确认，但会点击“签收”、打开弹窗并填写字段，不属于严格只读 |
 | DRY_RUN 默认值测试 | `server.js`、`test/recloud.test.js` | 默认启用，已有单元/接口测试 |
@@ -30,12 +30,12 @@
 
 ### 2.2 第一阶段必须重构
 
-1. `frontend/src/shared/crmService.js` 的 `queryCrmOrderByLogisticsNo` 当前调用 `/api/crm/repairs/receive`。必须改为只调用版本化只读 lookup 接口，且查询后仅展示结果，不能创建“已签收/待维修”语义。
+1. `frontend/src/shared/crmService.js` 的查询已改为只调用 `/api/crm/repairs/query`，查询后仅展示结果，不创建或推进本地工单。
 2. 将连接器拆为明确的 `read` 与 `command` 边界。V1 运行产物只装配 `lookupRepairOrderByLogisticsNo`；`confirmSign` 不应从查询服务可达。
-3. 当前 `scanSign` 的命名容易被误解为签收，应重命名为 `queryReceiptByLogisticsNo` 一类的只读名称，并确认 Enter 查询不会在瑞云自动产生副作用。
-4. 从整页正文正则解析改为按字段标签/稳定选择器读取；未识别字段应报 `RECLOUD_SCHEMA_CHANGED`，不能返回空字符串伪装成功。
+3. 只读入口已命名为 `enterRmaQuery/queryRmaByLogisticsNo`，只允许精确定位扫码输入框、填写物流单号和按回车。
+4. 已实现按字段标签解析与 `RECLOUD_SCHEMA_CHANGED`；在采集真实 RMA 详情页脱敏 DOM 后，仍需把通用文本采集替换为经验证的稳定值元素定位器。
 5. 统一 V1 请求/响应 DTO、字段命名、状态映射、错误码、请求 ID、超时、脱敏日志与 mock fixture。
-6. 前端结果页应展示寄修单号、用户资料、产品型号、报修故障、当前状态、来源、查询时间和只读标识；不得在 V1 自动写入正式工单状态。
+6. 前端结果页已展示寄修单号、用户资料、报修描述、取件物流单号和只读标识；录入 SN 按钮禁用并标注待签收模块完成。
 7. CORS 不能默认 `*` 用于正式部署；增加服务端鉴权、RBAC、输入校验和限流。
 8. 增加写操作总开关，例如 `RECLOUD_WRITE_ENABLED=false`，且与 `DRY_RUN`、权限、人工确认分别校验。当前阶段建议不挂载写路由。
 9. 瑞云登录状态继续保持在 Git ignore 中；生产改用安全凭据/会话存储和轮换，不将状态文件打包进镜像或日志。
@@ -86,18 +86,19 @@
 扫描物流单号
   → FieldDesk 校验输入
   → 瑞云“服务管理 → 扫码签收”只读查询
-  → 读取并标准化寄修单号、用户资料、产品型号、报修故障、当前状态
+  → 回车后直接进入 RMA 详情
+  → 读取寄修单号、用户姓名、脱敏手机号、所在地区/地址、报修描述、取件物流单号
   → FieldDesk 展示结果和只读标识
 ```
 
 实施项：
 
-1. 新建版本化 `POST /api/v1/recloud/repair-orders:lookup`，保留旧 query 路由作为临时兼容代理。
+1. 使用 `POST /api/crm/repairs/query` 作为 V1 只读入口；查询路由只依赖 `queryRmaByLogisticsNo`。
 2. 定义 DTO 和结构化错误；手机号/地址按角色脱敏。
-3. 通过稳定标签/选择器读取唯一结果，保存原始状态与映射值，不读取无关页面内容。
-4. 前端查询入口改用只读 API，结果页处理 loading、成功、无结果、多结果、登录失效、超时和结构变化。
+3. 通过稳定标签/选择器读取 RMA 详情，不读取变更记录、沟通记录、督办单和产品信息表格中的签收动作。
+4. 前端查询入口改用只读 API，结果页处理 loading、成功、未找到、登录失效、超时和结构变化。
 5. 记录脱敏查询审计和指标；不创建已签收、检测中或维修中业务状态。
-6. 为成功、无结果、多结果、字段缺失、登录失效、超时以及“绝不调用签收”编写测试。
+6. 为成功、未找到、字段缺失、登录失效、超时以及“绝不调用签收”编写测试。
 
 退出条件：满足 `PRODUCT_SPEC.md` 的 V1 验收标准；全程使用 mock 完成开发验证。本次文档任务不执行真实瑞云查询。
 
@@ -150,7 +151,7 @@ server/
 
 现有结构可渐进迁移，不要求一次重写。关键约束是查询 service 的依赖接口不暴露写方法，从类型/模块边界减少误调用风险。
 
-接口以 `PRODUCT_SPEC.md` 中的 `/api/v1/recloud/repair-orders:lookup` 为准。现有 `/api/crm/repairs/query` 可短期兼容；前端不得再用 `/api/crm/repairs/receive` 完成“查询”。
+接口以 `PRODUCT_SPEC.md` 中的 `/api/crm/repairs/query` 为准；前端不得使用 `/api/crm/repairs/receive` 完成“查询”。后续若引入统一版本化 API，应提供兼容迁移，不改变 V1 的只读语义。
 
 ## 5. 测试与发布门禁
 
@@ -177,11 +178,11 @@ server/
 
 ## 7. 下一阶段输入清单
 
-开始阶段 1 实现前，请业务方提供：
+真实联调和冻结详情定位器前，请业务方提供：
 
-- 瑞云只读测试账号/环境、页面路径与字段/状态/异常样例；如有 API，提供正式接口文档。
-- V1 九类返回字段的页面标签、示例、必填性和脱敏要求。
-- 物流单多结果、无结果、取消/重复到件规则，以及 Enter/查询按钮是否绝对只读的确认。
+- RMA 详情页的脱敏 DOM：六个目标字段各自的标签和值元素、共同父容器、稳定 class/`data-*` 属性和相对层级。
+- RMA 详情加载完成的稳定 DOM 或 URL 特征，以及未找到工单的提示元素与精确文案。
+- 地址字段是否拆分、报修描述是否为富文本、六项字段的必填性及空值展示规则。
 - 飞书表格的工作表、列头、主键、类型、枚举、版本、读取范围和数据权威说明；标识通过环境配置提供，不提交秘密。
 - SN/型号/品类备注、节点状态、配件库存、三级故障/话术、质保责任、附件和返程发货的完整规则。
 

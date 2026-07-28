@@ -42,6 +42,59 @@ button:disabled {
   opacity: 0.75;
 }
 
+.read-only-tip {
+  margin-top: 14px !important;
+  color: #5d6470 !important;
+  font-size: 14px !important;
+  text-align: center;
+}
+
+.rma-detail-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.rma-detail-heading h2 {
+  margin: 0;
+  text-align: left;
+}
+
+.read-only-badge {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  color: #0958d9;
+  background: #e6f4ff;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.rma-detail-list {
+  margin: 0;
+}
+
+.rma-detail-list > div {
+  padding: 12px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.rma-detail-list dt {
+  margin-bottom: 5px;
+  color: #77727f;
+  font-size: 14px;
+}
+
+.rma-detail-list dd {
+  margin: 0;
+  color: #222222;
+  font-size: 16px;
+  line-height: 1.55;
+  word-break: break-word;
+}
+
 .app {
   width: 100%;
   min-height: 100vh;

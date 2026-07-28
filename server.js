@@ -10,6 +10,10 @@ function isDryRun(env = process.env) {
   return String(env.DRY_RUN ?? "true").toLowerCase() !== "false";
 }
 
+function isRecloudWriteEnabled(env = process.env) {
+  return String(env.RECLOUD_WRITE_ENABLED ?? "false").toLowerCase() === "true";
+}
+
 async function withRecloud(connector, operation) {
   const session = await connector.openRecloud();
   try {
@@ -36,6 +40,7 @@ function createApp(connector = recloudConnector) {
       success: true,
       service: "fielddesk-api",
       dryRun: isDryRun(),
+      recloudWriteEnabled: isRecloudWriteEnabled(),
     });
   });
 
@@ -46,10 +51,9 @@ function createApp(connector = recloudConnector) {
     }
 
     try {
-      const data = await withRecloud(connector, async (page) => {
-        await connector.scanSign(page, logisticsNo);
-        return connector.getRepairDetail(page, logisticsNo);
-      });
+      const data = await withRecloud(connector, (page) =>
+        connector.queryRmaByLogisticsNo(page, logisticsNo)
+      );
       return res.json({ success: true, data });
     } catch (error) {
       return next(error);
@@ -57,6 +61,14 @@ function createApp(connector = recloudConnector) {
   });
 
   app.post("/api/crm/repairs/receive", async (req, res, next) => {
+    if (!isRecloudWriteEnabled()) {
+      return res.status(403).json({
+        success: false,
+        code: "RECLOUD_WRITE_DISABLED",
+        message: "当前阶段禁止瑞云签收写操作",
+      });
+    }
+
     const logisticsNo = normalizeLogisticsNo(req.body?.logisticsNo);
     const requestedSn = String(req.body?.sn || "").trim();
     const requestedRemark = String(req.body?.remark || "").trim();
@@ -94,14 +106,30 @@ function createApp(connector = recloudConnector) {
   app.use((error, req, res, next) => {
     console.error("CRM request failed:", error.message);
     if (res.headersSent) return next(error);
-    const loginRequired =
-      error.code === "RECLOUD_LOGIN_REQUIRED" ||
-      /auth4\.recloud\.com\.cn/i.test(String(error.message || ""));
-    return res.status(502).json({
+    const loginRequired = error.code === "RECLOUD_LOGIN_REQUIRED";
+    const errors = {
+      RECLOUD_LOGIN_REQUIRED: {
+        status: 502,
+        message: "瑞云登录已失效，请重新初始化登录状态",
+      },
+      RECLOUD_ORDER_NOT_FOUND: {
+        status: 404,
+        message: "没有查询到对应的瑞云 RMA 寄修单",
+      },
+      RECLOUD_SCHEMA_CHANGED: {
+        status: 502,
+        message: "瑞云页面结构已变化，暂时无法读取工单",
+      },
+      RECLOUD_QUERY_TIMEOUT: {
+        status: 504,
+        message: "瑞云工单查询超时，请稍后重试",
+      },
+    };
+    const mapped = errors[error.code];
+    return res.status(mapped?.status || error.status || 502).json({
       success: false,
-      message: loginRequired
-        ? "请重新初始化瑞云登录状态"
-        : error.message || "瑞云 CRM 请求失败",
+      code: loginRequired ? "RECLOUD_LOGIN_REQUIRED" : error.code || "RECLOUD_ERROR",
+      message: mapped?.message || error.message || "瑞云 CRM 请求失败",
     });
   });
 
@@ -120,4 +148,10 @@ if (require.main === module) {
   });
 }
 
-module.exports = { createApp, normalizeLogisticsNo, withRecloud, isDryRun };
+module.exports = {
+  createApp,
+  normalizeLogisticsNo,
+  withRecloud,
+  isDryRun,
+  isRecloudWriteEnabled,
+};

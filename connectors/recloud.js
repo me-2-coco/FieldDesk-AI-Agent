@@ -1,12 +1,19 @@
 const { chromium } = require("playwright");
 const path = require("path");
 const fs = require("fs");
+const {
+  RecloudQueryError,
+  extractTextFieldPairs,
+  parseRmaFieldPairs,
+} = require("./recloud-rma-parser");
 
 const LOGIN_STATE = path.join(__dirname, "recloud-state.json");
 const RECLOUD_URL =
   "https://crm2.recloud.com.cn/t/dreame/webapp/dreame/?mainNavName=serviceprovider#/scanSignin/query";
 const DEFAULT_TIMEOUT = Number(process.env.RECLOUD_TIMEOUT_MS) || 15000;
 const LOGIN_REQUIRED_MESSAGE = "请重新初始化瑞云登录状态";
+const LOGISTICS_INPUT_PLACEHOLDER =
+  "请用扫码枪输入物流单号/工单号/订单号/退换单";
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -76,12 +83,23 @@ function assertRecloudAuthenticated(page) {
 }
 
 function getLogisticsInput(page) {
-  return page
-    .locator('input[placeholder*="物流"], input[placeholder*="快递"]')
-    .first();
+  return page.locator(`input[placeholder="${LOGISTICS_INPUT_PLACEHOLDER}"]`).first();
 }
 
-async function scanSign(page, logisticsNo) {
+function toQueryError(error) {
+  if (error instanceof RecloudQueryError || error?.code === "RECLOUD_LOGIN_REQUIRED") {
+    return error;
+  }
+  if (error?.name === "TimeoutError" || /timeout/i.test(String(error?.message || ""))) {
+    return new RecloudQueryError("RECLOUD_QUERY_TIMEOUT", "瑞云工单查询超时", {
+      status: 504,
+      retryable: true,
+    });
+  }
+  return error;
+}
+
+async function enterRmaQuery(page, logisticsNo) {
   const value = normalizeText(logisticsNo);
   if (!value) throw new Error("缺少物流单号");
 
@@ -91,25 +109,79 @@ async function scanSign(page, logisticsNo) {
     await input.waitFor({ state: "visible" });
   } catch (error) {
     assertRecloudAuthenticated(page);
-    throw error;
+    throw new RecloudQueryError(
+      "RECLOUD_SCHEMA_CHANGED",
+      "瑞云扫码签收页输入框结构已变化",
+      { status: 502, retryable: false }
+    );
   }
   await input.fill(value);
   await input.press("Enter");
-
-  await Promise.race([
-    page.getByText("签收", { exact: true }).last().waitFor({ state: "visible" }),
-    page.waitForTimeout(8000),
-  ]);
 }
 
-async function getRepairDetail(page, logisticsNo = "") {
-  const text = await page.locator("body").innerText();
-  const detail = parseRepairDetail(text, logisticsNo);
+async function readRmaDetail(page, logisticsNo = "") {
+  assertRecloudAuthenticated(page);
+  const bodyText = await page.locator("body").innerText();
+  const pairs = extractTextFieldPairs(bodyText);
+  return parseRmaFieldPairs(pairs, logisticsNo);
+}
 
-  if (!detail.rmaNo && !detail.sn) {
-    throw new Error("没有查询到对应的瑞云寄修工单");
+async function waitForRmaDetail(page, logisticsNo = "") {
+  const queryInput = getLogisticsInput(page);
+  const deadline = Date.now() + DEFAULT_TIMEOUT;
+  let detailPageObserved = false;
+  let schemaError = null;
+
+  while (Date.now() < deadline) {
+    assertRecloudAuthenticated(page);
+
+    const inputVisible = await queryInput.isVisible().catch(() => false);
+    if (!inputVisible) {
+      detailPageObserved = true;
+      try {
+        return await readRmaDetail(page, logisticsNo);
+      } catch (error) {
+        if (error.code !== "RECLOUD_SCHEMA_CHANGED") throw error;
+        schemaError = error;
+        await page.waitForTimeout(200);
+        continue;
+      }
+    }
+
+    const bodyText = await page.locator("body").innerText().catch(() => "");
+    if (/未找到|查询不到|暂无(?:相关)?(?:工单|数据)|工单不存在/.test(bodyText)) {
+      throw new RecloudQueryError(
+        "RECLOUD_ORDER_NOT_FOUND",
+        "没有查询到对应的瑞云 RMA 寄修单",
+        { status: 404, retryable: false }
+      );
+    }
+
+    await page.waitForTimeout(200);
   }
-  return detail;
+
+  if (detailPageObserved && schemaError) throw schemaError;
+
+  throw new RecloudQueryError("RECLOUD_QUERY_TIMEOUT", "瑞云工单查询超时", {
+    status: 504,
+    retryable: true,
+  });
+}
+
+async function queryRmaByLogisticsNo(page, logisticsNo) {
+  try {
+    await enterRmaQuery(page, logisticsNo);
+    return await waitForRmaDetail(page, logisticsNo);
+  } catch (error) {
+    throw toQueryError(error);
+  }
+}
+
+// 旧写操作兼容层。只读 V1 不调用这些函数。
+const scanSign = enterRmaQuery;
+
+async function getRepairDetail(page, logisticsNo = "") {
+  return readRmaDetail(page, logisticsNo);
 }
 
 function locateDialogField(dialog, labels, placeholders) {
@@ -217,11 +289,17 @@ module.exports = {
   RECLOUD_URL,
   LOGIN_STATE,
   LOGIN_REQUIRED_MESSAGE,
+  LOGISTICS_INPUT_PLACEHOLDER,
   openRecloud,
   saveLogin,
   isRecloudLoginPage,
   assertRecloudAuthenticated,
   getLogisticsInput,
+  enterRmaQuery,
+  waitForRmaDetail,
+  readRmaDetail,
+  queryRmaByLogisticsNo,
+  toQueryError,
   scanSign,
   getRepairDetail,
   confirmSign,
