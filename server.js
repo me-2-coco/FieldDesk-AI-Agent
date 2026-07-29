@@ -260,6 +260,59 @@ function createApp(
     }
   );
 
+  app.post(
+    "/api/crm/repairs/receipt-form/simulate",
+    async (req, res, next) => {
+      if (!isDryRun() || isRecloudWriteEnabled()) {
+        return res.status(403).json({
+          success: false,
+          code: "RECLOUD_RECEIPT_SIMULATION_UNSAFE",
+          message: "签收填写演练只允许在 DRY_RUN 且写操作关闭时执行",
+        });
+      }
+      const logisticsNo = normalizeLogisticsNo(req.body?.logisticsNo);
+      const sn = String(req.body?.sn ?? "");
+      const remark = String(req.body?.remark ?? "");
+      const testLogisticsNo = normalizeLogisticsNo(
+        process.env.RECLOUD_RECEIPT_TEST_LOGISTICS_NO
+      );
+      const missingFields = [
+        !logisticsNo && "logisticsNo",
+        !sn.trim() && "sn",
+        !remark.trim() && "remark",
+      ].filter(Boolean);
+      if (missingFields.length > 0) {
+        return res.status(400).json({
+          success: false,
+          code: "RECLOUD_RECEIPT_SIMULATION_INVALID",
+          message: "签收填写演练参数不完整",
+          missingFields,
+        });
+      }
+      if (!testLogisticsNo || logisticsNo !== testLogisticsNo) {
+        return res.status(403).json({
+          success: false,
+          code: "RECLOUD_RECEIPT_TEST_ORDER_REQUIRED",
+          message: "仅允许使用后端配置的专用未签收测试工单",
+          missingFields: [],
+        });
+      }
+
+      try {
+        const data = await withRecloud(connector, async (page) => {
+          await connector.queryRmaByLogisticsNo(page, logisticsNo);
+          return connector.simulateReceiptForm(page, sn, remark, {
+            dryRun: true,
+            writeEnabled: false,
+          });
+        });
+        return res.json({ success: true, data });
+      } catch (error) {
+        return next(error);
+      }
+    }
+  );
+
   app.post("/api/crm/repairs/receive", async (req, res, next) => {
     if (!isRecloudWriteEnabled()) {
       return res.status(403).json({
@@ -465,6 +518,34 @@ function createApp(
         status: 403,
         message: "签收表单定位只允许在严格演练模式下执行",
       },
+      RECLOUD_RECEIPT_SIMULATION_UNSAFE: {
+        status: 403,
+        message: "签收填写演练只允许在严格演练模式下执行",
+      },
+      RECLOUD_RECEIPT_TEST_ORDER_REQUIRED: {
+        status: 403,
+        message: "仅允许使用后端配置的专用未签收测试工单",
+      },
+      RECLOUD_RECEIPT_SIMULATION_INVALID: {
+        status: 400,
+        message: "签收填写演练参数不完整",
+      },
+      RECLOUD_RECEIPT_SIMULATION_DIRTY_FORM: {
+        status: 409,
+        message: "测试工单签收表单不是可安全演练的初始状态",
+      },
+      RECLOUD_RECEIPT_SIMULATION_VALUE_MISMATCH: {
+        status: 502,
+        message: "瑞云签收表单演练值校验失败",
+      },
+      RECLOUD_RECEIPT_SIMULATION_CLEANUP_FAILED: {
+        status: 502,
+        message: "瑞云签收表单演练内容清理失败",
+      },
+      RECLOUD_UNEXPECTED_WRITE_REQUEST: {
+        status: 502,
+        message: "演练期间检测并阻止了非预期写请求",
+      },
     };
     const mapped = errors[error.code];
     console.error(
@@ -485,6 +566,7 @@ function createApp(
         ? error.missingFields
         : [],
       inspection: error.inspection || undefined,
+      simulation: error.simulation || undefined,
     });
   });
 

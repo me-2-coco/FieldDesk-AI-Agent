@@ -1209,6 +1209,81 @@ async function snapshotReceiptFormScopes(page) {
   return snapshots;
 }
 
+async function openReceiptFormForDryRun(page, options = {}) {
+  const logger = options.logger || console;
+  const target = await findPendingReceiptAction(page, logger);
+  if (!target) {
+    throw receiptInspectionError(
+      "RECLOUD_RECEIPT_ACTION_NOT_FOUND",
+      "未找到 RMA 明细中的待处理签收操作",
+      ["receiptForm.entry"]
+    );
+  }
+  logReceiptInspection("receiptEntryFound", logger);
+  const baselineUrl = page.url();
+  const baselineScopes = await snapshotReceiptFormScopes(page);
+  const entryState = await inspectReceiptEntry(target.entry);
+  if (entryState.visible) logReceiptInspection("receiptEntryVisible", logger);
+  if (entryState.enabled) logReceiptInspection("receiptEntryEnabled", logger);
+  await safelyClickReceiptEntry(target.entry, page, options);
+  logReceiptInspection("receiptEntryClicked", logger);
+  const opened = await waitForReceiptForm(page, baselineUrl, {
+    ...options,
+    baselineScopes,
+  });
+  if (!opened) {
+    throw receiptInspectionError(
+      "RECLOUD_RECEIPT_FORM_NOT_OPENED",
+      "点击瑞云签收入口后未检测到签收表单",
+      ["receiptForm.dialog"],
+      {
+        receiptEntryFound: true,
+        receiptEntryVisible: entryState.visible,
+        receiptEntryEnabled: entryState.enabled,
+        receiptEntryClicked: true,
+      }
+    );
+  }
+  logReceiptInspection("dialogOpened", logger);
+  return { entryState, formPage: opened.page, dialog: opened.root };
+}
+
+async function locateReceiptFormControls(dialog) {
+  const inputs = dialog.locator("input:visible, textarea:visible");
+  const snCandidates = locateDialogField(
+    dialog,
+    ["SN", "序列号", "设备序列号"],
+    ["SN", "序列号"]
+  );
+  const remarkCandidates = locateDialogField(
+    dialog,
+    ["备注", "签收说明"],
+    ["备注", "说明"]
+  );
+  const snInput = await firstVisible([
+    snCandidates.byLabel,
+    snCandidates.byPlaceholder,
+    inputs.nth(3),
+  ]);
+  const remarkInput = await firstVisible([
+    remarkCandidates.byLabel,
+    remarkCandidates.byPlaceholder,
+    dialog.locator("textarea:visible").first(),
+    inputs.nth(4),
+  ]);
+  const confirmButton = await firstVisible([
+    dialog
+      .getByRole("button", {
+        name: /^(确认|确定|提交|签收)$/,
+      })
+      .last(),
+    dialog
+      .getByText(/^(确认|确定|提交|签收)$/, { exact: true })
+      .last(),
+  ]);
+  return { snInput, remarkInput, confirmButton };
+}
+
 async function inspectReceiptForm(page, options = {}) {
   const logger = options.logger || console;
   if (options.dryRun !== true || options.writeEnabled !== false) {
@@ -1219,79 +1294,15 @@ async function inspectReceiptForm(page, options = {}) {
   }
 
   assertRecloudAuthenticated(page);
-  const target = await findPendingReceiptAction(page, logger);
-  if (!target) {
-    throw receiptInspectionError(
-      "RECLOUD_RECEIPT_ACTION_NOT_FOUND",
-      "未找到 RMA 明细中的待处理签收操作",
-      ["receiptForm.entry"]
-    );
-  }
-  logReceiptInspection("receiptEntryFound", logger);
-
   let dialog = null;
   let formPage = page;
   try {
-    const baselineUrl = page.url();
-    const baselineScopes = await snapshotReceiptFormScopes(page);
-    const entryState = await inspectReceiptEntry(target.entry);
-    if (entryState.visible) logReceiptInspection("receiptEntryVisible", logger);
-    if (entryState.enabled) logReceiptInspection("receiptEntryEnabled", logger);
-    await safelyClickReceiptEntry(target.entry, page, options);
-    logReceiptInspection("receiptEntryClicked", logger);
-    const opened = await waitForReceiptForm(page, baselineUrl, {
-      ...options,
-      baselineScopes,
-    });
-    if (!opened) {
-      throw receiptInspectionError(
-        "RECLOUD_RECEIPT_FORM_NOT_OPENED",
-        "点击瑞云签收入口后未检测到签收表单",
-        ["receiptForm.dialog"],
-        {
-          receiptEntryFound: true,
-          receiptEntryVisible: entryState.visible,
-          receiptEntryEnabled: entryState.enabled,
-          receiptEntryClicked: true,
-        }
-      );
-    }
-    formPage = opened.page;
-    dialog = opened.root;
-    logReceiptInspection("dialogOpened", logger);
-
-    const inputs = dialog.locator("input:visible, textarea:visible");
-    const snCandidates = locateDialogField(
-      dialog,
-      ["SN", "序列号", "设备序列号"],
-      ["SN", "序列号"]
-    );
-    const remarkCandidates = locateDialogField(
-      dialog,
-      ["备注", "签收说明"],
-      ["备注", "说明"]
-    );
-    const snInput = await firstVisible([
-      snCandidates.byLabel,
-      snCandidates.byPlaceholder,
-      inputs.nth(3),
-    ]);
-    const remarkInput = await firstVisible([
-      remarkCandidates.byLabel,
-      remarkCandidates.byPlaceholder,
-      dialog.locator("textarea:visible").first(),
-      inputs.nth(4),
-    ]);
-    const confirmButton = await firstVisible([
-      dialog
-        .getByRole("button", {
-          name: /^(确认|确定|提交|签收)$/,
-        })
-        .last(),
-      dialog
-        .getByText(/^(确认|确定|提交|签收)$/, { exact: true })
-        .last(),
-    ]);
+    const opened = await openReceiptFormForDryRun(page, options);
+    formPage = opened.formPage;
+    dialog = opened.dialog;
+    const { entryState } = opened;
+    const { snInput, remarkInput, confirmButton } =
+      await locateReceiptFormControls(dialog);
 
     const missingFields = [
       !snInput && "receipt.snInput",
@@ -1354,6 +1365,284 @@ async function inspectReceiptForm(page, options = {}) {
       logReceiptInspection("dialog_closed_without_changes", logger);
     }
   }
+}
+
+function createSimulationState(overrides = {}) {
+  return {
+    receiptEntryClicked: false,
+    dialogOpened: false,
+    snFilled: false,
+    remarkFilled: false,
+    valuesVerified: false,
+    snCleared: false,
+    remarkRestored: false,
+    dialogClosed: false,
+    confirmClicked: false,
+    networkGuardEnabled: false,
+    mutationRequestDetected: false,
+    blockedRequestCount: 0,
+    readRequestCount: 0,
+    blockedRequests: [],
+    readRequests: [],
+    missingFields: [],
+    errorCode: null,
+    ...overrides,
+  };
+}
+
+function logReceiptSimulation(stage, logger = console) {
+  logger.info(`RECLOUD_RECEIPT_SIMULATION: ${stage}`);
+}
+
+function sanitizeRecloudRequestPath(url) {
+  try {
+    const pathname = new URL(url).pathname;
+    return (
+      pathname
+        .split("/")
+        .map((segment) => {
+          if (!segment) return "";
+          const decoded = decodeURIComponent(segment);
+          if (
+            decoded.length > 32 ||
+            /\d{5,}/.test(decoded) ||
+            /^[a-f0-9-]{16,}$/i.test(decoded)
+          ) {
+            return ":redacted";
+          }
+          return decoded.replace(/[^\p{L}\p{N}._~-]/gu, "");
+        })
+        .join("/") || "/"
+    );
+  } catch {
+    return "/";
+  }
+}
+
+function classifyRecloudRequest(request) {
+  const method = String(request.method?.() || "GET").toUpperCase();
+  const resourceType = String(request.resourceType?.() || "").toLowerCase();
+  const path = sanitizeRecloudRequestPath(request.url?.() || "");
+  const descriptor = { method, path };
+  if (["GET", "HEAD", "OPTIONS"].includes(method)) {
+    return { kind: "read", descriptor };
+  }
+
+  const readPath =
+    /(?:^|\/)(?:query|search|detail|list|page|find|get|load|lookup|preview|validate|check|options?|dictionary|config)(?:\/|$)/i.test(
+      path
+    ) ||
+    /scanSignin\/query/i.test(path);
+  const mutationPath =
+    /(?:^|\/)(?:save|submit|confirm|receive|receipt|update|create|delete|remove|finish|complete|deliver|shipment|stock|inventory|consume|return)(?:\/|$)/i.test(
+      path
+    );
+  if (readPath && !mutationPath) return { kind: "read", descriptor };
+  if (
+    mutationPath ||
+    (["POST", "PUT", "PATCH", "DELETE"].includes(method) &&
+      ["xhr", "fetch"].includes(resourceType))
+  ) {
+    return { kind: "mutation", descriptor };
+  }
+  return { kind: "read", descriptor };
+}
+
+async function createReceiptNetworkGuard(page, state) {
+  const handler = async (route) => {
+    const classification = classifyRecloudRequest(route.request());
+    if (classification.kind === "mutation") {
+      state.mutationRequestDetected = true;
+      state.blockedRequestCount += 1;
+      state.blockedRequests.push(classification.descriptor);
+      await route.abort("blockedbyclient");
+      return;
+    }
+    state.readRequestCount += 1;
+    state.readRequests.push(classification.descriptor);
+    await route.continue();
+  };
+  await page.route("**/*", handler);
+  state.networkGuardEnabled = true;
+  return {
+    async assertSafe() {
+      await page.waitForTimeout?.(50);
+      if (!state.mutationRequestDetected) return;
+      const error = new Error("演练期间检测并阻止了非预期写请求");
+      error.code = "RECLOUD_UNEXPECTED_WRITE_REQUEST";
+      error.status = 502;
+      error.missingFields = [];
+      throw error;
+    },
+    async stop() {
+      await page.unroute("**/*", handler).catch(() => {});
+    },
+  };
+}
+
+async function simulateReceiptForm(page, sn, remark, options = {}) {
+  const logger = options.logger || console;
+  if (options.dryRun !== true || options.writeEnabled !== false) {
+    const error = new Error("签收填写演练只允许在严格演练模式下执行");
+    error.code = "RECLOUD_RECEIPT_SIMULATION_UNSAFE";
+    error.status = 403;
+    throw error;
+  }
+  assertRecloudAuthenticated(page);
+
+  const requestedSn = String(sn ?? "");
+  const requestedRemark = String(remark ?? "");
+  if (!requestedSn.trim() || !requestedRemark.trim()) {
+    const error = new Error("签收填写演练缺少 SN 或备注");
+    error.code = "RECLOUD_RECEIPT_SIMULATION_INVALID";
+    error.status = 400;
+    error.missingFields = [
+      !requestedSn.trim() && "sn",
+      !requestedRemark.trim() && "remark",
+    ].filter(Boolean);
+    throw error;
+  }
+
+  const state = createSimulationState();
+  let dialog = null;
+  let formPage = page;
+  let snInput = null;
+  let remarkInput = null;
+  let originalSn = "";
+  let originalRemark = "";
+  let networkGuard = null;
+  let pendingError = null;
+  try {
+    const opened = await openReceiptFormForDryRun(page, options);
+    dialog = opened.dialog;
+    formPage = opened.formPage;
+    state.receiptEntryClicked = true;
+    state.dialogOpened = true;
+
+    const controls = await locateReceiptFormControls(dialog);
+    snInput = controls.snInput;
+    remarkInput = controls.remarkInput;
+    state.missingFields = [
+      !snInput && "receipt.snInput",
+      !remarkInput && "receipt.remarkInput",
+      !controls.confirmButton && "receipt.confirmButton",
+    ].filter(Boolean);
+    if (state.missingFields.length > 0) {
+      throw receiptInspectionError(
+        "RECLOUD_SCHEMA_CHANGED",
+        "瑞云签收弹窗字段结构已变化",
+        state.missingFields,
+        state
+      );
+    }
+
+    networkGuard = await createReceiptNetworkGuard(formPage, state);
+    logReceiptSimulation("networkGuardEnabled", logger);
+    originalSn = await snInput.inputValue();
+    originalRemark = await remarkInput.inputValue();
+    if (originalSn !== "") {
+      const error = new Error("测试工单 SN 输入框并非空白，已停止演练");
+      error.code = "RECLOUD_RECEIPT_SIMULATION_DIRTY_FORM";
+      error.status = 409;
+      error.missingFields = [];
+      throw error;
+    }
+
+    await snInput.fill(requestedSn);
+    state.snFilled = true;
+    logReceiptSimulation("snFilled", logger);
+    await networkGuard.assertSafe();
+    await remarkInput.fill(requestedRemark);
+    state.remarkFilled = true;
+    logReceiptSimulation("remarkFilled", logger);
+    await networkGuard.assertSafe();
+
+    if (
+      (await snInput.inputValue()) !== requestedSn ||
+      (await remarkInput.inputValue()) !== requestedRemark
+    ) {
+      const error = new Error("瑞云签收表单演练值校验失败");
+      error.code = "RECLOUD_RECEIPT_SIMULATION_VALUE_MISMATCH";
+      error.status = 502;
+      error.missingFields = [];
+      throw error;
+    }
+    state.valuesVerified = true;
+    logReceiptSimulation("valuesVerified", logger);
+  } catch (error) {
+    pendingError = error;
+  } finally {
+    if (dialog) {
+      try {
+        if (snInput && state.snFilled) {
+          await snInput.fill("");
+          await networkGuard?.assertSafe().catch((error) => {
+            pendingError ||= error;
+          });
+          state.snCleared = (await snInput.inputValue()) === "";
+        } else if (snInput) {
+          state.snCleared = originalSn === "";
+        }
+        if (remarkInput && state.remarkFilled) {
+          await remarkInput.fill(originalRemark);
+          await networkGuard?.assertSafe().catch((error) => {
+            pendingError ||= error;
+          });
+          state.remarkRestored =
+            (await remarkInput.inputValue()) === originalRemark;
+        } else if (remarkInput) {
+          state.remarkRestored =
+            (await remarkInput.inputValue()) === originalRemark;
+        }
+        if (
+          (state.snFilled && !state.snCleared) ||
+          (state.remarkFilled && !state.remarkRestored)
+        ) {
+          const cleanupError = new Error("瑞云签收表单演练内容清理失败");
+          cleanupError.code = "RECLOUD_RECEIPT_SIMULATION_CLEANUP_FAILED";
+          cleanupError.status = 502;
+          cleanupError.missingFields = [
+            !state.snCleared && "receipt.snCleanup",
+            !state.remarkRestored && "receipt.remarkRestore",
+          ].filter(Boolean);
+          pendingError ||= cleanupError;
+        } else {
+          logReceiptSimulation("valuesRestored", logger);
+        }
+      } catch {
+        const cleanupError = new Error("瑞云签收表单演练内容清理失败");
+        cleanupError.code = "RECLOUD_RECEIPT_SIMULATION_CLEANUP_FAILED";
+        cleanupError.status = 502;
+        cleanupError.missingFields = ["receipt.formCleanup"];
+        pendingError ||= cleanupError;
+      }
+      try {
+        await formPage.keyboard.press("Escape");
+        state.dialogClosed = true;
+        logReceiptSimulation("dialogClosed", logger);
+      } catch {
+        const closeError = new Error("瑞云签收表单演练结束后无法关闭表单");
+        closeError.code = "RECLOUD_RECEIPT_SIMULATION_CLEANUP_FAILED";
+        closeError.status = 502;
+        closeError.missingFields = ["receipt.formClose"];
+        pendingError ||= closeError;
+      }
+      await networkGuard?.assertSafe().catch((error) => {
+        pendingError ||= error;
+      });
+      await networkGuard?.stop();
+    }
+  }
+
+  if (pendingError) {
+    state.errorCode = pendingError.code || "RECLOUD_ERROR";
+    state.missingFields = Array.isArray(pendingError.missingFields)
+      ? pendingError.missingFields
+      : state.missingFields;
+    pendingError.simulation = state;
+    throw pendingError;
+  }
+  return state;
 }
 
 async function fillReceiptFields(dialog, sn, remark) {
@@ -1478,6 +1767,11 @@ module.exports = {
   findPendingReceiptAction,
   inspectReceiptForm,
   logReceiptInspection,
+  simulateReceiptForm,
+  logReceiptSimulation,
+  sanitizeRecloudRequestPath,
+  classifyRecloudRequest,
+  createReceiptNetworkGuard,
   confirmSign,
   fillReceiptFields,
   parseRepairDetail,
