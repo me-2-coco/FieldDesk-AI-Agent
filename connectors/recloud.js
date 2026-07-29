@@ -1,6 +1,4 @@
-const { chromium } = require("playwright");
 const path = require("path");
-const fs = require("fs");
 const {
   RecloudQueryError,
   extractRmaNoFromTitle,
@@ -13,6 +11,10 @@ const {
   isDomDiagnosticsEnabled,
   logSafeFieldTitles,
 } = require("./recloud-dom-diagnostics");
+const {
+  RECLOUD_PROFILE_DIRECTORY,
+  createRecloudSessionManager,
+} = require("./recloud-session");
 
 const LOGIN_STATE = path.join(__dirname, "recloud-state.json");
 const RECLOUD_URL =
@@ -26,6 +28,12 @@ const PHONE_REVEAL_TIMEOUT = 5000;
 const LOGIN_REQUIRED_MESSAGE = "请重新初始化瑞云登录状态";
 const LOGISTICS_INPUT_PLACEHOLDER =
   "请用扫码枪输入物流单号/工单号/订单号/退换单";
+const sessionManager = createRecloudSessionManager({
+  defaultTimeout: DEFAULT_TIMEOUT,
+  isLoginPage: isRecloudLoginPage,
+  profileDirectory: RECLOUD_PROFILE_DIRECTORY,
+  targetUrl: RECLOUD_URL,
+});
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -55,27 +63,11 @@ function parseRepairDetail(text, logisticsNo = "") {
 }
 
 async function openRecloud(options = {}) {
-  const browser = await chromium.launch({
-    headless:
-      options.headless ??
-      !["0", "false"].includes(String(process.env.RECLOUD_HEADLESS).toLowerCase()),
-  });
-
-  const context = await browser.newContext({
-    storageState:
-      options.useStorageState !== false && fs.existsSync(LOGIN_STATE)
-        ? LOGIN_STATE
-        : undefined,
-  });
-  const page = await context.newPage();
-  page.setDefaultTimeout(DEFAULT_TIMEOUT);
-  await page.goto(RECLOUD_URL, { waitUntil: "domcontentloaded" });
-
-  return { browser, context, page };
+  return sessionManager.ensureOpen(options);
 }
 
-async function saveLogin(context) {
-  await context.storageState({ path: LOGIN_STATE });
+async function closeRecloud() {
+  await sessionManager.close();
 }
 
 function isRecloudLoginPage(url) {
@@ -1050,7 +1042,7 @@ module.exports = {
   LOGIN_REQUIRED_MESSAGE,
   LOGISTICS_INPUT_PLACEHOLDER,
   openRecloud,
-  saveLogin,
+  closeRecloud,
   isRecloudLoginPage,
   assertRecloudAuthenticated,
   getLogisticsInput,

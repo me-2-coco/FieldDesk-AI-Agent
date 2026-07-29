@@ -1436,7 +1436,6 @@ test("query API calls only the read-only connector operation", async (t) => {
       calls.push(["open"]);
       return {
         page: {},
-        browser: { close: async () => calls.push(["close"]) },
       };
     },
     async queryRmaByLogisticsNo(page, logisticsNo) {
@@ -1474,7 +1473,6 @@ test("query API calls only the read-only connector operation", async (t) => {
   assert.deepEqual(calls, [
     ["open"],
     ["query", "TEST-SCAN-0006"],
-    ["close"],
   ]);
 });
 

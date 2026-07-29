@@ -1,5 +1,22 @@
 const express = require("express");
+if (require.main === module) {
+  try {
+    process.loadEnvFile?.();
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+}
 const recloudConnector = require("./connectors/recloud");
+const {
+  JsonReceiptPreparationStore,
+  normalizeSn,
+} = require("./database/receipt-preparation-store");
+const {
+  USER_ROLES,
+  getLocalCurrentUser,
+} = require("./config/local-users");
+
+const SUPPORTED_REPAIR_SPECIALTIES = Object.freeze(["扫地机", "洗地机"]);
 
 function normalizeLogisticsNo(value) {
   return String(value || "").trim();
@@ -14,16 +31,146 @@ function isRecloudWriteEnabled(env = process.env) {
   return String(env.RECLOUD_WRITE_ENABLED ?? "false").toLowerCase() === "true";
 }
 
+function normalizeMaskedPhone(value) {
+  const phone = String(value || "").replace(/\s/g, "");
+  return /^1[3-9]\d\*{4}\d{4}$/.test(phone) ? phone : "";
+}
+
+function createApiError(code, message, status) {
+  const error = new Error(message);
+  error.code = code;
+  error.status = status;
+  return error;
+}
+
+function getAllowedRepairSpecialties(user) {
+  if (user?.role === USER_ROLES.ADMIN) {
+    return [...SUPPORTED_REPAIR_SPECIALTIES];
+  }
+  if (user?.role !== USER_ROLES.TECHNICIAN) return [];
+  return Array.isArray(user?.repairSpecialties)
+    ? user.repairSpecialties.filter((item) =>
+        SUPPORTED_REPAIR_SPECIALTIES.includes(item)
+      )
+    : [];
+}
+
+function resolveReceiptSpecialty(user, productLine, requestedSpecialty) {
+  const allowed = getAllowedRepairSpecialties(user);
+  if (allowed.length === 0) {
+    throw createApiError(
+      "REPAIR_SPECIALTY_NOT_CONFIGURED",
+      "当前账号未配置维修品类，请联系管理员",
+      403
+    );
+  }
+
+  const recognizedProduct = SUPPORTED_REPAIR_SPECIALTIES.includes(productLine)
+    ? productLine
+    : "";
+  if (recognizedProduct && !allowed.includes(recognizedProduct)) {
+    throw createApiError(
+      "REPAIR_SPECIALTY_FORBIDDEN",
+      `该工单属于${recognizedProduct}，当前账号无维修权限`,
+      403
+    );
+  }
+
+  if (allowed.length === 1) return allowed[0];
+
+  const requested = String(requestedSpecialty || "").trim();
+  if (!requested) {
+    throw createApiError(
+      "REPAIR_SPECIALTY_REQUIRED",
+      "请选择本单维修品类",
+      400
+    );
+  }
+  if (!allowed.includes(requested)) {
+    throw createApiError(
+      "REPAIR_SPECIALTY_FORBIDDEN",
+      "所选维修品类不在当前账号权限范围内",
+      403
+    );
+  }
+  if (recognizedProduct && requested !== recognizedProduct) {
+    throw createApiError(
+      "REPAIR_SPECIALTY_MISMATCH",
+      `该工单属于${recognizedProduct}，请选择对应维修品类`,
+      400
+    );
+  }
+  return requested;
+}
+
+function validateReceiptSn(value, logisticsNo = "") {
+  const sn = normalizeSn(value);
+  if (!sn) {
+    throw createApiError("RECEIPT_SN_REQUIRED", "SN 不能为空", 400);
+  }
+  if (!/^[A-Z0-9-]+$/.test(sn)) {
+    throw createApiError(
+      "RECEIPT_SN_INVALID",
+      "SN 只允许字母、数字和连字符“-”",
+      400
+    );
+  }
+  const normalizedLogisticsNo = normalizeLogisticsNo(logisticsNo).toUpperCase();
+  if (
+    sn === normalizedLogisticsNo ||
+    /^(SF|YT|JD|ST|ZTO|YTO|EMS)[A-Z0-9-]{6,}$/.test(sn)
+  ) {
+    throw createApiError(
+      "RECEIPT_SN_LOOKS_LIKE_LOGISTICS",
+      "扫描内容疑似物流单号，请重新扫描机器 SN",
+      400
+    );
+  }
+  return sn;
+}
+
 async function withRecloud(connector, operation) {
-  const session = await connector.openRecloud();
-  try {
+  const previous = withRecloud.queues.get(connector) || Promise.resolve();
+  const current = previous.catch(() => {}).then(async () => {
+    const session = await connector.openRecloud();
     return await operation(session.page);
-  } finally {
-    await session.browser.close().catch(() => {});
+  });
+  withRecloud.queues.set(connector, current);
+  return current;
+}
+withRecloud.queues = new WeakMap();
+
+async function initializeRecloudSession(connector, logger = console) {
+  try {
+    return await connector.openRecloud();
+  } catch (error) {
+    if (error.code === "RECLOUD_PROFILE_IN_USE") {
+      logger.error(
+        "RECLOUD_SESSION: profile_in_use - 浏览器资料目录已被其他后端占用"
+      );
+    } else {
+      const safeCode = [
+        "RECLOUD_AUTO_LOGIN_FAILED",
+        "RECLOUD_KEYCHAIN_UNAVAILABLE",
+        "RECLOUD_LOGIN_USERNAME_REQUIRED",
+        "RECLOUD_LOGIN_FORM_CHANGED",
+        "RECLOUD_MANUAL_VERIFICATION_REQUIRED",
+      ].includes(error.code)
+        ? error.code
+        : "RECLOUD_SESSION_ERROR";
+      logger.error(`RECLOUD_SESSION: failed ${safeCode}`);
+    }
+    return null;
   }
 }
 
-function createApp(connector = recloudConnector) {
+function createApp(
+  connector = recloudConnector,
+  receiptStore = new JsonReceiptPreparationStore(),
+  options = {}
+) {
+  const currentUserProvider =
+    options.getCurrentUser || (() => getLocalCurrentUser());
   const app = express();
   app.use(express.json({ limit: "100kb" }));
 
@@ -41,6 +188,19 @@ function createApp(connector = recloudConnector) {
       service: "fielddesk-api",
       dryRun: isDryRun(),
       recloudWriteEnabled: isRecloudWriteEnabled(),
+    });
+  });
+
+  app.get("/api/auth/me", (req, res) => {
+    const user = currentUserProvider(req);
+    res.json({
+      success: true,
+      data: {
+        userId: user.userId,
+        displayName: user.displayName,
+        role: user.role,
+        repairSpecialties: getAllowedRepairSpecialties(user),
+      },
     });
   });
 
@@ -97,6 +257,88 @@ function createApp(connector = recloudConnector) {
     }
   });
 
+  app.post("/api/repairs/prepare-receipt", async (req, res, next) => {
+    const logisticsNo = normalizeLogisticsNo(req.body?.logisticsNo);
+    const rmaNo = String(req.body?.rmaNo || "").trim();
+    const productLine = String(req.body?.productLine || "").trim();
+
+    const missingFields = [
+      !logisticsNo && "logisticsNo",
+      !rmaNo && "rmaNo",
+    ].filter(Boolean);
+    if (missingFields.length > 0) {
+      return res.status(400).json({
+        success: false,
+        code: "RECEIPT_PREPARATION_INVALID",
+        message: `缺少必填字段：${missingFields.join(", ")}`,
+        missingFields,
+      });
+    }
+
+    try {
+      const currentUser = currentUserProvider(req);
+      const specialty = resolveReceiptSpecialty(
+        currentUser,
+        productLine,
+        req.body?.specialty
+      );
+      const sn = validateReceiptSn(req.body?.sn, logisticsNo);
+      const remark = specialty;
+      const data = await receiptStore.prepare({
+        logisticsNo,
+        rmaNo,
+        sn,
+        specialty,
+        remark,
+        productLine,
+        customerName: String(req.body?.customerName || "").trim(),
+        reportedFault: String(req.body?.reportedFault || "").trim(),
+        phoneMasked: normalizeMaskedPhone(req.body?.phoneMasked),
+        operatorId: currentUser.userId,
+        operatorName: currentUser.displayName,
+      });
+      return res.json({
+        success: true,
+        data: {
+          ...data,
+          message: "签收资料已准备，尚未同步瑞云",
+          dryRun: true,
+          recloudSynced: false,
+        },
+      });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  app.post("/api/repairs/prepare-receipt/cancel", async (req, res, next) => {
+    const rmaNo = String(req.body?.rmaNo || "").trim();
+    if (!rmaNo) {
+      return res.status(400).json({
+        success: false,
+        code: "RECEIPT_PREPARATION_INVALID",
+        message: "缺少必填字段：rmaNo",
+        missingFields: ["rmaNo"],
+      });
+    }
+    try {
+      const data = await receiptStore.cancel(
+        rmaNo,
+        currentUserProvider(req)
+      );
+      return res.json({
+        success: true,
+        data: {
+          ...data,
+          message: "签收准备已取消，未操作瑞云",
+          recloudSynced: false,
+        },
+      });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
   // 保留已有调用方兼容性。
   app.post("/queryRepair", (req, res, next) => {
     req.url = "/api/crm/repairs/query";
@@ -131,6 +373,42 @@ function createApp(connector = recloudConnector) {
         status: 504,
         message: "瑞云工单查询超时，请稍后重试",
       },
+      SN_ALREADY_BOUND: {
+        status: 409,
+        message: "该 SN 已绑定其他未完成工单",
+      },
+      RECEIPT_PREPARATION_NOT_FOUND: {
+        status: 404,
+        message: "未找到待签收准备记录",
+      },
+      REPAIR_SPECIALTY_NOT_CONFIGURED: {
+        status: 403,
+        message: error.message,
+      },
+      REPAIR_SPECIALTY_FORBIDDEN: {
+        status: 403,
+        message: error.message,
+      },
+      REPAIR_SPECIALTY_REQUIRED: {
+        status: 400,
+        message: error.message,
+      },
+      REPAIR_SPECIALTY_MISMATCH: {
+        status: 400,
+        message: error.message,
+      },
+      RECEIPT_SN_REQUIRED: {
+        status: 400,
+        message: error.message,
+      },
+      RECEIPT_SN_INVALID: {
+        status: 400,
+        message: error.message,
+      },
+      RECEIPT_SN_LOOKS_LIKE_LOGISTICS: {
+        status: 400,
+        message: error.message,
+      },
     };
     const mapped = errors[error.code];
     console.error(
@@ -155,7 +433,8 @@ function createApp(connector = recloudConnector) {
 
 if (require.main === module) {
   const port = Number(process.env.PORT) || 3000;
-  createApp().listen(port, () => {
+  const app = createApp();
+  const server = app.listen(port, () => {
     console.log(`FieldDesk API 启动成功 http://localhost:${port}`);
     console.log(
       isDryRun()
@@ -163,6 +442,13 @@ if (require.main === module) {
         : "警告：DRY_RUN=false，允许最终确认签收"
     );
   });
+  initializeRecloudSession(recloudConnector);
+  const shutdown = async () => {
+    server.close();
+    await recloudConnector.closeRecloud?.();
+  };
+  process.once("SIGINT", shutdown);
+  process.once("SIGTERM", shutdown);
 }
 
 module.exports = {
@@ -171,4 +457,9 @@ module.exports = {
   withRecloud,
   isDryRun,
   isRecloudWriteEnabled,
+  initializeRecloudSession,
+  normalizeMaskedPhone,
+  getAllowedRepairSpecialties,
+  resolveReceiptSpecialty,
+  validateReceiptSn,
 };

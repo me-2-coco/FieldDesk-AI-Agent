@@ -1,0 +1,25 @@
+{
+  "name": "receipt_preparations",
+  "version": 1,
+  "uniqueKeys": ["rmaNo"],
+  "activeUniqueKeys": ["sn"],
+  "activeStatuses": ["RECEIPT_PREPARED"],
+  "fields": [
+    "id",
+    "logisticsNo",
+    "rmaNo",
+    "sn",
+    "specialty",
+    "remark",
+    "productLine",
+    "customerName",
+    "reportedFault",
+    "phoneMasked",
+    "status",
+    "operatorId",
+    "operatorName",
+    "operatorTemporary",
+    "createdAt",
+    "updatedAt"
+  ]
+}

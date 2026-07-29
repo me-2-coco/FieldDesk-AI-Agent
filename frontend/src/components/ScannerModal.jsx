@@ -1,15 +1,24 @@
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Html5Qrcode } from "html5-qrcode"
 
 
 function ScannerModal({
   open,
+  mode = "logistics",
   title = "扫码",
   onScan,
   onClose
 }) {
 
   const scannerRef = useRef(null)
+  const onScanRef = useRef(onScan)
+  const onCloseRef = useRef(onClose)
+  const [cameraError, setCameraError] = useState("")
+
+  useEffect(() => {
+    onScanRef.current = onScan
+    onCloseRef.current = onClose
+  }, [onClose, onScan])
 
 
   useEffect(() => {
@@ -17,7 +26,6 @@ function ScannerModal({
     if (!open) {
       return
     }
-
 
     const scanner = new Html5Qrcode("scanner-area")
 
@@ -54,9 +62,9 @@ function ScannerModal({
         }
 
 
-        onScan(decodedText)
+        onScanRef.current(decodedText)
 
-        onClose()
+        onCloseRef.current()
 
       },
 
@@ -66,13 +74,12 @@ function ScannerModal({
       }
 
     )
-    .catch(error=>{
-
-      console.log(
-        "摄像头启动失败:",
-        error
+    .catch(()=>{
+      setCameraError(
+        mode === "sn"
+          ? "无法使用摄像头，请允许相机权限或手工输入SN"
+          : "无法使用摄像头，请允许相机权限或手工输入物流单号"
       )
-
     })
 
 
@@ -90,7 +97,7 @@ function ScannerModal({
     }
 
 
-  },[open])
+  },[mode, open])
 
 
 
@@ -149,8 +156,11 @@ function ScannerModal({
 
 
         <div className="scanner-tip">
-
-          请将物流条码放入扫描框
+          {cameraError || (
+            mode === "sn"
+              ? "请将机器 SN 条码或二维码放入扫描框"
+              : "请将物流条码放入扫描框"
+          )}
 
         </div>
 

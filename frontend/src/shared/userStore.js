@@ -17,19 +17,22 @@ const DEFAULT_USERS = [
     id: "USER-001",
     name: "张师傅",
     account: "zhang",
-    role: USER_ROLES.TECHNICIAN
+    role: USER_ROLES.TECHNICIAN,
+    repairSpecialties: ["扫地机"]
   },
   {
     id: "USER-002",
     name: "王库管",
     account: "wang",
-    role: USER_ROLES.WAREHOUSE
+    role: USER_ROLES.WAREHOUSE,
+    repairSpecialties: []
   },
   {
     id: "USER-003",
     name: "系统管理员",
     account: "admin",
-    role: USER_ROLES.ADMIN
+    role: USER_ROLES.ADMIN,
+    repairSpecialties: ["扫地机", "洗地机"]
   }
 ]
 

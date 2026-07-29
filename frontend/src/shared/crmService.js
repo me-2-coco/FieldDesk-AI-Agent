@@ -26,6 +26,20 @@ async function request(path, body) {
   return result.data
 }
 
+async function get(path) {
+  let response
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`)
+  } catch {
+    throw new Error("无法连接 FieldDesk 后端，请确认 API 已启动")
+  }
+  const result = await response.json().catch(() => null)
+  if (!response.ok || !result?.success) {
+    throw new Error(result?.message || `请求失败（${response.status}）`)
+  }
+  return result.data
+}
+
 export async function queryCrmOrderByLogisticsNo(logisticsNo) {
   const value = String(logisticsNo || "").trim()
   if (!value) throw new Error("请输入物流单号")
@@ -37,4 +51,16 @@ export async function queryCrmOrderByLogisticsNo(logisticsNo) {
 
 export async function queryCrmRepair(logisticsNo) {
   return request("/api/crm/repairs/query", { logisticsNo })
+}
+
+export async function prepareReceipt(payload) {
+  return request("/api/repairs/prepare-receipt", payload)
+}
+
+export async function cancelReceiptPreparation(rmaNo) {
+  return request("/api/repairs/prepare-receipt/cancel", { rmaNo })
+}
+
+export async function getCurrentFieldDeskUser() {
+  return get("/api/auth/me")
 }

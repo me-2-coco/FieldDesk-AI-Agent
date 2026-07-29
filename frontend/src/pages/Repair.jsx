@@ -1,21 +1,48 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import ScannerModal from "../components/ScannerModal"
 import {
+  cancelReceiptPreparation,
+  getCurrentFieldDeskUser,
+  prepareReceipt,
   queryCrmOrderByLogisticsNo
 } from "../shared/crmService.js"
+import {
+  getReceiptSpecialtyGate,
+  normalizeReceiptSn,
+  validateReceiptSn
+} from "../shared/receiptPreparation.js"
 
 
 function Repair({ setPage }) {
 
   const [orderNo, setOrderNo] = useState("")
-  const [showScanner, setShowScanner] = useState(false)
+  const [scannerMode, setScannerMode] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [repairDetail, setRepairDetail] = useState(null)
   const [errorMessage, setErrorMessage] = useState("")
+  const [receiptStep, setReceiptStep] = useState("detail")
+  const [sn, setSn] = useState("")
+  const [specialty, setSpecialty] = useState("")
+  const [receiptMessage, setReceiptMessage] = useState("")
+  const [isSaving, setIsSaving] = useState(false)
+  const [currentUser, setCurrentUser] = useState(null)
+  const [authError, setAuthError] = useState("")
+  const specialtyGate = getReceiptSpecialtyGate(
+    currentUser,
+    repairDetail?.productLine
+  )
   const hasFullPhone = /^1[3-9]\d{9}$/.test(
     repairDetail?.customer?.phoneMasked || ""
   )
 
+  useEffect(() => {
+    getCurrentFieldDeskUser()
+      .then((user) => {
+        setCurrentUser(user)
+        setAuthError("")
+      })
+      .catch((error) => setAuthError(error.message))
+  }, [])
 
   async function searchRepair() {
 
@@ -31,6 +58,8 @@ function Repair({ setPage }) {
 
       const result = await queryCrmOrderByLogisticsNo(orderNo)
       setRepairDetail(result)
+      setReceiptStep("detail")
+      setReceiptMessage("")
 
     } catch (error) {
       setErrorMessage(error.message)
@@ -45,6 +74,93 @@ function Repair({ setPage }) {
   function resetResult() {
     setErrorMessage("")
     setRepairDetail(null)
+    setReceiptStep("detail")
+    setReceiptMessage("")
+  }
+
+  function startReceiptPreparation() {
+    if (authError) {
+      setErrorMessage(authError)
+      return
+    }
+    if (specialtyGate.error) {
+      setErrorMessage(specialtyGate.error)
+      return
+    }
+    setSn("")
+    setSpecialty(specialtyGate.specialty)
+    setErrorMessage("")
+    setReceiptMessage("")
+    setReceiptStep("form")
+  }
+
+  function reviewReceiptPreparation() {
+    const normalizedSn = normalizeReceiptSn(sn)
+    const snError = validateReceiptSn(
+      normalizedSn,
+      repairDetail.logisticsNo || orderNo
+    )
+    if (snError) {
+      setErrorMessage(snError)
+      return
+    }
+    if (!specialty) {
+      setErrorMessage("请选择本单维修品类")
+      return
+    }
+    if (
+      ["扫地机", "洗地机"].includes(repairDetail.productLine) &&
+      specialty !== repairDetail.productLine
+    ) {
+      setErrorMessage(
+        `该工单属于${repairDetail.productLine}，请选择对应维修品类`
+      )
+      return
+    }
+    setSn(normalizedSn)
+    setErrorMessage("")
+    setReceiptStep("confirm")
+  }
+
+  async function saveReceiptPreparation() {
+    try {
+      setIsSaving(true)
+      setErrorMessage("")
+      const result = await prepareReceipt({
+        logisticsNo: repairDetail.logisticsNo || orderNo.trim(),
+        rmaNo: repairDetail.rmaNo,
+        sn,
+        specialty,
+        productLine: repairDetail.productLine || "",
+        customerName: repairDetail.customer?.name || "",
+        phoneMasked: repairDetail.customer?.phoneMasked || "",
+        reportedFault: repairDetail.reportedFault
+      })
+      setReceiptMessage(
+        result.message || "签收资料已准备，尚未同步瑞云"
+      )
+      setReceiptStep("saved")
+    } catch (error) {
+      setErrorMessage(error.message)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  async function cancelPreparation() {
+    try {
+      setIsSaving(true)
+      setErrorMessage("")
+      const result = await cancelReceiptPreparation(repairDetail.rmaNo)
+      setReceiptMessage(result.message || "签收准备已取消，未操作瑞云")
+      setReceiptStep("detail")
+      setSn("")
+      setSpecialty("")
+    } catch (error) {
+      setErrorMessage(error.message)
+    } finally {
+      setIsSaving(false)
+    }
   }
 
 
@@ -94,7 +210,7 @@ function Repair({ setPage }) {
           <button
             className="scan-btn"
             aria-label="扫描物流单号"
-            onClick={() => setShowScanner(true)}
+            onClick={() => setScannerMode("logistics")}
           >
             📷
           </button>
@@ -130,7 +246,7 @@ function Repair({ setPage }) {
       )}
 
 
-      {repairDetail && (
+      {repairDetail && receiptStep === "detail" && (
 
         <div className="card rma-detail-card">
 
@@ -190,25 +306,230 @@ function Repair({ setPage }) {
 
           </dl>
 
-          <button disabled>
-            下一步：录入 SN（待签收模块完成）
+          {receiptMessage && (
+            <p className="receipt-status-message" role="status">
+              {receiptMessage}
+            </p>
+          )}
+
+          {specialtyGate.error && (
+            <p className="error-text receipt-permission-message">
+              {specialtyGate.error}
+            </p>
+          )}
+
+          <button
+            onClick={startReceiptPreparation}
+            disabled={!currentUser || Boolean(authError || specialtyGate.error)}
+          >
+            下一步：录入 SN
           </button>
 
         </div>
 
       )}
 
+      {repairDetail && receiptStep === "form" && (
+        <div className="card receipt-preparation-card">
+          <h2>录入 SN 与签收准备</h2>
+          <dl className="rma-detail-list receipt-summary">
+            <div><dt>寄修单号</dt><dd>{repairDetail.rmaNo}</dd></div>
+            <div>
+              <dt>物流单号</dt>
+              <dd>{repairDetail.logisticsNo || orderNo.trim()}</dd>
+            </div>
+            <div>
+              <dt>用户姓名</dt>
+              <dd>{repairDetail.customer?.name || "未提供"}</dd>
+            </div>
+            <div>
+              <dt>报修描述</dt>
+              <dd>{repairDetail.reportedFault}</dd>
+            </div>
+            <div>
+              <dt>产品线</dt>
+              <dd>{repairDetail.productLine || "未提供"}</dd>
+            </div>
+          </dl>
 
-      {showScanner && (
+          <label htmlFor="receipt-sn">机器 SN</label>
+          <div className="scan-input-row">
+            <input
+              id="receipt-sn"
+              value={sn}
+              onChange={(event) => {
+                setSn(event.target.value.toUpperCase())
+                setErrorMessage("")
+              }}
+              onBlur={() => setSn(normalizeReceiptSn(sn))}
+              placeholder="请输入、扫描枪输入或使用摄像头扫描"
+              autoComplete="off"
+            />
+            <button
+              className="scan-btn"
+              aria-label={sn ? "重新扫描 SN" : "扫描 SN"}
+              onClick={() => setScannerMode("sn")}
+            >
+              📷
+            </button>
+          </div>
+          <div className="sn-secondary-actions">
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => setScannerMode("sn")}
+            >
+              {sn ? "重新扫码" : "扫码录入"}
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                setSn("")
+                setErrorMessage("")
+              }}
+              disabled={!sn}
+            >
+              清空
+            </button>
+          </div>
+
+          {specialtyGate.specialties.length > 1 ? (
+            <>
+              <label htmlFor="receipt-specialty">本单维修品类</label>
+              <select
+                id="receipt-specialty"
+                value={specialty}
+                onChange={(event) => {
+                  setSpecialty(event.target.value)
+                  setErrorMessage("")
+                }}
+              >
+                <option value="">请选择维修品类</option>
+                {specialtyGate.specialties.map((item) => (
+                  <option key={item} value={item}>{item}</option>
+                ))}
+              </select>
+            </>
+          ) : null}
+
+          {specialty && (
+            <p className="receipt-readonly-remark">
+              签收备注：{specialty}
+            </p>
+          )}
+
+          <p className="dry-run-notice">
+            当前为演练模式，不会操作瑞云签收
+          </p>
+
+          <div className="receipt-actions">
+            <button className="secondary-button" onClick={() => setReceiptStep("detail")}>
+              返回工单
+            </button>
+            <button onClick={reviewReceiptPreparation}>
+              下一步：确认资料
+            </button>
+          </div>
+        </div>
+      )}
+
+      {repairDetail && receiptStep === "confirm" && (
+        <div className="card receipt-preparation-card">
+          <h2>确认签收准备资料</h2>
+          <dl className="rma-detail-list">
+            <div>
+              <dt>操作师傅</dt>
+              <dd>{currentUser?.displayName || "本地测试用户"}</dd>
+            </div>
+            <div><dt>维修品类</dt><dd>{specialty}</dd></div>
+            <div><dt>签收备注</dt><dd>{specialty}</dd></div>
+            <div><dt>SN</dt><dd>{sn}</dd></div>
+            <div><dt>寄修单号</dt><dd>{repairDetail.rmaNo}</dd></div>
+            <div>
+              <dt>物流单号</dt>
+              <dd>{repairDetail.logisticsNo || orderNo.trim()}</dd>
+            </div>
+          </dl>
+          <p className="dry-run-notice">
+            当前为演练模式，不会操作瑞云签收
+          </p>
+          <div className="receipt-actions">
+            <button
+              className="secondary-button"
+              onClick={() => setReceiptStep("form")}
+              disabled={isSaving}
+            >
+              返回修改
+            </button>
+            <button onClick={saveReceiptPreparation} disabled={isSaving}>
+              {isSaving ? "正在保存..." : "确认保存到 FieldDesk"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {repairDetail && receiptStep === "saved" && (
+        <div className="card receipt-preparation-card receipt-success-card">
+          <h2>签收准备完成</h2>
+          <p className="receipt-status-message" role="status">
+            {receiptMessage || "签收资料已准备，尚未同步瑞云"}
+          </p>
+          <dl className="rma-detail-list">
+            <div><dt>SN</dt><dd>{sn}</dd></div>
+            <div><dt>维修品类</dt><dd>{specialty}</dd></div>
+            <div><dt>签收备注</dt><dd>{specialty}</dd></div>
+            <div><dt>状态</dt><dd>RECEIPT_PREPARED</dd></div>
+          </dl>
+          <p className="dry-run-notice">
+            当前为演练模式，不会操作瑞云签收
+          </p>
+          <div className="receipt-actions">
+            <button
+              className="secondary-button"
+              onClick={() => setReceiptStep("form")}
+              disabled={isSaving}
+            >
+              返回修改
+            </button>
+            <button
+              className="danger-outline-button"
+              onClick={cancelPreparation}
+              disabled={isSaving}
+            >
+              {isSaving ? "正在处理..." : "取消准备"}
+            </button>
+          </div>
+        </div>
+      )}
+
+
+      {scannerMode && (
 
         <ScannerModal
-          open={showScanner}
+          open={Boolean(scannerMode)}
+          mode={scannerMode}
+          title={scannerMode === "sn" ? "扫描机器 SN" : "扫描物流单号"}
           onScan={(code) => {
-            setOrderNo(code)
-            setShowScanner(false)
-            resetResult()
+            if (scannerMode === "sn") {
+              const scannedSn = normalizeReceiptSn(code)
+              const scanError = validateReceiptSn(
+                scannedSn,
+                repairDetail?.logisticsNo || orderNo
+              )
+              if (scanError) {
+                setErrorMessage(scanError)
+              } else {
+                setSn(scannedSn)
+                setErrorMessage("")
+              }
+            } else {
+              setOrderNo(code)
+              resetResult()
+            }
+            setScannerMode("")
           }}
-          onClose={() => setShowScanner(false)}
+          onClose={() => setScannerMode("")}
         />
 
       )}
