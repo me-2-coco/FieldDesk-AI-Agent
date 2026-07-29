@@ -220,6 +220,46 @@ function createApp(
     }
   });
 
+  app.post(
+    "/api/crm/repairs/receipt-form/inspect",
+    async (req, res, next) => {
+      if (!isDryRun() || isRecloudWriteEnabled()) {
+        return res.status(403).json({
+          success: false,
+          code: "RECLOUD_RECEIPT_INSPECTION_UNSAFE",
+          message: "签收表单定位只允许在 DRY_RUN 且写操作关闭时执行",
+        });
+      }
+      const logisticsNo = normalizeLogisticsNo(req.body?.logisticsNo);
+      if (!logisticsNo) {
+        return res
+          .status(400)
+          .json({ success: false, message: "缺少物流单号" });
+      }
+
+      try {
+        const data = await withRecloud(connector, async (page) => {
+          const detail = await connector.queryRmaByLogisticsNo(
+            page,
+            logisticsNo
+          );
+          const inspection = await connector.inspectReceiptForm(page, {
+            dryRun: true,
+            writeEnabled: false,
+          });
+          return {
+            logisticsNo,
+            rmaNo: detail.rmaNo,
+            inspection,
+          };
+        });
+        return res.json({ success: true, data });
+      } catch (error) {
+        return next(error);
+      }
+    }
+  );
+
   app.post("/api/crm/repairs/receive", async (req, res, next) => {
     if (!isRecloudWriteEnabled()) {
       return res.status(403).json({
@@ -409,6 +449,22 @@ function createApp(
         status: 400,
         message: error.message,
       },
+      RECLOUD_RECEIPT_ACTION_NOT_FOUND: {
+        status: 502,
+        message: "未找到 RMA 明细中的待处理签收操作",
+      },
+      RECLOUD_RECEIPT_ENTRY_CLICK_FAILED: {
+        status: 502,
+        message: "无法安全打开瑞云签收入口",
+      },
+      RECLOUD_RECEIPT_FORM_NOT_OPENED: {
+        status: 502,
+        message: "点击瑞云签收入口后未检测到签收表单",
+      },
+      RECLOUD_RECEIPT_INSPECTION_UNSAFE: {
+        status: 403,
+        message: "签收表单定位只允许在严格演练模式下执行",
+      },
     };
     const mapped = errors[error.code];
     console.error(
@@ -425,6 +481,10 @@ function createApp(
       success: false,
       code: loginRequired ? "RECLOUD_LOGIN_REQUIRED" : error.code || "RECLOUD_ERROR",
       message: mapped?.message || error.message || "瑞云 CRM 请求失败",
+      missingFields: Array.isArray(error.missingFields)
+        ? error.missingFields
+        : [],
+      inspection: error.inspection || undefined,
     });
   });
 

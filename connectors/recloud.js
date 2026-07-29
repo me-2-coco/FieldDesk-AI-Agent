@@ -956,6 +956,406 @@ async function firstVisible(locators) {
   return null;
 }
 
+function logReceiptInspection(stage, logger = console) {
+  logger.info(`RECLOUD_RECEIPT_INSPECTION: ${stage}`);
+}
+
+async function findPendingReceiptAction(page, logger = console) {
+  const scopes =
+    typeof page.frames === "function" ? [page, ...page.frames()] : [page];
+  const candidates = [];
+  for (const scope of scopes) {
+    const marker = scope
+      .getByText("RMA明细", { exact: true })
+      .filter({ visible: true })
+      .first();
+    if (!(await marker.isVisible().catch(() => false))) continue;
+    const region = marker
+      .locator("xpath=ancestor::*[.//*[normalize-space()='签收']][1]")
+      .first();
+    if (!(await region.isVisible().catch(() => false))) continue;
+    const actions = region
+      .getByText("签收", { exact: true })
+      .filter({ visible: true });
+    const count = await actions.count().catch(() => 0);
+
+    for (let index = 0; index < count; index += 1) {
+      const text = actions.nth(index);
+      const row = text
+        .locator(
+          "xpath=ancestor::*[self::tr or @role='row' or @data-row-key or contains(concat(' ', normalize-space(@class), ' '), ' el-table__row ') or contains(concat(' ', normalize-space(@class), ' '), ' table-row ') or contains(concat(' ', normalize-space(@class), ' '), ' grid-row ') or contains(concat(' ', normalize-space(@class), ' '), ' vxe-body--row ') or contains(concat(' ', normalize-space(@class), ' '), ' rtxpc-table__row ')][1]"
+        )
+        .first();
+      if (!(await row.isVisible().catch(() => false))) continue;
+      const entry = await firstVisible([
+        row.getByRole("button", { name: "签收", exact: true }),
+        row.getByRole("link", { name: "签收", exact: true }),
+        row.locator("button:visible, a:visible, [role='button']:visible").filter({
+          hasText: /^签收$/,
+        }),
+        row.getByText("签收", { exact: true }).filter({ visible: true }),
+      ]);
+      if (entry) candidates.push({ row, entry });
+    }
+  }
+  if (candidates.length === 0) return null;
+  if (candidates.length > 1) {
+    logger.warn?.("RECLOUD_RECEIPT_INSPECTION: ambiguous_rows_using_first");
+  }
+  return candidates[0];
+}
+
+async function describeReceiptControl(locator, role) {
+  return {
+    role,
+    tagName:
+      typeof locator.evaluate === "function"
+        ? await locator
+            .evaluate((element) => element.tagName.toLowerCase())
+            .catch(() => "")
+        : "",
+    name: await locator.getAttribute("name").catch(() => ""),
+    placeholder: await locator.getAttribute("placeholder").catch(() => ""),
+    ariaLabel: await locator.getAttribute("aria-label").catch(() => ""),
+    dataTestId: await locator.getAttribute("data-testid").catch(() => ""),
+  };
+}
+
+function receiptInspectionError(code, message, missingFields, inspection = {}) {
+  const error = new RecloudQueryError(code, message, {
+    status: 502,
+    retryable: false,
+    missingFields,
+  });
+  error.inspection = {
+    receiptEntryFound: false,
+    receiptEntryVisible: false,
+    receiptEntryEnabled: false,
+    receiptEntryClicked: false,
+    dialogOpened: false,
+    snInputFound: false,
+    remarkInputFound: false,
+    confirmButtonFound: false,
+    missingFields,
+    ...inspection,
+  };
+  return error;
+}
+
+async function inspectReceiptEntry(entry) {
+  const visible = await entry.isVisible().catch(() => false);
+  const enabled =
+    typeof entry.isEnabled === "function"
+      ? await entry.isEnabled().catch(() => false)
+      : true;
+  const box =
+    typeof entry.boundingBox === "function"
+      ? await entry.boundingBox().catch(() => null)
+      : { x: 0, y: 0, width: 1, height: 1 };
+  return {
+    visible,
+    enabled,
+    actionable: Boolean(
+      visible && enabled && box && box.width > 0 && box.height > 0
+    ),
+    box,
+  };
+}
+
+async function safelyClickReceiptEntry(entry, page, options = {}) {
+  await entry.scrollIntoViewIfNeeded?.();
+  await page.waitForTimeout?.(options.renderSettleDelay ?? 250);
+  const state = await inspectReceiptEntry(entry);
+  if (!state.actionable) {
+    throw receiptInspectionError(
+      "RECLOUD_RECEIPT_ENTRY_CLICK_FAILED",
+      "瑞云签收入口不可见、不可用或没有可点击区域",
+      ["receiptForm.dialog"],
+      {
+        receiptEntryFound: true,
+        receiptEntryVisible: state.visible,
+        receiptEntryEnabled: state.enabled,
+      }
+    );
+  }
+
+  const attempts = [
+    () => entry.click({ timeout: options.clickTimeout ?? 3000 }),
+    () =>
+      entry.click({
+        position: {
+          x: state.box.width / 2,
+          y: state.box.height / 2,
+        },
+        timeout: options.clickTimeout ?? 3000,
+      }),
+    () =>
+      entry.evaluate((element) => {
+        const target = element.closest(
+          "button, a, [role='button'], [tabindex]"
+        );
+        (target || element).click();
+      }),
+  ];
+  let lastError;
+  for (const attempt of attempts) {
+    try {
+      await attempt();
+      return state;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  const failure = receiptInspectionError(
+    "RECLOUD_RECEIPT_ENTRY_CLICK_FAILED",
+    "无法安全打开瑞云签收入口",
+    ["receiptForm.dialog"],
+    {
+      receiptEntryFound: true,
+      receiptEntryVisible: state.visible,
+      receiptEntryEnabled: state.enabled,
+    }
+  );
+  failure.cause = lastError;
+  throw failure;
+}
+
+function receiptFormRoots(scope) {
+  return scope.locator(
+    [
+      '.rt-dialog__wrapper:visible',
+      '.el-dialog:visible',
+      '[role="dialog"]:visible',
+      '.el-drawer:visible',
+      '.rt-drawer:visible',
+      '[role="complementary"]:visible',
+      '.el-overlay:visible',
+      '.v-modal:visible',
+      '.el-dialog__wrapper:visible',
+      "form:visible",
+    ].join(", ")
+  );
+}
+
+async function findReceiptFormRoot(scope, startIndex = 0) {
+  const roots = receiptFormRoots(scope);
+  const count = await roots.count().catch(() => 0);
+  for (let index = count - 1; index >= startIndex; index -= 1) {
+    const root = roots.nth(index);
+    if (!(await root.isVisible().catch(() => false))) continue;
+    const fields = root.locator(
+      'input:visible, textarea:visible, [contenteditable="true"]:visible'
+    );
+    const hasReceiptField =
+      (await fields.count().catch(() => 0)) > 0 &&
+      ((await root
+        .getByText(/SN|序列号|备注|签收说明/i)
+        .count()
+        .catch(() => 0)) > 0 ||
+        (await root
+          .locator(
+            'input[placeholder*="SN"], input[placeholder*="序列号"], textarea[placeholder*="备注"], input[name*="sn" i], textarea[name*="remark" i]'
+          )
+          .count()
+          .catch(() => 0)) > 0);
+    if (hasReceiptField) return root;
+  }
+  return null;
+}
+
+async function waitForReceiptForm(page, baselineUrl, options = {}) {
+  const deadline = Date.now() + (options.dialogTimeout ?? 5000);
+  const baselineScopes = options.baselineScopes || new Map();
+  while (Date.now() < deadline) {
+    const pages =
+      typeof page.context === "function"
+        ? page.context().pages().filter((candidate) => !candidate.isClosed())
+        : [page];
+    for (const candidate of pages) {
+      const scopes =
+        typeof candidate.frames === "function"
+          ? [candidate, ...candidate.frames()]
+          : [candidate];
+      for (const scope of scopes) {
+        const root = await findReceiptFormRoot(
+          scope,
+          baselineScopes.get(scope) || 0
+        );
+        if (root) return { page: candidate, root };
+      }
+    }
+    // URL change is only a signal to inspect the new page; never success by itself.
+    void (page.url() !== baselineUrl);
+    await page.waitForTimeout?.(100);
+  }
+  return null;
+}
+
+async function snapshotReceiptFormScopes(page) {
+  const snapshots = new Map();
+  const pages =
+    typeof page.context === "function"
+      ? page.context().pages().filter((candidate) => !candidate.isClosed())
+      : [page];
+  for (const candidate of pages) {
+    const scopes =
+      typeof candidate.frames === "function"
+        ? [candidate, ...candidate.frames()]
+        : [candidate];
+    for (const scope of scopes) {
+      snapshots.set(scope, await receiptFormRoots(scope).count().catch(() => 0));
+    }
+  }
+  return snapshots;
+}
+
+async function inspectReceiptForm(page, options = {}) {
+  const logger = options.logger || console;
+  if (options.dryRun !== true || options.writeEnabled !== false) {
+    const error = new Error("签收表单定位只允许在严格演练模式下执行");
+    error.code = "RECLOUD_RECEIPT_INSPECTION_UNSAFE";
+    error.status = 403;
+    throw error;
+  }
+
+  assertRecloudAuthenticated(page);
+  const target = await findPendingReceiptAction(page, logger);
+  if (!target) {
+    throw receiptInspectionError(
+      "RECLOUD_RECEIPT_ACTION_NOT_FOUND",
+      "未找到 RMA 明细中的待处理签收操作",
+      ["receiptForm.entry"]
+    );
+  }
+  logReceiptInspection("receiptEntryFound", logger);
+
+  let dialog = null;
+  let formPage = page;
+  try {
+    const baselineUrl = page.url();
+    const baselineScopes = await snapshotReceiptFormScopes(page);
+    const entryState = await inspectReceiptEntry(target.entry);
+    if (entryState.visible) logReceiptInspection("receiptEntryVisible", logger);
+    if (entryState.enabled) logReceiptInspection("receiptEntryEnabled", logger);
+    await safelyClickReceiptEntry(target.entry, page, options);
+    logReceiptInspection("receiptEntryClicked", logger);
+    const opened = await waitForReceiptForm(page, baselineUrl, {
+      ...options,
+      baselineScopes,
+    });
+    if (!opened) {
+      throw receiptInspectionError(
+        "RECLOUD_RECEIPT_FORM_NOT_OPENED",
+        "点击瑞云签收入口后未检测到签收表单",
+        ["receiptForm.dialog"],
+        {
+          receiptEntryFound: true,
+          receiptEntryVisible: entryState.visible,
+          receiptEntryEnabled: entryState.enabled,
+          receiptEntryClicked: true,
+        }
+      );
+    }
+    formPage = opened.page;
+    dialog = opened.root;
+    logReceiptInspection("dialogOpened", logger);
+
+    const inputs = dialog.locator("input:visible, textarea:visible");
+    const snCandidates = locateDialogField(
+      dialog,
+      ["SN", "序列号", "设备序列号"],
+      ["SN", "序列号"]
+    );
+    const remarkCandidates = locateDialogField(
+      dialog,
+      ["备注", "签收说明"],
+      ["备注", "说明"]
+    );
+    const snInput = await firstVisible([
+      snCandidates.byLabel,
+      snCandidates.byPlaceholder,
+      inputs.nth(3),
+    ]);
+    const remarkInput = await firstVisible([
+      remarkCandidates.byLabel,
+      remarkCandidates.byPlaceholder,
+      dialog.locator("textarea:visible").first(),
+      inputs.nth(4),
+    ]);
+    const confirmButton = await firstVisible([
+      dialog
+        .getByRole("button", {
+          name: /^(确认|确定|提交|签收)$/,
+        })
+        .last(),
+      dialog
+        .getByText(/^(确认|确定|提交|签收)$/, { exact: true })
+        .last(),
+    ]);
+
+    const missingFields = [
+      !snInput && "receipt.snInput",
+      !remarkInput && "receipt.remarkInput",
+      !confirmButton && "receipt.confirmButton",
+    ].filter(Boolean);
+    if (missingFields.length > 0) {
+      const error = new RecloudQueryError(
+        "RECLOUD_SCHEMA_CHANGED",
+        "瑞云签收弹窗字段结构已变化",
+        {
+          status: 502,
+          retryable: false,
+          missingFields,
+        }
+      );
+      error.inspection = {
+        receiptEntryFound: true,
+        receiptEntryVisible: entryState.visible,
+        receiptEntryEnabled: entryState.enabled,
+        receiptEntryClicked: true,
+        dialogOpened: true,
+        snInputFound: Boolean(snInput),
+        remarkInputFound: Boolean(remarkInput),
+        confirmButtonFound: Boolean(confirmButton),
+        missingFields,
+      };
+      throw error;
+    }
+
+    logReceiptInspection("snInputFound", logger);
+    logReceiptInspection("remarkInputFound", logger);
+    logReceiptInspection("confirmButtonFound", logger);
+    return {
+      dryRun: true,
+      receiptEntryFound: true,
+      receiptEntryVisible: entryState.visible,
+      receiptEntryEnabled: entryState.enabled,
+      receiptEntryClicked: true,
+      dialogOpened: true,
+      snInputFound: true,
+      remarkInputFound: true,
+      confirmButtonFound: true,
+      missingFields: [],
+      fields: {
+        sn: await describeReceiptControl(snInput, "sn"),
+        remark: await describeReceiptControl(remarkInput, "remark"),
+      },
+      finalAction: await describeReceiptControl(
+        confirmButton,
+        "final_confirmation"
+      ),
+      confirmed: false,
+      recloudModified: false,
+      message: "已定位瑞云签收表单，未填写字段，未点击最终确认",
+    };
+  } finally {
+    if (dialog) {
+      await formPage.keyboard.press("Escape").catch(() => {});
+      logReceiptInspection("dialog_closed_without_changes", logger);
+    }
+  }
+}
+
 async function fillReceiptFields(dialog, sn, remark) {
   const inputs = dialog.locator("input:visible, textarea:visible");
   const snCandidates = locateDialogField(
@@ -1075,6 +1475,9 @@ module.exports = {
   toQueryError,
   scanSign,
   getRepairDetail,
+  findPendingReceiptAction,
+  inspectReceiptForm,
+  logReceiptInspection,
   confirmSign,
   fillReceiptFields,
   parseRepairDetail,
