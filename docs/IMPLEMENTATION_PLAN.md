@@ -165,6 +165,28 @@ server/
 
 发布采用环境级功能开关。第一阶段生产/测试环境均保持 `RECLOUD_WRITE_ENABLED=false` 与 `DRY_RUN=true`；真实查询也需在业务方提供只读测试环境并明确批准后单独进行。
 
+### 安全 DOM 诊断
+
+真实 RMA 详情定位器未冻结前，可临时设置 `RECLOUD_DOM_DIAGNOSTICS=true`。该模式默认关闭，只在扫码回车并进入详情页后向后端标准错误输出一条 `RECLOUD_FIELD_TITLES` 字段标题数组，不写文件。
+
+诊断日志只输出从 `.rtxpc-form-item` 的 `fieldTitle`、`field-title` 或 label 提取并去重、脱敏后的字段标题数组，格式为 `RECLOUD_FIELD_TITLES: ["字段1", "字段2"]`。禁止输出字段值、input value、客户姓名、手机号、地址、物流号、寄修单号、Cookie、token、完整 HTML、链接或链接参数。
+
+启用诊断时仍必须保持：
+
+```dotenv
+DRY_RUN=true
+RECLOUD_WRITE_ENABLED=false
+RECLOUD_DOM_DIAGNOSTICS=true
+```
+
+诊断日志仅用于确认稳定定位器，不得提交到 Git。采集完成后恢复 `RECLOUD_DOM_DIAGNOSTICS=false`。
+
+### 完整电话只读显示
+
+`RECLOUD_REVEAL_PHONE_ENABLED=false` 为默认值。仅显式设置为 `true` 时，查询连接器才会在标题严格为“反馈电话”的 `.rtxpc-form-item` 内寻找“显示数据”按钮；按钮定位、悬停和点击不得越出该表单项。显示失败、无权限、按钮不存在或等待超时时继续返回原脱敏号码，不影响工单查询。
+
+完整电话只用于当次 API 响应和前端内存展示，不得进入服务端日志、字段标题诊断、错误信息、测试快照或 `localStorage`。该操作是只读显示能力，不受 `RECLOUD_WRITE_ENABLED=false` 阻断；签收及其他写操作仍保持禁用。
+
 ## 6. 风险与决策点
 
 | 风险 | 影响 | 应对 |

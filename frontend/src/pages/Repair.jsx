@@ -12,6 +12,9 @@ function Repair({ setPage }) {
   const [isLoading, setIsLoading] = useState(false)
   const [repairDetail, setRepairDetail] = useState(null)
   const [errorMessage, setErrorMessage] = useState("")
+  const hasFullPhone = /^1[3-9]\d{9}$/.test(
+    repairDetail?.customer?.phoneMasked || ""
+  )
 
 
   async function searchRepair() {
@@ -150,22 +153,34 @@ function Repair({ setPage }) {
 
             <div>
               <dt>用户姓名</dt>
-              <dd>{repairDetail.customer?.name}</dd>
+              <dd>{repairDetail.customer?.name || "未提供"}</dd>
             </div>
 
             <div>
-              <dt>脱敏手机号</dt>
-              <dd>{repairDetail.customer?.phoneMasked}</dd>
+              <dt>联系电话</dt>
+              <dd>
+                {repairDetail.customer?.phoneMasked || "未提供"}
+                {hasFullPhone && (
+                  <span className="sensitive-info-badge">
+                    敏感信息
+                  </span>
+                )}
+              </dd>
             </div>
 
             <div>
               <dt>所在地区/地址</dt>
-              <dd>{repairDetail.customer?.regionAddress}</dd>
+              <dd>{repairDetail.customer?.regionAddress || "未提供"}</dd>
             </div>
 
             <div>
               <dt>用户报修描述</dt>
               <dd>{repairDetail.reportedFault}</dd>
+            </div>
+
+            <div>
+              <dt>产品线</dt>
+              <dd>{repairDetail.productLine || "未提供"}</dd>
             </div>
 
             <div>

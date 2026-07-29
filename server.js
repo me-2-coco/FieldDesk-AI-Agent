@@ -104,7 +104,6 @@ function createApp(connector = recloudConnector) {
   });
 
   app.use((error, req, res, next) => {
-    console.error("CRM request failed:", error.message);
     if (res.headersSent) return next(error);
     const loginRequired = error.code === "RECLOUD_LOGIN_REQUIRED";
     const errors = {
@@ -116,6 +115,14 @@ function createApp(connector = recloudConnector) {
         status: 404,
         message: "没有查询到对应的瑞云 RMA 寄修单",
       },
+      RECLOUD_SCAN_PAGE_UNAVAILABLE: {
+        status: 502,
+        message: "无法进入瑞云扫码签收页面",
+      },
+      RECLOUD_LOGISTICS_FILL_FAILED: {
+        status: 502,
+        message: "瑞云物流单号输入校验失败",
+      },
       RECLOUD_SCHEMA_CHANGED: {
         status: 502,
         message: "瑞云页面结构已变化，暂时无法读取工单",
@@ -126,6 +133,16 @@ function createApp(connector = recloudConnector) {
       },
     };
     const mapped = errors[error.code];
+    console.error(
+      "CRM request failed:",
+      JSON.stringify({
+        code: error.code || "RECLOUD_ERROR",
+        message: mapped?.message || "瑞云 CRM 请求失败",
+        missingFields: Array.isArray(error.missingFields)
+          ? error.missingFields
+          : [],
+      })
+    );
     return res.status(mapped?.status || error.status || 502).json({
       success: false,
       code: loginRequired ? "RECLOUD_LOGIN_REQUIRED" : error.code || "RECLOUD_ERROR",

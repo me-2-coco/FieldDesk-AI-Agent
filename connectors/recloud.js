@@ -3,14 +3,26 @@ const path = require("path");
 const fs = require("fs");
 const {
   RecloudQueryError,
+  extractRmaNoFromTitle,
   extractTextFieldPairs,
   parseRmaFieldPairs,
+  selectProductLine,
 } = require("./recloud-rma-parser");
+const {
+  collectSafeFieldTitles,
+  isDomDiagnosticsEnabled,
+  logSafeFieldTitles,
+} = require("./recloud-dom-diagnostics");
 
 const LOGIN_STATE = path.join(__dirname, "recloud-state.json");
 const RECLOUD_URL =
   "https://crm2.recloud.com.cn/t/dreame/webapp/dreame/?mainNavName=serviceprovider#/scanSignin/query";
-const DEFAULT_TIMEOUT = Number(process.env.RECLOUD_TIMEOUT_MS) || 15000;
+const DEFAULT_TIMEOUT = Number(process.env.RECLOUD_TIMEOUT_MS) || 30000;
+const SCAN_PAGE_PROBE_TIMEOUT = 1200;
+const QUERY_RETRY_DELAY = 3000;
+const SCANNER_KEY_DELAY = 30;
+const ENTER_SETTLE_DELAY = 300;
+const PHONE_REVEAL_TIMEOUT = 5000;
 const LOGIN_REQUIRED_MESSAGE = "请重新初始化瑞云登录状态";
 const LOGISTICS_INPUT_PLACEHOLDER =
   "请用扫码枪输入物流单号/工单号/订单号/退换单";
@@ -83,7 +95,516 @@ function assertRecloudAuthenticated(page) {
 }
 
 function getLogisticsInput(page) {
-  return page.locator(`input[placeholder="${LOGISTICS_INPUT_PLACEHOLDER}"]`).first();
+  return page
+    .locator(`input[placeholder*="${LOGISTICS_INPUT_PLACEHOLDER}"]`)
+    .first();
+}
+
+function logRecloudStage(stage, logger = console) {
+  logger.info(`RECLOUD_STAGE: ${stage}`);
+}
+
+function getSelectAllShortcut(platform = process.platform) {
+  return platform === "darwin" ? "Meta+A" : "Control+A";
+}
+
+function isRevealPhoneEnabled(env = process.env) {
+  return String(env.RECLOUD_REVEAL_PHONE_ENABLED ?? "false").toLowerCase() === "true";
+}
+
+function isCompleteMobilePhone(value) {
+  return /^1[3-9]\d{9}$/.test(normalizeText(value));
+}
+
+function logPhoneReveal(stage, logger = console) {
+  logger.info(`RECLOUD_PHONE_REVEAL: ${stage}`);
+}
+
+async function getFeedbackPhoneSearchScope(item) {
+  try {
+    const row = item
+      .locator(
+        "xpath=ancestor::*[contains(concat(' ', normalize-space(@class), ' '), ' el-row ')][1]"
+      )
+      .first();
+    if (await row.isVisible().catch(() => false)) return row;
+  } catch {
+    // Backward-compatible fallback for pages without an el-row wrapper.
+  }
+  return item;
+}
+
+async function findFeedbackPhoneRevealButton(item, page) {
+  const scope = await getFeedbackPhoneSearchScope(item);
+  const attributedButton = scope
+    .locator(
+      [
+        'button[title="显示数据"]',
+        '[role="button"][title="显示数据"]',
+        'button[aria-label="显示数据"]',
+        '[role="button"][aria-label="显示数据"]',
+        '[data-testid*="show-data"]',
+        '[data-testid*="reveal"]',
+      ].join(", ")
+    )
+    .first();
+  if (await attributedButton.isVisible().catch(() => false)) {
+    return attributedButton;
+  }
+
+  if (typeof scope.getByRole === "function") {
+    const accessibleButton = scope
+      .getByRole("button", { name: "显示数据", exact: true })
+      .first();
+    if (await accessibleButton.isVisible().catch(() => false)) {
+      return accessibleButton;
+    }
+  }
+
+  const fieldBox =
+    typeof item.boundingBox === "function"
+      ? await item.boundingBox().catch(() => null)
+      : null;
+  const candidates = scope.locator(
+    [
+      "button:visible",
+      '[role="button"]:visible',
+      "[tabindex]:visible",
+      "svg:visible",
+      "i:visible",
+      '[class*="icon"]:visible',
+    ].join(", ")
+  );
+  if (typeof candidates.count !== "function") return null;
+  const count = await candidates.count();
+  for (let index = 0; index < count; index += 1) {
+    const candidate = candidates.nth(index);
+    const candidateText = normalizeText(
+      await candidate.innerText().catch(() => "")
+    );
+    if (/签收/.test(candidateText)) continue;
+    const candidateBox = await candidate.boundingBox().catch(() => null);
+    if (
+      fieldBox &&
+      candidateBox &&
+      candidateBox.x + candidateBox.width / 2 <
+        fieldBox.x + fieldBox.width / 2
+    ) {
+      continue;
+    }
+    await candidate.hover().catch(() => {});
+    const tooltip = page
+      .getByText("显示数据", { exact: true })
+      .filter({ visible: true })
+      .first();
+    if (await tooltip.isVisible().catch(() => false)) return candidate;
+  }
+
+  return null;
+}
+
+function extractCompleteMobilePhone(value) {
+  const digits = String(value || "").replace(/\D/g, "");
+  return digits.match(/1[3-9]\d{9}/)?.[0] || "";
+}
+
+function getMaskedPhoneSignature(value) {
+  const match = String(value || "").match(/(\d{3})\D*(\d{4})\s*$/);
+  return match ? { prefix: match[1], suffix: match[2] } : null;
+}
+
+function selectMatchingPhone(textRegions, maskedValue) {
+  const signature = getMaskedPhoneSignature(maskedValue);
+  const candidates = new Set();
+  for (const region of textRegions) {
+    const digits = String(region || "").replace(/\D/g, "");
+    for (const match of digits.matchAll(/1[3-9]\d{9}/g)) {
+      candidates.add(match[0]);
+    }
+  }
+  const matching = [...candidates].filter((phone) =>
+    !signature ||
+    (phone.startsWith(signature.prefix) && phone.endsWith(signature.suffix))
+  );
+  if (matching.length === 1) return matching[0];
+  return "";
+}
+
+function collectStringValues(value, output = []) {
+  if (typeof value === "string") {
+    output.push(value);
+  } else if (Array.isArray(value)) {
+    for (const item of value) collectStringValues(item, output);
+  } else if (value && typeof value === "object") {
+    for (const item of Object.values(value)) collectStringValues(item, output);
+  }
+  return output;
+}
+
+function createPhoneResponseListener(page, maskedValue) {
+  let phone = "";
+  let stopped = false;
+  let handler;
+
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    if (typeof page?.off === "function") {
+      page.off("response", handler);
+    } else if (typeof page?.removeListener === "function") {
+      page.removeListener("response", handler);
+    }
+  };
+
+  handler = async (response) => {
+    if (stopped || phone) return;
+    try {
+      const request = response.request();
+      const resourceType = request.resourceType();
+      if (resourceType !== "xhr" && resourceType !== "fetch") return;
+
+      let payload;
+      try {
+        payload = await response.json();
+      } catch {
+        payload = await response.text();
+      }
+      if (stopped || phone) return;
+      phone = selectMatchingPhone(
+        collectStringValues(payload),
+        maskedValue
+      );
+      if (phone) stop();
+    } catch {
+      // Network parsing is best-effort and never changes the query outcome.
+    }
+  };
+
+  if (typeof page?.on === "function") page.on("response", handler);
+  return {
+    getPhone: () => phone,
+    stop,
+  };
+}
+
+async function readVisibleLocatorTexts(locator) {
+  if (!locator || typeof locator.count !== "function") return [];
+  const values = [];
+  const count = await locator.count().catch(() => 0);
+  for (let index = 0; index < count; index += 1) {
+    const candidate = locator.nth(index);
+    if (!(await candidate.isVisible().catch(() => false))) continue;
+    const text = await candidate.innerText().catch(() => "");
+    if (text) values.push(text);
+  }
+  return values;
+}
+
+function getPhoneOverlayLocator(page) {
+  return page.locator(
+    [
+      ".el-popover:visible",
+      ".el-tooltip__popper:visible",
+      '[role="tooltip"]:visible',
+      '[role="dialog"]:visible',
+      ".el-dialog:visible",
+    ].join(", ")
+  );
+}
+
+async function countVisiblePhoneOverlays(page) {
+  if (!page || typeof page.locator !== "function") return 0;
+  try {
+    return await getPhoneOverlayLocator(page).count();
+  } catch {
+    return 0;
+  }
+}
+
+function boxesAreNear(left, right, maximumDistance = 600) {
+  if (!left || !right) return false;
+  const leftX = left.x + left.width / 2;
+  const leftY = left.y + left.height / 2;
+  const rightX = right.x + right.width / 2;
+  const rightY = right.y + right.height / 2;
+  return Math.hypot(leftX - rightX, leftY - rightY) <= maximumDistance;
+}
+
+async function readNewAssociatedOverlayTexts(page, options = {}) {
+  if (!page || typeof page.locator !== "function") return [];
+  try {
+    const overlays = getPhoneOverlayLocator(page);
+    const count = await overlays.count();
+    const values = [];
+    for (
+      let index = options.overlayBaselineCount || 0;
+      index < count;
+      index += 1
+    ) {
+      const overlay = overlays.nth(index);
+      if (!(await overlay.isVisible().catch(() => false))) continue;
+      const overlayBox = await overlay.boundingBox().catch(() => null);
+      const overlayId = await overlay.getAttribute("id").catch(() => "");
+      const isAssociated =
+        Boolean(overlayId) &&
+        [options.ariaControls, options.ariaDescribedBy]
+          .filter(Boolean)
+          .some((ids) => ids.split(/\s+/).includes(overlayId));
+      if (
+        !isAssociated &&
+        !boxesAreNear(options.buttonBox, overlayBox)
+      ) {
+        continue;
+      }
+      const text = await overlay.innerText().catch(() => "");
+      if (text) values.push(text);
+    }
+    return values;
+  } catch {
+    return [];
+  }
+}
+
+async function findCurrentFeedbackPhoneItem(page, fallbackItem) {
+  if (!page || typeof page.locator !== "function") return fallbackItem;
+  try {
+    const items = page.locator(".rtxpc-form-item");
+    const count = await items.count();
+    for (let index = 0; index < count; index += 1) {
+      const candidate = items.nth(index);
+      const label = candidate
+        .locator(
+          "label, .rtxpc-form-item__label, [class*='form-item__label']"
+        )
+        .first();
+      const title = normalizeText(
+        (await candidate.getAttribute("fieldTitle")) ||
+        (await candidate.getAttribute("field-title")) ||
+        (await label.innerText().catch(() => ""))
+      ).replace(/[：:]$/, "");
+      if (title === "反馈电话") return candidate;
+    }
+  } catch {
+    // The click-time locator remains a fallback for static DOM variants.
+  }
+  return fallbackItem;
+}
+
+async function readControlValues(locator) {
+  if (!locator || typeof locator.count !== "function") return [];
+  const values = [];
+  const count = await locator.count().catch(() => 0);
+  for (let index = 0; index < count; index += 1) {
+    const field = locator.nth(index);
+    values.push(await field.inputValue().catch(() => ""));
+    if (typeof field.evaluate === "function") {
+      values.push(
+        await field.evaluate((element) => element.value || "").catch(() => "")
+      );
+    }
+    for (const attribute of ["value", "aria-label", "title", "data-value"]) {
+      if (typeof field.getAttribute === "function") {
+        values.push(await field.getAttribute(attribute).catch(() => ""));
+      }
+    }
+  }
+  return values;
+}
+
+async function readPositionedFragments(item) {
+  const fragments = item.locator("span:visible, div:visible");
+  if (typeof fragments.count !== "function") return [];
+  const entries = [];
+  const count = await fragments.count().catch(() => 0);
+  for (let index = 0; index < count; index += 1) {
+    const fragment = fragments.nth(index);
+    if (!(await fragment.isVisible().catch(() => false))) continue;
+    const textContent = typeof fragment.textContent === "function"
+      ? await fragment.textContent().catch(() => "")
+      : "";
+    entries.push({
+      text:
+        textContent ||
+        (await fragment.innerText().catch(() => "")),
+      box: await fragment.boundingBox().catch(() => null),
+      index,
+    });
+  }
+  entries.sort((left, right) => {
+    if (!left.box || !right.box) return left.index - right.index;
+    const rowDelta = left.box.y - right.box.y;
+    return Math.abs(rowDelta) > 4 ? rowDelta : left.box.x - right.box.x;
+  });
+  return entries.map(({ text }) => text);
+}
+
+async function findRevealedPhone(item, page, originalControl, options = {}) {
+  const values = [];
+  const currentItem = await findCurrentFeedbackPhoneItem(page, item);
+
+  try {
+    values.push(...await readControlValues(
+      currentItem.locator("input, textarea")
+    ));
+    values.push(await currentItem.innerText().catch(() => ""));
+    values.push(await currentItem.textContent().catch(() => ""));
+    for (const attribute of ["aria-label", "title", "data-value"]) {
+      if (typeof currentItem.getAttribute === "function") {
+        values.push(
+          await currentItem.getAttribute(attribute).catch(() => "")
+        );
+      }
+    }
+    const fragments = await readPositionedFragments(currentItem);
+    values.push(fragments.join(""));
+  } catch {
+    if (originalControl && typeof originalControl.inputValue === "function") {
+      values.push(await originalControl.inputValue().catch(() => ""));
+    }
+  }
+
+  try {
+    values.push(...await readControlValues(
+      page.locator("input, textarea")
+    ));
+  } catch {
+    // Page-wide controls are filtered by the masked number signature below.
+  }
+
+  values.push(...await readNewAssociatedOverlayTexts(page, options));
+  return selectMatchingPhone(values, options.maskedValue);
+}
+
+async function revealFeedbackPhone(item, page, control, options = {}) {
+  if (options.enabled !== true) {
+    return normalizeText(await control.inputValue());
+  }
+
+  const logger = options.logger || console;
+  logPhoneReveal("field_found", logger);
+  const controlVisible =
+    typeof control?.isVisible === "function" &&
+    (await control.isVisible().catch(() => false));
+  if (!controlVisible) {
+    logPhoneReveal("failed CONTROL_NOT_FOUND", logger);
+    return "";
+  }
+  logPhoneReveal("control_found", logger);
+
+  const originalValue = normalizeText(await control.inputValue());
+  if (!originalValue.includes("*")) {
+    if (isCompleteMobilePhone(originalValue)) {
+      logPhoneReveal("full_value_ready", logger);
+    }
+    return originalValue;
+  }
+
+  try {
+    const button = await findFeedbackPhoneRevealButton(item, page);
+    if (!button) {
+      logPhoneReveal("failed BUTTON_NOT_FOUND", logger);
+      return originalValue;
+    }
+    const overlayBaselineCount = await countVisiblePhoneOverlays(page);
+    const buttonBox = typeof button.boundingBox === "function"
+      ? await button.boundingBox().catch(() => null)
+      : null;
+    const ariaControls = typeof button.getAttribute === "function"
+      ? await button.getAttribute("aria-controls").catch(() => "")
+      : "";
+    const ariaDescribedBy = typeof button.getAttribute === "function"
+      ? await button.getAttribute("aria-describedby").catch(() => "")
+      : "";
+    const network = createPhoneResponseListener(page, originalValue);
+    try {
+      await button.click();
+      logPhoneReveal("clicked", logger);
+
+      const deadline =
+        Date.now() + (options.timeout ?? PHONE_REVEAL_TIMEOUT);
+      while (Date.now() < deadline) {
+        const networkValue = network.getPhone();
+        if (networkValue) {
+          logPhoneReveal("full_value_ready", logger);
+          return networkValue;
+        }
+        const domValue = await findRevealedPhone(item, page, control, {
+          maskedValue: originalValue,
+          overlayBaselineCount,
+          buttonBox,
+          ariaControls,
+          ariaDescribedBy,
+        });
+        if (domValue) {
+          logPhoneReveal("full_value_ready", logger);
+          return domValue;
+        }
+        await page.waitForTimeout(options.pollInterval ?? 100);
+      }
+      logPhoneReveal("failed FULL_VALUE_TIMEOUT", logger);
+    } finally {
+      network.stop();
+    }
+  } catch {
+    logPhoneReveal("failed REVEAL_ERROR", logger);
+    return originalValue;
+  }
+
+  return originalValue;
+}
+
+async function waitForVisibleText(page, text, timeout = DEFAULT_TIMEOUT) {
+  const locator = page
+    .getByText(text, { exact: true })
+    .filter({ visible: true })
+    .first();
+  await locator.waitFor({ state: "visible", timeout });
+  return locator;
+}
+
+async function ensureScanPage(page, options = {}) {
+  const logger = options.logger || console;
+  const input = getLogisticsInput(page);
+
+  assertRecloudAuthenticated(page);
+  if (!(await input.isVisible().catch(() => false))) {
+    try {
+      await input.waitFor({
+        state: "visible",
+        timeout: options.probeTimeout ?? SCAN_PAGE_PROBE_TIMEOUT,
+      });
+    } catch {
+      try {
+        const serviceManagement = await waitForVisibleText(
+          page,
+          "服务管理",
+          options.navigationTimeout
+        );
+        await serviceManagement.click();
+
+        const scanReceipt = await waitForVisibleText(
+          page,
+          "扫码签收",
+          options.navigationTimeout
+        );
+        await scanReceipt.click();
+        await input.waitFor({
+          state: "visible",
+          timeout: options.navigationTimeout ?? DEFAULT_TIMEOUT,
+        });
+      } catch {
+        assertRecloudAuthenticated(page);
+        throw new RecloudQueryError(
+          "RECLOUD_SCAN_PAGE_UNAVAILABLE",
+          "无法进入瑞云扫码签收页面",
+          { status: 502, retryable: true }
+        );
+      }
+    }
+  }
+
+  logRecloudStage("scan_page_ready", logger);
+  return input;
 }
 
 function toQueryError(error) {
@@ -99,56 +620,296 @@ function toQueryError(error) {
   return error;
 }
 
-async function enterRmaQuery(page, logisticsNo) {
+async function enterRmaQuery(page, logisticsNo, options = {}) {
   const value = normalizeText(logisticsNo);
   if (!value) throw new Error("缺少物流单号");
 
-  assertRecloudAuthenticated(page);
-  const input = getLogisticsInput(page);
-  try {
-    await input.waitFor({ state: "visible" });
-  } catch (error) {
-    assertRecloudAuthenticated(page);
+  const logger = options.logger || console;
+  const input = await ensureScanPage(page, options);
+  await input.click();
+  await input.press(getSelectAllShortcut(options.platform));
+  await input.press("Backspace");
+  await input.pressSequentially(value, {
+    delay: options.scannerKeyDelay ?? SCANNER_KEY_DELAY,
+  });
+  logRecloudStage("scanner_input_typed", logger);
+
+  const actualValue = await input.inputValue();
+  if (actualValue !== value) {
     throw new RecloudQueryError(
-      "RECLOUD_SCHEMA_CHANGED",
-      "瑞云扫码签收页输入框结构已变化",
-      { status: 502, retryable: false }
+      "RECLOUD_LOGISTICS_FILL_FAILED",
+      "瑞云物流单号输入校验失败",
+      { status: 502, retryable: true }
     );
   }
-  await input.fill(value);
-  await input.press("Enter");
+
+  logRecloudStage("logistics_filled", logger);
+  await page.waitForTimeout(options.enterSettleDelay ?? ENTER_SETTLE_DELAY);
+  await page.keyboard.press("Enter");
+  logRecloudStage("enter_pressed", logger);
+  logRecloudStage("query_submitted", logger);
+}
+
+async function collectRtxpcFormItemPairs(page, options = {}) {
+  const items = page.locator(".rtxpc-form-item");
+  if (typeof items.count !== "function") return [];
+
+  const pairs = [];
+  const count = await items.count();
+  for (let index = 0; index < count; index += 1) {
+    const item = items.nth(index);
+    const label = item
+      .locator(
+        "label, .rtxpc-form-item__label, [class*='form-item__label']"
+      )
+      .first();
+    const title = normalizeText(
+      (await item.getAttribute("fieldTitle")) ||
+      (await item.getAttribute("field-title")) ||
+      (await label.innerText().catch(() => ""))
+    ).replace(/[：:]$/, "");
+    if (!title) continue;
+
+    const control = item.locator("input:visible, textarea:visible").first();
+    let value = "";
+    if (await control.isVisible().catch(() => false)) {
+      value =
+        title === "反馈电话"
+          ? await revealFeedbackPhone(item, page, control, {
+              enabled:
+                options.revealPhoneEnabled ??
+                isRevealPhoneEnabled(),
+              timeout: options.phoneRevealTimeout,
+              pollInterval: options.phoneRevealPollInterval,
+              logger: options.phoneRevealLogger,
+            })
+          : normalizeText(await control.inputValue());
+    } else {
+      const content = item.locator(".rtxpc-form-item__content").first();
+      value = normalizeText(await content.innerText().catch(() => ""));
+      if (!value) {
+        const itemText = normalizeText(await item.innerText().catch(() => ""));
+        value = normalizeText(itemText.replace(title, ""));
+      }
+    }
+
+    if (value) pairs.push([title, value]);
+  }
+
+  return pairs;
+}
+
+async function readProductLine(page, logger = console) {
+  const fail = (reason) => {
+    logger.warn?.(`RECLOUD_PRODUCT_LINE: failed ${reason}`);
+    return "";
+  };
+  if (typeof page.getByText !== "function") return "";
+
+  try {
+    const marker = page
+      .getByText("RMA明细", { exact: true })
+      .filter({ visible: true })
+      .first();
+    if (!(await marker.isVisible().catch(() => false))) {
+      return fail("RMA_DETAIL_REGION_NOT_FOUND");
+    }
+    const region = marker
+      .locator(
+        "xpath=ancestor::*[.//*[normalize-space()='产品线'] and .//*[normalize-space()='签收']][1]"
+      )
+      .first();
+    if (!(await region.isVisible().catch(() => false))) {
+      return fail("RMA_DETAIL_REGION_NOT_FOUND");
+    }
+
+    const header = region
+      .getByText("产品线", { exact: true })
+      .filter({ visible: true })
+      .first();
+    if (!(await header.isVisible().catch(() => false))) {
+      return fail("HEADER_NOT_FOUND");
+    }
+    logger.info?.("RECLOUD_PRODUCT_LINE: header_found");
+
+    const signCells = region
+      .getByText("签收", { exact: true })
+      .filter({ visible: true });
+    const signCount = await signCells.count().catch(() => 0);
+    if (signCount === 0) return fail("TARGET_ROW_NOT_FOUND");
+    if (signCount > 1) {
+      logger.warn?.("RECLOUD_PRODUCT_LINE: ambiguous_target_rows_using_first");
+    }
+    const signCell = signCells.first();
+    const row = signCell
+      .locator(
+        "xpath=ancestor::*[@role='row' or self::tr or contains(@class, 'row')][1]"
+      )
+      .first();
+    if (!(await row.isVisible().catch(() => false))) {
+      return fail("TARGET_ROW_NOT_FOUND");
+    }
+    logger.info?.("RECLOUD_PRODUCT_LINE: target_row_found");
+
+    const headers = region.locator(
+      "th:visible, [role='columnheader']:visible, [class*='header-cell']:visible"
+    );
+    const headerTexts = typeof headers.allInnerTexts === "function"
+      ? await headers.allInnerTexts()
+      : [];
+    const productIndex = headerTexts.map(normalizeText).indexOf("产品线");
+    const cells = row.locator(
+      "td:visible, [role='gridcell']:visible, [role='cell']:visible, .el-table__cell:visible, [class*='grid-cell']:visible"
+    );
+    if (productIndex >= 0 && typeof cells.count === "function") {
+      const cellCount = await cells.count();
+      if (productIndex < cellCount) {
+        const indexedValue = normalizeText(
+          await cells.nth(productIndex).innerText().catch(() => "")
+        );
+        if (indexedValue && indexedValue !== "签收") {
+          logger.info?.("RECLOUD_PRODUCT_LINE: value_ready");
+          return indexedValue;
+        }
+      }
+    }
+
+    const headerBox = await header.boundingBox().catch(() => null);
+    if (!headerBox || typeof cells.count !== "function") {
+      return fail("COLUMN_MATCH_FAILED");
+    }
+    const cellModels = [];
+    const cellCount = await cells.count();
+    for (let index = 0; index < cellCount; index += 1) {
+      const cell = cells.nth(index);
+      if (!(await cell.isVisible().catch(() => false))) continue;
+      cellModels.push({
+        text: await cell.innerText().catch(() => ""),
+        box: await cell.boundingBox().catch(() => null),
+      });
+    }
+    const coordinateValue = selectCellByHeaderCoordinate(
+      headerBox,
+      cellModels
+    );
+    if (!coordinateValue) return fail("COLUMN_MATCH_FAILED");
+    logger.info?.("RECLOUD_PRODUCT_LINE: value_ready");
+    return coordinateValue;
+  } catch {
+    return fail("READ_ERROR");
+  }
+}
+
+function selectCellByHeaderCoordinate(headerBox, cells) {
+  if (!headerBox) return "";
+  const centerX = headerBox.x + headerBox.width / 2;
+  const matches = cells
+    .filter(({ box }) =>
+      box &&
+      centerX >= box.x &&
+      centerX <= box.x + box.width
+    )
+    .sort((left, right) => left.box.width - right.box.width);
+  for (const match of matches) {
+    const value = normalizeText(match.text);
+    if (value && value !== "签收") return value;
+  }
+  return "";
 }
 
 async function readRmaDetail(page, logisticsNo = "") {
   assertRecloudAuthenticated(page);
   const bodyText = await page.locator("body").innerText();
-  const pairs = extractTextFieldPairs(bodyText);
-  return parseRmaFieldPairs(pairs, logisticsNo);
+  const revealPhoneEnabled = isRevealPhoneEnabled();
+  const formItemPairs = await collectRtxpcFormItemPairs(page, {
+    revealPhoneEnabled,
+  });
+  const productLine = await readProductLine(page);
+  const textPairs = extractTextFieldPairs(bodyText);
+  return parseRmaFieldPairs([...formItemPairs, ...textPairs], logisticsNo, {
+    rmaNoFromTitle: extractRmaNoFromTitle(bodyText),
+    allowFullPhone: revealPhoneEnabled,
+    productLine,
+  });
 }
 
-async function waitForRmaDetail(page, logisticsNo = "") {
-  const queryInput = getLogisticsInput(page);
-  const deadline = Date.now() + DEFAULT_TIMEOUT;
-  let detailPageObserved = false;
-  let schemaError = null;
+function isScanQueryUrl(url) {
+  try {
+    return new URL(url).hash.includes("/scanSignin/query");
+  } catch {
+    return false;
+  }
+}
+
+function getRmaDetailSignals(bodyText, options = {}) {
+  const text = String(bodyText || "");
+  const hasRmaText = /(^|[\s｜|])RMA(?=$|[\s｜|明细])/i.test(text);
+  const hasRmaNumber = /JXTH\d+/i.test(text);
+  const hasDetailSection = /产品信息|RMA\s*明细/i.test(text);
+  const hasNearbyRmaNumber = /RMA[\s\S]{0,200}JXTH\d+/i.test(text);
+
+  return {
+    hasRmaText,
+    hasRmaNumber,
+    hasDetailSection,
+    hasNearbyRmaNumber,
+    scanInputHidden: options.scanInputHidden === true,
+    leftScanQueryRoute: options.leftScanQueryRoute === true,
+  };
+}
+
+function isRmaDetailReady(signals) {
+  return (
+    signals.scanInputHidden &&
+    signals.hasRmaText &&
+    signals.hasRmaNumber &&
+    signals.hasDetailSection
+  );
+}
+
+async function waitForRmaDetail(page, logisticsNo = "", options = {}) {
+  const deadline = Date.now() + (options.timeout ?? DEFAULT_TIMEOUT);
+  const logger = options.logger || console;
+  let diagnosticsLogged = false;
+  let enterRetried = false;
+  const retryAt = Date.now() + (options.retryDelay ?? QUERY_RETRY_DELAY);
 
   while (Date.now() < deadline) {
     assertRecloudAuthenticated(page);
 
-    const inputVisible = await queryInput.isVisible().catch(() => false);
-    if (!inputVisible) {
-      detailPageObserved = true;
-      try {
-        return await readRmaDetail(page, logisticsNo);
-      } catch (error) {
-        if (error.code !== "RECLOUD_SCHEMA_CHANGED") throw error;
-        schemaError = error;
-        await page.waitForTimeout(200);
-        continue;
+    const bodyText = await page.locator("body").innerText().catch(() => "");
+    const queryInput = getLogisticsInput(page);
+    const scanInputHidden = !(await queryInput.isVisible().catch(() => false));
+    const signals = getRmaDetailSignals(bodyText, {
+      scanInputHidden,
+      leftScanQueryRoute: !isScanQueryUrl(page.url()),
+    });
+
+    if (isRmaDetailReady(signals)) {
+      logRecloudStage("rma_detail_ready", logger);
+      if (isDomDiagnosticsEnabled() && !diagnosticsLogged) {
+        try {
+          const fieldTitles = await collectSafeFieldTitles(page);
+          logSafeFieldTitles(fieldTitles);
+        } catch {
+          console.warn(
+            "RECLOUD_FIELD_TITLES:",
+            JSON.stringify([])
+          );
+        }
+        diagnosticsLogged = true;
+      }
+      return readRmaDetail(page, logisticsNo);
+    }
+
+    if (!enterRetried && Date.now() >= retryAt) {
+      if (!scanInputHidden) {
+        await page.keyboard.press("Enter");
+        logRecloudStage("enter_retried", logger);
+        enterRetried = true;
       }
     }
 
-    const bodyText = await page.locator("body").innerText().catch(() => "");
     if (/未找到|查询不到|暂无(?:相关)?(?:工单|数据)|工单不存在/.test(bodyText)) {
       throw new RecloudQueryError(
         "RECLOUD_ORDER_NOT_FOUND",
@@ -157,10 +918,8 @@ async function waitForRmaDetail(page, logisticsNo = "") {
       );
     }
 
-    await page.waitForTimeout(200);
+    await page.waitForTimeout(options.pollInterval ?? 200);
   }
-
-  if (detailPageObserved && schemaError) throw schemaError;
 
   throw new RecloudQueryError("RECLOUD_QUERY_TIMEOUT", "瑞云工单查询超时", {
     status: 504,
@@ -168,10 +927,10 @@ async function waitForRmaDetail(page, logisticsNo = "") {
   });
 }
 
-async function queryRmaByLogisticsNo(page, logisticsNo) {
+async function queryRmaByLogisticsNo(page, logisticsNo, options = {}) {
   try {
-    await enterRmaQuery(page, logisticsNo);
-    return await waitForRmaDetail(page, logisticsNo);
+    await enterRmaQuery(page, logisticsNo, options);
+    return await waitForRmaDetail(page, logisticsNo, options);
   } catch (error) {
     throw toQueryError(error);
   }
@@ -295,9 +1054,31 @@ module.exports = {
   isRecloudLoginPage,
   assertRecloudAuthenticated,
   getLogisticsInput,
+  collectRtxpcFormItemPairs,
+  findFeedbackPhoneRevealButton,
+  getFeedbackPhoneSearchScope,
+  getRmaDetailSignals,
+  isRmaDetailReady,
+  isScanQueryUrl,
+  getSelectAllShortcut,
+  isCompleteMobilePhone,
+  extractCompleteMobilePhone,
+  collectStringValues,
+  createPhoneResponseListener,
+  findCurrentFeedbackPhoneItem,
+  findRevealedPhone,
+  selectMatchingPhone,
+  isRevealPhoneEnabled,
+  logPhoneReveal,
+  ensureScanPage,
+  logRecloudStage,
+  waitForVisibleText,
   enterRmaQuery,
   waitForRmaDetail,
   readRmaDetail,
+  readProductLine,
+  selectCellByHeaderCoordinate,
+  revealFeedbackPhone,
   queryRmaByLogisticsNo,
   toQueryError,
   scanSign,
