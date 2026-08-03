@@ -187,6 +187,9 @@ function Login({ onLogin }) {
             管理员：admin
           </button>
 
+          <button type="button" onClick={() => setAccount("li")}>洗地机师傅：li</button>
+          <button type="button" onClick={() => setAccount("zhao")}>双品类师傅：zhao</button>
+
         </div>
 
 

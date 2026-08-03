@@ -33,6 +33,20 @@ const DEFAULT_USERS = [
     account: "admin",
     role: USER_ROLES.ADMIN,
     repairSpecialties: ["扫地机", "洗地机"]
+  },
+  {
+    id: "USER-004",
+    name: "李师傅",
+    account: "li",
+    role: USER_ROLES.TECHNICIAN,
+    repairSpecialties: ["洗地机"]
+  },
+  {
+    id: "USER-005",
+    name: "赵师傅",
+    account: "zhao",
+    role: USER_ROLES.TECHNICIAN,
+    repairSpecialties: ["扫地机", "洗地机"]
   }
 ]
 
@@ -83,6 +97,16 @@ function initializeUsers() {
       "fieldDeskUsers",
       DEFAULT_USERS
     )
+  } else {
+    try {
+      const storedUsers = JSON.parse(localStorage.getItem("fieldDeskUsers"))
+      const missingUsers = DEFAULT_USERS.filter((candidate) =>
+        !storedUsers.some((user) => user.id === candidate.id)
+      )
+      if (missingUsers.length) writeJson("fieldDeskUsers", [...storedUsers, ...missingUsers])
+    } catch {
+      writeJson("fieldDeskUsers", DEFAULT_USERS)
+    }
   }
 
   if (!localStorage.getItem("currentUserId")) {

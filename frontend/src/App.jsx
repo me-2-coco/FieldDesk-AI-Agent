@@ -98,6 +98,8 @@ function App() {
 
     }
 
+    setCurrentUser(latestUser)
+
 
 
     if (!canAccessPage(nextPage, latestUser)) {

@@ -5,7 +5,7 @@ import {
   recordLocalPartUse,
   requestLocalPartReturn,
 } from "../shared/crmService.js"
-import { getCurrentRepairOrder } from "../shared/repairOrderStore.js"
+import { getCurrentRepairOrder, REPAIR_STATUS, updateRepairOrder } from "../shared/repairOrderStore.js"
 
 function Inventory({ setPage }) {
   const [user, setUser] = useState(null)
@@ -36,6 +36,7 @@ function Inventory({ setPage }) {
       const result = action === "use"
         ? await recordLocalPartUse(payload)
         : await requestLocalPartReturn(payload)
+      if (action === "use") updateRepairOrder({ status: REPAIR_STATUS.REPAIRING })
       setMessage(result.message)
       await refresh()
     } catch (error) { setMessage(error.message) }
@@ -71,7 +72,7 @@ function Inventory({ setPage }) {
       )}
     </div>
     {message && <div className="card"><p>{message}</p></div>}
-    {user.role === "TECHNICIAN" && order.crmOrderNo && (
+    {user.role === "TECHNICIAN" && order.crmOrderNo && [REPAIR_STATUS.INSPECTION_COMPLETE, REPAIR_STATUS.WAIT_PARTS, REPAIR_STATUS.REPAIRING].includes(order.status) && (
       <button className="primary-btn" onClick={() => setPage("repairCompletion")}>返回当前工单并进入维修完工</button>
     )}
   </div>

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react"
 import { applyLocalPart } from "../shared/crmService.js"
 import {
   getCurrentRepairOrder,
+  REPAIR_STATUS,
   updateRepairOrder
 } from "../shared/repairOrderStore.js"
 
@@ -56,6 +57,7 @@ function PartsApplication({ setPage }) {
       })
       const application = result.application
       const updated = updateRepairOrder({
+        status: REPAIR_STATUS.WAIT_PARTS,
         parts: [
           ...(repairOrder.parts || []),
           {
