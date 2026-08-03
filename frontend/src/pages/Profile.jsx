@@ -4,7 +4,8 @@ import {
   getUsers,
   getCurrentUser,
   getRoleName,
-  setCurrentUser
+  setCurrentUser,
+  USER_ROLES
 } from "../shared/userStore.js"
 
 
@@ -97,6 +98,14 @@ function Profile({
         </p>
 
       </div>
+
+      {currentUser.role === USER_ROLES.ADMIN && (
+        <div className="card">
+          <h2>瑞云同步管理</h2>
+          <p>查看本地业务节点的异步同步任务和失败重试。</p>
+          <button type="button" onClick={() => setPage("syncTasks")}>同步任务</button>
+        </div>
+      )}
 
 
       <div className="card">

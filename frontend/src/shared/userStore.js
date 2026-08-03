@@ -216,6 +216,7 @@ export function canAccessPage(
   "records",
   "inventory",
   "warehouse",
+  "syncTasks",
   "profile"
 ],
 

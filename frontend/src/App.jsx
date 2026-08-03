@@ -13,6 +13,7 @@ import Records from "./pages/Records.jsx"
 import Inventory from "./pages/Inventory.jsx"
 import Warehouse from "./pages/Warehouse.jsx"
 import Profile from "./pages/Profile.jsx"
+import SyncTasks from "./pages/SyncTasks.jsx"
 
 import BottomNav from "./components/BottomNav.jsx"
 
@@ -281,6 +282,10 @@ function App() {
             onLogout={handleLogout}
           />
 
+        )}
+
+        {page === "syncTasks" && (
+          <SyncTasks setPage={setPage} />
         )}
 
 

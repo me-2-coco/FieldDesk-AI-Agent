@@ -14,6 +14,9 @@ const {
 const { JsonInventoryStore } = require("./database/inventory-store");
 const { LocalRepairAttachmentStore } = require("./database/repair-attachment-store");
 const { LocalShippingAttachmentStore } = require("./database/shipping-attachment-store");
+const { JsonRecloudSyncOutbox } = require("./database/recloud-sync-outbox");
+const { createRecloudAdapter } = require("./connectors/recloud-adapter");
+const { RecloudSyncService } = require("./services/recloud-sync-service");
 const {
   USER_ROLES,
   getLocalCurrentUser,
@@ -195,6 +198,10 @@ function createApp(
   const inventoryStore = options.inventoryStore || new JsonInventoryStore();
   const attachmentStore = options.attachmentStore || new LocalRepairAttachmentStore();
   const shippingAttachmentStore = options.shippingAttachmentStore || new LocalShippingAttachmentStore();
+  const syncService = options.syncService || new RecloudSyncService(
+    options.syncOutbox || new JsonRecloudSyncOutbox(),
+    options.recloudAdapter || createRecloudAdapter()
+  );
   const app = express();
   app.use(express.json({ limit: "30mb" }));
 
@@ -205,6 +212,15 @@ function createApp(
     if (req.method === "OPTIONS") return res.sendStatus(204);
     next();
   });
+
+  async function enqueueRecloudNode(order, nodeType, recordId) {
+    try {
+      return await syncService.enqueueOrderNode(order, nodeType, recordId);
+    } catch {
+      console.error("RECLOUD_SYNC_OUTBOX: enqueue_failed");
+      return null;
+    }
+  }
 
   app.get("/api/health", (req, res) => {
     res.json({
@@ -472,6 +488,7 @@ function createApp(
         rmaNo,
         currentUserProvider(req)
       );
+      await enqueueRecloudNode(data, "RECEIPT", data.receiptCompletedAt || data.id);
       return res.json({
         success: true,
         data: {
@@ -505,6 +522,7 @@ function createApp(
         },
         currentUserProvider(req)
       );
+      await enqueueRecloudNode(data, "INSPECTION_COMPLETED", data.inspectionUpdatedAt || data.id);
       return res.json({
         success: true,
         data: {
@@ -628,6 +646,13 @@ function createApp(
         currentUserProvider(req),
         submit
       );
+      if (submit) {
+        await enqueueRecloudNode(
+          data,
+          "REPAIR_COMPLETED",
+          data.repairCompletion?.submittedAt || data.id
+        );
+      }
       res.json({
         success: true,
         data: {
@@ -685,6 +710,7 @@ function createApp(
         throw createApiError("SHIPPING_ORDER_FORBIDDEN", "只能操作本人负责的待发货工单", 403);
       }
       const data = await receiptStore.submitReturnShipment(rmaNo, req.body || {}, user);
+      await enqueueRecloudNode(data, "RETURN_SHIPPED", data.returnShipment?.shippedAt || data.id);
       res.json({ success: true, data: { ...data, statusLabel: "已发货/待完结", message: "返件发货已保存到 FieldDesk", recloudSynced: false } });
     } catch (error) { next(error); }
   });
@@ -694,7 +720,24 @@ function createApp(
       const user = currentUserProvider(req);
       if (user.role !== USER_ROLES.ADMIN) throw createApiError("ORDER_COMPLETION_FORBIDDEN", "只有管理员可以确认完结", 403);
       const data = await receiptStore.confirmCompletion(String(req.body?.rmaNo || "").trim(), user);
+      await enqueueRecloudNode(data, "ORDER_COMPLETED", data.completedAt || data.id);
       res.json({ success: true, data: { ...data, statusLabel: "已完结", message: "工单已在 FieldDesk 本地完结", recloudSynced: false } });
+    } catch (error) { next(error); }
+  });
+
+  app.get("/api/recloud-sync/tasks", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      if (user.role !== USER_ROLES.ADMIN) throw createApiError("SYNC_TASKS_FORBIDDEN", "只有管理员可以查看瑞云同步任务", 403);
+      res.json({ success: true, data: await syncService.outbox.readAll() });
+    } catch (error) { next(error); }
+  });
+
+  app.post("/api/recloud-sync/tasks/retry", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      if (user.role !== USER_ROLES.ADMIN) throw createApiError("SYNC_TASKS_FORBIDDEN", "只有管理员可以重试瑞云同步任务", 403);
+      res.json({ success: true, data: await syncService.retry(String(req.body?.taskId || "").trim()) });
     } catch (error) { next(error); }
   });
 

@@ -129,6 +129,14 @@ export async function confirmLocalOrderCompletion(rmaNo) {
   return request("/api/shipping/complete", { rmaNo })
 }
 
+export async function getRecloudSyncTasks() {
+  return get("/api/recloud-sync/tasks")
+}
+
+export async function retryRecloudSyncTask(taskId) {
+  return request("/api/recloud-sync/tasks/retry", { taskId })
+}
+
 export async function getCurrentFieldDeskUser() {
   return get("/api/auth/me")
 }
