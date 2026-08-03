@@ -42,6 +42,7 @@ function createSessionBrowser(initialUrl) {
   let currentUrl = initialUrl;
   let launchCount = 0;
   let closeCount = 0;
+  let launchOptions = null;
   const page = {
     isClosed: () => false,
     url: () => currentUrl,
@@ -59,8 +60,9 @@ function createSessionBrowser(initialUrl) {
   };
   return {
     chromium: {
-      async launchPersistentContext() {
+      async launchPersistentContext(profileDirectory, options) {
         launchCount += 1;
+        launchOptions = options;
         return context;
       },
     },
@@ -69,6 +71,9 @@ function createSessionBrowser(initialUrl) {
     },
     get launchCount() {
       return launchCount;
+    },
+    get launchOptions() {
+      return launchOptions;
     },
     page,
   };
@@ -125,6 +130,7 @@ test("logged-in persistent profile is reused in one backend process", async (t) 
 
   assert.equal(first.page, second.page);
   assert.equal(browser.launchCount, 1);
+  assert.equal(browser.launchOptions.serviceWorkers, "block");
   assert.ok(logs.includes("RECLOUD_SESSION: reused"));
   assert.ok(logs.includes("RECLOUD_SESSION: ready"));
   await manager.close();

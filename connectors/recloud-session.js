@@ -283,6 +283,10 @@ function createRecloudSessionManager(options = {}) {
               !["0", "false"].includes(
                 String(env.RECLOUD_HEADLESS).toLowerCase()
               ),
+            // Playwright routing cannot observe requests claimed by a Service Worker.
+            // Blocking Service Workers ensures the receipt simulation guard sees
+            // every page request before it reaches the network.
+            serviceWorkers: "block",
           }
         );
         page = context.pages()[0] || (await context.newPage());
