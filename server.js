@@ -12,6 +12,7 @@ const {
   normalizeSn,
 } = require("./database/receipt-preparation-store");
 const { JsonInventoryStore } = require("./database/inventory-store");
+const { LocalRepairAttachmentStore } = require("./database/repair-attachment-store");
 const {
   USER_ROLES,
   getLocalCurrentUser,
@@ -22,6 +23,19 @@ const LOCAL_PARTS_CATALOG = Object.freeze([
   { code: "00100123", name: "主刷电机", stock: 50 },
   { code: "00100234", name: "电池组件", stock: 20 },
   { code: "00100345", name: "滚刷", stock: 0 },
+]);
+const LOCAL_FAULT_CATALOG = Object.freeze([
+  { name: "功能故障", children: [
+    { name: "清洁功能", children: ["不出水", "不吸水", "清洁效果差"] },
+    { name: "行走功能", children: ["无法行走", "原地打转", "路径异常"] },
+  ] },
+  { name: "电气故障", children: [
+    { name: "供电系统", children: ["无法开机", "异常关机", "无法充电"] },
+    { name: "传感系统", children: ["传感器异常", "避障异常", "地图异常"] },
+  ] },
+  { name: "结构故障", children: [
+    { name: "机身结构", children: ["外壳损坏", "轮组损坏", "刷组损坏"] },
+  ] },
 ]);
 
 function normalizeLogisticsNo(value) {
@@ -178,8 +192,9 @@ function createApp(
   const currentUserProvider =
     options.getCurrentUser || (() => getLocalCurrentUser());
   const inventoryStore = options.inventoryStore || new JsonInventoryStore();
+  const attachmentStore = options.attachmentStore || new LocalRepairAttachmentStore();
   const app = express();
-  app.use(express.json({ limit: "100kb" }));
+  app.use(express.json({ limit: "30mb" }));
 
   app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", process.env.FRONTEND_ORIGIN || "*");
@@ -570,6 +585,59 @@ function createApp(
       res.json({ success: true, data: { ...data, message: "退还已确认并入总库" } });
     } catch (error) { next(error); }
   });
+
+  app.get("/api/repairs/completion/fault-catalog", (req, res) => {
+    res.json({
+      success: true,
+      data: { source: "LOCAL_MOCK", syncProvider: "RECLOUD_RESERVED", items: LOCAL_FAULT_CATALOG },
+    });
+  });
+
+  app.post("/api/repairs/completion/context", async (req, res, next) => {
+    try {
+      const rmaNo = String(req.body?.rmaNo || "").trim();
+      const order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
+      if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到待维修工单", 404);
+      if (!["INSPECTION_COMPLETED_PENDING_REPAIR", "REPAIR_COMPLETION_DRAFT"].includes(order.status)) {
+        throw createApiError("REPAIR_COMPLETION_NOT_ALLOWED", "仅已完成检测的工单可以进入维修完工", 409);
+      }
+      const usedParts = await inventoryStore.usedPartsForOrder(order.rmaNo, order.sn);
+      res.json({ success: true, data: { order, usedParts, recloudSynced: false } });
+    } catch (error) { next(error); }
+  });
+
+  app.post("/api/repairs/completion/attachments", async (req, res, next) => {
+    try {
+      res.json({ success: true, data: await attachmentStore.save(req.body || {}) });
+    } catch (error) { next(error); }
+  });
+
+  async function saveRepairCompletion(req, res, next, submit) {
+    try {
+      const rmaNo = String(req.body?.rmaNo || "").trim();
+      const order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
+      if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到待维修工单", 404);
+      const usedParts = await inventoryStore.usedPartsForOrder(order.rmaNo, order.sn);
+      const data = await receiptStore.saveRepairCompletion(
+        rmaNo,
+        { ...req.body, usedParts },
+        currentUserProvider(req),
+        submit
+      );
+      res.json({
+        success: true,
+        data: {
+          ...data,
+          statusLabel: submit ? "维修完成/待发货" : "维修完工草稿",
+          message: submit ? "维修完工已保存到 FieldDesk，待返程发货" : "维修完工草稿已保存",
+          recloudSynced: false,
+        },
+      });
+    } catch (error) { next(error); }
+  }
+
+  app.post("/api/repairs/completion/draft", (req, res, next) => saveRepairCompletion(req, res, next, false));
+  app.post("/api/repairs/completion/submit", (req, res, next) => saveRepairCompletion(req, res, next, true));
 
   // 保留已有调用方兼容性。
   app.post("/queryRepair", (req, res, next) => {

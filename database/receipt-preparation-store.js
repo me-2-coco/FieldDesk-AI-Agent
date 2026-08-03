@@ -7,6 +7,7 @@ const ACTIVE_RECEIPT_STATUSES = new Set([
   "RECEIVED_PENDING_INSPECTION",
   "INSPECTION_IN_PROGRESS",
   "INSPECTION_COMPLETED_PENDING_REPAIR",
+  "REPAIR_COMPLETION_DRAFT",
 ]);
 const DEFAULT_DATA_FILE = path.join(
   __dirname,
@@ -277,6 +278,64 @@ class JsonReceiptPreparationStore {
         records.map((record) => record.rmaNo === rmaNo ? updated : record)
       );
       return { order: updated, application };
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
+  async saveRepairCompletion(rmaNo, input = {}, operator = {}, submit = false) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing) {
+        throw Object.assign(new Error("未找到待维修工单"), {
+          code: "RECEIPT_PREPARATION_NOT_FOUND", status: 404,
+        });
+      }
+      if (!["INSPECTION_COMPLETED_PENDING_REPAIR", "REPAIR_COMPLETION_DRAFT"].includes(existing.status)) {
+        throw Object.assign(new Error("仅已完成检测的工单可以进入维修完工"), {
+          code: "REPAIR_COMPLETION_NOT_ALLOWED", status: 409,
+        });
+      }
+      const faultLevel1 = normalizeRequired(input.faultLevel1);
+      const faultLevel2 = normalizeRequired(input.faultLevel2);
+      const faultLevel3 = normalizeRequired(input.faultLevel3);
+      const responsibilityType = normalizeRequired(input.responsibilityType);
+      const repairMeasure = normalizeRequired(input.repairMeasure);
+      if (submit) {
+        const missingFields = [];
+        if (!existing.sn) missingFields.push("sn");
+        if (!faultLevel1 || !faultLevel2 || !faultLevel3) missingFields.push("faultClassification");
+        if (!responsibilityType) missingFields.push("responsibilityType");
+        if (!repairMeasure) missingFields.push("repairMeasure");
+        if (missingFields.length) {
+          const error = new Error(`缺少必填字段：${missingFields.join(", ")}`);
+          error.code = "REPAIR_COMPLETION_INVALID";
+          error.status = 400;
+          error.missingFields = missingFields;
+          throw error;
+        }
+      }
+      const timestamp = new Date().toISOString();
+      const updated = {
+        ...existing,
+        status: submit ? "REPAIR_COMPLETED_PENDING_SHIPMENT" : "REPAIR_COMPLETION_DRAFT",
+        repairCompletion: {
+          faultLevel1, faultLevel2, faultLevel3,
+          responsibilityType,
+          speechTemplate: normalizeRequired(input.speechTemplate),
+          repairMeasure,
+          usedParts: Array.isArray(input.usedParts) ? input.usedParts : [],
+          attachments: Array.isArray(input.attachments) ? input.attachments : [],
+          savedAt: timestamp,
+          submittedAt: submit ? timestamp : null,
+          operatorId: normalizeRequired(operator.userId),
+          operatorName: normalizeRequired(operator.displayName) || "本地测试用户",
+        },
+        updatedAt: timestamp,
+      };
+      await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
+      return updated;
     });
     this.writeQueue = operation.catch(() => {});
     return operation;

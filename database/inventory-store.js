@@ -78,6 +78,26 @@ class JsonInventoryStore {
       transactions: privileged ? data.transactions : data.transactions.filter((item) => item.technicianId === user.userId),
     };
   }
+  async usedPartsForOrder(rmaNo, sn) {
+    const data = await this.read();
+    const totals = new Map();
+    data.transactions
+      .filter((item) =>
+        item.type === "PART_USED" &&
+        item.rmaNo === rmaNo &&
+        item.sn === sn
+      )
+      .forEach((item) => {
+        const current = totals.get(item.partCode) || {
+          partCode: item.partCode,
+          partName: item.partName,
+          quantity: 0,
+        };
+        current.quantity += item.quantity;
+        totals.set(item.partCode, current);
+      });
+    return [...totals.values()];
+  }
   apply(context, partCode, count, user) {
     return this.run((data) => {
       const amount = quantity(count);

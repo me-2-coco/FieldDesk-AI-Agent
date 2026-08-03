@@ -89,6 +89,26 @@ export async function confirmLocalPartReturn(requestId) {
   return request("/api/inventory/returns/confirm", { requestId })
 }
 
+export async function getRepairCompletionContext(rmaNo) {
+  return request("/api/repairs/completion/context", { rmaNo })
+}
+
+export async function getFaultCatalog() {
+  return get("/api/repairs/completion/fault-catalog")
+}
+
+export async function uploadRepairAttachment(payload) {
+  return request("/api/repairs/completion/attachments", payload)
+}
+
+export async function saveRepairCompletionDraft(payload) {
+  return request("/api/repairs/completion/draft", payload)
+}
+
+export async function submitRepairCompletion(payload) {
+  return request("/api/repairs/completion/submit", payload)
+}
+
 export async function getCurrentFieldDeskUser() {
   return get("/api/auth/me")
 }

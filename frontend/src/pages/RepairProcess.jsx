@@ -118,12 +118,14 @@ function RepairProcess({ setPage }) {
         </p>
 
         {repairOrder.status === REPAIR_STATUS.INSPECTION_COMPLETE && (
-          <button
-            className="primary-btn"
-            onClick={() => setPage("partsApplication")}
-          >
-            申请配件
-          </button>
+          <>
+            <button className="primary-btn" onClick={() => setPage("partsApplication")}>
+              申请配件
+            </button>
+            <button className="secondary-btn" onClick={() => setPage("repairCompletion")}>
+              进入维修完工
+            </button>
+          </>
         )}
       </div>
 

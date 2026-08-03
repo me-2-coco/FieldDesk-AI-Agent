@@ -15,3 +15,4 @@ connectors/*cookie*
 connectors/*token*
 connectors/*.har
 database/data/
+database/uploads/
