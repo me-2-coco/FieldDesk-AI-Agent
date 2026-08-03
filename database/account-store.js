@@ -29,6 +29,7 @@ class AccountStore {
         repairSpecialties: ["扫地机", "洗地机"],
         active: true,
         tokenHash: crypto.createHash("sha256").update(String(accessToken)).digest("hex"),
+        tokenExpiresAt: new Date(Date.now() + Math.min(168, Math.max(1, Number(process.env.FIELDDESK_SESSION_HOURS || 12))) * 3600_000).toISOString(),
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
@@ -43,7 +44,8 @@ class AccountStore {
     if (!token) return null;
     const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
     const data = await this.backend.read();
-    const user = data.users.find((item) => item.active !== false && item.tokenHash === tokenHash);
+    const now = Date.now();
+    const user = data.users.find((item) => item.active !== false && item.tokenHash === tokenHash && (!item.tokenExpiresAt || Date.parse(item.tokenExpiresAt) > now));
     if (!user) return null;
     const { tokenHash: ignored, ...safe } = user;
     return safe;
@@ -62,7 +64,8 @@ class AccountStore {
         ? crypto.createHash("sha256").update(String(input.accessToken)).digest("hex")
         : existing?.tokenHash;
       if (!userId || !input.displayName || !tokenHash) throw Object.assign(new Error("账号资料不完整"), { code: "ACCOUNT_FIELDS_REQUIRED", status: 400 });
-      const next = { userId, displayName: String(input.displayName).trim(), role, repairSpecialties: specialties, active: input.active !== false, tokenHash, updatedAt: new Date().toISOString() };
+      const sessionHours = Math.min(168, Math.max(1, Number(input.sessionHours || process.env.FIELDDESK_SESSION_HOURS || 12)));
+      const next = { userId, displayName: String(input.displayName).trim(), role, repairSpecialties: specialties, active: input.active !== false, tokenHash, tokenExpiresAt: input.accessToken ? new Date(Date.now() + sessionHours * 3600_000).toISOString() : existing?.tokenExpiresAt, updatedAt: new Date().toISOString() };
       if (existing) Object.assign(existing, next); else data.users.push({ ...next, createdAt: next.updatedAt });
       const { tokenHash: ignored, ...safe } = next;
       return safe;

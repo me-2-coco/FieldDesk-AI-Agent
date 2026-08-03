@@ -1,0 +1,13 @@
+.git
+.env
+.env.*
+node_modules
+frontend/node_modules
+frontend/dist
+connectors/.recloud-browser-profile
+connectors/recloud-state.json
+database/data
+database/uploads
+logs
+backups
+certs

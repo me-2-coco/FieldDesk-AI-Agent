@@ -5,6 +5,8 @@ const { createDocumentBackend } = require("./storage-backend");
 class WorkCoordinationStore {
   constructor(options = {}) {
     this.now = options.now || (() => Date.now());
+    this.auditRetentionDays = Number(options.auditRetentionDays || process.env.AUDIT_RETENTION_DAYS || 365);
+    this.auditMaxEntries = Number(options.auditMaxEntries || process.env.AUDIT_MAX_ENTRIES || 100000);
     const driver = options.driver || process.env.FIELDDESK_STORAGE_DRIVER || "json";
     this.backend = options.backend || createDocumentBackend({
       driver,
@@ -70,6 +72,8 @@ class WorkCoordinationStore {
   }
   audit(event) {
     return this.backend.update((data) => {
+      const cutoff = this.now() - this.auditRetentionDays * 86400_000;
+      data.audits = data.audits.filter((item) => Date.parse(item.createdAt) >= cutoff).slice(-(this.auditMaxEntries - 1));
       const record = { id: crypto.randomUUID(), action: event.action, resourceType: event.resourceType || "WORK_ORDER", resourceId: event.resourceId || "", operatorId: event.user?.userId || "", operatorName: event.user?.displayName || "", outcome: event.outcome || "SUCCESS", createdAt: new Date(this.now()).toISOString() };
       data.audits.push(record);
       return record;

@@ -5,7 +5,7 @@ const DEFAULT_DIRECTORY = path.join(__dirname, "uploads", "shipments");
 
 class LocalShippingAttachmentStore extends LocalRepairAttachmentStore {
   constructor(directory = DEFAULT_DIRECTORY) {
-    super(directory);
+    super(directory, { allowedMimeTypes: ["image/jpeg", "image/png", "image/webp"] });
   }
 
   async save(input) {

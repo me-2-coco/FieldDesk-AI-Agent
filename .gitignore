@@ -16,3 +16,9 @@ connectors/*token*
 connectors/*.har
 database/data/
 database/uploads/
+logs/
+backups/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+certs/

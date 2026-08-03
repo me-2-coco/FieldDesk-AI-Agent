@@ -1,0 +1,17 @@
+services:
+  fielddesk:
+    build: .
+    restart: unless-stopped
+    env_file: /etc/fielddesk/fielddesk.env
+    ports: ["127.0.0.1:3000:3000"]
+    volumes:
+      - fielddesk_data:/data
+      - fielddesk_logs:/logs
+      - fielddesk_backups:/backups
+    read_only: true
+    tmpfs: ["/tmp"]
+    security_opt: ["no-new-privileges:true"]
+volumes:
+  fielddesk_data:
+  fielddesk_logs:
+  fielddesk_backups:

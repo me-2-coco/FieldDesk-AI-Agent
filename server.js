@@ -1,4 +1,6 @@
 const express = require("express");
+const http = require("http");
+const https = require("https");
 if (require.main === module) {
   try {
     process.loadEnvFile?.();
@@ -11,6 +13,8 @@ const { normalizeSn } = require("./database/receipt-preparation-store");
 const { createBusinessStores } = require("./database/business-store-factory");
 const { AccountStore } = require("./database/account-store");
 const { WorkCoordinationStore } = require("./database/work-coordination-store");
+const { validateRuntimeConfig, loadTlsOptions } = require("./config/runtime-config");
+const { createRateLimiter, securityHeaders, RotatingJsonLogger, requestLogger } = require("./services/operational-security");
 const { LocalRepairAttachmentStore } = require("./database/repair-attachment-store");
 const { LocalShippingAttachmentStore } = require("./database/shipping-attachment-store");
 const { JsonRecloudSyncOutbox } = require("./database/recloud-sync-outbox");
@@ -194,7 +198,9 @@ function createApp(
   receiptStore = null,
   options = {}
 ) {
-  const businessStores = options.businessStores || createBusinessStores(options.env || process.env);
+  const runtimeEnv = options.env || process.env;
+  const runtimeConfig = validateRuntimeConfig(runtimeEnv);
+  const businessStores = options.businessStores || createBusinessStores(runtimeEnv);
   receiptStore ||= businessStores.receiptStore;
   const accountStore = options.accountStore || new AccountStore(options.accountStoreOptions);
   const coordinationStore = options.coordinationStore || new WorkCoordinationStore(options.coordinationStoreOptions);
@@ -211,10 +217,19 @@ function createApp(
     options.syncDiagnosticsStore || new JsonRecloudSyncDiagnosticsStore()
   );
   const app = express();
-  app.use(express.json({ limit: "30mb" }));
+  const operationalLogger = options.operationalLogger || new RotatingJsonLogger({ directory: runtimeEnv.LOG_DIRECTORY, maxBytes: runtimeEnv.LOG_MAX_BYTES, retention: runtimeEnv.LOG_RETENTION_FILES });
+  app.set("trust proxy", runtimeConfig.trustProxy);
+  app.use(express.json({ limit: runtimeEnv.REQUEST_BODY_LIMIT || "30mb" }));
+  app.use(securityHeaders);
+  app.use(createRateLimiter({ limit: Number(runtimeEnv.API_RATE_LIMIT_PER_MINUTE || 120) }));
+  app.use("/api/auth", createRateLimiter({ windowMs: 15 * 60_000, limit: Number(runtimeEnv.LOGIN_RATE_LIMIT_PER_15_MINUTES || 10), code: "LOGIN_RATE_LIMITED" }));
+  app.use(requestLogger(operationalLogger));
 
   app.use((req, res, next) => {
-    res.setHeader("Access-Control-Allow-Origin", process.env.FRONTEND_ORIGIN || "*");
+    const origin = String(req.headers.origin || "");
+    if (origin && !runtimeConfig.frontendOrigins.includes(origin)) return res.status(403).json({ success: false, code: "CORS_ORIGIN_DENIED", message: "来源不受信任" });
+    if (origin) res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization,Idempotency-Key");
     res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
     if (req.method === "OPTIONS") return res.sendStatus(204);
@@ -222,7 +237,6 @@ function createApp(
   });
 
   app.use(async (req, res, next) => {
-    const runtimeEnv = options.env || process.env;
     if (String(runtimeEnv.FIELDDESK_AUTH_MODE || "local") !== "accounts") return next();
     if (req.path === "/api/health") return next();
     try {
@@ -278,6 +292,15 @@ function createApp(
       dryRun: isDryRun(),
       recloudWriteEnabled: isRecloudWriteEnabled(),
     });
+  });
+
+  app.get("/api/ready", async (req, res) => {
+    try {
+      await Promise.all([receiptStore.readAll(), inventoryStore.read()]);
+      res.json({ success: true, status: "ready", storageDriver: businessStores.driver });
+    } catch {
+      res.status(503).json({ success: false, status: "not_ready" });
+    }
   });
 
   app.get("/api/auth/me", (req, res) => {
@@ -979,6 +1002,7 @@ function createApp(
       },
     };
     const mapped = errors[error.code];
+    operationalLogger.write("error", { requestId: res.getHeader("X-Request-Id"), method: req.method, path: req.path, code: error.code || "INTERNAL_ERROR", status: mapped?.status || error.status || 502 });
     console.error(
       "CRM request failed:",
       JSON.stringify({
@@ -1005,9 +1029,12 @@ function createApp(
 }
 
 if (require.main === module) {
-  const port = Number(process.env.PORT) || 3000;
+  const runtimeConfig = validateRuntimeConfig(process.env);
+  const port = runtimeConfig.port;
   const app = createApp();
-  const server = app.listen(port, () => {
+  const tlsOptions = loadTlsOptions(runtimeConfig);
+  const server = tlsOptions ? https.createServer(tlsOptions, app) : http.createServer(app);
+  server.listen(port, () => {
     console.log(`FieldDesk API 启动成功 http://localhost:${port}`);
     console.log(
       isDryRun()
