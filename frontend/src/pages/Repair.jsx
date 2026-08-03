@@ -2,10 +2,16 @@ import { useEffect, useState } from "react"
 import ScannerModal from "../components/ScannerModal"
 import {
   cancelReceiptPreparation,
+  completeLocalReceipt,
   getCurrentFieldDeskUser,
   prepareReceipt,
   queryCrmOrderByLogisticsNo
 } from "../shared/crmService.js"
+import {
+  createRepairOrder,
+  REPAIR_STATUS,
+  saveCurrentRepairOrder
+} from "../shared/repairOrderStore.js"
 import {
   getReceiptSpecialtyGate,
   normalizeReceiptSn,
@@ -156,6 +162,34 @@ function Repair({ setPage }) {
       setReceiptStep("detail")
       setSn("")
       setSpecialty("")
+    } catch (error) {
+      setErrorMessage(error.message)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  async function completeReceiptAndInspect() {
+    try {
+      setIsSaving(true)
+      setErrorMessage("")
+      const result = await completeLocalReceipt(repairDetail.rmaNo)
+      const order = createRepairOrder({
+        id: `RMA-${result.rmaNo}`,
+        crmOrderNo: result.rmaNo,
+        logisticsNo: result.logisticsNo,
+        customer: result.customerName,
+        product: result.productLine,
+        model: result.productLine,
+        sn: result.sn,
+        originalFault: result.reportedFault,
+        technician: result.operatorName,
+        status: REPAIR_STATUS.WAIT_INSPECTION,
+        specialty: result.specialty,
+        receiptRemark: result.remark
+      })
+      saveCurrentRepairOrder(order)
+      setPage("repairProcess")
     } catch (error) {
       setErrorMessage(error.message)
     } finally {
@@ -485,6 +519,12 @@ function Repair({ setPage }) {
             当前为演练模式，不会操作瑞云签收
           </p>
           <div className="receipt-actions">
+            <button
+              onClick={completeReceiptAndInspect}
+              disabled={isSaving}
+            >
+              {isSaving ? "正在处理..." : "完成本地签收并进入检测"}
+            </button>
             <button
               className="secondary-button"
               onClick={() => setReceiptStep("form")}

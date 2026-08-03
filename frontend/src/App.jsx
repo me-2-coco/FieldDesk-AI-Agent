@@ -5,6 +5,7 @@ import Home from "./pages/Home.jsx"
 import Repair from "./pages/Repair.jsx"
 import RepairWork from "./pages/RepairWork.jsx"
 import RepairProcess from "./pages/RepairProcess.jsx"
+import PartsApplication from "./pages/PartsApplication.jsx"
 import RepairFinish from "./pages/RepairFinish.jsx"
 import Records from "./pages/Records.jsx"
 import Inventory from "./pages/Inventory.jsx"
@@ -198,6 +199,14 @@ function App() {
         {page === "repairProcess" && (
 
           <RepairProcess
+            setPage={setPage}
+          />
+
+        )}
+
+        {page === "partsApplication" && (
+
+          <PartsApplication
             setPage={setPage}
           />
 

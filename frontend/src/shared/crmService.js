@@ -61,6 +61,34 @@ export async function cancelReceiptPreparation(rmaNo) {
   return request("/api/repairs/prepare-receipt/cancel", { rmaNo })
 }
 
+export async function completeLocalReceipt(rmaNo) {
+  return request("/api/repairs/complete-local-receipt", { rmaNo })
+}
+
+export async function saveInspection(payload) {
+  return request("/api/repairs/inspection", payload)
+}
+
+export async function applyLocalPart(payload) {
+  return request("/api/repairs/parts/apply", payload)
+}
+
+export async function getLocalInventory() {
+  return get("/api/inventory")
+}
+
+export async function recordLocalPartUse(payload) {
+  return request("/api/inventory/use", payload)
+}
+
+export async function requestLocalPartReturn(payload) {
+  return request("/api/inventory/returns", payload)
+}
+
+export async function confirmLocalPartReturn(requestId) {
+  return request("/api/inventory/returns/confirm", { requestId })
+}
+
 export async function getCurrentFieldDeskUser() {
   return get("/api/auth/me")
 }

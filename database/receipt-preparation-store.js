@@ -2,7 +2,12 @@ const fs = require("fs/promises");
 const path = require("path");
 const crypto = require("crypto");
 
-const ACTIVE_RECEIPT_STATUSES = new Set(["RECEIPT_PREPARED"]);
+const ACTIVE_RECEIPT_STATUSES = new Set([
+  "RECEIPT_PREPARED",
+  "RECEIVED_PENDING_INSPECTION",
+  "INSPECTION_IN_PROGRESS",
+  "INSPECTION_COMPLETED_PENDING_REPAIR",
+]);
 const DEFAULT_DATA_FILE = path.join(
   __dirname,
   "data",
@@ -128,6 +133,150 @@ class JsonReceiptPreparationStore {
         records.map((record) => record.rmaNo === rmaNo ? updated : record)
       );
       return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
+  async completeReceipt(rmaNo, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing) {
+        const error = new Error("未找到本地签收准备记录");
+        error.code = "RECEIPT_PREPARATION_NOT_FOUND";
+        error.status = 404;
+        throw error;
+      }
+      const timestamp = new Date().toISOString();
+      const updated = {
+        ...existing,
+        status: "RECEIVED_PENDING_INSPECTION",
+        receiptCompletedAt: existing.receiptCompletedAt || timestamp,
+        operatorId: normalizeRequired(operator.userId),
+        operatorName:
+          normalizeRequired(operator.displayName) || "本地测试用户",
+        operatorTemporary: true,
+        updatedAt: timestamp,
+      };
+      await this.writeAll(
+        records.map((record) => record.rmaNo === rmaNo ? updated : record)
+      );
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
+  async saveInspection(rmaNo, input = {}, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing) {
+        const error = new Error("未找到待检测工单");
+        error.code = "RECEIPT_PREPARATION_NOT_FOUND";
+        error.status = 404;
+        throw error;
+      }
+      if (
+        ![
+          "RECEIVED_PENDING_INSPECTION",
+          "INSPECTION_IN_PROGRESS",
+          "INSPECTION_COMPLETED_PENDING_REPAIR",
+        ].includes(
+          existing.status
+        )
+      ) {
+        const error = new Error("当前工单尚未完成本地签收");
+        error.code = "INSPECTION_NOT_ALLOWED";
+        error.status = 409;
+        throw error;
+      }
+      const inspectionResult = normalizeRequired(input.inspectionResult);
+      if (!inspectionResult) {
+        const error = new Error("检测结果不能为空");
+        error.code = "INSPECTION_RESULT_REQUIRED";
+        error.status = 400;
+        throw error;
+      }
+      const updated = {
+        ...existing,
+        status: "INSPECTION_COMPLETED_PENDING_REPAIR",
+        inspectionResult,
+        inspectionRemark: normalizeRequired(input.inspectionRemark),
+        inspectionUpdatedAt: new Date().toISOString(),
+        operatorId: normalizeRequired(operator.userId),
+        operatorName:
+          normalizeRequired(operator.displayName) || "本地测试用户",
+        operatorTemporary: true,
+        updatedAt: new Date().toISOString(),
+      };
+      await this.writeAll(
+        records.map((record) => record.rmaNo === rmaNo ? updated : record)
+      );
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
+  async applyPart(rmaNo, part, quantity, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing) {
+        const error = new Error("未找到待维修工单");
+        error.code = "RECEIPT_PREPARATION_NOT_FOUND";
+        error.status = 404;
+        throw error;
+      }
+      if (existing.status !== "INSPECTION_COMPLETED_PENDING_REPAIR") {
+        const error = new Error("工单尚未完成检测，不能申请配件");
+        error.code = "PART_APPLICATION_NOT_ALLOWED";
+        error.status = 409;
+        throw error;
+      }
+      const requestedQuantity = Number(quantity);
+      if (!Number.isInteger(requestedQuantity) || requestedQuantity < 1) {
+        const error = new Error("申请数量必须是正整数");
+        error.code = "PART_QUANTITY_INVALID";
+        error.status = 400;
+        throw error;
+      }
+      if (part.stock < 1 || requestedQuantity > part.stock) {
+        const error = new Error("库存不足，无法申请");
+        error.code = "PART_OUT_OF_STOCK";
+        error.status = 409;
+        throw error;
+      }
+      const timestamp = new Date().toISOString();
+      const application = {
+        id: crypto.randomUUID(),
+        partCode: normalizeRequired(part.code),
+        partName: normalizeRequired(part.name),
+        quantity: requestedQuantity,
+        stockSnapshot: part.stock,
+        sn: existing.sn,
+        status: "PART_APPLICATION_RECORDED",
+        operatorId: normalizeRequired(operator.userId),
+        operatorName:
+          normalizeRequired(operator.displayName) || "本地测试用户",
+        createdAt: timestamp,
+      };
+      const updated = {
+        ...existing,
+        partApplications: [
+          ...(Array.isArray(existing.partApplications)
+            ? existing.partApplications
+            : []),
+          application,
+        ],
+        updatedAt: timestamp,
+      };
+      await this.writeAll(
+        records.map((record) => record.rmaNo === rmaNo ? updated : record)
+      );
+      return { order: updated, application };
     });
     this.writeQueue = operation.catch(() => {});
     return operation;

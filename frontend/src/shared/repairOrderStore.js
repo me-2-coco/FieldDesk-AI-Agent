@@ -4,6 +4,8 @@
 
 export const REPAIR_STATUS = {
   WAIT_RECEIPT: "待签收",
+  WAIT_INSPECTION: "待检测",
+  INSPECTION_COMPLETE: "检测完成/待维修",
   WAIT_REPAIR: "待维修",
   REPAIRING: "维修中",
   PAUSED: "暂停维修",
@@ -20,6 +22,8 @@ export const REPAIR_STATUS_LIST = Object.values(
 
 export const REPAIR_STATUS_ORDER = [
   REPAIR_STATUS.WAIT_RECEIPT,
+  REPAIR_STATUS.WAIT_INSPECTION,
+  REPAIR_STATUS.INSPECTION_COMPLETE,
   REPAIR_STATUS.WAIT_REPAIR,
   REPAIR_STATUS.REPAIRING,
   REPAIR_STATUS.PAUSED,
@@ -397,6 +401,15 @@ function normalizeOrder(order) {
 
     inspectionResult:
       order.inspectionResult || "",
+
+    inspectionRemark:
+      order.inspectionRemark || "",
+
+    specialty:
+      order.specialty || "",
+
+    receiptRemark:
+      order.receiptRemark || "",
 
     faultSystem:
       order.faultSystem || "",
@@ -853,6 +866,15 @@ export function createRepairOrder(
 
     inspectionResult:
       fields.inspectionResult || "",
+
+    inspectionRemark:
+      fields.inspectionRemark || "",
+
+    specialty:
+      fields.specialty || "",
+
+    receiptRemark:
+      fields.receiptRemark || "",
 
     faultSystem:
       fields.faultSystem || "",

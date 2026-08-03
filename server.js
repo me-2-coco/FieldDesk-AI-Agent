@@ -11,12 +11,18 @@ const {
   JsonReceiptPreparationStore,
   normalizeSn,
 } = require("./database/receipt-preparation-store");
+const { JsonInventoryStore } = require("./database/inventory-store");
 const {
   USER_ROLES,
   getLocalCurrentUser,
 } = require("./config/local-users");
 
 const SUPPORTED_REPAIR_SPECIALTIES = Object.freeze(["扫地机", "洗地机"]);
+const LOCAL_PARTS_CATALOG = Object.freeze([
+  { code: "00100123", name: "主刷电机", stock: 50 },
+  { code: "00100234", name: "电池组件", stock: 20 },
+  { code: "00100345", name: "滚刷", stock: 0 },
+]);
 
 function normalizeLogisticsNo(value) {
   return String(value || "").trim();
@@ -171,6 +177,7 @@ function createApp(
 ) {
   const currentUserProvider =
     options.getCurrentUser || (() => getLocalCurrentUser());
+  const inventoryStore = options.inventoryStore || new JsonInventoryStore();
   const app = express();
   app.use(express.json({ limit: "100kb" }));
 
@@ -430,6 +437,138 @@ function createApp(
     } catch (error) {
       return next(error);
     }
+  });
+
+  app.post("/api/repairs/complete-local-receipt", async (req, res, next) => {
+    const rmaNo = String(req.body?.rmaNo || "").trim();
+    if (!rmaNo) {
+      return res.status(400).json({
+        success: false,
+        code: "RECEIPT_PREPARATION_INVALID",
+        message: "缺少必填字段：rmaNo",
+        missingFields: ["rmaNo"],
+      });
+    }
+    try {
+      const data = await receiptStore.completeReceipt(
+        rmaNo,
+        currentUserProvider(req)
+      );
+      return res.json({
+        success: true,
+        data: {
+          ...data,
+          statusLabel: "已签收/待检测",
+          message: "本地签收完成，工单已进入待检测",
+          recloudSynced: false,
+        },
+      });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  app.post("/api/repairs/inspection", async (req, res, next) => {
+    const rmaNo = String(req.body?.rmaNo || "").trim();
+    if (!rmaNo) {
+      return res.status(400).json({
+        success: false,
+        code: "INSPECTION_INVALID",
+        message: "缺少必填字段：rmaNo",
+        missingFields: ["rmaNo"],
+      });
+    }
+    try {
+      const data = await receiptStore.saveInspection(
+        rmaNo,
+        {
+          inspectionResult: req.body?.inspectionResult,
+          inspectionRemark: req.body?.inspectionRemark,
+        },
+        currentUserProvider(req)
+      );
+      return res.json({
+        success: true,
+        data: {
+          ...data,
+          message: "检测信息已保存到 FieldDesk，尚未同步瑞云",
+          recloudSynced: false,
+        },
+      });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  app.post("/api/repairs/parts/apply", async (req, res, next) => {
+    const rmaNo = String(req.body?.rmaNo || "").trim();
+    const partCode = String(req.body?.partCode || "").trim();
+    if (!rmaNo || !LOCAL_PARTS_CATALOG.some((item) => item.code === partCode)) {
+      return res.status(400).json({
+        success: false,
+        code: "PART_APPLICATION_INVALID",
+        message: !rmaNo ? "缺少寄修单号" : "请选择有效配件",
+      });
+    }
+    try {
+      const user = currentUserProvider(req);
+      if (user.role !== USER_ROLES.TECHNICIAN) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有维修师傅可以申请配件", 403);
+      const order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
+      if (!order || order.status !== "INSPECTION_COMPLETED_PENDING_REPAIR") throw createApiError("PART_APPLICATION_NOT_ALLOWED", "工单尚未完成检测", 409);
+      const data = await inventoryStore.apply({ rmaNo, sn: order.sn }, partCode, req.body?.quantity, user);
+      return res.json({
+        success: true,
+        data: {
+          ...data,
+          message: "配件申请已保存到 FieldDesk",
+          recloudSynced: false,
+        },
+      });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  app.get("/api/inventory", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      const data = await inventoryStore.view(user, USER_ROLES);
+      res.json({ success: true, data });
+    } catch (error) { next(error); }
+  });
+
+  async function inventoryContext(req) {
+    const rmaNo = String(req.body?.rmaNo || "").trim();
+    const order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
+    if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到当前工单", 404);
+    return { rmaNo, sn: order.sn };
+  }
+
+  app.post("/api/inventory/use", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      if (user.role !== USER_ROLES.TECHNICIAN) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有维修师傅可以使用配件", 403);
+      const data = await inventoryStore.use(await inventoryContext(req), String(req.body?.partCode || ""), req.body?.quantity, user);
+      res.json({ success: true, data: { ...data, message: "配件使用已记录" } });
+    } catch (error) { next(error); }
+  });
+
+  app.post("/api/inventory/returns", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      if (user.role !== USER_ROLES.TECHNICIAN) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有维修师傅可以申请退还", 403);
+      const data = await inventoryStore.requestReturn(await inventoryContext(req), String(req.body?.partCode || ""), req.body?.quantity, user);
+      res.json({ success: true, data: { ...data, message: "退还申请已提交，等待库房确认" } });
+    } catch (error) { next(error); }
+  });
+
+  app.post("/api/inventory/returns/confirm", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      if (![USER_ROLES.ADMIN, USER_ROLES.WAREHOUSE].includes(user.role)) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有管理员或库房可以确认退还", 403);
+      const data = await inventoryStore.confirmReturn(String(req.body?.requestId || ""), user);
+      res.json({ success: true, data: { ...data, message: "退还已确认并入总库" } });
+    } catch (error) { next(error); }
   });
 
   // 保留已有调用方兼容性。

@@ -1,220 +1,77 @@
-import { useState } from "react"
-
+import { useEffect, useState } from "react"
+import {
+  getCurrentFieldDeskUser,
+  getLocalInventory,
+  recordLocalPartUse,
+  requestLocalPartReturn,
+} from "../shared/crmService.js"
+import { getCurrentRepairOrder } from "../shared/repairOrderStore.js"
 
 function Inventory() {
-
-  const [partCode, setPartCode] = useState("")
-  const [quantity, setQuantity] = useState(1)
-  const [partInfo, setPartInfo] = useState(null)
+  const [user, setUser] = useState(null)
+  const [inventory, setInventory] = useState(null)
+  const [quantities, setQuantities] = useState({})
   const [message, setMessage] = useState("")
+  const order = getCurrentRepairOrder()
 
+  async function refresh() {
+    const [currentUser, data] = await Promise.all([
+      getCurrentFieldDeskUser(), getLocalInventory()
+    ])
+    setUser(currentUser)
+    setInventory(data)
+  }
+  useEffect(() => {
+    Promise.all([getCurrentFieldDeskUser(), getLocalInventory()])
+      .then(([currentUser, data]) => {
+        setUser(currentUser)
+        setInventory(data)
+      })
+      .catch((error) => setMessage(error.message))
+  }, [])
 
-  const inventoryData = [
-    {
-      code: "BAT-001",
-      name: "电池包",
-      technicianStock: 5,
-      companyStock: 48
-    },
-    {
-      code: "MB-001",
-      name: "主板",
-      technicianStock: 2,
-      companyStock: 16
-    },
-    {
-      code: "MOTOR-001",
-      name: "驱动电机",
-      technicianStock: 0,
-      companyStock: 9
-    }
-  ]
-
-
-  function searchPart() {
-
-    const code = partCode.trim().toUpperCase()
-
-    const foundPart = inventoryData.find(
-      (item) => item.code === code
-    )
-
-    if (!foundPart) {
-      setPartInfo(null)
-      setMessage("未找到该物料编码")
-      return
-    }
-
-    setPartInfo(foundPart)
-    setMessage("")
+  async function act(action, partCode) {
+    try {
+      const payload = { rmaNo: order.crmOrderNo, partCode, quantity: Number(quantities[partCode] || 1) }
+      const result = action === "use"
+        ? await recordLocalPartUse(payload)
+        : await requestLocalPartReturn(payload)
+      setMessage(result.message)
+      await refresh()
+    } catch (error) { setMessage(error.message) }
   }
 
+  if (!inventory || !user) return <div className="page"><p>正在读取本地库存...</p></div>
+  const personalEntries = Object.entries(inventory.technicianStock || {})
 
-  function applyPart() {
-
-    if (!partInfo) {
-      setMessage("请先查询物料")
-      return
-    }
-
-    if (quantity <= 0) {
-      setMessage("申请数量必须大于 0")
-      return
-    }
-
-    if (partInfo.technicianStock <= 0) {
-      setMessage("你的个人库存为 0，不能申请使用")
-      return
-    }
-
-    if (quantity > partInfo.technicianStock) {
-      setMessage(
-        `库存不足，当前最多可申请 ${partInfo.technicianStock} 个`
-      )
-      return
-    }
-
-    const partRequest = {
-      id: Date.now(),
-      technician: "张师傅",
-      repairSn: "FD20260715001",
-      partCode: partInfo.code,
-      partName: partInfo.name,
-      quantity: Number(quantity),
-      status: "已申请",
-      createdAt: new Date().toLocaleString()
-    }
-
-    const oldRequests = JSON.parse(
-      localStorage.getItem("partRequests") || "[]"
-    )
-
-    localStorage.setItem(
-      "partRequests",
-      JSON.stringify([
-        ...oldRequests,
-        partRequest
-      ])
-    )
-
-    setMessage(
-      `申请成功：${partInfo.name} × ${quantity}，已绑定当前维修机器`
-    )
-  }
-
-
-  return (
-
-    <div className="page">
-
-      <h1>我的库存</h1>
-
-
-      <div className="card">
-
-        <h2>当前维修机器</h2>
-
-        <p>产品：扫地机器人 X1</p>
-
-        <p>SN：FD20260715001</p>
-
-        <p>维修师傅：张师傅</p>
-
-      </div>
-
-
-      <div className="card">
-
-        <h2>查询配件</h2>
-
-        <input
-          value={partCode}
-          onChange={(event) => setPartCode(event.target.value)}
-          placeholder="输入物料编码，例如 BAT-001"
-        />
-
-        <button onClick={searchPart}>
-          查询库存
-        </button>
-
-      </div>
-
-
-      {partInfo && (
-
-        <div className="card">
-
-          <h2>配件信息</h2>
-
-          <p>物料编码：{partInfo.code}</p>
-
-          <p>配件名称：{partInfo.name}</p>
-
-          <p>我的库存：{partInfo.technicianStock}</p>
-
-          <p>公司总库存：{partInfo.companyStock}</p>
-
-          <input
-            type="number"
-            min="1"
-            value={quantity}
-            onChange={(event) => setQuantity(Number(event.target.value))}
-            placeholder="申请数量"
-          />
-
-          <button
-            className="green"
-            onClick={applyPart}
-            disabled={partInfo.technicianStock <= 0}
-          >
-            申请配件
-          </button>
-
-        </div>
-
-      )}
-
-
-      {message && (
-
-        <div className="card">
-
-          <p>{message}</p>
-
-        </div>
-
-      )}
-
-
-      <div className="card">
-
-        <h2>我的常用库存</h2>
-
-        {inventoryData.map((item) => (
-
-          <div
-            className="inventory-item"
-            key={item.code}
-          >
-
-            <p>
-              <strong>{item.name}</strong>
-            </p>
-
-            <p>编码：{item.code}</p>
-
-            <p>个人库存：{item.technicianStock}</p>
-
-          </div>
-
-        ))}
-
-      </div>
-
+  return <div className="page">
+    <h1>{user.role === "TECHNICIAN" ? "我的库存" : "库存总览"}</h1>
+    <div className="card">
+      <h2>总库库存（只读）</h2>
+      {inventory.totalStock.map((part) => <p key={part.code}>{part.name}（{part.code}）：{part.stock}</p>)}
     </div>
-
-  )
+    <div className="card">
+      <h2>{user.role === "TECHNICIAN" ? "个人库存" : "全部师傅库存"}</h2>
+      {personalEntries.map(([technicianId, stock]) => <div className="inventory-item" key={technicianId}>
+        <h3>{stock.technicianName}</h3>
+        {stock.parts.length === 0 ? <p>暂无库存</p> : stock.parts.map((part) => <div key={part.code}>
+          <p>{part.name}（{part.code}）：{part.stock}</p>
+          {user.role === "TECHNICIAN" && <div>
+            <input type="number" min="1" value={quantities[part.code] || 1} onChange={(event) => setQuantities({ ...quantities, [part.code]: event.target.value })} />
+            <button onClick={() => act("use", part.code)}>使用</button>
+            <button onClick={() => act("return", part.code)}>申请退还</button>
+          </div>}
+        </div>)}
+      </div>)}
+    </div>
+    <div className="card">
+      <h2>库存流水</h2>
+      {inventory.transactions.length === 0 ? <p>暂无流水</p> : inventory.transactions.slice().reverse().map((item) =>
+        <p key={item.id}>{item.type}｜{item.partName} × {item.quantity}｜SN：{item.sn}｜寄修单：{item.rmaNo}｜师傅：{item.technicianName}｜{item.createdAt}</p>
+      )}
+    </div>
+    {message && <div className="card"><p>{message}</p></div>}
+  </div>
 }
-
 
 export default Inventory
