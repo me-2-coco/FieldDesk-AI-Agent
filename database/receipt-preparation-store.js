@@ -23,6 +23,14 @@ function normalizeRequired(value) {
   return String(value || "").trim();
 }
 
+function timelineEvent(type, label, operator = {}, at = new Date().toISOString()) {
+  return {
+    id: crypto.randomUUID(), type, label, at,
+    operatorId: normalizeRequired(operator.userId),
+    operatorName: normalizeRequired(operator.displayName) || "本地测试用户",
+  };
+}
+
 function createReceiptPreparation(input, existing = null, now = new Date()) {
   const timestamp = now.toISOString();
   return {
@@ -34,6 +42,7 @@ function createReceiptPreparation(input, existing = null, now = new Date()) {
     remark: normalizeRequired(input.remark),
     productLine: normalizeRequired(input.productLine),
     customerName: normalizeRequired(input.customerName),
+    regionAddress: normalizeRequired(input.regionAddress),
     reportedFault: normalizeRequired(input.reportedFault),
     phoneMasked: normalizeRequired(input.phoneMasked),
     status: "RECEIPT_PREPARED",
@@ -41,6 +50,12 @@ function createReceiptPreparation(input, existing = null, now = new Date()) {
     operatorName:
       normalizeRequired(input.operatorName) || "本地测试用户",
     operatorTemporary: true,
+    technicianId: existing?.technicianId || normalizeRequired(input.operatorId),
+    technicianName: existing?.technicianName || normalizeRequired(input.operatorName) || "本地测试用户",
+    timeline: existing?.timeline || [
+      timelineEvent("CRM_QUERIED", "物流单查询完成", { userId: input.operatorId, displayName: input.operatorName }, timestamp),
+      timelineEvent("RECEIPT_PREPARED", "签收资料已准备", { userId: input.operatorId, displayName: input.operatorName }, timestamp),
+    ],
     createdAt: existing?.createdAt || timestamp,
     updatedAt: timestamp,
   };
@@ -159,6 +174,10 @@ class JsonReceiptPreparationStore {
           normalizeRequired(operator.displayName) || "本地测试用户",
         operatorTemporary: true,
         updatedAt: timestamp,
+        timeline: [
+          ...(existing.timeline || []),
+          timelineEvent("RECEIPT_COMPLETED", "本地签收完成", operator, timestamp),
+        ],
       };
       await this.writeAll(
         records.map((record) => record.rmaNo === rmaNo ? updated : record)
@@ -211,6 +230,10 @@ class JsonReceiptPreparationStore {
           normalizeRequired(operator.displayName) || "本地测试用户",
         operatorTemporary: true,
         updatedAt: new Date().toISOString(),
+        timeline: [
+          ...(existing.timeline || []),
+          timelineEvent("INSPECTION_COMPLETED", "检测登记完成", operator),
+        ],
       };
       await this.writeAll(
         records.map((record) => record.rmaNo === rmaNo ? updated : record)
@@ -273,6 +296,10 @@ class JsonReceiptPreparationStore {
           application,
         ],
         updatedAt: timestamp,
+        timeline: [
+          ...(existing.timeline || []),
+          timelineEvent("PART_APPLICATION", "配件申请已记录", operator, timestamp),
+        ],
       };
       await this.writeAll(
         records.map((record) => record.rmaNo === rmaNo ? updated : record)
@@ -332,6 +359,97 @@ class JsonReceiptPreparationStore {
           operatorId: normalizeRequired(operator.userId),
           operatorName: normalizeRequired(operator.displayName) || "本地测试用户",
         },
+        updatedAt: timestamp,
+        timeline: submit
+          ? [...(existing.timeline || []), timelineEvent("REPAIR_COMPLETED", "维修完成", operator, timestamp)]
+          : existing.timeline || [],
+      };
+      await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
+  async addTimelineEvent(rmaNo, type, label, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing) throw Object.assign(new Error("未找到本地工单"), { code: "RECEIPT_PREPARATION_NOT_FOUND", status: 404 });
+      const updated = {
+        ...existing,
+        timeline: [...(existing.timeline || []), timelineEvent(type, label, operator)],
+        updatedAt: new Date().toISOString(),
+      };
+      await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
+  async listShippingOrders(user = {}, roles = {}) {
+    const records = await this.readAll();
+    const allowedStatuses = new Set(["REPAIR_COMPLETED_PENDING_SHIPMENT", "SHIPPED_PENDING_COMPLETION"]);
+    return records.filter((record) => {
+      if (!allowedStatuses.has(record.status)) return false;
+      if ([roles.ADMIN, roles.WAREHOUSE].includes(user.role)) return true;
+      return (record.technicianId || record.operatorId) === user.userId;
+    });
+  }
+
+  async submitReturnShipment(rmaNo, input = {}, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing) throw Object.assign(new Error("未找到待发货工单"), { code: "RECEIPT_PREPARATION_NOT_FOUND", status: 404 });
+      if (existing.status === "SHIPPED_PENDING_COMPLETION" || existing.status === "COMPLETED") {
+        throw Object.assign(new Error("该工单已经发货，不能重复提交"), { code: "RETURN_SHIPMENT_DUPLICATE", status: 409 });
+      }
+      if (existing.status !== "REPAIR_COMPLETED_PENDING_SHIPMENT") {
+        throw Object.assign(new Error("仅维修完成待发货工单可以返件发货"), { code: "RETURN_SHIPMENT_NOT_ALLOWED", status: 409 });
+      }
+      const logisticsCompany = normalizeRequired(input.logisticsCompany);
+      const trackingNo = normalizeRequired(input.trackingNo).toUpperCase();
+      if (!logisticsCompany || !trackingNo) {
+        const missingFields = [!logisticsCompany && "logisticsCompany", !trackingNo && "trackingNo"].filter(Boolean);
+        const error = new Error(`缺少必填字段：${missingFields.join(", ")}`);
+        error.code = "RETURN_SHIPMENT_INVALID"; error.status = 400; error.missingFields = missingFields;
+        throw error;
+      }
+      const timestamp = new Date().toISOString();
+      const updated = {
+        ...existing,
+        status: "SHIPPED_PENDING_COMPLETION",
+        returnShipment: {
+          logisticsCompany, trackingNo, shippedAt: timestamp,
+          operatorId: normalizeRequired(operator.userId),
+          operatorName: normalizeRequired(operator.displayName) || "本地测试用户",
+          attachments: Array.isArray(input.attachments) ? input.attachments : [],
+          recloudSynced: false,
+        },
+        timeline: [...(existing.timeline || []), timelineEvent("RETURN_SHIPPED", "返件已发货", operator, timestamp)],
+        updatedAt: timestamp,
+      };
+      await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
+  async confirmCompletion(rmaNo, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing) throw Object.assign(new Error("未找到待完结工单"), { code: "RECEIPT_PREPARATION_NOT_FOUND", status: 404 });
+      if (existing.status === "COMPLETED") throw Object.assign(new Error("工单已经完结，不能重复操作"), { code: "ORDER_COMPLETION_DUPLICATE", status: 409 });
+      if (existing.status !== "SHIPPED_PENDING_COMPLETION") throw Object.assign(new Error("工单尚未发货，不能完结"), { code: "ORDER_COMPLETION_NOT_ALLOWED", status: 409 });
+      const timestamp = new Date().toISOString();
+      const updated = {
+        ...existing, status: "COMPLETED", completedAt: timestamp,
+        completedBy: { operatorId: normalizeRequired(operator.userId), operatorName: normalizeRequired(operator.displayName) || "本地测试用户" },
+        timeline: [...(existing.timeline || []), timelineEvent("ORDER_COMPLETED", "管理员确认完结", operator, timestamp)],
         updatedAt: timestamp,
       };
       await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));

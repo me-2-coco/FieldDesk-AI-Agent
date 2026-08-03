@@ -140,6 +140,7 @@ function Repair({ setPage }) {
         productLine: repairDetail.productLine || "",
         customerName: repairDetail.customer?.name || "",
         phoneMasked: repairDetail.customer?.phoneMasked || "",
+        regionAddress: repairDetail.customer?.regionAddress || "",
         reportedFault: repairDetail.reportedFault
       })
       setReceiptMessage(
@@ -179,6 +180,8 @@ function Repair({ setPage }) {
         crmOrderNo: result.rmaNo,
         logisticsNo: result.logisticsNo,
         customer: result.customerName,
+        phone: result.phoneMasked,
+        address: result.regionAddress,
         product: result.productLine,
         model: result.productLine,
         sn: result.sn,

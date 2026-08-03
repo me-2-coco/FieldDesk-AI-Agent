@@ -188,6 +188,7 @@ export function canAccessPage(
     "repairProcess",
     "partsApplication",
     "repairCompletion",
+    "returnShipping",
     "repairFinish",
     "records",
     "inventory",
@@ -198,6 +199,7 @@ export function canAccessPage(
       "home",
       "inventory",
       "warehouse",
+      "returnShipping",
       "profile"
     ],
 
@@ -209,6 +211,7 @@ export function canAccessPage(
   "repairProcess",
   "partsApplication",
   "repairCompletion",
+  "returnShipping",
   "repairFinish",
   "records",
   "inventory",

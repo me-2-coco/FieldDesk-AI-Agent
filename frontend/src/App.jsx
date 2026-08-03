@@ -7,6 +7,7 @@ import RepairWork from "./pages/RepairWork.jsx"
 import RepairProcess from "./pages/RepairProcess.jsx"
 import PartsApplication from "./pages/PartsApplication.jsx"
 import RepairCompletion from "./pages/RepairCompletion.jsx"
+import ReturnShipping from "./pages/ReturnShipping.jsx"
 import RepairFinish from "./pages/RepairFinish.jsx"
 import Records from "./pages/Records.jsx"
 import Inventory from "./pages/Inventory.jsx"
@@ -215,6 +216,10 @@ function App() {
 
         {page === "repairCompletion" && (
           <RepairCompletion setPage={setPage} />
+        )}
+
+        {page === "returnShipping" && (
+          <ReturnShipping setPage={setPage} />
         )}
 
 

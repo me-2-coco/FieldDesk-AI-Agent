@@ -187,6 +187,9 @@ function RepairCompletion({ setPage }) {
         {message && <p role="status">{message}</p>}
         <button className="secondary-btn" disabled={busy} onClick={() => save(false)}>保存草稿</button>
         <button className="primary-btn" disabled={busy} onClick={() => save(true)}>提交完工</button>
+        {repairOrder.status === REPAIR_STATUS.REPAIR_COMPLETED_PENDING_SHIPMENT && (
+          <button className="primary-btn" onClick={() => setPage("returnShipping")}>进入返件发货</button>
+        )}
         <p className="dry-run-notice">仅保存 FieldDesk 本地数据，不连接或修改瑞云。</p>
       </div>
     </div>

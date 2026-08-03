@@ -127,6 +127,11 @@ function RepairProcess({ setPage }) {
             </button>
           </>
         )}
+        {repairOrder.status === REPAIR_STATUS.REPAIR_COMPLETED_PENDING_SHIPMENT && (
+          <button className="primary-btn" onClick={() => setPage("returnShipping")}>
+            进入返件发货
+          </button>
+        )}
       </div>
 
     </div>

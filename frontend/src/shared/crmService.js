@@ -109,6 +109,26 @@ export async function submitRepairCompletion(payload) {
   return request("/api/repairs/completion/submit", payload)
 }
 
+export async function getShippingOrders() {
+  return get("/api/shipping/orders")
+}
+
+export async function getShippingContext(rmaNo) {
+  return request("/api/shipping/context", { rmaNo })
+}
+
+export async function uploadShippingProof(payload) {
+  return request("/api/shipping/attachments", payload)
+}
+
+export async function submitReturnShipment(payload) {
+  return request("/api/shipping/submit", payload)
+}
+
+export async function confirmLocalOrderCompletion(rmaNo) {
+  return request("/api/shipping/complete", { rmaNo })
+}
+
 export async function getCurrentFieldDeskUser() {
   return get("/api/auth/me")
 }

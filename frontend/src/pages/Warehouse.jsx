@@ -4,7 +4,7 @@ import {
   getLocalInventory
 } from "../shared/crmService.js"
 
-function Warehouse() {
+function Warehouse({ setPage }) {
   const [inventory, setInventory] = useState(null)
   const [message, setMessage] = useState("")
   async function refresh() { setInventory(await getLocalInventory()) }
@@ -23,6 +23,7 @@ function Warehouse() {
   if (!inventory) return <div className="page"><p>正在读取本地库存...</p></div>
   return <div className="page">
     <h1>库房管理</h1>
+    <button className="primary-btn" onClick={() => setPage("returnShipping")}>待发货与待完结工单</button>
     <div className="card"><h2>待确认退还</h2>
       {inventory.returnRequests.filter((item) => item.status === "PENDING_WAREHOUSE_CONFIRMATION").map((item) =>
         <div className="inventory-item" key={item.id}>

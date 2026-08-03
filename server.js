@@ -13,6 +13,7 @@ const {
 } = require("./database/receipt-preparation-store");
 const { JsonInventoryStore } = require("./database/inventory-store");
 const { LocalRepairAttachmentStore } = require("./database/repair-attachment-store");
+const { LocalShippingAttachmentStore } = require("./database/shipping-attachment-store");
 const {
   USER_ROLES,
   getLocalCurrentUser,
@@ -193,6 +194,7 @@ function createApp(
     options.getCurrentUser || (() => getLocalCurrentUser());
   const inventoryStore = options.inventoryStore || new JsonInventoryStore();
   const attachmentStore = options.attachmentStore || new LocalRepairAttachmentStore();
+  const shippingAttachmentStore = options.shippingAttachmentStore || new LocalShippingAttachmentStore();
   const app = express();
   app.use(express.json({ limit: "30mb" }));
 
@@ -409,6 +411,7 @@ function createApp(
         customerName: String(req.body?.customerName || "").trim(),
         reportedFault: String(req.body?.reportedFault || "").trim(),
         phoneMasked: normalizeMaskedPhone(req.body?.phoneMasked),
+        regionAddress: String(req.body?.regionAddress || "").trim(),
         operatorId: currentUser.userId,
         operatorName: currentUser.displayName,
       });
@@ -531,6 +534,7 @@ function createApp(
       const order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
       if (!order || order.status !== "INSPECTION_COMPLETED_PENDING_REPAIR") throw createApiError("PART_APPLICATION_NOT_ALLOWED", "工单尚未完成检测", 409);
       const data = await inventoryStore.apply({ rmaNo, sn: order.sn }, partCode, req.body?.quantity, user);
+      await receiptStore.addTimelineEvent(rmaNo, "PART_APPLICATION", "配件申请完成", user);
       return res.json({
         success: true,
         data: {
@@ -638,6 +642,61 @@ function createApp(
 
   app.post("/api/repairs/completion/draft", (req, res, next) => saveRepairCompletion(req, res, next, false));
   app.post("/api/repairs/completion/submit", (req, res, next) => saveRepairCompletion(req, res, next, true));
+
+  app.get("/api/shipping/orders", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      res.json({ success: true, data: await receiptStore.listShippingOrders(user, USER_ROLES) });
+    } catch (error) { next(error); }
+  });
+
+  app.post("/api/shipping/context", async (req, res, next) => {
+    try {
+      const rmaNo = String(req.body?.rmaNo || "").trim();
+      const user = currentUserProvider(req);
+      const order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
+      if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到待发货工单", 404);
+      const privileged = [USER_ROLES.ADMIN, USER_ROLES.WAREHOUSE].includes(user.role);
+      if (!privileged && (order.technicianId || order.operatorId) !== user.userId) {
+        throw createApiError("SHIPPING_ORDER_FORBIDDEN", "只能查看本人负责的待发货工单", 403);
+      }
+      if (!["REPAIR_COMPLETED_PENDING_SHIPMENT", "SHIPPED_PENDING_COMPLETION"].includes(order.status)) {
+        throw createApiError("RETURN_SHIPMENT_NOT_ALLOWED", "当前工单不能进入返件发货", 409);
+      }
+      const usedParts = await inventoryStore.usedPartsForOrder(order.rmaNo, order.sn);
+      res.json({ success: true, data: { order, usedParts, syncProvider: "RECLOUD_RESERVED", recloudSynced: false } });
+    } catch (error) { next(error); }
+  });
+
+  app.post("/api/shipping/attachments", async (req, res, next) => {
+    try {
+      res.json({ success: true, data: await shippingAttachmentStore.save(req.body || {}) });
+    } catch (error) { next(error); }
+  });
+
+  app.post("/api/shipping/submit", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      const rmaNo = String(req.body?.rmaNo || "").trim();
+      const order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
+      if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到待发货工单", 404);
+      const privileged = [USER_ROLES.ADMIN, USER_ROLES.WAREHOUSE].includes(user.role);
+      if (!privileged && (order.technicianId || order.operatorId) !== user.userId) {
+        throw createApiError("SHIPPING_ORDER_FORBIDDEN", "只能操作本人负责的待发货工单", 403);
+      }
+      const data = await receiptStore.submitReturnShipment(rmaNo, req.body || {}, user);
+      res.json({ success: true, data: { ...data, statusLabel: "已发货/待完结", message: "返件发货已保存到 FieldDesk", recloudSynced: false } });
+    } catch (error) { next(error); }
+  });
+
+  app.post("/api/shipping/complete", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      if (user.role !== USER_ROLES.ADMIN) throw createApiError("ORDER_COMPLETION_FORBIDDEN", "只有管理员可以确认完结", 403);
+      const data = await receiptStore.confirmCompletion(String(req.body?.rmaNo || "").trim(), user);
+      res.json({ success: true, data: { ...data, statusLabel: "已完结", message: "工单已在 FieldDesk 本地完结", recloudSynced: false } });
+    } catch (error) { next(error); }
+  });
 
   // 保留已有调用方兼容性。
   app.post("/queryRepair", (req, res, next) => {
