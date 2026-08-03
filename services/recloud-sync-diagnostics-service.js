@@ -5,6 +5,7 @@ const {
 } = require("../config/recloud-sync-node-templates");
 
 const FIELD_NAME = /^[A-Za-z_][A-Za-z0-9_.\[\]-]{0,80}$/;
+const ENUM_STATUS_VALUE = /^[\p{L}\p{N}_./:-]{1,40}$/u;
 const HTTP_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
 
 function sanitizePathTemplate(value) {
@@ -24,6 +25,12 @@ function sanitizeNames(values) {
 
 function sanitizeFeatures(values) {
   return [...new Set((Array.isArray(values) ? values : []).map((value) => String(value || "").trim()).filter((value) => value && value.length <= 80 && !/[=@?]/.test(value)))];
+}
+
+function sanitizeEnumStatusValues(values) {
+  return [...new Set((Array.isArray(values) ? values : [])
+    .map((value) => String(value || "").trim())
+    .filter((value) => ENUM_STATUS_VALUE.test(value) && !/\d{5,}/.test(value)))];
 }
 
 class RecloudSyncDiagnosticsService {
@@ -76,6 +83,7 @@ class RecloudSyncDiagnosticsService {
       responseFieldNames: sanitizeNames(input.responseFieldNames),
       successCriteriaFieldNames: sanitizeNames(input.successCriteriaFieldNames),
       idempotencyFieldNames: sanitizeNames(input.idempotencyFieldNames),
+      enumStatusValues: sanitizeEnumStatusValues(input.enumStatusValues),
       capturedAt: new Date().toISOString(),
       captureMode: "READ_ONLY_METADATA",
       diagnosticError: "",
@@ -96,4 +104,10 @@ class RecloudSyncDiagnosticsService {
   }
 }
 
-module.exports = { RecloudSyncDiagnosticsService, sanitizeFeatures, sanitizeNames, sanitizePathTemplate };
+module.exports = {
+  RecloudSyncDiagnosticsService,
+  sanitizeEnumStatusValues,
+  sanitizeFeatures,
+  sanitizeNames,
+  sanitizePathTemplate,
+};

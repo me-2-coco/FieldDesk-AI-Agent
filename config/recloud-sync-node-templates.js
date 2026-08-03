@@ -15,6 +15,7 @@ const REQUIRED_CAPTURE_FIELDS = Object.freeze([
   "responseFieldNames",
   "successCriteriaFieldNames",
   "idempotencyFieldNames",
+  "enumStatusValues",
 ]);
 
 const RECLOUD_SYNC_NODE_TEMPLATES = Object.freeze({

@@ -6,6 +6,7 @@ const path = require("path");
 const { JsonRecloudSyncDiagnosticsStore } = require("../database/recloud-sync-diagnostics-store");
 const {
   RecloudSyncDiagnosticsService,
+  sanitizeEnumStatusValues,
   sanitizeNames,
   sanitizePathTemplate,
 } = require("../services/recloud-sync-diagnostics-service");
@@ -28,6 +29,7 @@ function completeCapture() {
     responseFieldNames: ["code", "data.status"],
     successCriteriaFieldNames: ["data.status"],
     idempotencyFieldNames: ["rmaNo", "status"],
+    enumStatusValues: ["PENDING", "SUCCESS"],
   };
 }
 
@@ -64,6 +66,10 @@ test("sanitizers reject values and remove URL parameters", () => {
   assert.deepEqual(sanitizeNames(["status", "phone=13800000000", "data.result"]), ["status", "data.result"]);
   assert.equal(sanitizePathTemplate("/api/order/123456789?access_token=secret"), "/api/order/{id}");
   assert.equal(sanitizePathTemplate("https://example.com/api"), "");
+  assert.deepEqual(
+    sanitizeEnumStatusValues(["PENDING", "待检测", "13800138000", "JXTH123456"]),
+    ["PENDING", "待检测"]
+  );
 });
 
 test("diagnostic failure uses fixed safe error code", async (t) => {

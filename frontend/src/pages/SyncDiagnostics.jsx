@@ -20,7 +20,8 @@ const EMPTY_FORM = {
   responseStatus: "200",
   responseFieldNames: "",
   successCriteriaFieldNames: "",
-  idempotencyFieldNames: ""
+  idempotencyFieldNames: "",
+  enumStatusValues: ""
 }
 
 function splitNames(value) {
@@ -64,7 +65,8 @@ function SyncDiagnostics({ setPage }) {
         responseStatus: Number(form.responseStatus),
         responseFieldNames: splitNames(form.responseFieldNames),
         successCriteriaFieldNames: splitNames(form.successCriteriaFieldNames),
-        idempotencyFieldNames: splitNames(form.idempotencyFieldNames)
+        idempotencyFieldNames: splitNames(form.idempotencyFieldNames),
+        enumStatusValues: splitNames(form.enumStatusValues)
       })
       setMessage("只读结构元数据已保存")
       await refresh()
@@ -95,6 +97,7 @@ function SyncDiagnostics({ setPage }) {
         <input value={form.responseFieldNames} onChange={(event) => update(node.nodeKey, "responseFieldNames", event.target.value)} placeholder="响应字段名称" />
         <input value={form.successCriteriaFieldNames} onChange={(event) => update(node.nodeKey, "successCriteriaFieldNames", event.target.value)} placeholder="成功判断字段名称" />
         <input value={form.idempotencyFieldNames} onChange={(event) => update(node.nodeKey, "idempotencyFieldNames", event.target.value)} placeholder="幂等查询字段名称" />
+        <input value={form.enumStatusValues} onChange={(event) => update(node.nodeKey, "enumStatusValues", event.target.value)} placeholder="枚举/状态值（禁止录入业务数据）" />
         <button type="button" onClick={() => capture(node.nodeKey)}>保存只读采集结果</button>
       </div>
     })}
