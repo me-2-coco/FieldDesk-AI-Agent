@@ -14,6 +14,7 @@ import Inventory from "./pages/Inventory.jsx"
 import Warehouse from "./pages/Warehouse.jsx"
 import Profile from "./pages/Profile.jsx"
 import SyncTasks from "./pages/SyncTasks.jsx"
+import SyncDiagnostics from "./pages/SyncDiagnostics.jsx"
 
 import BottomNav from "./components/BottomNav.jsx"
 
@@ -286,6 +287,10 @@ function App() {
 
         {page === "syncTasks" && (
           <SyncTasks setPage={setPage} />
+        )}
+
+        {page === "syncDiagnostics" && (
+          <SyncDiagnostics setPage={setPage} />
         )}
 
 

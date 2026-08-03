@@ -17,6 +17,8 @@ const { LocalShippingAttachmentStore } = require("./database/shipping-attachment
 const { JsonRecloudSyncOutbox } = require("./database/recloud-sync-outbox");
 const { createRecloudAdapter } = require("./connectors/recloud-adapter");
 const { RecloudSyncService } = require("./services/recloud-sync-service");
+const { JsonRecloudSyncDiagnosticsStore } = require("./database/recloud-sync-diagnostics-store");
+const { RecloudSyncDiagnosticsService } = require("./services/recloud-sync-diagnostics-service");
 const {
   USER_ROLES,
   getLocalCurrentUser,
@@ -201,6 +203,9 @@ function createApp(
   const syncService = options.syncService || new RecloudSyncService(
     options.syncOutbox || new JsonRecloudSyncOutbox(),
     options.recloudAdapter || createRecloudAdapter()
+  );
+  const syncDiagnostics = options.syncDiagnostics || new RecloudSyncDiagnosticsService(
+    options.syncDiagnosticsStore || new JsonRecloudSyncDiagnosticsStore()
   );
   const app = express();
   app.use(express.json({ limit: "30mb" }));
@@ -732,6 +737,35 @@ function createApp(
       res.json({ success: true, data: await syncService.outbox.readAll() });
     } catch (error) { next(error); }
   });
+
+  app.get("/api/recloud-sync/diagnostics", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      if (user.role !== USER_ROLES.ADMIN) throw createApiError("SYNC_DIAGNOSTICS_FORBIDDEN", "只有管理员可以查看瑞云同步诊断", 403);
+      res.json({ success: true, data: await syncDiagnostics.inspectAll() });
+    } catch (error) { next(error); }
+  });
+
+  for (const nodeKey of ["receipt", "inspection", "repair", "shipping", "completion"]) {
+    app.get(`/api/recloud-sync/diagnostics/${nodeKey}/inspect`, async (req, res, next) => {
+      try {
+        const user = currentUserProvider(req);
+        if (user.role !== USER_ROLES.ADMIN) throw createApiError("SYNC_DIAGNOSTICS_FORBIDDEN", "只有管理员可以查看瑞云同步诊断", 403);
+        res.json({ success: true, data: await syncDiagnostics.inspect(nodeKey) });
+      } catch (error) { next(error); }
+    });
+    app.post(`/api/recloud-sync/diagnostics/${nodeKey}/capture`, async (req, res, next) => {
+      try {
+        const user = currentUserProvider(req);
+        if (user.role !== USER_ROLES.ADMIN) throw createApiError("SYNC_DIAGNOSTICS_FORBIDDEN", "只有管理员可以采集瑞云同步诊断", 403);
+        const revealPhone = String(process.env.RECLOUD_REVEAL_PHONE_ENABLED || "false").toLowerCase() === "true";
+        if (!isDryRun() || isRecloudWriteEnabled() || revealPhone) {
+          throw createApiError("SYNC_DIAGNOSTICS_UNSAFE", "同步诊断采集只允许在严格只读安全模式下执行", 403);
+        }
+        res.json({ success: true, data: await syncDiagnostics.capture(nodeKey, req.body || {}) });
+      } catch (error) { next(error); }
+    });
+  }
 
   app.get("/api/repairs/local-orders", async (req, res, next) => {
     try {

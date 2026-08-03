@@ -137,6 +137,14 @@ export async function retryRecloudSyncTask(taskId) {
   return request("/api/recloud-sync/tasks/retry", { taskId })
 }
 
+export async function getRecloudSyncDiagnostics() {
+  return get("/api/recloud-sync/diagnostics")
+}
+
+export async function captureRecloudSyncDiagnostic(nodeKey, payload) {
+  return request(`/api/recloud-sync/diagnostics/${nodeKey}/capture`, payload)
+}
+
 export async function getCurrentFieldDeskUser() {
   return get("/api/auth/me")
 }

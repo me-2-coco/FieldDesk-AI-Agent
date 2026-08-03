@@ -217,6 +217,7 @@ export function canAccessPage(
   "inventory",
   "warehouse",
   "syncTasks",
+  "syncDiagnostics",
   "profile"
 ],
 

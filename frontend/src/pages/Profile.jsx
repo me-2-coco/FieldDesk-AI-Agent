@@ -104,6 +104,7 @@ function Profile({
           <h2>瑞云同步管理</h2>
           <p>查看本地业务节点的异步同步任务和失败重试。</p>
           <button type="button" onClick={() => setPage("syncTasks")}>同步任务</button>
+          <button type="button" onClick={() => setPage("syncDiagnostics")}>同步诊断</button>
         </div>
       )}
 
