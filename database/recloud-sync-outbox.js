@@ -10,6 +10,13 @@ const TASK_STATUS = Object.freeze({
   FAILED: "FAILED",
   MANUAL_REVIEW: "MANUAL_REVIEW",
 });
+const TASK_TRANSITIONS = Object.freeze({
+  PENDING: [TASK_STATUS.PROCESSING],
+  PROCESSING: [TASK_STATUS.SUCCESS, TASK_STATUS.FAILED, TASK_STATUS.MANUAL_REVIEW],
+  FAILED: [TASK_STATUS.PENDING, TASK_STATUS.PROCESSING, TASK_STATUS.MANUAL_REVIEW],
+  MANUAL_REVIEW: [TASK_STATUS.PENDING],
+  SUCCESS: [],
+});
 
 class JsonRecloudSyncOutbox {
   constructor(filePath = DEFAULT_FILE) {
@@ -65,6 +72,9 @@ class JsonRecloudSyncOutbox {
         status: TASK_STATUS.PENDING,
         retryCount: 0,
         lastError: "",
+        errorCategory: "",
+        mappingVersion: String(input.mappingVersion || "v1"),
+        payload: input.payload && typeof input.payload === "object" ? input.payload : {},
       };
       tasks.push(task);
       return task;
@@ -80,9 +90,24 @@ class JsonRecloudSyncOutbox {
     });
   }
 
+  transition(taskId, nextStatus, fields = {}) {
+    return this.run((tasks) => {
+      const task = tasks.find((item) => item.id === taskId);
+      if (!task) throw Object.assign(new Error("同步任务不存在"), { code: "SYNC_TASK_NOT_FOUND", status: 404 });
+      const allowed = TASK_TRANSITIONS[task.status] || [];
+      if (!allowed.includes(nextStatus)) {
+        throw Object.assign(new Error("同步任务状态流转不合法"), {
+          code: "SYNC_TASK_TRANSITION_INVALID", status: 409,
+        });
+      }
+      Object.assign(task, fields, { status: nextStatus, updatedAt: new Date().toISOString() });
+      return task;
+    });
+  }
+
   async get(taskId) {
     return (await this.readAll()).find((item) => item.id === taskId) || null;
   }
 }
 
-module.exports = { DEFAULT_FILE, JsonRecloudSyncOutbox, TASK_STATUS };
+module.exports = { DEFAULT_FILE, JsonRecloudSyncOutbox, TASK_STATUS, TASK_TRANSITIONS };

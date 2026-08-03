@@ -61,6 +61,7 @@ function SyncTasks({ setPage }) {
       <p>寄修单号：{task.rmaNo || "-"}</p>
       <p>状态：{task.status}</p>
       <p>重试次数：{task.retryCount}</p>
+      <p>错误分类：{task.errorCategory || "无"}</p>
       <p>最后错误：{task.lastError || "无"}</p>
       <p>创建时间：{new Date(task.createdAt).toLocaleString()}</p>
       {["FAILED", "MANUAL_REVIEW"].includes(task.status) && (

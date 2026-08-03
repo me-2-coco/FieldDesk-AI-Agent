@@ -1,3 +1,5 @@
+const { validateNodePayload } = require("./recloud-sync-mapping");
+
 class RecloudAdapter {
   async syncReceipt() { throw new Error("syncReceipt must be implemented"); }
   async syncInspectionCompleted() { throw new Error("syncInspectionCompleted must be implemented"); }
@@ -8,7 +10,15 @@ class RecloudAdapter {
 
 class DryRunRecloudAdapter extends RecloudAdapter {
   result(nodeType, task) {
-    return { success: true, dryRun: true, nodeType, idempotencyKey: task.idempotencyKey };
+    validateNodePayload(nodeType, task.payload);
+    return {
+      success: true,
+      dryRun: true,
+      nodeType,
+      idempotencyKey: task.idempotencyKey,
+      mappingVersion: task.mappingVersion,
+      mappedFields: Object.keys(task.payload).sort(),
+    };
   }
   async syncReceipt(task) { return this.result("RECEIPT", task); }
   async syncInspectionCompleted(task) { return this.result("INSPECTION_COMPLETED", task); }
