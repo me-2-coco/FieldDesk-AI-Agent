@@ -33,6 +33,18 @@ function sanitizeEnumStatusValues(values) {
     .filter((value) => ENUM_STATUS_VALUE.test(value) && !/\d{5,}/.test(value)))];
 }
 
+function hasMeaningfulCapture(capture) {
+  return Boolean(capture && (
+    capture.urlPathTemplate ||
+    capture.entryFeatures?.length ||
+    capture.requestFieldNames?.length ||
+    capture.responseFieldNames?.length ||
+    capture.successCriteriaFieldNames?.length ||
+    capture.idempotencyFieldNames?.length ||
+    capture.enumStatusValues?.length
+  ));
+}
+
 class RecloudSyncDiagnosticsService {
   constructor(store) { this.store = store; }
 
@@ -58,7 +70,7 @@ class RecloudSyncDiagnosticsService {
       nodeKey, nodeType: template.nodeType, label: template.label,
       status: saved?.diagnosticError
         ? DIAGNOSTIC_STATUS.FAILED
-        : !saved
+        : !hasMeaningfulCapture(saved)
           ? DIAGNOSTIC_STATUS.WAITING_CAPTURE
           : missingFields.length ? DIAGNOSTIC_STATUS.CAPTURED : DIAGNOSTIC_STATUS.READY,
       capture: saved,
@@ -107,6 +119,7 @@ class RecloudSyncDiagnosticsService {
 module.exports = {
   RecloudSyncDiagnosticsService,
   sanitizeEnumStatusValues,
+  hasMeaningfulCapture,
   sanitizeFeatures,
   sanitizeNames,
   sanitizePathTemplate,

@@ -62,6 +62,15 @@ test("partial capture is marked captured and reports missing configuration", asy
   assert.ok(result.missingFields.includes("responseFieldNames"));
 });
 
+test("blank metadata remains waiting for capture", async (t) => {
+  const service = await fixture(t);
+  const result = await service.capture("completion", {
+    httpMethod: "POST",
+    responseStatus: 200,
+  });
+  assert.equal(result.status, "WAITING_CAPTURE");
+});
+
 test("sanitizers reject values and remove URL parameters", () => {
   assert.deepEqual(sanitizeNames(["status", "phone=13800000000", "data.result"]), ["status", "data.result"]);
   assert.equal(sanitizePathTemplate("/api/order/123456789?access_token=secret"), "/api/order/{id}");
@@ -82,6 +91,7 @@ test("diagnostic failure uses fixed safe error code", async (t) => {
 test("admin page shows all diagnostic statuses and server routes do not invoke Recloud", async () => {
   const page = await fs.readFile(path.join(__dirname, "../frontend/src/pages/SyncDiagnostics.jsx"), "utf8");
   for (const label of ["未配置", "待采集", "已采集", "可联调", "联调失败"]) assert.match(page, new RegExp(label));
+  assert.match(page, /一次保存五节点元数据/);
   const server = await fs.readFile(path.join(__dirname, "../server.js"), "utf8");
   const start = server.indexOf('app.get("/api/recloud-sync/diagnostics"');
   const end = server.indexOf('app.post("/api/recloud-sync/tasks/retry"');

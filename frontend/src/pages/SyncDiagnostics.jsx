@@ -28,6 +28,32 @@ function splitNames(value) {
   return String(value || "").split(/[,，\n]/).map((item) => item.trim()).filter(Boolean)
 }
 
+function hasMetadata(form) {
+  return [
+    form.entryFeatures,
+    form.urlPathTemplate,
+    form.requestFieldNames,
+    form.responseFieldNames,
+    form.successCriteriaFieldNames,
+    form.idempotencyFieldNames,
+    form.enumStatusValues
+  ].some((value) => String(value || "").trim())
+}
+
+function capturePayload(form) {
+  return {
+    entryFeatures: splitNames(form.entryFeatures),
+    httpMethod: form.httpMethod,
+    urlPathTemplate: form.urlPathTemplate,
+    requestFieldNames: splitNames(form.requestFieldNames),
+    responseStatus: Number(form.responseStatus),
+    responseFieldNames: splitNames(form.responseFieldNames),
+    successCriteriaFieldNames: splitNames(form.successCriteriaFieldNames),
+    idempotencyFieldNames: splitNames(form.idempotencyFieldNames),
+    enumStatusValues: splitNames(form.enumStatusValues)
+  }
+}
+
 function SyncDiagnostics({ setPage }) {
   const [nodes, setNodes] = useState([])
   const [forms, setForms] = useState({})
@@ -57,18 +83,23 @@ function SyncDiagnostics({ setPage }) {
   async function capture(nodeKey) {
     const form = formFor(nodeKey)
     try {
-      await captureRecloudSyncDiagnostic(nodeKey, {
-        entryFeatures: splitNames(form.entryFeatures),
-        httpMethod: form.httpMethod,
-        urlPathTemplate: form.urlPathTemplate,
-        requestFieldNames: splitNames(form.requestFieldNames),
-        responseStatus: Number(form.responseStatus),
-        responseFieldNames: splitNames(form.responseFieldNames),
-        successCriteriaFieldNames: splitNames(form.successCriteriaFieldNames),
-        idempotencyFieldNames: splitNames(form.idempotencyFieldNames),
-        enumStatusValues: splitNames(form.enumStatusValues)
-      })
+      await captureRecloudSyncDiagnostic(nodeKey, capturePayload(form))
       setMessage("只读结构元数据已保存")
+      await refresh()
+    } catch (error) { setMessage(error.message) }
+  }
+
+  async function captureAll() {
+    const pending = nodes.filter((node) => hasMetadata(formFor(node.nodeKey)))
+    if (!pending.length) {
+      setMessage("没有可保存的元数据，五个节点保持待采集")
+      return
+    }
+    try {
+      await Promise.all(pending.map((node) =>
+        captureRecloudSyncDiagnostic(node.nodeKey, capturePayload(formFor(node.nodeKey)))
+      ))
+      setMessage(`已批量保存 ${pending.length} 个节点的只读元数据`)
       await refresh()
     } catch (error) { setMessage(error.message) }
   }
@@ -80,6 +111,7 @@ function SyncDiagnostics({ setPage }) {
     </div>
     <div className="card">
       <p>仅保存入口特征、路径模板和字段名称；禁止填写字段值、客户资料、凭据或完整 URL。</p>
+      <button type="button" onClick={captureAll}>一次保存五节点元数据</button>
     </div>
     {nodes.map((node) => {
       const form = formFor(node.nodeKey)
