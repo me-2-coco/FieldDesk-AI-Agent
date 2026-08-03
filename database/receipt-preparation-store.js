@@ -398,6 +398,17 @@ class JsonReceiptPreparationStore {
     });
   }
 
+  async listOrdersForUser(user = {}, roles = {}) {
+    const records = await this.readAll();
+    if (user.role === roles.ADMIN) return records;
+    if (user.role === roles.TECHNICIAN) {
+      return records.filter((record) =>
+        (record.technicianId || record.operatorId) === user.userId
+      );
+    }
+    return [];
+  }
+
   async submitReturnShipment(rmaNo, input = {}, operator = {}) {
     const operation = this.writeQueue.then(async () => {
       const records = await this.readAll();

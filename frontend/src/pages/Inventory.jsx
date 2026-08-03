@@ -7,7 +7,7 @@ import {
 } from "../shared/crmService.js"
 import { getCurrentRepairOrder } from "../shared/repairOrderStore.js"
 
-function Inventory() {
+function Inventory({ setPage }) {
   const [user, setUser] = useState(null)
   const [inventory, setInventory] = useState(null)
   const [quantities, setQuantities] = useState({})
@@ -71,6 +71,9 @@ function Inventory() {
       )}
     </div>
     {message && <div className="card"><p>{message}</p></div>}
+    {user.role === "TECHNICIAN" && order.crmOrderNo && (
+      <button className="primary-btn" onClick={() => setPage("repairCompletion")}>返回当前工单并进入维修完工</button>
+    )}
   </div>
 }
 

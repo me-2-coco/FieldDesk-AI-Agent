@@ -733,6 +733,13 @@ function createApp(
     } catch (error) { next(error); }
   });
 
+  app.get("/api/repairs/local-orders", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      res.json({ success: true, data: await receiptStore.listOrdersForUser(user, USER_ROLES) });
+    } catch (error) { next(error); }
+  });
+
   app.post("/api/recloud-sync/tasks/retry", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);

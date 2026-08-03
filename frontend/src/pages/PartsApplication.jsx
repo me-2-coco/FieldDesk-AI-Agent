@@ -139,6 +139,12 @@ function PartsApplication({ setPage }) {
         <p className="dry-run-notice">
           当前仅保存到 FieldDesk，不连接瑞云，也不进入审批流程
         </p>
+        {message && (
+          <div className="workflow-actions">
+            <button className="primary-btn" onClick={() => setPage("inventory")}>进入个人库存使用配件</button>
+            <button className="secondary-btn" onClick={() => setPage("repairCompletion")}>不需使用配件，进入维修完工</button>
+          </div>
+        )}
       </div>
     </div>
   )
