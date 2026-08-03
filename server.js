@@ -7,11 +7,10 @@ if (require.main === module) {
   }
 }
 const recloudConnector = require("./connectors/recloud");
-const {
-  JsonReceiptPreparationStore,
-  normalizeSn,
-} = require("./database/receipt-preparation-store");
-const { JsonInventoryStore } = require("./database/inventory-store");
+const { normalizeSn } = require("./database/receipt-preparation-store");
+const { createBusinessStores } = require("./database/business-store-factory");
+const { AccountStore } = require("./database/account-store");
+const { WorkCoordinationStore } = require("./database/work-coordination-store");
 const { LocalRepairAttachmentStore } = require("./database/repair-attachment-store");
 const { LocalShippingAttachmentStore } = require("./database/shipping-attachment-store");
 const { JsonRecloudSyncOutbox } = require("./database/recloud-sync-outbox");
@@ -192,12 +191,16 @@ async function initializeRecloudSession(connector, logger = console) {
 
 function createApp(
   connector = recloudConnector,
-  receiptStore = new JsonReceiptPreparationStore(),
+  receiptStore = null,
   options = {}
 ) {
+  const businessStores = options.businessStores || createBusinessStores(options.env || process.env);
+  receiptStore ||= businessStores.receiptStore;
+  const accountStore = options.accountStore || new AccountStore(options.accountStoreOptions);
+  const coordinationStore = options.coordinationStore || new WorkCoordinationStore(options.coordinationStoreOptions);
   const currentUserProvider =
-    options.getCurrentUser || (() => getLocalCurrentUser());
-  const inventoryStore = options.inventoryStore || new JsonInventoryStore();
+    options.getCurrentUser || ((req) => req.fieldDeskUser || getLocalCurrentUser());
+  const inventoryStore = options.inventoryStore || businessStores.inventoryStore;
   const attachmentStore = options.attachmentStore || new LocalRepairAttachmentStore();
   const shippingAttachmentStore = options.shippingAttachmentStore || new LocalShippingAttachmentStore();
   const syncService = options.syncService || new RecloudSyncService(
@@ -212,10 +215,51 @@ function createApp(
 
   app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", process.env.FRONTEND_ORIGIN || "*");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization,Idempotency-Key");
     res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
     if (req.method === "OPTIONS") return res.sendStatus(204);
     next();
+  });
+
+  app.use(async (req, res, next) => {
+    const runtimeEnv = options.env || process.env;
+    if (String(runtimeEnv.FIELDDESK_AUTH_MODE || "local") !== "accounts") return next();
+    if (req.path === "/api/health") return next();
+    try {
+      await accountStore.ensureBootstrap(runtimeEnv.FIELDDESK_BOOTSTRAP_ADMIN_TOKEN);
+      const authorization = String(req.headers.authorization || "");
+      const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
+      const user = await accountStore.findByToken(token);
+      if (!user) return res.status(401).json({ success: false, code: "AUTH_REQUIRED", message: "账号认证失败" });
+      req.fieldDeskUser = user;
+      next();
+    } catch (error) { next(error); }
+  });
+
+  app.use(async (req, res, next) => {
+    if (req.method !== "POST") return next();
+    const user = currentUserProvider(req);
+    const resourceId = String(req.body?.rmaNo || "").trim();
+    try {
+      await coordinationStore.assertAvailable(resourceId, user);
+      const key = String(req.headers["idempotency-key"] || "").trim();
+      if (key) {
+        const claim = await coordinationStore.claimIdempotency(key, user);
+        if (claim.duplicate) return res.json(claim.response);
+        const originalJson = res.json.bind(res);
+        res.json = (body) => {
+          const completion = res.statusCode < 400
+            ? coordinationStore.finishIdempotency(claim.scopedKey, body)
+            : coordinationStore.failIdempotency(claim.scopedKey);
+          completion.catch(() => console.error("FIELDDESK_IDEMPOTENCY: persist_failed"));
+          return originalJson(body);
+        };
+      }
+      if (resourceId && /^\/api\/(repairs|inventory|shipping|orders)/.test(req.path)) {
+        res.on("finish", () => coordinationStore.audit({ action: `${req.method} ${req.path}`, resourceId, user, outcome: res.statusCode < 400 ? "SUCCESS" : "FAILED" }).catch(() => console.error("FIELDDESK_AUDIT: persist_failed")));
+      }
+      next();
+    } catch (error) { next(error); }
   });
 
   async function enqueueRecloudNode(order, nodeType, recordId) {
@@ -247,6 +291,43 @@ function createApp(
         repairSpecialties: getAllowedRepairSpecialties(user),
       },
     });
+  });
+
+  app.get("/api/admin/users", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      if (user.role !== USER_ROLES.ADMIN) throw createApiError("ACCOUNT_ADMIN_REQUIRED", "只有管理员可以查看账号", 403);
+      res.json({ success: true, data: await accountStore.list() });
+    } catch (error) { next(error); }
+  });
+
+  app.post("/api/admin/users", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      res.json({ success: true, data: await accountStore.upsert(req.body || {}, user) });
+    } catch (error) { next(error); }
+  });
+
+  app.post("/api/orders/lock", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      res.json({ success: true, data: await coordinationStore.acquire(String(req.body?.rmaNo || "").trim(), user) });
+    } catch (error) { next(error); }
+  });
+
+  app.post("/api/orders/unlock", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      res.json({ success: true, data: await coordinationStore.release(String(req.body?.rmaNo || "").trim(), user) });
+    } catch (error) { next(error); }
+  });
+
+  app.get("/api/admin/audit-logs", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      if (user.role !== USER_ROLES.ADMIN) throw createApiError("AUDIT_ADMIN_REQUIRED", "只有管理员可以查看操作审计", 403);
+      res.json({ success: true, data: await coordinationStore.listAudits() });
+    } catch (error) { next(error); }
   });
 
   app.post("/api/crm/repairs/query", async (req, res, next) => {

@@ -2,8 +2,10 @@ import { useState } from "react"
 
 import {
   getUsers,
+  setAuthenticatedUser,
   setCurrentUser
 } from "../shared/userStore.js"
+import { getCurrentFieldDeskUser, setApiAccessToken } from "../shared/crmService.js"
 
 
 function Login({ onLogin }) {
@@ -11,10 +13,32 @@ function Login({ onLogin }) {
   const users = getUsers()
 
   const [account, setAccount] = useState("")
+  const [accessToken, setAccessToken] = useState("")
   const [message, setMessage] = useState("")
 
 
-  function handleLogin() {
+  async function handleLogin() {
+
+    if (accessToken) {
+      try {
+        setApiAccessToken(accessToken)
+        const profile = await getCurrentFieldDeskUser()
+        const user = setAuthenticatedUser({
+          id: profile.userId,
+          name: profile.displayName,
+          account: profile.userId,
+          role: String(profile.role).toLowerCase(),
+          repairSpecialties: profile.repairSpecialties || []
+        })
+        setAccessToken("")
+        onLogin(user)
+        return
+      } catch (error) {
+        setApiAccessToken("")
+        setMessage(error.message)
+        return
+      }
+    }
 
     const inputAccount = account.trim().toLowerCase()
 
@@ -119,6 +143,9 @@ function Login({ onLogin }) {
         >
           登录
         </button>
+
+        <label htmlFor="login-token">正式账号访问令牌</label>
+        <input id="login-token" type="password" value={accessToken} onChange={(event) => setAccessToken(event.target.value)} placeholder="生产模式使用，不在浏览器保存" autoComplete="current-password" />
 
 
         {message && (

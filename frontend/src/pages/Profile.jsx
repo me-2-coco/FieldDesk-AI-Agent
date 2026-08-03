@@ -105,6 +105,7 @@ function Profile({
           <p>查看本地业务节点的异步同步任务和失败重试。</p>
           <button type="button" onClick={() => setPage("syncTasks")}>同步任务</button>
           <button type="button" onClick={() => setPage("syncDiagnostics")}>同步诊断</button>
+          <button type="button" onClick={() => setPage("accountManagement")}>账号与权限</button>
         </div>
       )}
 

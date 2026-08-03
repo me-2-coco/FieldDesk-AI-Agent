@@ -1,13 +1,25 @@
 const API_BASE_URL = String(
   import.meta.env.VITE_API_BASE_URL || "http://localhost:3000"
 ).replace(/\/$/, "")
+let API_ACCESS_TOKEN = ""
+
+export function setApiAccessToken(value) {
+  API_ACCESS_TOKEN = String(value || "")
+}
+
+function apiHeaders() {
+  return {
+    "Content-Type": "application/json",
+    ...(API_ACCESS_TOKEN ? { Authorization: `Bearer ${API_ACCESS_TOKEN}` } : {})
+  }
+}
 
 async function request(path, body) {
   let response
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: apiHeaders(),
       body: JSON.stringify(body)
     })
   } catch {
@@ -29,7 +41,7 @@ async function request(path, body) {
 async function get(path) {
   let response
   try {
-    response = await fetch(`${API_BASE_URL}${path}`)
+    response = await fetch(`${API_BASE_URL}${path}`, { headers: apiHeaders() })
   } catch {
     throw new Error("无法连接 FieldDesk 后端，请确认 API 已启动")
   }
@@ -147,4 +159,12 @@ export async function captureRecloudSyncDiagnostic(nodeKey, payload) {
 
 export async function getCurrentFieldDeskUser() {
   return get("/api/auth/me")
+}
+
+export async function getAdminUsers() {
+  return get("/api/admin/users")
+}
+
+export async function saveAdminUser(payload) {
+  return request("/api/admin/users", payload)
 }

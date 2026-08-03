@@ -1,6 +1,6 @@
-const fs = require("fs/promises");
 const path = require("path");
 const crypto = require("crypto");
+const { JsonDocumentBackend } = require("./storage-backend");
 
 const DEFAULT_FILE = path.join(__dirname, "data", "inventory.json");
 const DEFAULT_PARTS = [
@@ -22,22 +22,17 @@ function quantity(value) {
 
 class JsonInventoryStore {
   constructor(filePath = DEFAULT_FILE) {
-    this.filePath = filePath;
+    this.filePath = typeof filePath === "string" ? filePath : DEFAULT_FILE;
+    this.backend = typeof filePath === "object"
+      ? filePath
+      : new JsonDocumentBackend(this.filePath, { totalStock: structuredClone(DEFAULT_PARTS), technicianStock: {}, returnRequests: [], transactions: [] });
     this.queue = Promise.resolve();
   }
   async read() {
-    try {
-      return JSON.parse(await fs.readFile(this.filePath, "utf8"));
-    } catch (error) {
-      if (error.code !== "ENOENT") throw error;
-      return { totalStock: structuredClone(DEFAULT_PARTS), technicianStock: {}, returnRequests: [], transactions: [] };
-    }
+    return this.backend.read();
   }
   async write(data) {
-    await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-    const temporary = `${this.filePath}.${process.pid}.tmp`;
-    await fs.writeFile(temporary, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 });
-    await fs.rename(temporary, this.filePath);
+    await this.backend.write(data);
   }
   run(work) {
     const operation = this.queue.then(async () => {

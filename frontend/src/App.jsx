@@ -15,13 +15,16 @@ import Warehouse from "./pages/Warehouse.jsx"
 import Profile from "./pages/Profile.jsx"
 import SyncTasks from "./pages/SyncTasks.jsx"
 import SyncDiagnostics from "./pages/SyncDiagnostics.jsx"
+import AccountManagement from "./pages/AccountManagement.jsx"
 
 import BottomNav from "./components/BottomNav.jsx"
 
 import {
   canAccessPage,
-  getCurrentUser
+  getCurrentUser,
+  setAuthenticatedUser
 } from "./shared/userStore.js"
+import { setApiAccessToken } from "./shared/crmService.js"
 
 import "./App.css"
 
@@ -65,6 +68,8 @@ function App() {
   function handleLogout() {
 
     localStorage.removeItem("isLoggedIn")
+    setAuthenticatedUser(null)
+    setApiAccessToken("")
 
     setIsLoggedIn(false)
 
@@ -291,6 +296,10 @@ function App() {
 
         {page === "syncDiagnostics" && (
           <SyncDiagnostics setPage={setPage} />
+        )}
+
+        {page === "accountManagement" && (
+          <AccountManagement setPage={setPage} />
         )}
 
 

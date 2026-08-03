@@ -1,6 +1,6 @@
-const fs = require("fs/promises");
 const path = require("path");
 const crypto = require("crypto");
+const { JsonDocumentBackend } = require("./storage-backend");
 
 const ACTIVE_RECEIPT_STATUSES = new Set([
   "RECEIPT_PREPARED",
@@ -63,30 +63,20 @@ function createReceiptPreparation(input, existing = null, now = new Date()) {
 
 class JsonReceiptPreparationStore {
   constructor(filePath = DEFAULT_DATA_FILE) {
-    this.filePath = filePath;
+    this.filePath = typeof filePath === "string" ? filePath : DEFAULT_DATA_FILE;
+    this.backend = typeof filePath === "object"
+      ? filePath
+      : new JsonDocumentBackend(this.filePath, []);
     this.writeQueue = Promise.resolve();
   }
 
   async readAll() {
-    try {
-      const content = await fs.readFile(this.filePath, "utf8");
-      const parsed = JSON.parse(content);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch (error) {
-      if (error.code === "ENOENT") return [];
-      throw error;
-    }
+    const parsed = await this.backend.read();
+    return Array.isArray(parsed) ? parsed : [];
   }
 
   async writeAll(records) {
-    await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-    const temporaryPath = `${this.filePath}.${process.pid}.tmp`;
-    await fs.writeFile(
-      temporaryPath,
-      `${JSON.stringify(records, null, 2)}\n`,
-      { encoding: "utf8", mode: 0o600 }
-    );
-    await fs.rename(temporaryPath, this.filePath);
+    await this.backend.write(records);
   }
 
   async prepare(input) {

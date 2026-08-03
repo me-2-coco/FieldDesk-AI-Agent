@@ -38,6 +38,7 @@ const DEFAULT_USERS = [
 
 
 const DEFAULT_CURRENT_USER_ID = "USER-001"
+let authenticatedUser = null
 
 
 function cloneData(data) {
@@ -115,6 +116,8 @@ export function getCurrentUserId() {
 
 export function getCurrentUser() {
 
+  if (authenticatedUser) return authenticatedUser
+
   const users = getUsers()
   const currentUserId = getCurrentUserId()
 
@@ -123,6 +126,11 @@ export function getCurrentUser() {
       (user) => user.id === currentUserId
     ) || users[0]
   )
+}
+
+export function setAuthenticatedUser(user) {
+  authenticatedUser = user || null
+  return authenticatedUser
 }
 
 
@@ -218,6 +226,7 @@ export function canAccessPage(
   "warehouse",
   "syncTasks",
   "syncDiagnostics",
+  "accountManagement",
   "profile"
 ],
 
