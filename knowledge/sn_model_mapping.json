@@ -1,0 +1,2160 @@
+{
+  "source": "/Users/liuhui/Downloads/网点派单机型汇总.xlsx",
+  "generated_at": "2026-07-28T06:53:12.005Z",
+  "records": [
+    {
+      "product_line": "吸尘器",
+      "machine_model": "V8",
+      "project_code": "V8",
+      "product_model_code": "99700000000254"
+    },
+    {
+      "product_line": "吸尘器",
+      "machine_model": "V8",
+      "project_code": "MH1704",
+      "product_model_code": "99700000000254"
+    },
+    {
+      "product_line": "吸尘器",
+      "machine_model": "V16S",
+      "project_code": "V2215",
+      "product_model_code": "01010100000415"
+    },
+    {
+      "product_line": "吸尘器",
+      "machine_model": "V12 Slim",
+      "project_code": "V2211",
+      "product_model_code": "01010100000392"
+    },
+    {
+      "product_line": "吸尘器",
+      "machine_model": "V16",
+      "project_code": "P2229",
+      "product_model_code": "01010100000332"
+    },
+    {
+      "product_line": "吸尘器",
+      "machine_model": "V9D",
+      "project_code": "P1802",
+      "product_model_code": "01010100000227"
+    },
+    {
+      "product_line": "吸尘器",
+      "machine_model": "V9/V9B",
+      "project_code": "P1802",
+      "product_model_code": "01010100000244"
+    },
+    {
+      "product_line": "吸尘器",
+      "machine_model": "V9/V9B",
+      "project_code": "MH1704",
+      "product_model_code": "01010100000244"
+    },
+    {
+      "product_line": "吸尘器",
+      "machine_model": "V10",
+      "project_code": "P1919",
+      "product_model_code": "01010100000249"
+    },
+    {
+      "product_line": "吸尘器",
+      "machine_model": "V10",
+      "project_code": "MH1704",
+      "product_model_code": "01010100000249"
+    },
+    {
+      "product_line": "吸尘器",
+      "machine_model": "V11",
+      "project_code": "P2017",
+      "product_model_code": "01010100000259"
+    },
+    {
+      "product_line": "吸尘器",
+      "machine_model": "V12",
+      "project_code": "P2079",
+      "product_model_code": "01010100000305"
+    },
+    {
+      "product_line": "吸尘器",
+      "machine_model": "Z10 Station",
+      "project_code": "V2308",
+      "product_model_code": "010101AA000457"
+    },
+    {
+      "product_line": "吸尘器",
+      "machine_model": "V12S",
+      "project_code": "V2220",
+      "product_model_code": "01010100000418"
+    },
+    {
+      "product_line": "吸尘器",
+      "machine_model": "V12S（新）",
+      "project_code": "V2220",
+      "product_model_code": "010101AA000417"
+    },
+    {
+      "product_line": "吸尘器",
+      "machine_model": "V11GT",
+      "project_code": "V2317",
+      "product_model_code": "010101AB000446"
+    },
+    {
+      "product_line": "吸尘器",
+      "machine_model": "V16 Beta",
+      "project_code": "V2321",
+      "product_model_code": "010101AA000451"
+    },
+    {
+      "product_line": "吸尘器",
+      "machine_model": "V16 Pro（V2329）",
+      "project_code": "V2329",
+      "product_model_code": "010101AA000455"
+    },
+    {
+      "product_line": "吸尘器",
+      "machine_model": "V15 Pure",
+      "project_code": "V2322",
+      "product_model_code": "010101AA000453"
+    },
+    {
+      "product_line": "吸尘器",
+      "machine_model": "V15 Pro",
+      "project_code": "V2327",
+      "product_model_code": "010101AA000454"
+    },
+    {
+      "product_line": "吸尘器",
+      "machine_model": "V12 Pure",
+      "project_code": "V2307",
+      "product_model_code": "01010100000423"
+    },
+    {
+      "product_line": "吸尘器",
+      "machine_model": "V11GT（山姆款）",
+      "project_code": "V2317A",
+      "product_model_code": "010101AC000446"
+    },
+    {
+      "product_line": "吸尘器",
+      "machine_model": "V16S（京东款）",
+      "project_code": "V2215B",
+      "product_model_code": "010101AC000466"
+    },
+    {
+      "product_line": "吸尘器",
+      "machine_model": "Z10 Station 2024款",
+      "project_code": "V2451",
+      "product_model_code": "010101AA000495"
+    },
+    {
+      "product_line": "吸尘器",
+      "machine_model": "V16 Member",
+      "project_code": "V2436",
+      "product_model_code": "010101AD000466"
+    },
+    {
+      "product_line": "吸尘器",
+      "machine_model": "V10S",
+      "project_code": "V2330",
+      "product_model_code": "010101AA000458"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "W10s Pro",
+      "project_code": "R2232A",
+      "product_model_code": "01020100000173"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S10（非上下水版）",
+      "project_code": "R2228",
+      "product_model_code": "01020400000086"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X10（胡迪版）",
+      "project_code": "R2235",
+      "product_model_code": "01020400000154"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X10（胡迪版）",
+      "project_code": "R2235D",
+      "product_model_code": "01020400000154"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "W10s",
+      "project_code": "R2251",
+      "product_model_code": "01020100000185"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S10（草莓熊版）",
+      "project_code": "R2228S",
+      "product_model_code": "01020400000137"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S10 Pro Plus",
+      "project_code": "R2247",
+      "product_model_code": "01020400000136"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S10 Plus",
+      "project_code": "R2246",
+      "product_model_code": "01020400000134"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S10 Plus",
+      "project_code": "R2246B",
+      "product_model_code": "01020400000134"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S10（上下水版）",
+      "project_code": "R2228",
+      "product_model_code": "01020400000127"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X10 Pro",
+      "project_code": "R2215",
+      "product_model_code": "01020400000109"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S10 Plus+上下水装置",
+      "project_code": "R2246",
+      "product_model_code": "TM202302140001"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S10 Pro Plus+上下水装置",
+      "project_code": "R2247",
+      "product_model_code": "TM202308070007"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S10 Pro+上下水装置",
+      "project_code": "R2233",
+      "product_model_code": "TM202308070008"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S10（草莓熊版）+上下水装置",
+      "project_code": "R2228S",
+      "product_model_code": "TM202308070006"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S10+上下水装置",
+      "project_code": "R2228",
+      "product_model_code": "TM202301120001"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S20 Plus 热水版+上下水装置",
+      "project_code": "R2398",
+      "product_model_code": "TM202308310001"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S20 Plus+上下水装置",
+      "project_code": "R2334",
+      "product_model_code": "TM202308070001"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S20 Pro Plus + 上下水装置",
+      "project_code": "R2332",
+      "product_model_code": "TM202305160001"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S20 Pro 热水版+上下水装置",
+      "project_code": "R2355",
+      "product_model_code": "TM202305250001"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S20 Pro+上下水装置",
+      "project_code": "R2313",
+      "product_model_code": "TM202303280001"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S20+上下水装置",
+      "project_code": "R2316",
+      "product_model_code": "TM202305240001"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "W10s Pro+上下水装置",
+      "project_code": "R2232A",
+      "product_model_code": "TM202308070002"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "W10s+上下水装置",
+      "project_code": "R2251",
+      "product_model_code": "TM202308070005"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X10 +上下水装置",
+      "project_code": "R2235",
+      "product_model_code": "TM202212200001"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S10 Pro Plus 热水版+上下水装置",
+      "project_code": "R2360",
+      "product_model_code": "TM202307210001"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S10 Pro Plus 热水版",
+      "project_code": "R2360",
+      "product_model_code": "010204AA000200"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X10 Pro + 上下水装置",
+      "project_code": "R2215",
+      "product_model_code": "TM202301160001"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X20 Pro + 上下水装置",
+      "project_code": "R2263",
+      "product_model_code": "TM202304280001"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X20 Pro Plus + 上下水装置",
+      "project_code": "R2253",
+      "product_model_code": "TM202304280002"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X20 Pro Plus (高配版）+上下水装置",
+      "project_code": "R2273B",
+      "product_model_code": "TM202308030002"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X20 Pro Plus (高配版）",
+      "project_code": "R2273B",
+      "product_model_code": "010204AA000228"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X20 Pro 上下水版",
+      "project_code": "R2263A",
+      "product_model_code": "010204AA000191"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X20 Pro Plus 上下水版",
+      "project_code": "R2253N",
+      "product_model_code": "010204AA000192"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "R2234_追觅_R2234自动上下水装置_RAW0",
+      "project_code": "R2234",
+      "product_model_code": "01020400000123"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "R2234B_追觅_R2234B 自动上下水模块（无清洁液）_R2234B",
+      "project_code": "R2234B",
+      "product_model_code": "01020400000132"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "R2220_追觅_R2220 追觅自动上下水配件_RAW1",
+      "project_code": "R2220",
+      "product_model_code": "01020400000128"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X10",
+      "project_code": "R2235",
+      "product_model_code": "01020400000110"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S10 Pro",
+      "project_code": "R2233",
+      "product_model_code": "01020400000095"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "W10 Pro",
+      "project_code": "R2104",
+      "product_model_code": "01020400000035"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "W10",
+      "project_code": "P2027",
+      "product_model_code": "01020400000013"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S20 Pro",
+      "project_code": "R2313",
+      "product_model_code": "010204AA000160"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X20 Pro",
+      "project_code": "R2263",
+      "product_model_code": "010204AA000165"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X20 Pro Plus",
+      "project_code": "R2253",
+      "product_model_code": "010204AA000161"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S20 Plus 热水版",
+      "project_code": "R2398",
+      "product_model_code": "010204AA000248"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S20 Pro 热水版",
+      "project_code": "R2355",
+      "product_model_code": "010204AA000197"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S20 Pro Plus 上下水版",
+      "project_code": "R2332X",
+      "product_model_code": "010204AA000195"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S20 上下水版",
+      "project_code": "R2316X",
+      "product_model_code": "010204AA000194"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S20 Pro 上下水版",
+      "project_code": "R2313X",
+      "product_model_code": "010204AA000193"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S20 Plus",
+      "project_code": "R2334",
+      "product_model_code": "010204AA000174"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S20 Pro Plus",
+      "project_code": "R2332",
+      "product_model_code": "010204AA000172"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S20",
+      "project_code": "R2316",
+      "product_model_code": "010204AA000162"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S10 Pro Plus 机械臂版",
+      "project_code": "R9305",
+      "product_model_code": "010201AA000251"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S10 Pro Plus 机械臂版+上下水装置",
+      "project_code": "R9305",
+      "product_model_code": "TM202308300001"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S10 Pro Ultra 机械臂版",
+      "project_code": "R9304",
+      "product_model_code": "010201AA000250"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S10 Pro Ultra 机械臂版+上下水装置",
+      "project_code": "R9304",
+      "product_model_code": "TM202308280003"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S10 Pro 机械臂版",
+      "project_code": "R9311",
+      "product_model_code": "010201AA000254"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S10 Pro 机械臂版+上下水装置",
+      "project_code": "R9311",
+      "product_model_code": "TM202310100003"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S20 机械臂版",
+      "project_code": "R9302",
+      "product_model_code": "010201AA000249"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S20 机械臂版+上下水装置",
+      "project_code": "R9302",
+      "product_model_code": "TM202310100002"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S20 Pro 机械臂版",
+      "project_code": "R2338",
+      "product_model_code": "010204AA000217"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S20 Pro 机械臂版+上下水装置",
+      "project_code": "R2338",
+      "product_model_code": "TM202308290001"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X30",
+      "project_code": "R2375",
+      "product_model_code": "010204AA000224"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X30+上下水装置",
+      "project_code": "R2375",
+      "product_model_code": "TM202308280001"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X30 Pro",
+      "project_code": "R9301",
+      "product_model_code": "010204AA000257"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X30 Pro+上下水装置",
+      "project_code": "R9301",
+      "product_model_code": "TM202308280002"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X30 Pro上下水版",
+      "project_code": "R9301X",
+      "product_model_code": "010204AA000305"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "RAW6 自动上下水装置",
+      "project_code": "R2357",
+      "product_model_code": "010204AA000238"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S10 Pro Ultra 机械臂 自动上下水版",
+      "project_code": "R9304X",
+      "product_model_code": "010201AA000284"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S10 Pro Ultra 机械臂 自动上下水版",
+      "project_code": "R9304S",
+      "product_model_code": "010201AA000284"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S10 Pro Ultra 机械臂版(山姆专供)",
+      "project_code": "R9304W",
+      "product_model_code": "010201AA000286"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "Master one",
+      "project_code": "R2310A",
+      "product_model_code": "010204AA000281"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "Master Pro",
+      "project_code": "R2310",
+      "product_model_code": "010204AA000227"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S10 Pro Ultra 超薄嵌入版",
+      "project_code": "R2310B",
+      "product_model_code": "010204AA000298"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S10 Pro 热水版",
+      "project_code": "R2421",
+      "product_model_code": "010201AA000282"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "W20",
+      "project_code": "R2317",
+      "product_model_code": "010201AA000208"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "W20 Pro",
+      "project_code": "R2348",
+      "product_model_code": "010201AA000235"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "W20 Pro Ultra",
+      "project_code": "R2352",
+      "product_model_code": "010201AA000238"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X20 Pro 白色版",
+      "project_code": "R2273",
+      "product_model_code": "010204AA000189"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S20 Pro 超薄嵌入版",
+      "project_code": "R2310G",
+      "product_model_code": "010204AA000377"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S30 Pro",
+      "project_code": "R2412",
+      "product_model_code": "010204AA000297"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S30 Pro Ultra",
+      "project_code": "R2424",
+      "product_model_code": "010204AA000325"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S30 Pro Ultra 超薄上下水版",
+      "project_code": "R2310D",
+      "product_model_code": "010204AA000361"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S30 铂金版",
+      "project_code": "R2485",
+      "product_model_code": "010204AA000412"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S40",
+      "project_code": "R9401",
+      "product_model_code": "010204AA000443"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S40 Pro",
+      "project_code": "R2487",
+      "product_model_code": "010204AA000444"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X30 Pro 超薄嵌入版",
+      "project_code": "R2310F",
+      "product_model_code": "010204AA000374"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X30s Pro",
+      "project_code": "R2488",
+      "product_model_code": "010204AA000424"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X40",
+      "project_code": "R2426",
+      "product_model_code": "010204AA000388"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X40 Pro",
+      "project_code": "R2416",
+      "product_model_code": "010204AA000304"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X40 Pro Plus",
+      "project_code": "R2483",
+      "product_model_code": "010204AA000408"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S30 Pro Ultra 增强版",
+      "project_code": "R9441",
+      "product_model_code": "010204AA000496"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S30 Pro Ultra 增强版 上下水版",
+      "project_code": "R9441X",
+      "product_model_code": "010204AA000531"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S30 Pro Ultra增强版（基站自清洁3.0）+上下水装置",
+      "project_code": "R9441",
+      "product_model_code": "TM202408070001"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S30 Pro Ultra增强版 超薄上下水版",
+      "project_code": "R9425",
+      "product_model_code": "010204AA000481"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X40 Pro增强版 超薄上下水版",
+      "project_code": "R2473S",
+      "product_model_code": "010204AA000462"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S40 增强版 超薄上下水版",
+      "project_code": "R9426",
+      "product_model_code": "010204AA000483"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S40 增强版",
+      "project_code": "R9430",
+      "product_model_code": "010204AA000498"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S40 增强版 自动上下水版",
+      "project_code": "R9430X",
+      "product_model_code": "010204AA000503"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S40 Pro增强版 超薄上下水版",
+      "project_code": "R9426X",
+      "product_model_code": "010204AA000624"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S10 Pro Ultra双滚机械臂版",
+      "project_code": "R9312",
+      "product_model_code": "010201AA000258"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X40 Pro Ultra",
+      "project_code": "R2401",
+      "product_model_code": "010204AA000386"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X40 Pro Ultra超薄上下水版",
+      "project_code": "R2495",
+      "product_model_code": "010204AA000439"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X40 Pro 超薄上下水版",
+      "project_code": "R2310E",
+      "product_model_code": "010204AA000363"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X40 超薄上下水版",
+      "project_code": "R9422",
+      "product_model_code": "010204AA000456"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S30 Pro Ultra+上下水装置",
+      "project_code": "R2424",
+      "product_model_code": "TM202403010002"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S30 Pro Ultra 自动上下水版",
+      "project_code": "R2424X",
+      "product_model_code": "010204AA000391"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S30 铂金版+上下水装置",
+      "project_code": "R2485",
+      "product_model_code": "TM202404220002"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S30 铂金版 自动上下水版",
+      "project_code": "R2485X",
+      "product_model_code": "010204AA000422"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S40+上下水装置",
+      "project_code": "R9401",
+      "product_model_code": "TM202404220003"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S40 自动上下水版",
+      "project_code": "R9401X",
+      "product_model_code": "010204AA000445"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S40 Pro+上下水装置",
+      "project_code": "R2487",
+      "product_model_code": "TM202404220004"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X30s Pro+上下水装置",
+      "project_code": "R2488",
+      "product_model_code": "TM202404220001"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X30s Pro自动上下水版",
+      "project_code": "R2488",
+      "product_model_code": "010204AA000426"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X40 自动上下水版",
+      "project_code": "R2426X",
+      "product_model_code": "010204AA000390"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X40 Pro自动上下水版",
+      "project_code": "R2416X",
+      "product_model_code": "010204AA000389"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S30 Pro 自动上下水版",
+      "project_code": "R2412X",
+      "product_model_code": "010204AA000341"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X40+上下水装置",
+      "project_code": "R2426",
+      "product_model_code": "TM202403130001"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X40 Pro+上下水装置",
+      "project_code": "R2416X",
+      "product_model_code": "TM202403130002"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X40 Pro Plus+上下水装置",
+      "project_code": "R2483",
+      "product_model_code": "TM202404280003"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S10 Pro Max 热水版",
+      "project_code": "R2360W",
+      "product_model_code": "010204AA000340"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S30 Pro Ultra 甄选款",
+      "project_code": "R9498",
+      "product_model_code": "010204AA000644"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S30 Pro Ultra 甄选款+上下水装置",
+      "project_code": "R9498",
+      "product_model_code": "TM202411010001"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S30 Pro Ultra 甄选款 超薄上下水款",
+      "project_code": "R2504",
+      "product_model_code": "010204AA000642"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S30 Ultra Member",
+      "project_code": "R2441",
+      "product_model_code": "010201AA000351"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S30 Ultra Member+上下水装置",
+      "project_code": "R2441",
+      "product_model_code": "TM202409150001"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X40 增强版",
+      "project_code": "R2443",
+      "product_model_code": "010204AA000487"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X40 Pro增强版",
+      "project_code": "R2473",
+      "product_model_code": "010201AA000348"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X40 增强版自动上下水版",
+      "project_code": "R2443X",
+      "product_model_code": "010204AA000563"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X40 增强版+上下水装置",
+      "project_code": "R2443",
+      "product_model_code": "TM202408230002"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X40 Pro增强版自动上下水版",
+      "project_code": "R2473X",
+      "product_model_code": "010204AA000504"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X40 Pro增强版+上下水装置",
+      "project_code": "R2473",
+      "product_model_code": "TM202408230001"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S40 Pro 增强版",
+      "project_code": "R9419",
+      "product_model_code": "010201AA000350"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S40 Pro 增强版+上下水装置",
+      "project_code": "R9419",
+      "product_model_code": "TM202409190001"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X系列净界版",
+      "project_code": "R9487",
+      "product_model_code": "010204AA000638"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X系列净界版 上下水版",
+      "project_code": "R9487X",
+      "product_model_code": "010204AA000637"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X系列净界版+上下水装置",
+      "project_code": "R9487",
+      "product_model_code": "TM202410190002"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X30s Pro增强版",
+      "project_code": "R9488",
+      "product_model_code": "010204AA000635"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X30s Pro增强版 上下水版",
+      "project_code": "R9488X",
+      "product_model_code": "010204AA000636"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X30s Pro增强版+上下水装置",
+      "project_code": "R9488",
+      "product_model_code": "TM202410190001"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X50 Pro",
+      "project_code": "R2489",
+      "product_model_code": "010204AA000484"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X50 Pro+上下水装置",
+      "project_code": "R2489",
+      "product_model_code": "TM202409190003"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X50 Pro 自动上下水版",
+      "project_code": "R2489X",
+      "product_model_code": "010204AA000613"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X50",
+      "project_code": "R9471",
+      "product_model_code": "010204AA000618"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X50+上下水装置",
+      "project_code": "R9471",
+      "product_model_code": "TM202410170001"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X50 自动上下水版",
+      "project_code": "R9471X",
+      "product_model_code": "010204AA000619"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X50 Pro 超薄上下水版",
+      "project_code": "R9434",
+      "product_model_code": "010204AA000570"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X50 Pro尊享版",
+      "project_code": "R9455",
+      "product_model_code": "010204AA000558"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X50 Pro尊享版+上下水装置",
+      "project_code": "R9455",
+      "product_model_code": "TM202411080004"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S30 Pro Ultra 铂金版",
+      "project_code": "R2520",
+      "product_model_code": "010201AA000420"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X50 先锋版",
+      "project_code": "R9486",
+      "product_model_code": "010204AA000627"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X50 先锋版 超薄版上下水版",
+      "project_code": "R2505",
+      "product_model_code": "010204AA000640"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S40 铂金版",
+      "project_code": "R2573",
+      "product_model_code": "010204AA000720"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S40 铂金版+上下水装置",
+      "project_code": "R2573",
+      "product_model_code": "TM202412250001"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S40铂金版超薄上下水扫地机器人",
+      "project_code": "R2574",
+      "product_model_code": "010204AA000722"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S40 甄选版",
+      "project_code": "R2575",
+      "product_model_code": "010204AA000719"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S40 甄选版+上下水装置",
+      "project_code": "R2575",
+      "product_model_code": "TM202412250002"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S40甄选款超薄上下水扫地机器人",
+      "project_code": "R2576",
+      "product_model_code": "010204AA000721"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S40 增强版+上下水装置",
+      "project_code": "R9430",
+      "product_model_code": "TM202409190002"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X40 Pro Ultra+上下水装置",
+      "project_code": "R2401",
+      "product_model_code": "TM202405140001"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "W20 Pro Ultra+上下水装置",
+      "project_code": "R2352",
+      "product_model_code": "TM202306050001"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S40 Pro Ultra",
+      "project_code": "R9428",
+      "product_model_code": "010204AA000473"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S40 Member 增强版",
+      "project_code": "R500A",
+      "product_model_code": "010204AA000817"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S40 Member 增强版超薄上下水版",
+      "project_code": "R510A",
+      "product_model_code": "010204AA000821"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S40 增强版（9383）",
+      "project_code": "R2553",
+      "product_model_code": "010204AA000686"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X50 Ultra 增强版超薄上下水版",
+      "project_code": "R2501",
+      "product_model_code": "010204AA000735"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X50 Pro 增强版 超薄上下水版",
+      "project_code": "R2502",
+      "product_model_code": "010204AA000753"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X50 Pro增强版",
+      "project_code": "R2515",
+      "product_model_code": "010204AA000712"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X50 Pro增强版 上下水版",
+      "project_code": "R2515X",
+      "product_model_code": "010204AA000833"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X50 Ultra增强版",
+      "project_code": "R2518",
+      "product_model_code": "010204AA000702"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X50 Ultra 增强版 自动上下水版",
+      "project_code": "R2518X",
+      "product_model_code": "010204AA000832"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S50 Ultra",
+      "project_code": "R2507",
+      "product_model_code": "010204AA000711"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S50 Ultra 自动上下水版",
+      "project_code": "R2507X",
+      "product_model_code": "010204AA000837"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S50 Pro",
+      "project_code": "R2508",
+      "product_model_code": "010204AA000701"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S50 Pro 自动上下水版",
+      "project_code": "R2508X",
+      "product_model_code": "010204AA000836"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S50 Ultra 超薄上下水版",
+      "project_code": "R2548",
+      "product_model_code": "010204AA000756"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S50 Pro 超薄上下水版",
+      "project_code": "R9506",
+      "product_model_code": "010204AA000809"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S50",
+      "project_code": "R9548",
+      "product_model_code": "010204AA000906"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S50 自动上下水版",
+      "project_code": "R9548X",
+      "product_model_code": "010204AA000924"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S50 超薄上下水版",
+      "project_code": "R9551",
+      "product_model_code": "010204AA000907"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X50 Ultra",
+      "project_code": "R24896",
+      "product_model_code": "010204AA001197"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X50 Master",
+      "project_code": "R94345",
+      "product_model_code": "010204AA001199"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X50 尊享履带版",
+      "project_code": "R2581",
+      "product_model_code": "010201AA000496"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X50 尊享履带版 上下水版",
+      "project_code": "R2581X",
+      "product_model_code": "010201AA000657"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X50 Pro 履带版",
+      "project_code": "R2580",
+      "product_model_code": "010201AA000493"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X50 Pro 履带上下水版",
+      "project_code": "R2580X",
+      "product_model_code": "010201AA000656"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X50s Pro履带版",
+      "project_code": "R25809",
+      "product_model_code": "010201AA000797"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X50s Pro履带版+上下水装置",
+      "project_code": "R25809",
+      "product_model_code": "TM202507140002"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X50s Pro履带 自动上下水版",
+      "project_code": "R25808",
+      "product_model_code": "010201AA000798"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X50 Pro 滚筒版(R25856)",
+      "project_code": "R25856",
+      "product_model_code": "010202AA000110"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X50 Pro 滚筒版 自动上下水版(R25857)",
+      "project_code": "R25857",
+      "product_model_code": "010201AA000818"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X50 Pro 滚筒版 超薄上下水版(R9513)",
+      "project_code": "R9513",
+      "product_model_code": "010201AA000790"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S50 Max(R5039)",
+      "project_code": "R5039",
+      "product_model_code": "010204AA001024"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S50 Max自动上下水款(R5039X)",
+      "project_code": "R5039X",
+      "product_model_code": "010204AA001107"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S50 Max 超薄上下水版(R5139)",
+      "project_code": "R5139",
+      "product_model_code": "010204AA001105"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S50 Plus(R5061)",
+      "project_code": "R5061",
+      "product_model_code": "010204AA001108"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S50 Plus自动上下水版(R5061X)",
+      "project_code": "R5061X",
+      "product_model_code": "010204AA001110"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X50 Plus(R5049)",
+      "project_code": "R5049",
+      "product_model_code": "010204AA001052"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X50 Plus 超薄上下水版(R5149)",
+      "project_code": "R5149",
+      "product_model_code": "010204AA001063"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S50增强版(R50395)",
+      "project_code": "R50395",
+      "product_model_code": "010204AA001166"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S50增强版自动上下水版(R50396)",
+      "project_code": "R50396",
+      "product_model_code": "010204AA001165"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S50增强版超薄上下水版(R51395)",
+      "project_code": "R51395",
+      "product_model_code": "010204AA001167"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S50甄选版(R5085)",
+      "project_code": "R5085",
+      "product_model_code": "010204AA001217"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S50甄选版超薄上下水版(R5185)",
+      "project_code": "R5185",
+      "product_model_code": "010204AA001220"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "M50 Ultra（R50855）",
+      "project_code": "R50855",
+      "product_model_code": "010204AA001348"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "M50 Ultra 超薄上下水版（R51855）",
+      "project_code": "R51855",
+      "product_model_code": "010204AA001346"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S60Pro 滚筒版(R500B)",
+      "project_code": "R500B",
+      "product_model_code": "010202AA000114"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S60Pro 滚筒版 超薄上下水版(R510B)",
+      "project_code": "R510B",
+      "product_model_code": "010201AA000937"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S60 Pro 滚筒版 智能上下水版(R520B)",
+      "project_code": "R520B",
+      "product_model_code": "010201AA000935"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X60Pro 滚筒版(R500C)",
+      "project_code": "R500C",
+      "product_model_code": "010201AA000927"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X60 Pro 滚筒版 超薄上下水版(R510C)",
+      "project_code": "R510C",
+      "product_model_code": "010201AA000933"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X60 Pro 滚筒版 智能上下水版(R520C)",
+      "project_code": "R520C",
+      "product_model_code": "010201AA000948"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X60 Master(R501W)",
+      "project_code": "R501W",
+      "product_model_code": "010201AA000950"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X60 Master 超薄上下水版(R512G)",
+      "project_code": "R512G",
+      "product_model_code": "010201AA000976"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S50 Max-D (豆包AI合作)(R50391)",
+      "project_code": "R50391",
+      "product_model_code": "010204AA001448"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S60 Pro 滚筒版 (更换挂条&齿轮）(R500B1)",
+      "project_code": "R500B1",
+      "product_model_code": "010202AA000137"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S60 Pro 滚筒版 超薄上下水版 (更换挂条&齿轮箱)(R510B1)",
+      "project_code": "R510B1",
+      "product_model_code": "010202AA000139"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "S60 Pro 滚筒版 智能上下水版（更换挂条&齿轮箱）(R520B1)",
+      "project_code": "R520B1",
+      "product_model_code": "010204AA001607"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X60 Pro 滚筒版 (更换挂条&齿轮箱)(R500C1)",
+      "project_code": "R500C1",
+      "product_model_code": "010202AA000136"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X60 Pro 滚筒版 超薄上下水版 (更换挂条&齿轮箱)(R510C1)",
+      "project_code": "R510C1",
+      "product_model_code": "010202AA000138"
+    },
+    {
+      "product_line": "扫地机",
+      "machine_model": "X60 Pro 滚筒版 智能上下水版（更换挂条&齿轮箱）(R520C1)",
+      "project_code": "R520C1",
+      "product_model_code": "010204AA001608"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H12 Pro Plus（山姆定制款）（W2210B）",
+      "project_code": "W2210B",
+      "product_model_code": "010103AB000104"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H12 Plus（W2208）",
+      "project_code": "W2208",
+      "product_model_code": "01010300000091"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H12 Pro Plus（航天款）",
+      "project_code": "W2210B",
+      "product_model_code": "011101AA000007"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H13 S（W2218）",
+      "project_code": "W2218",
+      "product_model_code": "01010300000089"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H12 Pro Plus（抖音定制款）（W2210B）",
+      "project_code": "W2210B",
+      "product_model_code": "010103AA000104"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H12 Pro（W2210）",
+      "project_code": "W2210",
+      "product_model_code": "01010300000071"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H13（W2215）",
+      "project_code": "W2215",
+      "product_model_code": "01010300000075"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H11 S （W2213D）",
+      "project_code": "W2213",
+      "product_model_code": "01010300000061"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H11 S （W2213D）",
+      "project_code": "W2213D",
+      "product_model_code": "01010300000061"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "M12/M12S（W2206）",
+      "project_code": "W2206",
+      "product_model_code": "01010300000051"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "M13/M13S（W2211）",
+      "project_code": "W2211",
+      "product_model_code": "01010300000058"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H12/H12S（P2126）",
+      "project_code": "P2126",
+      "product_model_code": "01010300000028"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H11 Max（P2106）",
+      "project_code": "P2106",
+      "product_model_code": "01010300000018"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H11（P2124）",
+      "project_code": "P2124",
+      "product_model_code": "01010300000020"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H12S Mix(W2206L)",
+      "project_code": "W2206L",
+      "product_model_code": "011101AA000016"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20（W2335）",
+      "project_code": "W2335",
+      "product_model_code": "011101AA000025"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H30（W2336）",
+      "project_code": "W2336",
+      "product_model_code": "011101AA000024"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 Mix（W2339）",
+      "project_code": "W2339",
+      "product_model_code": "011101AA000023"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 CE（W2210E）",
+      "project_code": "W2210E",
+      "product_model_code": "011101AA000044"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "M13 Pro Plus（W2221G）",
+      "project_code": "W2221G",
+      "product_model_code": "011102AA000002"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "M13 Pro Plus Mix（W2211L）",
+      "project_code": "W2211L",
+      "product_model_code": "011102AA000008"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "M12 S（W2218L）",
+      "project_code": "W2218L",
+      "product_model_code": "011102AA000009"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "M12 S（W2218L）",
+      "project_code": "W2218P",
+      "product_model_code": "011102AA000009"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H13 Pro Plus Chorus（W2221M）",
+      "project_code": "W2221M",
+      "product_model_code": "011101AA000013"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H12 Pro Plus Mix（W2221L）",
+      "project_code": "W2221L",
+      "product_model_code": "011101AA000012"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H11 Pro Plus（P2126A）",
+      "project_code": "P2126A",
+      "product_model_code": "011101AA000008"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "M13 Beta AE（W2221E）",
+      "project_code": "W2221E",
+      "product_model_code": "010103AA000108"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H13 pro（W2329）",
+      "project_code": "W2329",
+      "product_model_code": "010103AA000112"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "M13 Beta（W2221）",
+      "project_code": "W2221",
+      "product_model_code": "01010300000086"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "M12-渠道（W2206A）",
+      "project_code": "W2206A",
+      "product_model_code": "01010300000057"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H30 Mix（W2342）",
+      "project_code": "W2342",
+      "product_model_code": "011101AA000018"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "M13 Pro Plus Ultra（W2333L）",
+      "project_code": "W2333L",
+      "product_model_code": "011102AA000007"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "M13 Pro Plus（W2330L）",
+      "project_code": "W2330L",
+      "product_model_code": "011101AA000014"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H13 Pro Plus（W2210C）",
+      "project_code": "W2210C",
+      "product_model_code": "011101AA000005"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H13 Pro Plus（W2330）",
+      "project_code": "W2330",
+      "product_model_code": "010103AA000114"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H13 Pro Plus Mix（W2340）",
+      "project_code": "W2340",
+      "product_model_code": "011101AA000006"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "M13 Pro Ultra（W2333）",
+      "project_code": "W2333",
+      "product_model_code": "011102AA000003"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H30 Ultra（W2306）",
+      "project_code": "W2306",
+      "product_model_code": "011101AA000022"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 Ultra（W2316D）",
+      "project_code": "W2316D",
+      "product_model_code": "011101AA000077"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H12 Pro（P2126P）",
+      "project_code": "P2126P",
+      "product_model_code": "011101AA000121"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 Lite（W2335K）",
+      "project_code": "W2335K",
+      "product_model_code": "011101AA000130"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 Plus（W2335H）",
+      "project_code": "W2335H",
+      "product_model_code": "011101AA000126"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 Power（W2335L）",
+      "project_code": "W2335L",
+      "product_model_code": "011101AA000146"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 Pro CE（W2335F）",
+      "project_code": "W2335F",
+      "product_model_code": "011101AA000096"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 Pro Max（W2335N）",
+      "project_code": "W2335N",
+      "product_model_code": "011101AA000156"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 Pro Plus（W2316R）",
+      "project_code": "W2316R",
+      "product_model_code": "011101AA000142"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 Pro 助力版（W2336G）",
+      "project_code": "W2336G",
+      "product_model_code": "011101AA000078"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 Pro（W2335A）",
+      "project_code": "W2335A",
+      "product_model_code": "011101AA000045"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 Ultra AE（W2316P）",
+      "project_code": "W2316P",
+      "product_model_code": "011101AA000118"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 Ultra CE（W2316Q）",
+      "project_code": "W2316Q",
+      "product_model_code": "011101AA000119"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 超能版（W2335G）",
+      "project_code": "W2335G",
+      "product_model_code": "011101AA000111"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H30 Combo Station-洗地组件（W2306C）",
+      "project_code": "W2306C",
+      "product_model_code": "011101AA000075"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H30 Pro（W2336D）",
+      "project_code": "W2336D",
+      "product_model_code": "011101AA000043"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H30 躺平版（W2316A）",
+      "project_code": "W2316A",
+      "product_model_code": "011101AA000050"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "W8 洗地机（W2335M）",
+      "project_code": "W2335M",
+      "product_model_code": "011101AA000151"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "W9（W2316S）",
+      "project_code": "W2316S",
+      "product_model_code": "011101AA000150"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 Mix CE 热水版（W2339P）",
+      "project_code": "W2339P",
+      "product_model_code": "011101AA000133"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 Mix CE（W2340P）",
+      "project_code": "W2340P",
+      "product_model_code": "011101AA000132"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H12 Pro Plus C/H12 Pro max（W2210G）",
+      "project_code": "W2210G",
+      "product_model_code": "011101AA000076"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 Pro 旋锋版（W2420）",
+      "project_code": "W2420",
+      "product_model_code": "011101AA000063"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H12 Pro Max（W2210N）",
+      "project_code": "W2210N",
+      "product_model_code": "011101AA000181"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20旋锋版（W2420V）",
+      "project_code": "W2420V",
+      "product_model_code": "011101AA000177"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 Pro Max（W2420U）",
+      "project_code": "W2420U",
+      "product_model_code": "011101AA000169"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "G9 （W2335P）",
+      "project_code": "W2335P",
+      "product_model_code": "011101AA000168"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "G9 Pro（W2420T)",
+      "project_code": "W2420T",
+      "product_model_code": "011104AA000003"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "W8 Pro（W2420Q）",
+      "project_code": "W2420Q",
+      "product_model_code": "011101AA000154"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "W8 Plus（W2420S）",
+      "project_code": "W2420S",
+      "product_model_code": "011101AA000159"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 slim（W2210M）",
+      "project_code": "W2210M",
+      "product_model_code": "011101AA000128"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 Pure（W2420P）",
+      "project_code": "W2420P",
+      "product_model_code": "011101AA000145"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H30 Ultra 旋锋版（W2422P）",
+      "project_code": "W2422P",
+      "product_model_code": "011101AA000131"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 Ultra 旋锋版（W2422）",
+      "project_code": "W2422",
+      "product_model_code": "011101AA000087"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "G9 Mix、H20 旋锋 Mix （W2421P）",
+      "project_code": "W2421P",
+      "product_model_code": "011101AA000167"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H12 Turbo (W2210Q)",
+      "project_code": "W2210Q",
+      "product_model_code": "011101AA000197"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 CE（W2210L）",
+      "project_code": "W2210L",
+      "product_model_code": "011101AA000127"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 Member (W2420R)",
+      "project_code": "W2420R",
+      "product_model_code": "011101AA000155"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 Mix 旋锋版（W2421Q）",
+      "project_code": "W2421Q",
+      "product_model_code": "011101AA000213"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 Pro Mix（W2421）",
+      "project_code": "W2421",
+      "product_model_code": "011101AA000068"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 Slim（W2210K）",
+      "project_code": "W2210K",
+      "product_model_code": "011101AA000099"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "T40 Ultra（W2448)",
+      "project_code": "W2448",
+      "product_model_code": "011101AA000160"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "T40 Pro (W2448Q)",
+      "project_code": "W2448Q",
+      "product_model_code": "011101AA000161"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "G9 Ultra（W2422U）",
+      "project_code": "W2422U",
+      "product_model_code": "011101AA000190"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 Ultra Turbo（W2422T）",
+      "project_code": "W2422T",
+      "product_model_code": "011101AA000165"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "G10（W2422S）",
+      "project_code": "W2422S",
+      "product_model_code": "011101AA000166"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 Ultra Max（W2422R）",
+      "project_code": "W2422R",
+      "product_model_code": "011101AA000157"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 Ultra Mix（W2439）",
+      "project_code": "W2439",
+      "product_model_code": "011101AA000098"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "G10 Mix（W2439R）",
+      "project_code": "W2439R",
+      "product_model_code": "011101AA000191"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 Ultra Mix（W2439Q）",
+      "project_code": "W2439Q",
+      "product_model_code": "011101AA000141"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H30 Ultra Mix（W2439P）",
+      "project_code": "W2439P",
+      "product_model_code": "011101AA000134"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "G9 Turbo Max（W2422Y）",
+      "project_code": "W2422Y",
+      "product_model_code": "011101AA000261"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 Ultra Max（W2422X）",
+      "project_code": "W2422X",
+      "product_model_code": "011101AA000237"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "G9 Turbo（W2316U）",
+      "project_code": "W2316U",
+      "product_model_code": "011101AA000222"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "G30 CE（W2422V）",
+      "project_code": "W2422V",
+      "product_model_code": "011101AA000219"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "G20 Plus(W2458P)",
+      "project_code": "W2458P",
+      "product_model_code": "011101AA000249"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "G30/G30 尊享版(W2448P)",
+      "project_code": "W2448P",
+      "product_model_code": "011101AA000162"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "Mars(W2458S)",
+      "project_code": "W2458S",
+      "product_model_code": "011101AA000271"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "G20 Pro/T20 Plus/T40 Turbo (W2448R)",
+      "project_code": "W2448R",
+      "product_model_code": "011104AA000005"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "T40 Member（W2448T）",
+      "project_code": "W2448T",
+      "product_model_code": "011104AA000004"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "T40 Pro Max（W2448Z）",
+      "project_code": "W2448Z",
+      "product_model_code": "011104AA000011"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "T40 Pro Plus（W2448S）",
+      "project_code": "W2448S",
+      "product_model_code": "011104AA000006"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "T40系列（W2448Y）",
+      "project_code": "W2448Y",
+      "product_model_code": "011104AA000013"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 Ultra S（W2422W）",
+      "project_code": "W2422W",
+      "product_model_code": "011101AA000236"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "T40 Ultra（W2458T）",
+      "project_code": "W2458T",
+      "product_model_code": "011104AA000017"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "T20 旋锋版（W2458W）",
+      "project_code": "W2458W",
+      "product_model_code": "011101AA000297"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "T20 Pro（W2458V）",
+      "project_code": "W2458V",
+      "product_model_code": "011104AA000023"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "T20 Max（W2458Q）",
+      "project_code": "W2458Q",
+      "product_model_code": "011101AA000270"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H30 Combo（W2439S）",
+      "project_code": "W2439S",
+      "product_model_code": "011101AA000228"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H20 Mix旋锋（新）（W2421R）",
+      "project_code": "W2421R",
+      "product_model_code": "011101AA000218"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "T50 Ultra",
+      "project_code": "W2515",
+      "product_model_code": "011104AA000007"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H40 Ultra（W2449P）",
+      "project_code": "W2449P",
+      "product_model_code": "011101AA000164"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H40 Pro（W2449）",
+      "project_code": "W2449",
+      "product_model_code": "011101AA000163"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "梦想家T60 Ultra（W2532Q）",
+      "project_code": "W2532Q",
+      "product_model_code": "011104AA000030"
+    },
+    {
+      "product_line": "洗地机",
+      "machine_model": "H40Ultra尊享（W2449Q）",
+      "project_code": "W2449Q",
+      "product_model_code": "011101AA000223"
+    }
+  ]
+}

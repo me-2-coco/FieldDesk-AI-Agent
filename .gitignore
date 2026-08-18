@@ -1,7 +1,26 @@
 __pycache__/
 *.py[cod]
+.pytest_cache/
+.ruff_cache/
 .venv/
 venv/
+
+# Local credentials and application secrets
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+*.pem
+*.key
+
+# Local IDE and agent state
+.idea/
+.agents/
+
+# Runtime artifacts and customer/business data
 runtime/
 uploads/
+data/order_*.json
+*.log
+
 .DS_Store

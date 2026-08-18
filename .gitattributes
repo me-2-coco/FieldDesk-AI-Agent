@@ -1,0 +1,2 @@
+# Never render customer order records as text diffs.
+data/order_*.json -diff
