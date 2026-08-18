@@ -14,6 +14,28 @@ from task_manager import (
 )
 
 
+def format_replacement_parts(parts):
+    if not isinstance(parts, list):
+        return str(parts or "")
+
+    labels = []
+    for part in parts:
+        if not isinstance(part, dict):
+            label = str(part).strip()
+        else:
+            name = str(part.get("名称") or "").strip()
+            code = str(part.get("编码") or "").strip()
+            quantity = part.get("数量")
+            label = name or code
+            if name and code:
+                label = f"{name}（{code}）"
+            if label and quantity not in (None, ""):
+                label = f"{label} × {quantity}"
+        if label:
+            labels.append(label)
+    return "、".join(labels)
+
+
 st.set_page_config(page_title="FieldDesk 内勤审核", page_icon="📋", layout="wide")
 st.title("📋 FieldDesk 内勤审核后台")
 st.caption("审核师傅资料、批准 Agent 执行，并查看 CRM 执行结果。")
@@ -46,7 +68,7 @@ for order in visible_orders:
             st.write("**检测结果：**", order.get("检测结果", ""))
             st.write("**故障分类：**", order.get("故障分类", {}))
             st.write("**维修措施：**", order.get("维修措施", ""))
-            st.write("**更换配件：**", "、".join(order.get("更换配件", [])) if isinstance(order.get("更换配件"), list) else order.get("更换配件", ""))
+            st.write("**更换配件：**", format_replacement_parts(order.get("更换配件", [])))
 
         attachments = order.get("附件", {})
         st.write("**附件数量：**", {name: len(files) for name, files in attachments.items()})
@@ -73,4 +95,4 @@ for order in visible_orders:
 
         if order.get("执行记录"):
             st.write("**执行记录**")
-            st.dataframe(order["执行记录"], use_container_width=True, hide_index=True)
+            st.dataframe(order["执行记录"], width="stretch", hide_index=True)
