@@ -5,29 +5,36 @@ These rules apply to every human and Codex session working in this repository.
 ## Repository scope
 
 - Work only in `fielddesk-ai/FieldDesk-Agent` for this project.
-- Start every implementation from a GitHub Issue with a clear goal and acceptance criteria.
-- Keep one task per Issue, branch, and pull request.
 - Preserve unrelated local changes. Never stage, overwrite, discard, or commit another person's work.
+- Do not delete tracked project files unless the repository owner explicitly requests the deletion.
 
-## Required Git workflow
+## Flexible development workflow
 
-1. Fetch the latest `main` from `origin` before starting.
-2. Create a branch from the latest `main` named `codex/issue-<number>-<task-name>`.
-3. Never commit or push directly to `main`.
-4. Make only the changes required by the linked Issue.
-5. Run the relevant tests before delivery and report the results.
-6. Commit only files belonging to the task, then push the current branch to `origin`.
-7. Create a pull request that links the Issue using `Closes #<number>`.
-8. Do not merge the pull request. The repository owner reviews and merges it.
+- Routine development does not require approval, a separate Issue, or a pull request for every edit.
+- `me-2-coco` works freely on the long-lived branch `dev/me-2-coco`.
+- The collaborator may edit, test, commit, and push that development branch without owner approval.
+- Never commit or push directly to `main`; the repository owner controls integration into `main`.
+- Use Issues for larger assignments or progress tracking, and use a pull request only when work is ready to enter `main`.
 
-## Security and data rules
+## Visibility and recoverability
 
+- Fetch the latest remote state before starting work.
+- Make normal, descriptive commits so changes remain reviewable and recoverable.
+- Push the current development branch at the end of every work session and after meaningful milestones.
+- Local-only changes are not visible to the repository owner and are not considered delivered.
+- Never delete `main`, `dev/me-2-coco`, or another shared branch.
+- Never force-push, rewrite shared history, or bypass normal Git history.
+
+## Quality, security, and data rules
+
+- Run relevant tests before pushing and report any failures.
 - Never commit passwords, API keys, tokens, credentials, `.env` files, or private configuration.
 - Never commit `runtime/`, `uploads/`, generated artifacts, or real customer/business data.
 - Use synthetic or anonymized fixtures for tests and examples.
 - Stop and notify the repository owner if completing a task would expose sensitive data.
-- Never force-push or rewrite shared branch history.
 
-## Completion standard
+## Integration into main
 
-A task is complete only when its tests have been run, its branch has been pushed, and its pull request is ready for owner review. Local-only changes are not a completed delivery.
+- The collaborator does not need approval for routine work on `dev/me-2-coco`.
+- When the owner decides work is ready for release, create a pull request from `dev/me-2-coco` to `main`.
+- The collaborator must not merge that pull request; the repository owner decides when to merge it.
