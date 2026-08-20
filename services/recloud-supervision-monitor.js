@@ -19,6 +19,13 @@ function sanitizeSupervisionContent(value) {
   return String(value || "").replace(/(?<!\d)(1\d{2})\d{4}(\d{4})(?!\d)/g, "$1****$2");
 }
 
+function hasTechnicianReceipt(order) {
+  return Boolean(
+    order?.receiptCompletedAt ||
+    (order?.timeline || []).some((item) => item.type === "RECEIPT_COMPLETED")
+  );
+}
+
 class RecloudSupervisionMonitor {
   constructor({ receiptStore, supervisionInboxStore, readOrders, readPendingOrders, logger = console, intervalMs = 30000, setTimer = setTimeout, clearTimer = clearTimeout }) {
     this.receiptStore = receiptStore;
@@ -43,6 +50,7 @@ class RecloudSupervisionMonitor {
     this.lastMatchedCount = 0;
     this.lastUnmatchedCount = 0;
     this.lastPendingCount = 0;
+    this.lastNotifiableCount = 0;
   }
 
   getStatus() {
@@ -62,6 +70,7 @@ class RecloudSupervisionMonitor {
       lastMatchedCount: this.lastMatchedCount,
       lastUnmatchedCount: this.lastUnmatchedCount,
       lastPendingCount: this.lastPendingCount,
+      lastNotifiableCount: this.lastNotifiableCount,
     };
   }
 
@@ -80,8 +89,10 @@ class RecloudSupervisionMonitor {
       let matched = 0;
       let unmatched = 0;
       let pending = 0;
+      let notifiable = 0;
       for (const liveOrder of liveOrders) {
         const localOrder = localByRma.get(liveOrder.rmaNo);
+        const receiptCompleted = hasTechnicianReceipt(localOrder);
         if (localOrder) matched += 1;
         else unmatched += 1;
         if (/已完成/.test(liveOrder.status || "")) {
@@ -91,6 +102,7 @@ class RecloudSupervisionMonitor {
         }
         const isPending = !liveOrder.status || /未处理|待处理/.test(liveOrder.status);
         if (isPending) pending += 1;
+        if (isPending && receiptCompleted) notifiable += 1;
         const content = sanitizeSupervisionContent(liveOrder.content || liveOrder.processingRecord || `${liveOrder.type || ""} ${liveOrder.subtype || ""}`.trim() || "瑞云督办单待信息员确认");
         const analysis = analyzeSupervisionOrder(content, {
           type: liveOrder.type,
@@ -108,9 +120,10 @@ class RecloudSupervisionMonitor {
           analysis,
           recloudStatus: liveOrder.status || "未处理",
           matchedLocalOrder: Boolean(localOrder),
+          receiptCompleted,
         });
         if (!globallyCaptured) captured += 1;
-        if (!localOrder) continue;
+        if (!localOrder || !receiptCompleted) continue;
         const alreadyCaptured = (localOrder.supervisionOrders || []).some((item) => (
           liveOrder.sourceId && item.sourceId === liveOrder.sourceId
         ));
@@ -142,6 +155,7 @@ class RecloudSupervisionMonitor {
       this.lastMatchedCount = matched;
       this.lastUnmatchedCount = unmatched;
       this.lastPendingCount = pending;
+      this.lastNotifiableCount = notifiable;
       return { skipped: false, captured };
     } catch (error) {
       this.lastErrorAt = new Date().toISOString();
@@ -180,4 +194,5 @@ module.exports = {
   monitorEnabled,
   monitorInterval,
   sanitizeSupervisionContent,
+  hasTechnicianReceipt,
 };

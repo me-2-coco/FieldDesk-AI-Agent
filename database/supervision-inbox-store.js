@@ -20,6 +20,7 @@ class SupervisionInboxStore {
         analysis: input.analysis,
         recloudStatus: input.recloudStatus || "未处理",
         matchedLocalOrder: input.matchedLocalOrder === true,
+        receiptCompleted: input.receiptCompleted === true,
         updatedAt: now,
         archivedAt: null,
       };

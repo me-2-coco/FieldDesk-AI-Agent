@@ -1407,13 +1407,6 @@ function createApp(
         isRead: (item.readBy || []).some((entry) => entry.userId === user.userId),
         readBy: undefined,
       })));
-      if (user.role === USER_ROLES.ADMIN && supervisionInboxStore) {
-        const known = new Set(inbox.map((item) => item.sourceId));
-        const unmatched = (await supervisionInboxStore.readAll())
-          .filter((item) => !item.archivedAt && /未处理|待处理/.test(item.recloudStatus || "") && !known.has(item.sourceId))
-          .map((item) => ({ ...item, isRead: false, readBy: undefined, unmatchedLocalOrder: true }));
-        inbox.push(...unmatched);
-      }
       res.json({ success: true, data: inbox });
     } catch (error) { next(error); }
   });

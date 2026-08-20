@@ -5,12 +5,13 @@ const {
   monitorEnabled,
   monitorInterval,
   sanitizeSupervisionContent,
+  hasTechnicianReceipt,
 } = require("../services/recloud-supervision-monitor");
 
 test("监测器保存瑞云全部寄修督办并标记未匹配本地工单", async () => {
   const saved = [];
   const global = [];
-  const localOrder = { rmaNo: "JXTH-SYNTHETIC-001", supervisionOrders: [] };
+  const localOrder = { rmaNo: "JXTH-SYNTHETIC-001", receiptCompletedAt: "2026-08-20T00:00:00.000Z", supervisionOrders: [] };
   const receiptStore = {
     readAll: async () => [localOrder],
     saveSupervisionOrder: async (rmaNo, input) => {
@@ -40,6 +41,45 @@ test("监测器保存瑞云全部寄修督办并标记未匹配本地工单", as
   assert.equal(saved[0].input.analysis.systemCanReply, false);
 });
 
+test("未签收工单只保留督办，签收后才补发给对应师傅", async () => {
+  const localOrder = { rmaNo: "JXTH-WAITING-RECEIPT", status: "RECEIPT_PREPARED", supervisionOrders: [] };
+  const saved = [];
+  const global = [];
+  const receiptStore = {
+    readAll: async () => [localOrder],
+    saveSupervisionOrder: async (rmaNo, input) => {
+      saved.push({ rmaNo, input });
+      localOrder.supervisionOrders.push({ sourceId: input.sourceId });
+    },
+  };
+  const supervisionInboxStore = {
+    readAll: async () => global,
+    save: async (input) => {
+      const current = global.find((item) => item.sourceId === input.sourceId);
+      if (current) Object.assign(current, input);
+      else global.push(input);
+    },
+  };
+  const monitor = new RecloudSupervisionMonitor({
+    receiptStore,
+    supervisionInboxStore,
+    readOrders: async () => [{ sourceId: "DB-WAITING", rmaNo: localOrder.rmaNo, status: "未处理", content: "催维修" }],
+    logger: {},
+  });
+
+  await monitor.pollNow();
+  assert.equal(saved.length, 0);
+  assert.equal(global.length, 1);
+  assert.equal(global[0].receiptCompleted, false);
+  assert.equal(monitor.getStatus().lastNotifiableCount, 0);
+
+  localOrder.receiptCompletedAt = "2026-08-20T01:00:00.000Z";
+  await monitor.pollNow();
+  assert.equal(saved.length, 1);
+  assert.equal(global[0].receiptCompleted, true);
+  assert.equal(monitor.getStatus().lastNotifiableCount, 1);
+});
+
 test("监测间隔默认30秒且最低10秒，可显式关闭", () => {
   assert.equal(monitorInterval({}), 30000);
   assert.equal(monitorInterval({ SUPERVISION_MONITOR_INTERVAL_MS: "1000" }), 10000);
@@ -49,6 +89,12 @@ test("监测间隔默认30秒且最低10秒，可显式关闭", () => {
 
 test("督办通知中的手机号在进入本地收件箱前脱敏", () => {
   assert.equal(sanitizeSupervisionContent("联系15185897646杨女士"), "联系151****7646杨女士");
+});
+
+test("签收判定只认本地签收完成记录", () => {
+  assert.equal(hasTechnicianReceipt({ status: "RECEIPT_PREPARED" }), false);
+  assert.equal(hasTechnicianReceipt({ receiptCompletedAt: "2026-08-20T00:00:00.000Z" }), true);
+  assert.equal(hasTechnicianReceipt({ timeline: [{ type: "RECEIPT_COMPLETED" }] }), true);
 });
 
 test("瑞云明确完成的督办单只归档且不再通知师傅", async () => {
