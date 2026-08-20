@@ -30,6 +30,11 @@ const { evaluateWarranty } = require("./services/warranty-policy");
 const { resolveOutOfWarrantyFee } = require("./services/out-of-warranty-pricing");
 const { resolveRepairCharge } = require("./services/repair-charge-policy");
 const { analyzeSupervisionOrder } = require("./services/supervision-order-policy");
+const {
+  RecloudSupervisionMonitor,
+  monitorEnabled,
+  monitorInterval,
+} = require("./services/recloud-supervision-monitor");
 const { buildInspectionFormDecision } = require("./services/inspection-form-rules");
 const {
   USER_ROLES,
@@ -1960,7 +1965,8 @@ function createApp(
 if (require.main === module) {
   const runtimeConfig = validateRuntimeConfig(process.env);
   const port = runtimeConfig.port;
-  const app = createApp();
+  const businessStores = createBusinessStores(process.env);
+  const app = createApp(recloudConnector, businessStores.receiptStore, { businessStores });
   const tlsOptions = loadTlsOptions(runtimeConfig);
   const server = tlsOptions ? https.createServer(tlsOptions, app) : http.createServer(app);
   server.listen(port, () => {
@@ -1971,8 +1977,18 @@ if (require.main === module) {
         : "警告：DRY_RUN=false，允许最终确认签收"
     );
   });
-  initializeRecloudSession(recloudConnector);
+  const supervisionMonitor = new RecloudSupervisionMonitor({
+    receiptStore: businessStores.receiptStore,
+    intervalMs: monitorInterval(process.env),
+    readPendingOrders: () => withRecloud(recloudConnector, (page) => (
+      recloudConnector.readPendingRmaSupervisionOrders(page)
+    )),
+  });
+  initializeRecloudSession(recloudConnector).then((session) => {
+    if (session && monitorEnabled(process.env)) supervisionMonitor.start();
+  });
   const shutdown = async () => {
+    supervisionMonitor.stop();
     server.close();
     await recloudConnector.closeRecloud?.();
   };
@@ -1987,6 +2003,8 @@ module.exports = {
   isDryRun,
   isRecloudWriteEnabled,
   initializeRecloudSession,
+  monitorEnabled,
+  monitorInterval,
   normalizeMaskedPhone,
   getAllowedRepairSpecialties,
   resolveReceiptSpecialty,

@@ -15,7 +15,10 @@ const {
   RECLOUD_PROFILE_DIRECTORY,
   createRecloudSessionManager,
 } = require("./recloud-session");
-const { readSupervisionOrders } = require("./recloud-supervision");
+const {
+  readPendingRmaSupervisionOrders,
+  readSupervisionOrders,
+} = require("./recloud-supervision");
 
 const LOGIN_STATE = path.join(__dirname, "recloud-state.json");
 const RECLOUD_URL =
@@ -8540,5 +8543,6 @@ module.exports = {
   confirmSign,
   fillReceiptFields,
   parseRepairDetail,
+  readPendingRmaSupervisionOrders,
   readSupervisionOrders,
 };
