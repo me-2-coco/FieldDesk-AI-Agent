@@ -329,6 +329,9 @@ function createRecloudSessionManager(options = {}) {
         logSession("login_required", logger);
         return { context, page, loginRequired: true };
       }
+      // A completed authenticated visit starts a fresh login-expiry cycle.
+      // This permits one new Keychain login if Recloud expires again tomorrow.
+      autoLoginAttempted = false;
       logSession("ready", logger);
       return { context, page, reused: true };
     }
@@ -367,6 +370,7 @@ function createRecloudSessionManager(options = {}) {
       throw error;
     }
     await page.goto(targetUrl, { waitUntil: "domcontentloaded" });
+    autoLoginAttempted = false;
     logSession("ready", logger);
     return { context, page, reused: false };
   }

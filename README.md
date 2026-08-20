@@ -35,7 +35,11 @@ streamlit run admin_app.py --server.port 8502
 python crm_login.py
 ```
 
-程序只保存浏览器登录会话，不在代码中保存账号密码。登录会话失效后重新运行即可。
+### 瑞云自动重登（macOS）
+
+运行 `npm run recloud:credentials`，按提示输入瑞云账号，并在 macOS 钥匙串提示中隐藏输入密码。密码只保存在本机钥匙串的 `FieldDesk-Recloud` 项目中，不会写入 `.env`、代码或 Git。瑞云每月改密后再次运行同一命令即可覆盖旧密码。遇到验证码、短信或滑块时，系统会停止自动登录并要求人工验证。
+
+未启用自动重登时，程序只保存浏览器登录会话；登录会话失效后需要重新运行人工登录初始化。
 
 ### 4. 运行真实 CRM Agent
 

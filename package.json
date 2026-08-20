@@ -2,6 +2,7 @@
   "scripts": {
     "start": "node server.js",
     "recloud:login": "node init-recloud-login.js",
+    "recloud:credentials": "node scripts/configure-recloud-credentials.js",
     "db:init": "node scripts/database-maintenance.js init",
     "db:migrate": "node scripts/database-maintenance.js migrate",
     "db:backup": "node scripts/database-maintenance.js backup",
