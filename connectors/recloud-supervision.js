@@ -115,17 +115,37 @@ async function readCentralSupervisionTable(page) {
   const tables = page.locator("table");
   await tables.first().waitFor({ state: "visible" });
   const tableCount = await tables.count();
+  let headerIndex = -1;
+  let headers = [];
   for (let index = 0; index < tableCount; index += 1) {
     const current = tables.nth(index);
     const currentHeaders = await current.locator("th, [role='columnheader']").allInnerTexts().catch(() => []);
     const normalized = currentHeaders.map(normalizeText);
     if (normalized.includes("督办单号") && normalized.includes("关联寄修单")) {
-      return parseSupervisionRows(currentHeaders, await readTableRows(current));
+      headerIndex = index;
+      headers = currentHeaders;
+      break;
     }
   }
-  const error = new Error("瑞云中央督办单表格结构已变化");
-  error.code = "RECLOUD_CENTRAL_SUPERVISION_TABLE_CHANGED";
-  throw error;
+  if (headerIndex < 0) {
+    const error = new Error("瑞云中央督办单表格结构已变化");
+    error.code = "RECLOUD_CENTRAL_SUPERVISION_TABLE_CHANGED";
+    throw error;
+  }
+  // 瑞云的虚拟表格会把表头与可见数据行拆成相邻 table。只读表头所在
+  // table 会得到 0 行，因此从表头开始合并同一列表区域内的后续表格。
+  const records = [];
+  const seen = new Set();
+  for (let index = headerIndex; index < tableCount; index += 1) {
+    const parsed = parseSupervisionRows(headers, await readTableRows(tables.nth(index)));
+    for (const record of parsed) {
+      const key = record.sourceId || `${record.rmaNo}|${record.content}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      records.push(record);
+    }
+  }
+  return records;
 }
 
 async function readRmaSupervisionOrderStatuses(page) {

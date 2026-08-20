@@ -259,6 +259,7 @@ function createApp(
   const feishuPartsCatalog = options.feishuPartsCatalog || new FeishuPartsCatalog({ env: runtimeEnv });
   const faultCatalogStore = options.faultCatalogStore || new JsonRecloudFaultCatalogStore(options.faultCatalogFile);
   const supervisionMonitor = options.supervisionMonitor || null;
+  const supervisionInboxStore = options.supervisionInboxStore || businessStores.supervisionInboxStore;
   const app = express();
   const operationalLogger = options.operationalLogger || new RotatingJsonLogger({ directory: runtimeEnv.LOG_DIRECTORY, maxBytes: runtimeEnv.LOG_MAX_BYTES, retention: runtimeEnv.LOG_RETENTION_FILES });
   app.set("trust proxy", runtimeConfig.trustProxy);
@@ -1406,6 +1407,13 @@ function createApp(
         isRead: (item.readBy || []).some((entry) => entry.userId === user.userId),
         readBy: undefined,
       })));
+      if (user.role === USER_ROLES.ADMIN && supervisionInboxStore) {
+        const known = new Set(inbox.map((item) => item.sourceId));
+        const unmatched = (await supervisionInboxStore.readAll())
+          .filter((item) => !item.archivedAt && /未处理|待处理/.test(item.recloudStatus || "") && !known.has(item.sourceId))
+          .map((item) => ({ ...item, isRead: false, readBy: undefined, unmatchedLocalOrder: true }));
+        inbox.push(...unmatched);
+      }
       res.json({ success: true, data: inbox });
     } catch (error) { next(error); }
   });
@@ -2020,6 +2028,7 @@ if (require.main === module) {
   const businessStores = createBusinessStores(process.env);
   const supervisionMonitor = new RecloudSupervisionMonitor({
     receiptStore: businessStores.receiptStore,
+    supervisionInboxStore: businessStores.supervisionInboxStore,
     intervalMs: monitorInterval(process.env),
     readOrders: () => withRecloud(recloudConnector, (page) => (
       recloudConnector.readRmaSupervisionOrderStatuses(page)

@@ -15,9 +15,14 @@ function monitorInterval(env = process.env) {
   return Number.isFinite(requested) ? Math.max(10000, requested) : 30000;
 }
 
+function sanitizeSupervisionContent(value) {
+  return String(value || "").replace(/(?<!\d)(1\d{2})\d{4}(\d{4})(?!\d)/g, "$1****$2");
+}
+
 class RecloudSupervisionMonitor {
-  constructor({ receiptStore, readOrders, readPendingOrders, logger = console, intervalMs = 30000, setTimer = setTimeout, clearTimer = clearTimeout }) {
+  constructor({ receiptStore, supervisionInboxStore, readOrders, readPendingOrders, logger = console, intervalMs = 30000, setTimer = setTimeout, clearTimer = clearTimeout }) {
     this.receiptStore = receiptStore;
+    this.supervisionInboxStore = supervisionInboxStore;
     this.readOrders = readOrders || readPendingOrders;
     this.logger = logger;
     this.intervalMs = Math.max(10000, Number(intervalMs) || 30000);
@@ -34,6 +39,10 @@ class RecloudSupervisionMonitor {
     this.lastCapturedCount = 0;
     this.totalCaptured = 0;
     this.pollCount = 0;
+    this.lastLiveCount = 0;
+    this.lastMatchedCount = 0;
+    this.lastUnmatchedCount = 0;
+    this.lastPendingCount = 0;
   }
 
   getStatus() {
@@ -49,6 +58,10 @@ class RecloudSupervisionMonitor {
       lastCapturedCount: this.lastCapturedCount,
       totalCaptured: this.totalCaptured,
       pollCount: this.pollCount,
+      lastLiveCount: this.lastLiveCount,
+      lastMatchedCount: this.lastMatchedCount,
+      lastUnmatchedCount: this.lastUnmatchedCount,
+      lastPendingCount: this.lastPendingCount,
     };
   }
 
@@ -64,13 +77,40 @@ class RecloudSupervisionMonitor {
       ]);
       const localByRma = new Map(localOrders.map((order) => [order.rmaNo, order]));
       let captured = 0;
+      let matched = 0;
+      let unmatched = 0;
+      let pending = 0;
       for (const liveOrder of liveOrders) {
         const localOrder = localByRma.get(liveOrder.rmaNo);
-        if (!localOrder) continue;
+        if (localOrder) matched += 1;
+        else unmatched += 1;
         if (/已完成/.test(liveOrder.status || "")) {
-          await this.receiptStore.archiveSupervisionOrder?.(liveOrder.rmaNo, liveOrder.sourceId, SYSTEM_OPERATOR);
+          await this.supervisionInboxStore?.archive?.(liveOrder.sourceId);
+          if (localOrder) await this.receiptStore.archiveSupervisionOrder?.(liveOrder.rmaNo, liveOrder.sourceId, SYSTEM_OPERATOR);
           continue;
         }
+        const isPending = !liveOrder.status || /未处理|待处理/.test(liveOrder.status);
+        if (isPending) pending += 1;
+        const content = sanitizeSupervisionContent(liveOrder.content || liveOrder.processingRecord || `${liveOrder.type || ""} ${liveOrder.subtype || ""}`.trim() || "瑞云督办单待信息员确认");
+        const analysis = analyzeSupervisionOrder(content, {
+          type: liveOrder.type,
+          subtype: liveOrder.subtype,
+        });
+        const globalRecords = await this.supervisionInboxStore?.readAll?.() || [];
+        const globallyCaptured = globalRecords.some((item) => item.sourceId === liveOrder.sourceId);
+        if (!isPending && !globallyCaptured) continue;
+        await this.supervisionInboxStore?.save?.({
+          sourceId: liveOrder.sourceId,
+          rmaNo: liveOrder.rmaNo,
+          type: liveOrder.type,
+          subtype: liveOrder.subtype,
+          originalContent: analysis.originalContent,
+          analysis,
+          recloudStatus: liveOrder.status || "未处理",
+          matchedLocalOrder: Boolean(localOrder),
+        });
+        if (!globallyCaptured) captured += 1;
+        if (!localOrder) continue;
         const alreadyCaptured = (localOrder.supervisionOrders || []).some((item) => (
           liveOrder.sourceId && item.sourceId === liveOrder.sourceId
         ));
@@ -86,24 +126,22 @@ class RecloudSupervisionMonitor {
           }
           continue;
         }
-        const content = liveOrder.content || liveOrder.processingRecord || `${liveOrder.type || ""} ${liveOrder.subtype || ""}`.trim() || "瑞云督办单待信息员确认";
-        const analysis = analyzeSupervisionOrder(content, {
-          type: liveOrder.type,
-          subtype: liveOrder.subtype,
-        });
         await this.receiptStore.saveSupervisionOrder(liveOrder.rmaNo, {
           sourceId: liveOrder.sourceId,
           originalContent: analysis.originalContent,
           analysis: { ...analysis, source: liveOrder },
           recloudStatus: liveOrder.status || "未处理",
         }, SYSTEM_OPERATOR);
-        captured += 1;
       }
       if (captured) this.logger.info?.(`RECLOUD_SUPERVISION_MONITOR: captured ${captured}`);
       this.lastSuccessAt = new Date().toISOString();
       this.lastErrorCode = null;
       this.lastCapturedCount = captured;
       this.totalCaptured += captured;
+      this.lastLiveCount = liveOrders.length;
+      this.lastMatchedCount = matched;
+      this.lastUnmatchedCount = unmatched;
+      this.lastPendingCount = pending;
       return { skipped: false, captured };
     } catch (error) {
       this.lastErrorAt = new Date().toISOString();
@@ -141,4 +179,5 @@ module.exports = {
   SYSTEM_OPERATOR,
   monitorEnabled,
   monitorInterval,
+  sanitizeSupervisionContent,
 };
