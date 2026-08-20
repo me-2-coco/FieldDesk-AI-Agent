@@ -1319,7 +1319,7 @@ function createApp(
         originalContent: analysis.originalContent,
         analysis,
       }, currentUserProvider(req));
-      res.json({ success: true, data: { ...data, message: "督办单已同步给对应师傅，费用类建议等待人工确认" } });
+      res.json({ success: true, data: { ...data, message: "督办单已通知对应师傅；瑞云回复仍由信息员操作" } });
     } catch (error) { next(error); }
   });
 

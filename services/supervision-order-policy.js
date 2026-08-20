@@ -28,13 +28,21 @@ function analyzeSupervisionOrder(content) {
   if (!intents.length) intents.push({ type: "OTHER", label: "其他客服需求" });
   const hasFeeIntent = intents.some((item) => ["FEE_DISCOUNT", "FREIGHT_ADJUSTMENT"].includes(item.type));
   const extracted = extractDiscount(originalContent);
+  const technicianActions = [];
+  if (intents.some((item) => item.type === "EXPEDITE_REPAIR")) technicianActions.push("优先检查当前维修进度并反馈给信息员");
+  if (intents.some((item) => item.type === "CONTACT_CUSTOMER")) technicianActions.push("按信息员安排联系用户并反馈联系结果");
+  if (hasFeeIntent) technicianActions.push("不要自行承诺折扣或减免，等待信息员确认收费方案");
+  if (intents.some((item) => item.type === "OTHER")) technicianActions.push("联系信息员确认具体处理要求");
   return {
     originalContent,
     intents,
     ...extracted,
     feeAction: hasFeeIntent ? "MANUAL_CONFIRMATION_REQUIRED" : "NONE",
     applyFeeAutomatically: false,
-    requiresReply: true,
+    technicianActions,
+    replyOwner: "INFORMATION_CLERK",
+    technicianCanReply: false,
+    systemCanReply: false,
     requiresManualReview: hasFeeIntent || intents.some((item) => item.type === "OTHER"),
   };
 }

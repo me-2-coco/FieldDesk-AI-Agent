@@ -152,12 +152,14 @@ function RepairProcess({ setPage }) {
       {supervisionOrders.length > 0 && (
         <div className="card">
           <h2>客服督办单</h2>
-          <p className="field-hint">以下为客服下发原文。费用调整仅为识别建议，人工确认前不会改变本单收费。</p>
+          <p className="field-hint">以下为客服下发原文。师傅仅查看并执行相关事项，瑞云督办单统一由信息员回复。</p>
           {supervisionOrders.map((item) => (
             <div key={item.id} className="message-card">
               <p><strong>{item.originalContent}</strong></p>
               <p>识别类型：{(item.analysis?.intents || []).map((intent) => intent.label).join("、") || "待人工分类"}</p>
-              <p>状态：{item.status === "REPLIED" ? "已回复客服" : "待处理并回复客服"}</p>
+              <p>师傅需处理：</p>
+              <ul>{(item.analysis?.technicianActions || ["请联系信息员确认具体处理要求"]).map((action) => <li key={action}>{action}</li>)}</ul>
+              <p>回复责任：信息员（师傅端不能回复瑞云督办单）</p>
               {item.analysis?.requiresManualReview && <p className="error-message">需要人工确认</p>}
             </div>
           ))}
