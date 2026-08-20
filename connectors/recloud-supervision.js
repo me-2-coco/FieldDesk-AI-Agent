@@ -7,6 +7,7 @@ const FIELD_MAP = Object.freeze({
   复议结果: "reviewResult",
   督办单号: "sourceId",
   关联寄修单: "rmaNo",
+  关联服务单: "serviceOrderNo",
   督办类型: "type",
   督办子类: "subtype",
   客服备注: "content",
@@ -19,6 +20,8 @@ const FIELD_MAP = Object.freeze({
   督办处理记录: "processingRecord",
   创建者: "createdBy",
 });
+
+const CENTRAL_SUPERVISION_URL = "https://crm2.recloud.com.cn/t/dreame/webapp/dreame/?mainNavName=serviceprovider#/vmlist/dreame_customercomplaint/station";
 
 function parseSupervisionRows(headers = [], rows = []) {
   const normalizedHeaders = headers.map(normalizeText);
@@ -89,8 +92,56 @@ async function readSupervisionOrders(page) {
   return parseSupervisionRows(headers, rows);
 }
 
+function isBlankReference(value) {
+  return !normalizeText(value) || /^-+$/.test(normalizeText(value));
+}
+
+function filterPendingRmaSupervisionOrders(records = []) {
+  return records.filter((record) => (
+    !isBlankReference(record.rmaNo) &&
+    isBlankReference(record.serviceOrderNo) &&
+    (!record.status || /未处理|待处理/.test(record.status))
+  ));
+}
+
+async function readPendingRmaSupervisionOrders(page) {
+  await page.goto(CENTRAL_SUPERVISION_URL);
+  const pendingTab = page.getByText("未处理", { exact: true }).first();
+  await pendingTab.waitFor({ state: "visible" });
+  await pendingTab.click();
+
+  const tables = page.locator("table");
+  await tables.first().waitFor({ state: "visible" });
+  const tableCount = await tables.count();
+  let targetTable = null;
+  let headers = [];
+  for (let index = 0; index < tableCount; index += 1) {
+    const current = tables.nth(index);
+    const currentHeaders = await current
+      .locator("th, [role='columnheader']")
+      .allInnerTexts()
+      .catch(() => []);
+    const normalized = currentHeaders.map(normalizeText);
+    if (normalized.includes("督办单号") && normalized.includes("关联寄修单")) {
+      targetTable = current;
+      headers = currentHeaders;
+      break;
+    }
+  }
+  if (!targetTable) {
+    const error = new Error("瑞云中央督办单表格结构已变化");
+    error.code = "RECLOUD_CENTRAL_SUPERVISION_TABLE_CHANGED";
+    throw error;
+  }
+  const records = parseSupervisionRows(headers, await readTableRows(targetTable));
+  return filterPendingRmaSupervisionOrders(records);
+}
+
 module.exports = {
+  CENTRAL_SUPERVISION_URL,
   FIELD_MAP,
+  filterPendingRmaSupervisionOrders,
   parseSupervisionRows,
+  readPendingRmaSupervisionOrders,
   readSupervisionOrders,
 };

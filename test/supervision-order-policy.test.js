@@ -32,3 +32,17 @@ test("无法分类的客服原文保留并转人工", () => {
   assert.equal(result.intents[0].type, "OTHER");
   assert.equal(result.requiresManualReview, true);
 });
+
+test("保修范围通知不会被误识别为折扣", () => {
+  const result = analyzeSupervisionOrder("核实用户SN整机在保，电池过保", { subtype: "收费问题" });
+  assert.deepEqual(result.intents.map((item) => item.type), ["WARRANTY_REVIEW"]);
+  assert.equal(result.applyFeeAutomatically, false);
+  assert.equal(result.discountRate, null);
+  assert.match(result.technicianActions.join("，"), /保修范围/);
+});
+
+test("寄回通知要求师傅反馈物流单号", () => {
+  const result = analyzeSupervisionOrder("用户要求尽快寄回机器并发送快递单号");
+  assert.equal(result.intents[0].type, "RETURN_SHIPPING");
+  assert.match(result.technicianActions.join("，"), /物流单号/);
+});

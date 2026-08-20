@@ -1334,20 +1334,17 @@ function createApp(
       if (!privileged && (order.technicianId || order.operatorId) !== user.userId) {
         throw createApiError("SUPERVISION_FORBIDDEN", "只能同步本人负责工单的督办单", 403);
       }
-      const logisticsNo = normalizeLogisticsNo(order.logisticsNo || req.body?.logisticsNo);
-      if (!logisticsNo) throw createApiError("SUPERVISION_LOGISTICS_REQUIRED", "缺少督办单对应物流单号", 400);
-
       const liveOrders = await withRecloud(connector, async (page) => {
-        await connector.queryRmaByLogisticsNo(page, logisticsNo);
-        return connector.readSupervisionOrders(page);
+        return connector.readPendingRmaSupervisionOrders(page);
       });
       const captured = [];
-      for (const liveOrder of liveOrders) {
+      for (const liveOrder of liveOrders.filter((item) => item.rmaNo === rmaNo)) {
         const analysis = analyzeSupervisionOrder(
           liveOrder.content ||
           liveOrder.processingRecord ||
           `${liveOrder.type || ""} ${liveOrder.subtype || ""}`.trim() ||
-          "瑞云督办单待信息员确认"
+          "瑞云督办单待信息员确认",
+          { type: liveOrder.type, subtype: liveOrder.subtype }
         );
         const saved = await receiptStore.saveSupervisionOrder(rmaNo, {
           sourceId: liveOrder.sourceId,
