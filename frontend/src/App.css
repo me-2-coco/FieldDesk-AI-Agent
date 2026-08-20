@@ -649,6 +649,7 @@ button:active:not(:disabled) {
   align-items: center;
   gap: 9px;
   width: auto;
+  max-width: min(390px, calc(100vw - 36px));
   min-height: 46px;
   padding: 10px 14px;
   border: 0;
@@ -658,6 +659,30 @@ button:active:not(:disabled) {
   box-shadow: 0 8px 22px rgba(202, 39, 35, 0.32);
   font-size: 15px;
   font-weight: 700;
+}
+
+.global-supervision-alert-text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+}
+
+.global-supervision-alert-text b,
+.global-supervision-alert-text small {
+  display: block;
+  max-width: 290px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.global-supervision-alert-text small {
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 500;
+  opacity: 0.9;
 }
 
 .global-supervision-alert strong {

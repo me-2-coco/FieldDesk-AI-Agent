@@ -25,3 +25,14 @@ test("师傅可从任意页面直接打开并查看未读督办", async () => {
   assert.match(inbox, /scrollIntoView/);
   assert.match(inbox, /viewOrder\(rmaNo, orderItems\)/);
 });
+
+test("全局提醒显示最新督办摘要并精确打开对应寄修单", async () => {
+  const app = await fs.readFile(path.join(__dirname, "../frontend/src/App.jsx"), "utf8");
+  const home = await fs.readFile(path.join(__dirname, "../frontend/src/pages/Home.jsx"), "utf8");
+  const inbox = await fs.readFile(path.join(__dirname, "../frontend/src/components/SupervisionInbox.jsx"), "utf8");
+  assert.match(app, /latestSupervision/);
+  assert.match(app, /originalContent/);
+  assert.match(app, /openSupervisionInbox\(latestSupervision\?\.rmaNo\)/);
+  assert.match(home, /targetRmaNo=\{supervisionTargetRmaNo\}/);
+  assert.match(inbox, /targetRmaNo \? rmaNo === targetRmaNo/);
+});

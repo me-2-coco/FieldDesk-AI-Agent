@@ -16,7 +16,7 @@ function nextPageForStatus(status) {
   return "repair"
 }
 
-function Home({ setPage, currentUser, supervisionOpenKey = 0 }) {
+function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetRmaNo = "" }) {
   const order = getCurrentRepairOrder()
   const isTechnician = currentUser?.role === USER_ROLES.TECHNICIAN
   const isWarehouse = currentUser?.role === USER_ROLES.WAREHOUSE
@@ -31,7 +31,7 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0 }) {
       {isTechnician && <p>维修品类：{currentUser.repairSpecialties?.join(" / ") || "未配置"}</p>}
     </div>
 
-    {(isTechnician || isAdmin) && <SupervisionInbox openKey={supervisionOpenKey} />}
+    {(isTechnician || isAdmin) && <SupervisionInbox openKey={supervisionOpenKey} targetRmaNo={supervisionTargetRmaNo} />}
 
     {(isTechnician || isAdmin) && <div className="card">
       <h2>维修执行</h2>

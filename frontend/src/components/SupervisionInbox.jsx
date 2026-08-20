@@ -3,7 +3,7 @@ import { getSupervisionInbox, markSupervisionOrderRead } from "../shared/crmServ
 
 const LOCAL_REFRESH_MS = 10000
 
-function SupervisionInbox({ openKey = 0 }) {
+function SupervisionInbox({ openKey = 0, targetRmaNo = "" }) {
   const [items, setItems] = useState([])
   const [expandedOrders, setExpandedOrders] = useState([])
   const sectionRef = useRef(null)
@@ -59,7 +59,9 @@ function SupervisionInbox({ openKey = 0 }) {
     const timer = window.setTimeout(() => {
       sectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
       for (const [rmaNo, orderItems] of groups) {
-        if (orderItems.some((item) => !item.isRead)) viewOrder(rmaNo, orderItems)
+        if (targetRmaNo ? rmaNo === targetRmaNo : orderItems.some((item) => !item.isRead)) {
+          viewOrder(rmaNo, orderItems)
+        }
       }
     }, 0)
     return () => window.clearTimeout(timer)

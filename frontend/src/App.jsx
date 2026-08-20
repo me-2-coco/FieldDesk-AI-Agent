@@ -51,6 +51,8 @@ function App() {
 
   const [supervisionUnreadCount, setSupervisionUnreadCount] = useState(0)
   const [supervisionOpenKey, setSupervisionOpenKey] = useState(0)
+  const [latestSupervision, setLatestSupervision] = useState(null)
+  const [supervisionTargetRmaNo, setSupervisionTargetRmaNo] = useState("")
 
   useEffect(() => {
     const canReceiveSupervision = isLoggedIn && [USER_ROLES.TECHNICIAN, USER_ROLES.ADMIN].includes(currentUser?.role)
@@ -60,7 +62,14 @@ function App() {
     const refresh = async () => {
       try {
         const items = await getSupervisionInbox()
-        if (active) setSupervisionUnreadCount((items || []).filter((item) => !item.isRead).length)
+        if (active) {
+          const unread = (items || []).filter((item) => !item.isRead)
+          const latest = [...unread].sort((left, right) =>
+            String(right.updatedAt || right.capturedAt || "").localeCompare(String(left.updatedAt || left.capturedAt || ""))
+          )[0] || null
+          setSupervisionUnreadCount(unread.length)
+          setLatestSupervision(latest)
+        }
       } catch {
         // 全局红点不可用时不阻断业务操作，下一轮自动重试。
       } finally {
@@ -87,6 +96,7 @@ function App() {
     setPermissionMessage("")
 
     setSupervisionUnreadCount(0)
+    setLatestSupervision(null)
 
   }
 
@@ -106,6 +116,7 @@ function App() {
     setPermissionMessage("")
 
     setSupervisionUnreadCount(0)
+    setLatestSupervision(null)
 
   }
 
@@ -154,8 +165,9 @@ function App() {
 
   }
 
-  function openSupervisionInbox() {
+  function openSupervisionInbox(rmaNo = "") {
     setPage("home")
+    setSupervisionTargetRmaNo(String(rmaNo || ""))
     setSupervisionOpenKey((current) => current + 1)
   }
 
@@ -208,6 +220,7 @@ function App() {
             setPage={setPage}
             currentUser={currentUser}
             supervisionOpenKey={supervisionOpenKey}
+            supervisionTargetRmaNo={supervisionTargetRmaNo}
           />
 
         )}
@@ -349,10 +362,13 @@ function App() {
         <button
           type="button"
           className="global-supervision-alert"
-          onClick={openSupervisionInbox}
+          onClick={() => openSupervisionInbox(latestSupervision?.rmaNo)}
           aria-label={`查看${supervisionUnreadCount}条未读督办通知`}
         >
-          <span>督办通知</span>
+          <span className="global-supervision-alert-text">
+            <b>新督办 · {latestSupervision?.rmaNo || "待查看"}</b>
+            <small>{String(latestSupervision?.originalContent || "点击查看督办内容").slice(0, 28)}</small>
+          </span>
           <strong>{supervisionUnreadCount > 99 ? "99+" : supervisionUnreadCount}</strong>
         </button>
       )}
@@ -369,7 +385,7 @@ function App() {
 
         supervisionUnreadCount={supervisionUnreadCount}
 
-        onOpenSupervision={openSupervisionInbox}
+        onOpenSupervision={() => openSupervisionInbox(latestSupervision?.rmaNo)}
 
       />
 
