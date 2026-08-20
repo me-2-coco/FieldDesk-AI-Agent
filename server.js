@@ -1372,7 +1372,32 @@ function createApp(
       if (!privileged && (order.technicianId || order.operatorId) !== user.userId) {
         throw createApiError("SUPERVISION_FORBIDDEN", "只能查看本人负责工单的督办单", 403);
       }
-      res.json({ success: true, data: order.supervisionOrders || [] });
+      res.json({
+        success: true,
+        data: (order.supervisionOrders || []).map((item) => ({
+          ...item,
+          isRead: (item.readBy || []).some((entry) => entry.userId === user.userId),
+          readBy: undefined,
+        })),
+      });
+    } catch (error) { next(error); }
+  });
+
+  app.post("/api/repairs/supervision/read", async (req, res, next) => {
+    try {
+      const rmaNo = String(req.body?.rmaNo || "").trim();
+      const supervisionOrderId = String(req.body?.supervisionOrderId || "").trim();
+      if (!rmaNo || !supervisionOrderId) throw createApiError("SUPERVISION_READ_FIELDS_REQUIRED", "缺少督办通知已读信息", 400);
+      const records = await receiptStore.readAll();
+      const order = records.find((item) => item.rmaNo === rmaNo);
+      if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到督办单对应工单", 404);
+      const user = currentUserProvider(req);
+      const privileged = [USER_ROLES.ADMIN, USER_ROLES.WAREHOUSE].includes(user.role);
+      if (!privileged && (order.technicianId || order.operatorId) !== user.userId) {
+        throw createApiError("SUPERVISION_FORBIDDEN", "只能查看本人负责工单的督办单", 403);
+      }
+      const item = await receiptStore.markSupervisionOrderRead(rmaNo, supervisionOrderId, user);
+      res.json({ success: true, data: { ...item, isRead: true, readBy: undefined } });
     } catch (error) { next(error); }
   });
 

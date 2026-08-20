@@ -575,6 +575,7 @@ class JsonReceiptPreparationStore {
         replyContent: current?.replyContent || "",
         repliedAt: current?.repliedAt || null,
         replyOwner: "INFORMATION_CLERK",
+        readBy: Array.isArray(current?.readBy) ? current.readBy : [],
         assignedTechnicianId: existing.technicianId || existing.operatorId,
         assignedTechnicianName: existing.technicianName || existing.operatorName,
         capturedAt: current?.capturedAt || timestamp,
@@ -590,6 +591,33 @@ class JsonReceiptPreparationStore {
       };
       await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
       return { order: updated, supervisionOrder };
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
+  async markSupervisionOrderRead(rmaNo, supervisionOrderId, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing) throw Object.assign(new Error("未找到督办单对应工单"), { code: "RECEIPT_PREPARATION_NOT_FOUND", status: 404 });
+      const userId = normalizeRequired(operator.userId);
+      const item = (existing.supervisionOrders || []).find((order) => order.id === supervisionOrderId);
+      if (!item) throw Object.assign(new Error("未找到督办通知"), { code: "SUPERVISION_ORDER_NOT_FOUND", status: 404 });
+      const timestamp = new Date().toISOString();
+      const alreadyRead = (item.readBy || []).some((entry) => entry.userId === userId);
+      const updatedItem = alreadyRead ? item : {
+        ...item,
+        readBy: [...(item.readBy || []), { userId, readAt: timestamp }],
+        updatedAt: timestamp,
+      };
+      const updated = {
+        ...existing,
+        supervisionOrders: (existing.supervisionOrders || []).map((order) => order.id === supervisionOrderId ? updatedItem : order),
+        updatedAt: alreadyRead ? existing.updatedAt : timestamp,
+      };
+      if (!alreadyRead) await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
+      return updatedItem;
     });
     this.writeQueue = operation.catch(() => {});
     return operation;

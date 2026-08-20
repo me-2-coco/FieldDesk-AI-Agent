@@ -817,6 +817,12 @@ button:active:not(:disabled) {
   border: 1px solid #87e8c0;
 }
 
+.status-warning {
+  color: #b42318;
+  background: #fff1f0;
+  border: 1px solid #ff7875;
+}
+
 .status-paused {
   color: #ad6800;
   background: #fff7e6;
