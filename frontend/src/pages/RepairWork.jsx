@@ -1,4 +1,5 @@
 import { useState } from "react"
+import SupervisionNoticeCard from "../components/SupervisionNoticeCard.jsx"
 import {
   getCurrentRepairOrder,
   updateRepairOrder,
@@ -38,6 +39,8 @@ function RepairWork({ setPage }) {
         </button>
         <h1>维修</h1>
       </div>
+
+      <SupervisionNoticeCard rmaNo={repairOrder.crmOrderNo} />
 
       <div className="card machine-info-card">
 

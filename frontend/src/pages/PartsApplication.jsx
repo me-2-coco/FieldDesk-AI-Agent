@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
+import SupervisionNoticeCard from "../components/SupervisionNoticeCard.jsx"
 import { applyLocalPart, getRepairParts, searchPartsCatalog, updateRepairPart } from "../shared/crmService.js"
 import {
   getCurrentRepairOrder,
@@ -125,6 +126,8 @@ function PartsApplication({ setPage }) {
         </button>
         <h1>申请配件</h1>
       </div>
+
+      <SupervisionNoticeCard rmaNo={repairOrder.crmOrderNo} />
 
       <div className="card">
         <p>寄修单号：{repairOrder.crmOrderNo || "-"}</p>

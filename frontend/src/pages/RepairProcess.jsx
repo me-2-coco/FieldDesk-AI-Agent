@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react"
-import { checkInspectionWarranty, getSupervisionOrders, saveInspection, searchRecloudFaultCategories, syncSupervisionOrders } from "../shared/crmService.js"
+import { checkInspectionWarranty, saveInspection, searchRecloudFaultCategories } from "../shared/crmService.js"
+import SupervisionNoticeCard from "../components/SupervisionNoticeCard.jsx"
 import { getPreferredFaultKeyword, rankFaultOptions } from "../shared/faultSearch.js"
 import {
   getCurrentRepairOrder,
@@ -26,17 +27,6 @@ function RepairProcess({ setPage }) {
   const [message, setMessage] = useState("")
   const [errorMessage, setErrorMessage] = useState("")
   const [isSaving, setIsSaving] = useState(false)
-  const [supervisionOrders, setSupervisionOrders] = useState([])
-
-  useEffect(() => {
-    let active = true
-    syncSupervisionOrders({ rmaNo: repairOrder.crmOrderNo, logisticsNo: repairOrder.logisticsNo })
-      .then((items) => active && setSupervisionOrders(items || []))
-      .catch(() => getSupervisionOrders(repairOrder.crmOrderNo))
-      .then((items) => active && items && setSupervisionOrders(items || []))
-      .catch(() => {})
-    return () => { active = false }
-  }, [repairOrder.crmOrderNo, repairOrder.logisticsNo])
 
   useEffect(() => {
     const keyword = faultCategory.trim()
@@ -151,22 +141,7 @@ function RepairProcess({ setPage }) {
         <p>签收备注：{repairOrder.receiptRemark || "-"}</p>
       </div>
 
-      {supervisionOrders.length > 0 && (
-        <div className="card">
-          <h2>客服督办单</h2>
-          <p className="field-hint">以下为客服下发原文。师傅仅查看并执行相关事项，瑞云督办单统一由信息员回复。</p>
-          {supervisionOrders.map((item) => (
-            <div key={item.id} className="message-card">
-              <p><strong>{item.originalContent}</strong></p>
-              <p>识别类型：{(item.analysis?.intents || []).map((intent) => intent.label).join("、") || "待人工分类"}</p>
-              <p>师傅需处理：</p>
-              <ul>{(item.analysis?.technicianActions || ["请联系信息员确认具体处理要求"]).map((action) => <li key={action}>{action}</li>)}</ul>
-              <p>回复责任：信息员（师傅端不能回复瑞云督办单）</p>
-              {item.analysis?.requiresManualReview && <p className="error-message">需要人工确认</p>}
-            </div>
-          ))}
-        </div>
-      )}
+      <SupervisionNoticeCard rmaNo={repairOrder.crmOrderNo} />
 
       <div className="card">
         <h2>检测记录</h2>

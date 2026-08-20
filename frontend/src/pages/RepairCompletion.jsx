@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import SupervisionNoticeCard from "../components/SupervisionNoticeCard.jsx"
 import {
   getRepairCompletionContext,
   saveRepairCompletionDraft,
@@ -175,6 +176,8 @@ function RepairCompletion({ setPage }) {
         <button className="arrow-back" onClick={() => setPage("repairProcess")}>←</button>
         <h1>维修完工</h1>
       </div>
+
+      <SupervisionNoticeCard rmaNo={repairOrder.crmOrderNo} />
 
       <div className="card">
         <h2>工单摘要</h2>
