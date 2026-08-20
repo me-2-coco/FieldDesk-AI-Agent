@@ -60,3 +60,31 @@ test("瑞云明确完成的督办单只归档且不再通知师傅", async () =>
   assert.deepEqual(await monitor.pollNow(), { skipped: false, captured: 0 });
   assert.deepEqual(archived, [{ rmaNo: "JXTH-SYNTHETIC-DONE", sourceId: "DB-SYNTHETIC-DONE" }]);
 });
+
+test("监测器公开安全运行状态并记录成功与失败", async () => {
+  let shouldFail = false;
+  const monitor = new RecloudSupervisionMonitor({
+    receiptStore: { readAll: async () => [] },
+    readOrders: async () => {
+      if (shouldFail) throw Object.assign(new Error("synthetic"), { code: "RECLOUD_LOGIN_REQUIRED" });
+      return [];
+    },
+    logger: {},
+    intervalMs: 10000,
+  });
+  monitor.start();
+  await new Promise((resolve) => setImmediate(resolve));
+  let status = monitor.getStatus();
+  assert.equal(status.enabled, true);
+  assert.equal(status.intervalMs, 10000);
+  assert.ok(status.lastSuccessAt);
+  assert.equal(status.lastErrorCode, null);
+
+  shouldFail = true;
+  await monitor.pollNow();
+  status = monitor.getStatus();
+  assert.equal(status.lastErrorCode, "RECLOUD_LOGIN_REQUIRED");
+  assert.ok(status.lastErrorAt);
+  assert.equal(status.pollCount, 2);
+  monitor.stop();
+});

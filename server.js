@@ -258,6 +258,7 @@ function createApp(
   const feishuModelCatalog = options.feishuModelCatalog || new FeishuModelCatalog({ env: runtimeEnv });
   const feishuPartsCatalog = options.feishuPartsCatalog || new FeishuPartsCatalog({ env: runtimeEnv });
   const faultCatalogStore = options.faultCatalogStore || new JsonRecloudFaultCatalogStore(options.faultCatalogFile);
+  const supervisionMonitor = options.supervisionMonitor || null;
   const app = express();
   const operationalLogger = options.operationalLogger || new RotatingJsonLogger({ directory: runtimeEnv.LOG_DIRECTORY, maxBytes: runtimeEnv.LOG_MAX_BYTES, retention: runtimeEnv.LOG_RETENTION_FILES });
   app.set("trust proxy", runtimeConfig.trustProxy);
@@ -343,6 +344,17 @@ function createApp(
     } catch {
       res.status(503).json({ success: false, status: "not_ready" });
     }
+  });
+
+  app.get("/api/supervision/monitor/status", (req, res) => {
+    res.json({
+      success: true,
+      data: supervisionMonitor?.getStatus?.() || {
+        enabled: false,
+        running: false,
+        lastErrorCode: "SUPERVISION_MONITOR_NOT_ATTACHED",
+      },
+    });
   });
 
   app.get("/api/auth/me", (req, res) => {
@@ -2006,7 +2018,14 @@ if (require.main === module) {
   const runtimeConfig = validateRuntimeConfig(process.env);
   const port = runtimeConfig.port;
   const businessStores = createBusinessStores(process.env);
-  const app = createApp(recloudConnector, businessStores.receiptStore, { businessStores });
+  const supervisionMonitor = new RecloudSupervisionMonitor({
+    receiptStore: businessStores.receiptStore,
+    intervalMs: monitorInterval(process.env),
+    readOrders: () => withRecloud(recloudConnector, (page) => (
+      recloudConnector.readRmaSupervisionOrderStatuses(page)
+    )),
+  });
+  const app = createApp(recloudConnector, businessStores.receiptStore, { businessStores, supervisionMonitor });
   const tlsOptions = loadTlsOptions(runtimeConfig);
   const server = tlsOptions ? https.createServer(tlsOptions, app) : http.createServer(app);
   server.listen(port, () => {
@@ -2016,13 +2035,6 @@ if (require.main === module) {
         ? "安全模式：DRY_RUN=true，禁止最终确认签收"
         : "警告：DRY_RUN=false，允许最终确认签收"
     );
-  });
-  const supervisionMonitor = new RecloudSupervisionMonitor({
-    receiptStore: businessStores.receiptStore,
-    intervalMs: monitorInterval(process.env),
-    readOrders: () => withRecloud(recloudConnector, (page) => (
-      recloudConnector.readRmaSupervisionOrderStatuses(page)
-    )),
   });
   initializeRecloudSession(recloudConnector).then((session) => {
     if (session && monitorEnabled(process.env)) supervisionMonitor.start();

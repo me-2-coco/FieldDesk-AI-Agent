@@ -26,11 +26,37 @@ class RecloudSupervisionMonitor {
     this.timer = null;
     this.running = false;
     this.stopped = true;
+    this.startedAt = null;
+    this.lastPollStartedAt = null;
+    this.lastSuccessAt = null;
+    this.lastErrorAt = null;
+    this.lastErrorCode = null;
+    this.lastCapturedCount = 0;
+    this.totalCaptured = 0;
+    this.pollCount = 0;
+  }
+
+  getStatus() {
+    return {
+      enabled: !this.stopped,
+      running: this.running,
+      intervalMs: this.intervalMs,
+      startedAt: this.startedAt,
+      lastPollStartedAt: this.lastPollStartedAt,
+      lastSuccessAt: this.lastSuccessAt,
+      lastErrorAt: this.lastErrorAt,
+      lastErrorCode: this.lastErrorCode,
+      lastCapturedCount: this.lastCapturedCount,
+      totalCaptured: this.totalCaptured,
+      pollCount: this.pollCount,
+    };
   }
 
   async pollNow() {
     if (this.running) return { skipped: true, captured: 0 };
     this.running = true;
+    this.lastPollStartedAt = new Date().toISOString();
+    this.pollCount += 1;
     try {
       const [localOrders, liveOrders] = await Promise.all([
         this.receiptStore.readAll(),
@@ -74,8 +100,15 @@ class RecloudSupervisionMonitor {
         captured += 1;
       }
       if (captured) this.logger.info?.(`RECLOUD_SUPERVISION_MONITOR: captured ${captured}`);
+      this.lastSuccessAt = new Date().toISOString();
+      this.lastErrorCode = null;
+      this.lastCapturedCount = captured;
+      this.totalCaptured += captured;
       return { skipped: false, captured };
     } catch (error) {
+      this.lastErrorAt = new Date().toISOString();
+      this.lastErrorCode = error.code || "UNKNOWN";
+      this.lastCapturedCount = 0;
       this.logger.error?.(`RECLOUD_SUPERVISION_MONITOR: failed ${error.code || "UNKNOWN"}`);
       return { skipped: false, captured: 0, errorCode: error.code || "UNKNOWN" };
     } finally {
@@ -86,6 +119,7 @@ class RecloudSupervisionMonitor {
   start() {
     if (!this.stopped) return;
     this.stopped = false;
+    this.startedAt ||= new Date().toISOString();
     const tick = async () => {
       await this.pollNow();
       if (this.stopped) return;
