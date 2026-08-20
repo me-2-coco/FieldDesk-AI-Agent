@@ -105,6 +105,10 @@ export async function getSupervisionInbox() {
   return get("/api/repairs/supervision/inbox")
 }
 
+export async function getSupervisionMonitorStatus() {
+  return get("/api/supervision/monitor/status")
+}
+
 export async function markSupervisionOrderRead(rmaNo, supervisionOrderId) {
   return request("/api/repairs/supervision/read", { rmaNo, supervisionOrderId })
 }

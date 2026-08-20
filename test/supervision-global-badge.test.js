@@ -36,3 +36,16 @@ test("全局提醒显示最新督办摘要并精确打开对应寄修单", async
   assert.match(home, /targetRmaNo=\{supervisionTargetRmaNo\}/);
   assert.match(inbox, /targetRmaNo \? rmaNo === targetRmaNo/);
 });
+
+test("督办监测异常时全局提示师傅但不阻断维修", async () => {
+  const app = await fs.readFile(path.join(__dirname, "../frontend/src/App.jsx"), "utf8");
+  const service = await fs.readFile(path.join(__dirname, "../frontend/src/shared/crmService.js"), "utf8");
+  const css = await fs.readFile(path.join(__dirname, "../frontend/src/App.css"), "utf8");
+  assert.match(service, /getSupervisionMonitorStatus/);
+  assert.match(service, /\/api\/supervision\/monitor\/status/);
+  assert.match(app, /RECLOUD_LOGIN_REQUIRED/);
+  assert.match(app, /督办监测长时间未成功检查/);
+  assert.match(app, /global-monitor-warning/);
+  assert.match(css, /\.global-monitor-warning/);
+  assert.doesNotMatch(app, /回复督办|提交回复/);
+});

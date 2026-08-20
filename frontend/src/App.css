@@ -661,6 +661,28 @@ button:active:not(:disabled) {
   font-weight: 700;
 }
 
+.global-monitor-warning {
+  position: fixed;
+  right: 18px;
+  bottom: 142px;
+  z-index: 91;
+  display: flex;
+  max-width: min(430px, calc(100vw - 36px));
+  padding: 11px 14px;
+  border: 1px solid #f0b429;
+  border-radius: 12px;
+  color: #704b00;
+  background: #fff6d8;
+  box-shadow: 0 7px 20px rgba(112, 75, 0, 0.18);
+  flex-direction: column;
+  gap: 3px;
+  font-size: 13px;
+}
+
+.global-monitor-warning b {
+  font-size: 14px;
+}
+
 .global-supervision-alert-text {
   display: flex;
   min-width: 0;

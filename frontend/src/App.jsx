@@ -25,7 +25,11 @@ import {
   setAuthenticatedUser,
   USER_ROLES
 } from "./shared/userStore.js"
-import { getSupervisionInbox, setApiAccessToken } from "./shared/crmService.js"
+import {
+  getSupervisionInbox,
+  getSupervisionMonitorStatus,
+  setApiAccessToken
+} from "./shared/crmService.js"
 
 import "./App.css"
 
@@ -53,6 +57,7 @@ function App() {
   const [supervisionOpenKey, setSupervisionOpenKey] = useState(0)
   const [latestSupervision, setLatestSupervision] = useState(null)
   const [supervisionTargetRmaNo, setSupervisionTargetRmaNo] = useState("")
+  const [supervisionMonitorWarning, setSupervisionMonitorWarning] = useState("")
 
   useEffect(() => {
     const canReceiveSupervision = isLoggedIn && [USER_ROLES.TECHNICIAN, USER_ROLES.ADMIN].includes(currentUser?.role)
@@ -83,6 +88,48 @@ function App() {
     }
   }, [isLoggedIn, currentUser?.id, currentUser?.role])
 
+  useEffect(() => {
+    const canReceiveSupervision = isLoggedIn && [USER_ROLES.TECHNICIAN, USER_ROLES.ADMIN].includes(currentUser?.role)
+    if (!canReceiveSupervision) return undefined
+    let active = true
+    let timer
+    const refreshMonitorStatus = async () => {
+      try {
+        const status = await getSupervisionMonitorStatus()
+        if (!active) return
+        const now = Date.now()
+        const staleAfterMs = Math.max(Number(status?.intervalMs || 30000) * 6, 90000)
+        const lastSuccessAt = Date.parse(status?.lastSuccessAt || "")
+        const startedAt = Date.parse(status?.startedAt || "")
+        const startupExpired = Number.isFinite(startedAt) && now - startedAt > staleAfterMs
+        const isStale = Number.isFinite(lastSuccessAt)
+          ? now - lastSuccessAt > staleAfterMs
+          : startupExpired
+
+        if (!status?.enabled) {
+          setSupervisionMonitorWarning("督办监测未启动，请联系信息员检查后台服务")
+        } else if (status?.lastErrorCode === "RECLOUD_LOGIN_REQUIRED") {
+          setSupervisionMonitorWarning("瑞云登录已失效，督办提醒暂时中断，请联系信息员重新登录")
+        } else if (status?.lastErrorCode) {
+          setSupervisionMonitorWarning("督办监测出现异常，系统正在自动重试，请联系信息员检查")
+        } else if (isStale) {
+          setSupervisionMonitorWarning("督办监测长时间未成功检查，请联系信息员检查后台服务")
+        } else {
+          setSupervisionMonitorWarning("")
+        }
+      } catch {
+        // 状态接口短暂不可用时保留上次结果，避免网络抖动反复提示。
+      } finally {
+        if (active) timer = window.setTimeout(refreshMonitorStatus, 30000)
+      }
+    }
+    refreshMonitorStatus()
+    return () => {
+      active = false
+      if (timer) window.clearTimeout(timer)
+    }
+  }, [isLoggedIn, currentUser?.id, currentUser?.role])
+
 
 
   function handleLogin(user) {
@@ -97,6 +144,7 @@ function App() {
 
     setSupervisionUnreadCount(0)
     setLatestSupervision(null)
+    setSupervisionMonitorWarning("")
 
   }
 
@@ -117,6 +165,7 @@ function App() {
 
     setSupervisionUnreadCount(0)
     setLatestSupervision(null)
+    setSupervisionMonitorWarning("")
 
   }
 
@@ -357,6 +406,13 @@ function App() {
 
 
       </main>
+
+      {supervisionMonitorWarning && (
+        <div className="global-monitor-warning" role="status">
+          <b>督办提醒异常</b>
+          <span>{supervisionMonitorWarning}</span>
+        </div>
+      )}
 
       {supervisionUnreadCount > 0 && (
         <button
