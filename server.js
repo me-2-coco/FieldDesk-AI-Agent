@@ -1323,6 +1323,43 @@ function createApp(
     } catch (error) { next(error); }
   });
 
+  app.post("/api/repairs/supervision/sync", async (req, res, next) => {
+    try {
+      const rmaNo = String(req.body?.rmaNo || "").trim();
+      const records = await receiptStore.readAll();
+      const order = records.find((item) => item.rmaNo === rmaNo);
+      if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到督办单对应工单", 404);
+      const user = currentUserProvider(req);
+      const privileged = [USER_ROLES.ADMIN, USER_ROLES.WAREHOUSE].includes(user.role);
+      if (!privileged && (order.technicianId || order.operatorId) !== user.userId) {
+        throw createApiError("SUPERVISION_FORBIDDEN", "只能同步本人负责工单的督办单", 403);
+      }
+      const logisticsNo = normalizeLogisticsNo(order.logisticsNo || req.body?.logisticsNo);
+      if (!logisticsNo) throw createApiError("SUPERVISION_LOGISTICS_REQUIRED", "缺少督办单对应物流单号", 400);
+
+      const liveOrders = await withRecloud(connector, async (page) => {
+        await connector.queryRmaByLogisticsNo(page, logisticsNo);
+        return connector.readSupervisionOrders(page);
+      });
+      const captured = [];
+      for (const liveOrder of liveOrders) {
+        const analysis = analyzeSupervisionOrder(
+          liveOrder.content ||
+          liveOrder.processingRecord ||
+          `${liveOrder.type || ""} ${liveOrder.subtype || ""}`.trim() ||
+          "瑞云督办单待信息员确认"
+        );
+        const saved = await receiptStore.saveSupervisionOrder(rmaNo, {
+          sourceId: liveOrder.sourceId,
+          originalContent: analysis.originalContent,
+          analysis: { ...analysis, source: liveOrder },
+        }, user);
+        captured.push(saved.supervisionOrder);
+      }
+      res.json({ success: true, data: captured });
+    } catch (error) { next(error); }
+  });
+
   app.get("/api/repairs/supervision", async (req, res, next) => {
     try {
       const rmaNo = String(req.query?.rmaNo || "").trim();

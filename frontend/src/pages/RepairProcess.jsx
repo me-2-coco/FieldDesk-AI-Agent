@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { checkInspectionWarranty, getSupervisionOrders, saveInspection, searchRecloudFaultCategories } from "../shared/crmService.js"
+import { checkInspectionWarranty, getSupervisionOrders, saveInspection, searchRecloudFaultCategories, syncSupervisionOrders } from "../shared/crmService.js"
 import { getPreferredFaultKeyword, rankFaultOptions } from "../shared/faultSearch.js"
 import {
   getCurrentRepairOrder,
@@ -30,11 +30,13 @@ function RepairProcess({ setPage }) {
 
   useEffect(() => {
     let active = true
-    getSupervisionOrders(repairOrder.crmOrderNo)
+    syncSupervisionOrders({ rmaNo: repairOrder.crmOrderNo, logisticsNo: repairOrder.logisticsNo })
       .then((items) => active && setSupervisionOrders(items || []))
+      .catch(() => getSupervisionOrders(repairOrder.crmOrderNo))
+      .then((items) => active && items && setSupervisionOrders(items || []))
       .catch(() => {})
     return () => { active = false }
-  }, [repairOrder.crmOrderNo])
+  }, [repairOrder.crmOrderNo, repairOrder.logisticsNo])
 
   useEffect(() => {
     const keyword = faultCategory.trim()

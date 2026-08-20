@@ -101,6 +101,10 @@ export async function getSupervisionOrders(rmaNo) {
   return get(`/api/repairs/supervision?rmaNo=${encodeURIComponent(String(rmaNo || "").trim())}`)
 }
 
+export async function syncSupervisionOrders(payload) {
+  return request("/api/repairs/supervision/sync", payload)
+}
+
 export async function checkInspectionWarranty(payload) {
   return request("/api/repairs/inspection/warranty-check", payload)
 }
