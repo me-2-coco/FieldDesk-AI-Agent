@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 
 import Login from "./pages/Login.jsx"
 import Home from "./pages/Home.jsx"
@@ -22,9 +22,10 @@ import BottomNav from "./components/BottomNav.jsx"
 import {
   canAccessPage,
   getCurrentUser,
-  setAuthenticatedUser
+  setAuthenticatedUser,
+  USER_ROLES
 } from "./shared/userStore.js"
-import { setApiAccessToken } from "./shared/crmService.js"
+import { getSupervisionInbox, setApiAccessToken } from "./shared/crmService.js"
 
 import "./App.css"
 
@@ -48,6 +49,30 @@ function App() {
   const [permissionMessage, setPermissionMessage] =
     useState("")
 
+  const [supervisionUnreadCount, setSupervisionUnreadCount] = useState(0)
+
+  useEffect(() => {
+    const canReceiveSupervision = isLoggedIn && [USER_ROLES.TECHNICIAN, USER_ROLES.ADMIN].includes(currentUser?.role)
+    if (!canReceiveSupervision) return undefined
+    let active = true
+    let timer
+    const refresh = async () => {
+      try {
+        const items = await getSupervisionInbox()
+        if (active) setSupervisionUnreadCount((items || []).filter((item) => !item.isRead).length)
+      } catch {
+        // 全局红点不可用时不阻断业务操作，下一轮自动重试。
+      } finally {
+        if (active) timer = window.setTimeout(refresh, 10000)
+      }
+    }
+    refresh()
+    return () => {
+      active = false
+      if (timer) window.clearTimeout(timer)
+    }
+  }, [isLoggedIn, currentUser?.id, currentUser?.role])
+
 
 
   function handleLogin(user) {
@@ -59,6 +84,8 @@ function App() {
     setPageState("home")
 
     setPermissionMessage("")
+
+    setSupervisionUnreadCount(0)
 
   }
 
@@ -76,6 +103,8 @@ function App() {
     setPageState("home")
 
     setPermissionMessage("")
+
+    setSupervisionUnreadCount(0)
 
   }
 
@@ -318,6 +347,8 @@ function App() {
         page={page}
 
         setPage={setPage}
+
+        supervisionUnreadCount={supervisionUnreadCount}
 
       />
 

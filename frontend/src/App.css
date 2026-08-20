@@ -616,6 +616,30 @@ button:active:not(:disabled) {
   transform: none;
 }
 
+.bottom-nav-label {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bottom-nav-badge {
+  position: absolute;
+  top: -13px;
+  right: -22px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  color: #ffffff;
+  background: #e5484d;
+  border: 2px solid #ffffff;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
 @media (max-width: 480px) {
   .page {
     padding: 20px 14px 32px;

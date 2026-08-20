@@ -6,7 +6,8 @@ import {
 
 function BottomNav({
   page,
-  setPage
+  setPage,
+  supervisionUnreadCount = 0
 }) {
 
   const currentUser = getCurrentUser()
@@ -34,7 +35,14 @@ function BottomNav({
             setPage(item.page)
           }
         >
-          {item.label}
+          <span className="bottom-nav-label">
+            {item.label}
+            {item.page === "home" && supervisionUnreadCount > 0 && (
+              <span className="bottom-nav-badge" aria-label={`${supervisionUnreadCount}条未读督办通知`}>
+                {supervisionUnreadCount > 99 ? "99+" : supervisionUnreadCount}
+              </span>
+            )}
+          </span>
         </button>
 
       ))}
