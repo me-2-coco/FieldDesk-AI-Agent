@@ -25,6 +25,12 @@ const SPEECH_TEMPLATES = {
   ]
 }
 
+const LOGISTICS_MODES = [
+  { value: "ROUND_TRIP", label: "收取往返运费", multiplier: 2 },
+  { value: "ONE_WAY", label: "只收单边运费", multiplier: 1 },
+  { value: "WAIVED", label: "运费全免", multiplier: 0 }
+]
+
 function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -39,6 +45,7 @@ function RepairCompletion({ setPage }) {
   const [usedParts, setUsedParts] = useState([])
   const [pricing, setPricing] = useState(null)
   const [oneWayLogisticsFee, setOneWayLogisticsFee] = useState("")
+  const [logisticsChargeMode, setLogisticsChargeMode] = useState("ROUND_TRIP")
   const [faultLevel1, setFaultLevel1] = useState("")
   const [faultLevel2, setFaultLevel2] = useState("")
   const [faultLevel3, setFaultLevel3] = useState("")
@@ -82,6 +89,7 @@ function RepairCompletion({ setPage }) {
         setRepairMeasure(draft.repairMeasure || buildRepairMeasure(selectedTemplate, contextParts, repairOrder.originalFault))
         setAttachments(draft.attachments || [])
         setOneWayLogisticsFee(draftLogisticsFee)
+        setLogisticsChargeMode(draft.logisticsChargeMode || draft.pricing?.logisticsChargeMode || "ROUND_TRIP")
       }
       if (!draft) {
         setSpeechTemplate(templates[0])
@@ -95,6 +103,12 @@ function RepairCompletion({ setPage }) {
     ? usedParts.map((part) => `${part.partName}×${part.quantity}（${part.repairLevel || "等级待确认"}）`).join("、")
     : "无实际更换配件"
   const availableTemplates = SPEECH_TEMPLATES[responsibilityType] || []
+  const logisticsMode = LOGISTICS_MODES.find((item) => item.value === logisticsChargeMode) || LOGISTICS_MODES[0]
+  const displayedLogisticsFee = Number(oneWayLogisticsFee || 0) * logisticsMode.multiplier
+  const primaryRemark = logisticsChargeMode === "ROUND_TRIP" ? "无减免" : "申请运费减免"
+  const secondaryRemark = logisticsChargeMode === "WAIVED"
+    ? `配件费${Number(pricing?.partsFee || 0)}元，维修费${Number(pricing?.fee || 0)}元，运费全免，合计：${Number(pricing?.subtotal || 0).toFixed(2)}元`
+    : `配件费${Number(pricing?.partsFee || 0)}元，维修费${Number(pricing?.fee || 0)}元，${logisticsChargeMode === "ONE_WAY" ? "单边" : "来回"}运费${displayedLogisticsFee.toFixed(2)}元，合计：${(Number(pricing?.subtotal || 0) + displayedLogisticsFee).toFixed(2)}元`
 
   function applySpeechTemplate(template = speechTemplate) {
     setSpeechTemplate(template)
@@ -105,7 +119,7 @@ function RepairCompletion({ setPage }) {
     rmaNo: repairOrder.crmOrderNo,
     faultLevel1, faultLevel2, faultLevel3,
     responsibilityType, detectionResult, speechTemplate, repairMeasure, attachments,
-    oneWayLogisticsFee
+    oneWayLogisticsFee, logisticsChargeMode
   })
 
   async function save(submit) {
@@ -177,9 +191,20 @@ function RepairCompletion({ setPage }) {
               <p>维修费：¥{pricing.fee}</p>
               <label htmlFor="one-way-logistics-fee">单程物流费（可修改）</label>
               <input id="one-way-logistics-fee" type="number" min="0" step="0.01" value={oneWayLogisticsFee} onChange={(event) => setOneWayLogisticsFee(event.target.value)} placeholder="请输入或修改单程快递费" />
-              <p>往返物流费：¥{(Number(oneWayLogisticsFee || 0) * 2).toFixed(2)}（单程 × 2）</p>
-              <p><strong>保外合计：¥{(Number(pricing.subtotal || 0) + Number(oneWayLogisticsFee || 0) * 2).toFixed(2)}</strong></p>
-              <p className="field-hint">物流接口只返回单程费用；可人工修改，提交后由后台按 ×2 复算。</p>
+              <fieldset>
+                <legend>向客户收取的运费</legend>
+                {LOGISTICS_MODES.map((item) => (
+                  <label key={item.value}>
+                    <input type="radio" name="logistics-charge-mode" value={item.value} checked={logisticsChargeMode === item.value} onChange={(event) => setLogisticsChargeMode(event.target.value)} />
+                    {item.label}
+                  </label>
+                ))}
+              </fieldset>
+              <p>{logisticsMode.label}：¥{displayedLogisticsFee.toFixed(2)}{logisticsMode.multiplier > 0 ? `（单程 × ${logisticsMode.multiplier}）` : ""}</p>
+              <p><strong>保外合计：¥{(Number(pricing.subtotal || 0) + displayedLogisticsFee).toFixed(2)}</strong></p>
+              <p>一级备注：{primaryRemark}</p>
+              <p>二级备注：{secondaryRemark}</p>
+              <p className="field-hint">物流接口只返回单程费用；师傅可按实际政策选择往返、单边或全免，后台会重新核算。</p>
             </div>
           ) : <p className="error-message">保外价格暂时无法自动核对，请转人工确认</p>
         ) : <p className="success-text">保内工单：不向客户收取配件费和维修费</p>}

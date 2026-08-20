@@ -28,6 +28,7 @@ const { FeishuModelCatalog, getSnProjectMatch } = require("./connectors/feishu-m
 const { FeishuPartsCatalog } = require("./connectors/feishu-parts-catalog");
 const { evaluateWarranty } = require("./services/warranty-policy");
 const { resolveOutOfWarrantyFee } = require("./services/out-of-warranty-pricing");
+const { resolveRepairCharge } = require("./services/repair-charge-policy");
 const { buildInspectionFormDecision } = require("./services/inspection-form-rules");
 const {
   USER_ROLES,
@@ -1511,6 +1512,9 @@ function createApp(
       }));
       const usedParts = appliedParts.length ? appliedParts : await inventoryStore.usedPartsForOrder(order.rmaNo, order.sn);
       const isOutOfWarranty = order.technicianWarranty === "保外";
+      const logisticsChargeMode = isOutOfWarranty
+        ? String(req.body?.logisticsChargeMode || "ROUND_TRIP").trim()
+        : "NOT_CHARGED";
       const rawOneWayLogisticsFee = req.body?.oneWayLogisticsFee;
       if (submit && isOutOfWarranty && (rawOneWayLogisticsFee === "" || rawOneWayLogisticsFee === null || rawOneWayLogisticsFee === undefined)) {
         throw createApiError("LOGISTICS_FEE_REQUIRED", "保外工单必须填写单程物流费", 400);
@@ -1521,15 +1525,49 @@ function createApp(
       if (!Number.isFinite(oneWayLogisticsFee) || oneWayLogisticsFee < 0) {
         throw createApiError("LOGISTICS_FEE_INVALID", "单程物流费必须是大于或等于 0 的数字", 400);
       }
-      const logisticsFee = Number((oneWayLogisticsFee * 2).toFixed(2));
       const repairPricing = resolveOutOfWarrantyFee(order.modelAuthorization?.repairFees || {}, usedParts);
       const partsFee = usedParts.reduce((sum, part) => sum + (Number(part.retailPrice) || 0) * (Number(part.quantity) || 0), 0);
       if (submit && isOutOfWarranty && !repairPricing.canPrice) {
         throw createApiError("OUT_OF_WARRANTY_PRICE_REVIEW_REQUIRED", "配件维修等级或机型维修费不完整，请转人工核价", 409);
       }
+      let charge = null;
+      if (isOutOfWarranty && repairPricing.canPrice) {
+        try {
+          charge = resolveRepairCharge({
+            partsFee,
+            repairFee: repairPricing.fee,
+            oneWayLogisticsFee,
+            logisticsChargeMode,
+          });
+        } catch (error) {
+          if (["LOGISTICS_FEE_INVALID", "LOGISTICS_CHARGE_MODE_INVALID"].includes(error.code)) {
+            throw createApiError(error.code, error.message, 400);
+          }
+          throw error;
+        }
+      }
       const pricing = isOutOfWarranty
-        ? { ...repairPricing, partsFee, oneWayLogisticsFee, logisticsFee, logisticsMultiplier: 2, subtotal: repairPricing.canPrice ? partsFee + repairPricing.fee : null, totalFee: repairPricing.canPrice ? partsFee + repairPricing.fee + logisticsFee : null, logisticsSource: "MANUAL_EDITABLE" }
-        : { status: "IN_WARRANTY", canPrice: true, partsFee: 0, fee: 0, oneWayLogisticsFee: 0, logisticsFee: 0, logisticsMultiplier: 2, subtotal: 0, totalFee: 0, logisticsSource: "NOT_CHARGED" };
+        ? {
+            ...repairPricing,
+            partsFee,
+            ...(charge || {
+              logisticsChargeMode,
+              oneWayLogisticsFee,
+              logisticsFee: null,
+              logisticsMultiplier: null,
+              totalFee: null,
+              primaryRemark: null,
+              secondaryRemark: null,
+            }),
+            subtotal: repairPricing.canPrice ? partsFee + repairPricing.fee : null,
+            logisticsSource: "MANUAL_EDITABLE",
+          }
+        : {
+            status: "IN_WARRANTY", canPrice: true, partsFee: 0, fee: 0,
+            logisticsChargeMode: "NOT_CHARGED", oneWayLogisticsFee: 0,
+            logisticsFee: 0, logisticsMultiplier: 0, subtotal: 0, totalFee: 0,
+            primaryRemark: null, secondaryRemark: null, logisticsSource: "NOT_CHARGED",
+          };
       const confirmedFaultPath = String(order.faultCategory || "").split("/").map((item) => item.trim()).filter(Boolean);
       const confirmedFault = confirmedFaultPath.length >= 3
         ? {
@@ -1544,7 +1582,18 @@ function createApp(
       const responsibilityType = order.technicianWarranty === "保外" ? "保外维修" : "保内质保";
       const data = await receiptStore.saveRepairCompletion(
         rmaNo,
-        { ...req.body, ...confirmedFault, responsibilityType, usedParts, oneWayLogisticsFee, logisticsFee, pricing },
+        {
+          ...req.body,
+          ...confirmedFault,
+          responsibilityType,
+          usedParts,
+          logisticsChargeMode: pricing.logisticsChargeMode,
+          oneWayLogisticsFee,
+          logisticsFee: pricing.logisticsFee,
+          primaryRemark: pricing.primaryRemark,
+          secondaryRemark: pricing.secondaryRemark,
+          pricing,
+        },
         currentUserProvider(req),
         submit
       );
