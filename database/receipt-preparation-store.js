@@ -569,6 +569,7 @@ class JsonReceiptPreparationStore {
         id: current?.id || crypto.randomUUID(),
         sourceId,
         source: "RECLOUD_SUPERVISION",
+        recloudStatus: normalizeRequired(input.recloudStatus) || current?.recloudStatus || "未处理",
         originalContent: normalizeRequired(input.originalContent),
         analysis: input.analysis || null,
         status: ["REPLIED", "REPLIED_BY_INFORMATION_CLERK"].includes(current?.status) ? "REPLIED_BY_INFORMATION_CLERK" : "NOTIFIED_TECHNICIAN",
@@ -576,6 +577,9 @@ class JsonReceiptPreparationStore {
         repliedAt: current?.repliedAt || null,
         replyOwner: "INFORMATION_CLERK",
         readBy: Array.isArray(current?.readBy) ? current.readBy : [],
+        archivedAt: input.recloudStatus && !/已完成/.test(input.recloudStatus)
+          ? null
+          : current?.archivedAt || null,
         assignedTechnicianId: existing.technicianId || existing.operatorId,
         assignedTechnicianName: existing.technicianName || existing.operatorName,
         capturedAt: current?.capturedAt || timestamp,
@@ -618,6 +622,28 @@ class JsonReceiptPreparationStore {
       };
       if (!alreadyRead) await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
       return updatedItem;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
+  async archiveSupervisionOrder(rmaNo, sourceId, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing) return null;
+      const item = (existing.supervisionOrders || []).find((order) => order.sourceId === sourceId);
+      if (!item || item.archivedAt) return item || null;
+      const timestamp = new Date().toISOString();
+      const archived = { ...item, recloudStatus: "已完成", archivedAt: timestamp, updatedAt: timestamp };
+      const updated = {
+        ...existing,
+        supervisionOrders: (existing.supervisionOrders || []).map((order) => order.id === item.id ? archived : order),
+        updatedAt: timestamp,
+        timeline: [...(existing.timeline || []), timelineEvent("SUPERVISION_COMPLETED", "客服督办单已完成", operator, timestamp)],
+      };
+      await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
+      return archived;
     });
     this.writeQueue = operation.catch(() => {});
     return operation;

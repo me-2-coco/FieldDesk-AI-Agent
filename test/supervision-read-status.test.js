@@ -36,3 +36,22 @@ test("师傅查看督办通知只记录本地已读且不改变瑞云处理状�
   const repeated = await store.markSupervisionOrderRead("JXTH-SYNTHETIC-READ", saved.supervisionOrder.id, TECHNICIAN);
   assert.equal(repeated.readBy.length, 1);
 });
+
+test("已完成督办单保留历史但标记归档", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "fielddesk-supervision-archive-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const store = new JsonReceiptPreparationStore(path.join(directory, "orders.json"));
+  await store.prepare({
+    logisticsNo: "SF-SYNTHETIC-ARCHIVE", rmaNo: "JXTH-SYNTHETIC-ARCHIVE",
+    sn: "W00000ARCHIVE", operatorId: TECHNICIAN.userId, operatorName: TECHNICIAN.displayName,
+  });
+  await store.saveSupervisionOrder("JXTH-SYNTHETIC-ARCHIVE", {
+    sourceId: "DB-SYNTHETIC-ARCHIVE", originalContent: "测试督办", recloudStatus: "处理中",
+  }, TECHNICIAN);
+  const archived = await store.archiveSupervisionOrder("JXTH-SYNTHETIC-ARCHIVE", "DB-SYNTHETIC-ARCHIVE", TECHNICIAN);
+  assert.equal(archived.recloudStatus, "已完成");
+  assert.ok(archived.archivedAt);
+  const record = (await store.readAll())[0];
+  assert.equal(record.supervisionOrders.length, 1);
+  assert.equal(record.timeline.at(-1).type, "SUPERVISION_COMPLETED");
+});

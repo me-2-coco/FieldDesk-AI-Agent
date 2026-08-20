@@ -104,6 +104,48 @@ function filterPendingRmaSupervisionOrders(records = []) {
   ));
 }
 
+function filterRmaSupervisionOrders(records = []) {
+  return records.filter((record) => (
+    !isBlankReference(record.rmaNo) &&
+    isBlankReference(record.serviceOrderNo)
+  ));
+}
+
+async function readCentralSupervisionTable(page) {
+  const tables = page.locator("table");
+  await tables.first().waitFor({ state: "visible" });
+  const tableCount = await tables.count();
+  for (let index = 0; index < tableCount; index += 1) {
+    const current = tables.nth(index);
+    const currentHeaders = await current.locator("th, [role='columnheader']").allInnerTexts().catch(() => []);
+    const normalized = currentHeaders.map(normalizeText);
+    if (normalized.includes("督办单号") && normalized.includes("关联寄修单")) {
+      return parseSupervisionRows(currentHeaders, await readTableRows(current));
+    }
+  }
+  const error = new Error("瑞云中央督办单表格结构已变化");
+  error.code = "RECLOUD_CENTRAL_SUPERVISION_TABLE_CHANGED";
+  throw error;
+}
+
+async function readRmaSupervisionOrderStatuses(page) {
+  await page.goto(CENTRAL_SUPERVISION_URL);
+  const statuses = ["未处理", "已响应", "处理中", "已完成"];
+  const records = [];
+  for (const status of statuses) {
+    const tab = page.getByText(status, { exact: true }).first();
+    await tab.waitFor({ state: "visible" });
+    await tab.click();
+    await page.waitForTimeout(250);
+    const current = await readCentralSupervisionTable(page);
+    records.push(...filterRmaSupervisionOrders(current).map((record) => ({
+      ...record,
+      status: record.status || status,
+    })));
+  }
+  return records;
+}
+
 async function readPendingRmaSupervisionOrders(page) {
   await page.goto(CENTRAL_SUPERVISION_URL);
   const pendingTab = page.getByText("未处理", { exact: true }).first();
@@ -141,7 +183,9 @@ module.exports = {
   CENTRAL_SUPERVISION_URL,
   FIELD_MAP,
   filterPendingRmaSupervisionOrders,
+  filterRmaSupervisionOrders,
   parseSupervisionRows,
   readPendingRmaSupervisionOrders,
+  readRmaSupervisionOrderStatuses,
   readSupervisionOrders,
 };

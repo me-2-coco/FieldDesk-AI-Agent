@@ -17,6 +17,7 @@ const {
 } = require("./recloud-session");
 const {
   readPendingRmaSupervisionOrders,
+  readRmaSupervisionOrderStatuses,
   readSupervisionOrders,
 } = require("./recloud-supervision");
 
@@ -8544,5 +8545,6 @@ module.exports = {
   fillReceiptFields,
   parseRepairDetail,
   readPendingRmaSupervisionOrders,
+  readRmaSupervisionOrderStatuses,
   readSupervisionOrders,
 };

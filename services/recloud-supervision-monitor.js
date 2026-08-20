@@ -16,9 +16,9 @@ function monitorInterval(env = process.env) {
 }
 
 class RecloudSupervisionMonitor {
-  constructor({ receiptStore, readPendingOrders, logger = console, intervalMs = 30000, setTimer = setTimeout, clearTimer = clearTimeout }) {
+  constructor({ receiptStore, readOrders, readPendingOrders, logger = console, intervalMs = 30000, setTimer = setTimeout, clearTimer = clearTimeout }) {
     this.receiptStore = receiptStore;
-    this.readPendingOrders = readPendingOrders;
+    this.readOrders = readOrders || readPendingOrders;
     this.logger = logger;
     this.intervalMs = Math.max(10000, Number(intervalMs) || 30000);
     this.setTimer = setTimer;
@@ -34,17 +34,32 @@ class RecloudSupervisionMonitor {
     try {
       const [localOrders, liveOrders] = await Promise.all([
         this.receiptStore.readAll(),
-        this.readPendingOrders(),
+        this.readOrders(),
       ]);
       const localByRma = new Map(localOrders.map((order) => [order.rmaNo, order]));
       let captured = 0;
       for (const liveOrder of liveOrders) {
         const localOrder = localByRma.get(liveOrder.rmaNo);
         if (!localOrder) continue;
+        if (/已完成/.test(liveOrder.status || "")) {
+          await this.receiptStore.archiveSupervisionOrder?.(liveOrder.rmaNo, liveOrder.sourceId, SYSTEM_OPERATOR);
+          continue;
+        }
         const alreadyCaptured = (localOrder.supervisionOrders || []).some((item) => (
           liveOrder.sourceId && item.sourceId === liveOrder.sourceId
         ));
-        if (alreadyCaptured) continue;
+        if (alreadyCaptured) {
+          const current = (localOrder.supervisionOrders || []).find((item) => item.sourceId === liveOrder.sourceId);
+          if (current?.recloudStatus !== liveOrder.status) {
+            await this.receiptStore.saveSupervisionOrder(liveOrder.rmaNo, {
+              sourceId: liveOrder.sourceId,
+              originalContent: current.originalContent,
+              analysis: current.analysis,
+              recloudStatus: liveOrder.status,
+            }, SYSTEM_OPERATOR);
+          }
+          continue;
+        }
         const content = liveOrder.content || liveOrder.processingRecord || `${liveOrder.type || ""} ${liveOrder.subtype || ""}`.trim() || "瑞云督办单待信息员确认";
         const analysis = analyzeSupervisionOrder(content, {
           type: liveOrder.type,
@@ -54,6 +69,7 @@ class RecloudSupervisionMonitor {
           sourceId: liveOrder.sourceId,
           originalContent: analysis.originalContent,
           analysis: { ...analysis, source: liveOrder },
+          recloudStatus: liveOrder.status || "未处理",
         }, SYSTEM_OPERATOR);
         captured += 1;
       }

@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
   filterPendingRmaSupervisionOrders,
+  filterRmaSupervisionOrders,
   parseSupervisionRows,
 } = require("../connectors/recloud-supervision");
 
@@ -30,6 +31,15 @@ test("中央督办列表只保留未处理且仅关联寄修单的记录", () =>
     { sourceId: "DB-4", rmaNo: "JXTH-4", serviceOrderNo: "FW-4", status: "未处理" },
   ]);
   assert.deepEqual(result.map((item) => item.sourceId), ["DB-1"]);
+});
+
+test("状态同步保留寄修单的处理中和已完成并排除上门服务单", () => {
+  const result = filterRmaSupervisionOrders([
+    { sourceId: "DB-1", rmaNo: "JXTH-1", serviceOrderNo: "--", status: "处理中" },
+    { sourceId: "DB-2", rmaNo: "JXTH-2", serviceOrderNo: "--", status: "已完成" },
+    { sourceId: "DB-3", rmaNo: "--", serviceOrderNo: "FW-3", status: "处理中" },
+  ]);
+  assert.deepEqual(result.map((item) => item.sourceId), ["DB-1", "DB-2"]);
 });
 
 test("空行和无督办标识的布局行不会进入结果", () => {

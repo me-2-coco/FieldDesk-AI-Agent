@@ -1374,7 +1374,7 @@ function createApp(
       }
       res.json({
         success: true,
-        data: (order.supervisionOrders || []).map((item) => ({
+        data: (order.supervisionOrders || []).filter((item) => !item.archivedAt).map((item) => ({
           ...item,
           isRead: (item.readBy || []).some((entry) => entry.userId === user.userId),
           readBy: undefined,
@@ -1387,7 +1387,7 @@ function createApp(
     try {
       const user = currentUserProvider(req);
       const orders = await receiptStore.listOrdersForUser(user, USER_ROLES);
-      const inbox = orders.flatMap((order) => (order.supervisionOrders || []).map((item) => ({
+      const inbox = orders.flatMap((order) => (order.supervisionOrders || []).filter((item) => !item.archivedAt).map((item) => ({
         ...item,
         rmaNo: order.rmaNo,
         orderStatus: order.status,
@@ -2020,8 +2020,8 @@ if (require.main === module) {
   const supervisionMonitor = new RecloudSupervisionMonitor({
     receiptStore: businessStores.receiptStore,
     intervalMs: monitorInterval(process.env),
-    readPendingOrders: () => withRecloud(recloudConnector, (page) => (
-      recloudConnector.readPendingRmaSupervisionOrders(page)
+    readOrders: () => withRecloud(recloudConnector, (page) => (
+      recloudConnector.readRmaSupervisionOrderStatuses(page)
     )),
   });
   initializeRecloudSession(recloudConnector).then((session) => {
