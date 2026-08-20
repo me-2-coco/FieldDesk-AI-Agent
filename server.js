@@ -1229,6 +1229,10 @@ function createApp(
         currentUserProvider(req)
       );
       await enqueueRecloudNode(data, "RECEIPT", data.receiptCompletedAt || data.id);
+      // A supervision order may have arrived before the technician received the
+      // machine. Recheck immediately after receipt so it can be routed to the
+      // assigned technician without waiting for the periodic monitor tick.
+      void supervisionMonitor?.pollNow?.();
       return res.json({
         success: true,
         data: {
