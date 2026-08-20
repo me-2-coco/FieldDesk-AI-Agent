@@ -1,5 +1,6 @@
 import { getCurrentRepairOrder, REPAIR_STATUS } from "../shared/repairOrderStore.js"
 import { USER_ROLES } from "../shared/userStore.js"
+import SupervisionNoticeCard from "../components/SupervisionNoticeCard.jsx"
 
 function nextPageForStatus(status) {
   if (status === REPAIR_STATUS.WAIT_INSPECTION) return "partsApplication"
@@ -29,6 +30,10 @@ function Home({ setPage, currentUser }) {
       <p>角色：{isAdmin ? "管理员" : isWarehouse ? "库房" : "维修师傅"}</p>
       {isTechnician && <p>维修品类：{currentUser.repairSpecialties?.join(" / ") || "未配置"}</p>}
     </div>
+
+    {(isTechnician || isAdmin) && order?.crmOrderNo && (
+      <SupervisionNoticeCard rmaNo={order.crmOrderNo} />
+    )}
 
     {(isTechnician || isAdmin) && <div className="card">
       <h2>维修执行</h2>
