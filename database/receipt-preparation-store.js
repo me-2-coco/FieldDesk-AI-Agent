@@ -557,6 +557,43 @@ class JsonReceiptPreparationStore {
     return operation;
   }
 
+  async saveSupervisionOrder(rmaNo, input = {}, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing) throw Object.assign(new Error("未找到督办单对应工单"), { code: "RECEIPT_PREPARATION_NOT_FOUND", status: 404 });
+      const sourceId = normalizeRequired(input.sourceId);
+      const current = (existing.supervisionOrders || []).find((item) => sourceId && item.sourceId === sourceId);
+      const timestamp = new Date().toISOString();
+      const supervisionOrder = {
+        id: current?.id || crypto.randomUUID(),
+        sourceId,
+        source: "RECLOUD_SUPERVISION",
+        originalContent: normalizeRequired(input.originalContent),
+        analysis: input.analysis || null,
+        status: current?.status === "REPLIED" ? "REPLIED" : "PENDING_REPLY",
+        replyContent: current?.replyContent || "",
+        repliedAt: current?.repliedAt || null,
+        assignedTechnicianId: existing.technicianId || existing.operatorId,
+        assignedTechnicianName: existing.technicianName || existing.operatorName,
+        capturedAt: current?.capturedAt || timestamp,
+        updatedAt: timestamp,
+      };
+      const updated = {
+        ...existing,
+        supervisionOrders: current
+          ? (existing.supervisionOrders || []).map((item) => item.id === current.id ? supervisionOrder : item)
+          : [...(existing.supervisionOrders || []), supervisionOrder],
+        updatedAt: timestamp,
+        timeline: current ? existing.timeline || [] : [...(existing.timeline || []), timelineEvent("SUPERVISION_RECEIVED", "收到客服督办单", operator, timestamp)],
+      };
+      await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
+      return { order: updated, supervisionOrder };
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
   async addTimelineEvent(rmaNo, type, label, operator = {}) {
     const operation = this.writeQueue.then(async () => {
       const records = await this.readAll();

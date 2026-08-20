@@ -29,6 +29,7 @@ const { FeishuPartsCatalog } = require("./connectors/feishu-parts-catalog");
 const { evaluateWarranty } = require("./services/warranty-policy");
 const { resolveOutOfWarrantyFee } = require("./services/out-of-warranty-pricing");
 const { resolveRepairCharge } = require("./services/repair-charge-policy");
+const { analyzeSupervisionOrder } = require("./services/supervision-order-policy");
 const { buildInspectionFormDecision } = require("./services/inspection-form-rules");
 const {
   USER_ROLES,
@@ -1306,6 +1307,34 @@ function createApp(
     } catch (error) {
       return next(error);
     }
+  });
+
+  app.post("/api/repairs/supervision/capture", async (req, res, next) => {
+    try {
+      const rmaNo = String(req.body?.rmaNo || "").trim();
+      if (!rmaNo) throw createApiError("SUPERVISION_RMA_REQUIRED", "缺少督办单对应寄修单号", 400);
+      const analysis = analyzeSupervisionOrder(req.body?.content);
+      const data = await receiptStore.saveSupervisionOrder(rmaNo, {
+        sourceId: req.body?.sourceId,
+        originalContent: analysis.originalContent,
+        analysis,
+      }, currentUserProvider(req));
+      res.json({ success: true, data: { ...data, message: "督办单已同步给对应师傅，费用类建议等待人工确认" } });
+    } catch (error) { next(error); }
+  });
+
+  app.get("/api/repairs/supervision", async (req, res, next) => {
+    try {
+      const rmaNo = String(req.query?.rmaNo || "").trim();
+      const order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
+      if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到督办单对应工单", 404);
+      const user = currentUserProvider(req);
+      const privileged = [USER_ROLES.ADMIN, USER_ROLES.WAREHOUSE].includes(user.role);
+      if (!privileged && (order.technicianId || order.operatorId) !== user.userId) {
+        throw createApiError("SUPERVISION_FORBIDDEN", "只能查看本人负责工单的督办单", 403);
+      }
+      res.json({ success: true, data: order.supervisionOrders || [] });
+    } catch (error) { next(error); }
   });
 
   app.post("/api/repairs/inspection/warranty-check", async (req, res, next) => {

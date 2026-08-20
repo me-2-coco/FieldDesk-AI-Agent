@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { checkInspectionWarranty, saveInspection, searchRecloudFaultCategories } from "../shared/crmService.js"
+import { checkInspectionWarranty, getSupervisionOrders, saveInspection, searchRecloudFaultCategories } from "../shared/crmService.js"
 import { getPreferredFaultKeyword, rankFaultOptions } from "../shared/faultSearch.js"
 import {
   getCurrentRepairOrder,
@@ -26,6 +26,15 @@ function RepairProcess({ setPage }) {
   const [message, setMessage] = useState("")
   const [errorMessage, setErrorMessage] = useState("")
   const [isSaving, setIsSaving] = useState(false)
+  const [supervisionOrders, setSupervisionOrders] = useState([])
+
+  useEffect(() => {
+    let active = true
+    getSupervisionOrders(repairOrder.crmOrderNo)
+      .then((items) => active && setSupervisionOrders(items || []))
+      .catch(() => {})
+    return () => { active = false }
+  }, [repairOrder.crmOrderNo])
 
   useEffect(() => {
     const keyword = faultCategory.trim()
@@ -139,6 +148,21 @@ function RepairProcess({ setPage }) {
         <p>维修师傅：{repairOrder.technician || "本地测试用户"}</p>
         <p>签收备注：{repairOrder.receiptRemark || "-"}</p>
       </div>
+
+      {supervisionOrders.length > 0 && (
+        <div className="card">
+          <h2>客服督办单</h2>
+          <p className="field-hint">以下为客服下发原文。费用调整仅为识别建议，人工确认前不会改变本单收费。</p>
+          {supervisionOrders.map((item) => (
+            <div key={item.id} className="message-card">
+              <p><strong>{item.originalContent}</strong></p>
+              <p>识别类型：{(item.analysis?.intents || []).map((intent) => intent.label).join("、") || "待人工分类"}</p>
+              <p>状态：{item.status === "REPLIED" ? "已回复客服" : "待处理并回复客服"}</p>
+              {item.analysis?.requiresManualReview && <p className="error-message">需要人工确认</p>}
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="card">
         <h2>检测记录</h2>
