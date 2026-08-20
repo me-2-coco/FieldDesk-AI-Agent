@@ -640,6 +640,39 @@ button:active:not(:disabled) {
   text-align: center;
 }
 
+.global-supervision-alert {
+  position: fixed;
+  right: 18px;
+  bottom: 82px;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: auto;
+  min-height: 46px;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 24px;
+  color: #fff;
+  background: #e53935;
+  box-shadow: 0 8px 22px rgba(202, 39, 35, 0.32);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.global-supervision-alert strong {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 25px;
+  height: 25px;
+  padding: 0 6px;
+  border-radius: 13px;
+  color: #d93025;
+  background: #fff;
+  font-size: 13px;
+}
+
 @media (max-width: 480px) {
   .page {
     padding: 20px 14px 32px;

@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { getSupervisionInbox, markSupervisionOrderRead } from "../shared/crmService.js"
 
 const LOCAL_REFRESH_MS = 10000
 
-function SupervisionInbox() {
+function SupervisionInbox({ openKey = 0 }) {
   const [items, setItems] = useState([])
   const [expandedOrders, setExpandedOrders] = useState([])
+  const sectionRef = useRef(null)
 
   useEffect(() => {
     let active = true
@@ -36,9 +37,6 @@ function SupervisionInbox() {
     return [...grouped.entries()]
   }, [items])
 
-  if (!groups.length) return null
-  const totalUnread = items.filter((item) => !item.isRead).length
-
   const viewOrder = async (rmaNo, orderItems) => {
     setExpandedOrders((current) => current.includes(rmaNo) ? current : [...current, rmaNo])
     const unread = orderItems.filter((item) => !item.isRead)
@@ -56,7 +54,23 @@ function SupervisionInbox() {
     }
   }
 
-  return <section className="card supervision-notice-card" aria-live="polite">
+  useEffect(() => {
+    if (!openKey || !groups.length) return
+    const timer = window.setTimeout(() => {
+      sectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+      for (const [rmaNo, orderItems] of groups) {
+        if (orderItems.some((item) => !item.isRead)) viewOrder(rmaNo, orderItems)
+      }
+    }, 0)
+    return () => window.clearTimeout(timer)
+  // 点击全局提醒时执行一次；收件箱轮询更新不应重复自动展开。
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openKey])
+
+  if (!groups.length) return null
+  const totalUnread = items.filter((item) => !item.isRead).length
+
+  return <section ref={sectionRef} className="card supervision-notice-card" aria-live="polite">
     <div className="machine-card-header">
       <h2>我的督办通知</h2>
       <span className={`repair-status-badge ${totalUnread ? "status-warning" : "status-working"}`}>

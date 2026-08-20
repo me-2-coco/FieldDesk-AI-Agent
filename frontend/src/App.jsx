@@ -50,6 +50,7 @@ function App() {
     useState("")
 
   const [supervisionUnreadCount, setSupervisionUnreadCount] = useState(0)
+  const [supervisionOpenKey, setSupervisionOpenKey] = useState(0)
 
   useEffect(() => {
     const canReceiveSupervision = isLoggedIn && [USER_ROLES.TECHNICIAN, USER_ROLES.ADMIN].includes(currentUser?.role)
@@ -153,6 +154,11 @@ function App() {
 
   }
 
+  function openSupervisionInbox() {
+    setPage("home")
+    setSupervisionOpenKey((current) => current + 1)
+  }
+
 
 
 
@@ -201,6 +207,7 @@ function App() {
           <Home
             setPage={setPage}
             currentUser={currentUser}
+            supervisionOpenKey={supervisionOpenKey}
           />
 
         )}
@@ -338,6 +345,18 @@ function App() {
 
       </main>
 
+      {supervisionUnreadCount > 0 && (
+        <button
+          type="button"
+          className="global-supervision-alert"
+          onClick={openSupervisionInbox}
+          aria-label={`查看${supervisionUnreadCount}条未读督办通知`}
+        >
+          <span>督办通知</span>
+          <strong>{supervisionUnreadCount > 99 ? "99+" : supervisionUnreadCount}</strong>
+        </button>
+      )}
+
 
 
 
@@ -349,6 +368,8 @@ function App() {
         setPage={setPage}
 
         supervisionUnreadCount={supervisionUnreadCount}
+
+        onOpenSupervision={openSupervisionInbox}
 
       />
 

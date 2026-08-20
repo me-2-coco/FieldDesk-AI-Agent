@@ -7,7 +7,8 @@ import {
 function BottomNav({
   page,
   setPage,
-  supervisionUnreadCount = 0
+  supervisionUnreadCount = 0,
+  onOpenSupervision
 }) {
 
   const currentUser = getCurrentUser()
@@ -31,9 +32,13 @@ function BottomNav({
               ? "active"
               : ""
           }
-          onClick={() =>
+          onClick={() => {
+            if (item.page === "home" && supervisionUnreadCount > 0 && onOpenSupervision) {
+              onOpenSupervision()
+              return
+            }
             setPage(item.page)
-          }
+          }}
         >
           <span className="bottom-nav-label">
             {item.label}
