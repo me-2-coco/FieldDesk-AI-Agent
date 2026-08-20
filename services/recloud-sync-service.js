@@ -12,6 +12,8 @@ const NODE_METHODS = Object.freeze({
 function classifyError(error) {
   const classifications = {
     RECLOUD_SYNC_NOT_ENABLED: ["DISABLED", false],
+    RECLOUD_SYNC_DIAGNOSTICS_NOT_READY: ["DIAGNOSTICS", false],
+    RECLOUD_SYNC_COMMAND_NOT_IMPLEMENTED: ["DISABLED", false],
     RECLOUD_SYNC_VALIDATION_FAILED: ["VALIDATION", false],
     SYNC_NODE_UNSUPPORTED: ["VALIDATION", false],
     RECLOUD_LOGIN_REQUIRED: ["AUTH", false],

@@ -31,23 +31,49 @@ class DryRunRecloudAdapter extends RecloudAdapter {
 }
 
 class RealRecloudAdapter extends RecloudAdapter {
-  unavailable() {
-    throw Object.assign(new Error("瑞云真实同步适配器尚未启用"), {
-      code: "RECLOUD_SYNC_NOT_ENABLED",
-      permanent: true,
-    });
+  constructor(options = {}) {
+    super();
+    this.readinessProvider = options.readinessProvider || null;
+    this.commandExecutor = options.commandExecutor || null;
   }
-  async syncReceipt() { return this.unavailable(); }
-  async syncInspectionCompleted() { return this.unavailable(); }
-  async syncRepairCompleted() { return this.unavailable(); }
-  async syncReturnShipped() { return this.unavailable(); }
-  async syncOrderCompleted() { return this.unavailable(); }
+
+  async assertReady(nodeKey) {
+    const diagnostic = await this.readinessProvider?.inspect?.(nodeKey);
+    if (!diagnostic || diagnostic.status !== "READY") {
+      throw Object.assign(new Error("瑞云同步节点诊断尚未完成"), {
+        code: "RECLOUD_SYNC_DIAGNOSTICS_NOT_READY",
+        permanent: true,
+        nodeKey,
+        missingFields: diagnostic?.missingFields || ["syncDiagnostics"],
+      });
+    }
+    return diagnostic;
+  }
+
+  async execute(nodeKey, method, task) {
+    await this.assertReady(nodeKey);
+    if (typeof this.commandExecutor?.[method] !== "function") {
+      throw Object.assign(new Error("瑞云真实同步命令尚未接入"), {
+        code: "RECLOUD_SYNC_COMMAND_NOT_IMPLEMENTED",
+        permanent: true,
+        nodeKey,
+      });
+    }
+    return this.commandExecutor[method](task);
+  }
+
+  async syncReceipt(task) { return this.execute("receipt", "syncReceipt", task); }
+  async syncInspectionCompleted(task) { return this.execute("inspection", "syncInspectionCompleted", task); }
+  async syncRepairCompleted(task) { return this.execute("repair", "syncRepairCompleted", task); }
+  async syncReturnShipped(task) { return this.execute("shipping", "syncReturnShipped", task); }
+  async syncOrderCompleted(task) { return this.execute("completion", "syncOrderCompleted", task); }
+
 }
 
-function createRecloudAdapter(env = process.env) {
+function createRecloudAdapter(env = process.env, options = {}) {
   const dryRun = String(env.DRY_RUN || "true").toLowerCase() !== "false";
   const writeEnabled = String(env.RECLOUD_WRITE_ENABLED || "false").toLowerCase() === "true";
-  return dryRun || !writeEnabled ? new DryRunRecloudAdapter() : new RealRecloudAdapter();
+  return dryRun || !writeEnabled ? new DryRunRecloudAdapter() : new RealRecloudAdapter(options);
 }
 
 module.exports = { RecloudAdapter, DryRunRecloudAdapter, RealRecloudAdapter, createRecloudAdapter };

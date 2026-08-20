@@ -9,7 +9,7 @@ const {
   RealRecloudAdapter,
   createRecloudAdapter,
 } = require("../connectors/recloud-adapter");
-const { RecloudSyncService } = require("../services/recloud-sync-service");
+const { RecloudSyncService, classifyError } = require("../services/recloud-sync-service");
 const {
   RECLOUD_REPAIR_FIELD_TARGETS,
   RECLOUD_RECEIPT_FIELD_TARGETS,
@@ -81,9 +81,69 @@ test("adapter factory never selects real adapter when either safety switch block
   assert.ok(createRecloudAdapter({ DRY_RUN: "false", RECLOUD_WRITE_ENABLED: "true" }) instanceof RealRecloudAdapter);
 });
 
-test("real adapter skeleton returns not enabled without opening Recloud", async () => {
-  const adapter = new RealRecloudAdapter();
-  await assert.rejects(adapter.syncReceipt({}), { code: "RECLOUD_SYNC_NOT_ENABLED" });
+test("real adapter blocks writes until the matching diagnostic node is ready", async () => {
+  let executions = 0;
+  const adapter = new RealRecloudAdapter({
+    readinessProvider: {
+      async inspect(nodeKey) {
+        assert.equal(nodeKey, "receipt");
+        return { status: "CAPTURED", missingFields: ["successCriteriaFieldNames"] };
+      },
+    },
+    commandExecutor: {
+      async syncReceipt() { executions += 1; },
+    },
+  });
+  await assert.rejects(adapter.syncReceipt({ id: "TASK-1" }), (error) => {
+    assert.equal(error.code, "RECLOUD_SYNC_DIAGNOSTICS_NOT_READY");
+    assert.equal(error.nodeKey, "receipt");
+    assert.deepEqual(error.missingFields, ["successCriteriaFieldNames"]);
+    return true;
+  });
+  assert.equal(executions, 0);
+});
+
+test("real adapter calls the matching command only after diagnostics are ready", async () => {
+  const calls = [];
+  const adapter = new RealRecloudAdapter({
+    readinessProvider: {
+      async inspect(nodeKey) { return { nodeKey, status: "READY", missingFields: [] }; },
+    },
+    commandExecutor: {
+      async syncRepairCompleted(task) {
+        calls.push(task);
+        return { ok: true, remoteReference: "MOCK-REMOTE-1" };
+      },
+    },
+  });
+  const task = { id: "TASK-READY-1" };
+  assert.deepEqual(await adapter.syncRepairCompleted(task), {
+    ok: true,
+    remoteReference: "MOCK-REMOTE-1",
+  });
+  assert.deepEqual(calls, [task]);
+});
+
+test("real adapter still blocks a ready node when its command executor is absent", async () => {
+  const adapter = new RealRecloudAdapter({
+    readinessProvider: {
+      async inspect(nodeKey) { return { nodeKey, status: "READY", missingFields: [] }; },
+    },
+  });
+  await assert.rejects(adapter.syncOrderCompleted({}), {
+    code: "RECLOUD_SYNC_COMMAND_NOT_IMPLEMENTED",
+    nodeKey: "completion",
+  });
+  assert.deepEqual(classifyError({ code: "RECLOUD_SYNC_DIAGNOSTICS_NOT_READY" }), {
+    category: "DIAGNOSTICS",
+    retryable: false,
+    safeCode: "RECLOUD_SYNC_DIAGNOSTICS_NOT_READY",
+  });
+  assert.deepEqual(classifyError({ code: "RECLOUD_SYNC_COMMAND_NOT_IMPLEMENTED" }), {
+    category: "DISABLED",
+    retryable: false,
+    safeCode: "RECLOUD_SYNC_COMMAND_NOT_IMPLEMENTED",
+  });
 });
 
 test("failed tasks can be retried and permanent failures require manual review", async (t) => {
@@ -107,8 +167,8 @@ test("failed tasks can be retried and permanent failures require manual review",
   const permanentTask = await permanentService.enqueueOrderNode(ORDER, "ORDER_COMPLETED", "PERMANENT-1");
   const manual = await permanentService.processTask(permanentTask.id);
   assert.equal(manual.status, TASK_STATUS.MANUAL_REVIEW);
-  assert.equal(manual.lastError, "RECLOUD_SYNC_NOT_ENABLED");
-  assert.equal(manual.errorCategory, "DISABLED");
+  assert.equal(manual.lastError, "RECLOUD_SYNC_DIAGNOSTICS_NOT_READY");
+  assert.equal(manual.errorCategory, "DIAGNOSTICS");
 });
 
 test("field mapping validates each node and state machine rejects invalid transitions", async (t) => {

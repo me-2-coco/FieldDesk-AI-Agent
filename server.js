@@ -248,12 +248,15 @@ function createApp(
     { allowedMimeTypes: ["image/jpeg", "image/png", "image/webp"] }
   );
   const shippingAttachmentStore = options.shippingAttachmentStore || new LocalShippingAttachmentStore();
-  const syncService = options.syncService || new RecloudSyncService(
-    options.syncOutbox || new JsonRecloudSyncOutbox(),
-    options.recloudAdapter || createRecloudAdapter()
-  );
   const syncDiagnostics = options.syncDiagnostics || new RecloudSyncDiagnosticsService(
     options.syncDiagnosticsStore || new JsonRecloudSyncDiagnosticsStore()
+  );
+  const syncService = options.syncService || new RecloudSyncService(
+    options.syncOutbox || new JsonRecloudSyncOutbox(),
+    options.recloudAdapter || createRecloudAdapter(runtimeEnv, {
+      readinessProvider: syncDiagnostics,
+      commandExecutor: options.recloudCommandExecutor,
+    })
   );
   const feishuModelCatalog = options.feishuModelCatalog || new FeishuModelCatalog({ env: runtimeEnv });
   const feishuPartsCatalog = options.feishuPartsCatalog || new FeishuPartsCatalog({ env: runtimeEnv });
