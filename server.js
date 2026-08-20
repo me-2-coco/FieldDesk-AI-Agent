@@ -1383,6 +1383,21 @@ function createApp(
     } catch (error) { next(error); }
   });
 
+  app.get("/api/repairs/supervision/inbox", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      const orders = await receiptStore.listOrdersForUser(user, USER_ROLES);
+      const inbox = orders.flatMap((order) => (order.supervisionOrders || []).map((item) => ({
+        ...item,
+        rmaNo: order.rmaNo,
+        orderStatus: order.status,
+        isRead: (item.readBy || []).some((entry) => entry.userId === user.userId),
+        readBy: undefined,
+      })));
+      res.json({ success: true, data: inbox });
+    } catch (error) { next(error); }
+  });
+
   app.post("/api/repairs/supervision/read", async (req, res, next) => {
     try {
       const rmaNo = String(req.body?.rmaNo || "").trim();
