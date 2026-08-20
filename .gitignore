@@ -1,9 +1,12 @@
+.idea/
+.agents/
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
 .venv/
 venv/
+node_modules/
 
 # Local credentials and application secrets
 .env
@@ -13,14 +16,30 @@ venv/
 *.pem
 *.key
 
-# Local IDE and agent state
-.idea/
-.agents/
+# Recloud credentials, browser state and captures
+connectors/recloud-state.json
+connectors/recloud-storage.json
+connectors/.recloud-browser-profile/
+connectors/.recloud-browser-profile.stale-*/
+connectors/.recloud-browser-profile.lock
+connectors/recloud-screenshots/
+connectors/recloud-downloads/
+connectors/*cookie*
+connectors/*token*
+connectors/*.har
 
 # Runtime artifacts and customer/business data
 runtime/
 uploads/
 data/order_*.json
+database/data/
+database/uploads/
+logs/
+backups/
 *.log
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+certs/
 
 .DS_Store

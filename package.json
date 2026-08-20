@@ -1,0 +1,16 @@
+{
+  "scripts": {
+    "start": "node server.js",
+    "recloud:login": "node init-recloud-login.js",
+    "db:init": "node scripts/database-maintenance.js init",
+    "db:migrate": "node scripts/database-maintenance.js migrate",
+    "db:backup": "node scripts/database-maintenance.js backup",
+    "db:restore": "node scripts/database-maintenance.js restore",
+    "data:export": "node scripts/database-maintenance.js export",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "playwright": "^1.61.1"
+  }
+}

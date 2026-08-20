@@ -1,0 +1,335 @@
+import { useState } from "react"
+
+import Login from "./pages/Login.jsx"
+import Home from "./pages/Home.jsx"
+import Repair from "./pages/Repair.jsx"
+import RepairWork from "./pages/RepairWork.jsx"
+import RepairProcess from "./pages/RepairProcess.jsx"
+import PartsApplication from "./pages/PartsApplication.jsx"
+import RepairCompletion from "./pages/RepairCompletion.jsx"
+import ReturnShipping from "./pages/ReturnShipping.jsx"
+import RepairFinish from "./pages/RepairFinish.jsx"
+import Records from "./pages/Records.jsx"
+import Inventory from "./pages/Inventory.jsx"
+import Warehouse from "./pages/Warehouse.jsx"
+import Profile from "./pages/Profile.jsx"
+import SyncTasks from "./pages/SyncTasks.jsx"
+import SyncDiagnostics from "./pages/SyncDiagnostics.jsx"
+import AccountManagement from "./pages/AccountManagement.jsx"
+
+import BottomNav from "./components/BottomNav.jsx"
+
+import {
+  canAccessPage,
+  getCurrentUser,
+  setAuthenticatedUser
+} from "./shared/userStore.js"
+import { setApiAccessToken } from "./shared/crmService.js"
+
+import "./App.css"
+
+
+function App() {
+
+
+  const [isLoggedIn, setIsLoggedIn] = useState(
+    localStorage.getItem("isLoggedIn") === "true"
+  )
+
+
+  const [currentUser, setCurrentUser] = useState(() =>
+    getCurrentUser()
+  )
+
+
+  const [page, setPageState] = useState("home")
+
+
+  const [permissionMessage, setPermissionMessage] =
+    useState("")
+
+
+
+  function handleLogin(user) {
+
+    setCurrentUser(user)
+
+    setIsLoggedIn(true)
+
+    setPageState("home")
+
+    setPermissionMessage("")
+
+  }
+
+
+
+
+  function handleLogout() {
+
+    localStorage.removeItem("isLoggedIn")
+    setAuthenticatedUser(null)
+    setApiAccessToken("")
+
+    setIsLoggedIn(false)
+
+    setPageState("home")
+
+    setPermissionMessage("")
+
+  }
+
+
+
+
+
+  function setPage(nextPage) {
+
+
+   const latestUser = getCurrentUser()
+
+
+
+    if (!latestUser) {
+
+      setPageState("login")
+
+      return
+
+    }
+
+    setCurrentUser(latestUser)
+
+
+
+    if (!canAccessPage(nextPage, latestUser)) {
+
+
+      setPermissionMessage(
+        `${latestUser.name || "当前用户"}没有权限访问该页面`
+      )
+
+
+      return
+
+    }
+
+
+
+    setPermissionMessage("")
+
+
+    setPageState(nextPage)
+
+
+  }
+
+
+
+
+
+  if (!isLoggedIn) {
+
+
+    return (
+
+      <Login
+        onLogin={handleLogin}
+      />
+
+    )
+
+  }
+
+
+
+
+
+  return (
+
+    <div className="app">
+
+
+      <main className="app-content">
+
+
+
+        {permissionMessage && (
+
+          <div className="permission-message">
+
+            {permissionMessage}
+
+          </div>
+
+        )}
+
+
+
+
+        {page === "home" && (
+
+          <Home
+            setPage={setPage}
+            currentUser={currentUser}
+          />
+
+        )}
+
+
+
+
+        {page === "repair" && (
+
+          <Repair
+            setPage={setPage}
+          />
+
+        )}
+
+
+
+
+
+
+
+
+
+        {page === "repairWork" && (
+
+          <RepairWork
+            setPage={setPage}
+          />
+
+        )}
+
+
+
+
+
+        {page === "repairProcess" && (
+
+          <RepairProcess
+            setPage={setPage}
+          />
+
+        )}
+
+        {page === "partsApplication" && (
+
+          <PartsApplication
+            setPage={setPage}
+          />
+
+        )}
+
+        {page === "repairCompletion" && (
+          <RepairCompletion setPage={setPage} />
+        )}
+
+        {page === "returnShipping" && (
+          <ReturnShipping setPage={setPage} />
+        )}
+
+
+
+
+
+        {page === "repairFinish" && (
+
+          <RepairFinish
+            setPage={setPage}
+          />
+
+        )}
+
+
+
+
+
+        {page === "records" && (
+
+          <Records
+            setPage={setPage}
+          />
+
+        )}
+
+
+
+
+
+        {page === "inventory" && (
+
+          <Inventory
+            setPage={setPage}
+          />
+
+        )}
+
+
+
+
+
+        {page === "warehouse" && (
+
+          <Warehouse
+            setPage={setPage}
+          />
+
+        )}
+
+
+
+
+
+        {page === "profile" && (
+
+          <Profile
+            setPage={setPage}
+            onLogout={handleLogout}
+          />
+
+        )}
+
+        {page === "syncTasks" && (
+          <SyncTasks setPage={setPage} />
+        )}
+
+        {page === "syncDiagnostics" && (
+          <SyncDiagnostics setPage={setPage} />
+        )}
+
+        {page === "accountManagement" && (
+          <AccountManagement setPage={setPage} />
+        )}
+
+
+
+
+      </main>
+
+
+
+
+
+      <BottomNav
+
+        page={page}
+
+        setPage={setPage}
+
+      />
+
+
+
+    </div>
+
+  )
+
+
+}
+
+
+
+export default App

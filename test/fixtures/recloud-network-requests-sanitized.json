@@ -1,0 +1,23 @@
+[
+  {
+    "name": "known query",
+    "method": "POST",
+    "resourceType": "xhr",
+    "url": "https://crm2.recloud.com.cn/api/rma/query",
+    "expected": "read"
+  },
+  {
+    "name": "receipt save",
+    "method": "POST",
+    "resourceType": "xhr",
+    "url": "https://crm2.recloud.com.cn/api/rma/receipt/save?test=value",
+    "expected": "mutation"
+  },
+  {
+    "name": "inventory update",
+    "method": "PATCH",
+    "resourceType": "fetch",
+    "url": "https://crm2.recloud.com.cn/api/inventory/update/TEST-ID-00001",
+    "expected": "mutation"
+  }
+]
