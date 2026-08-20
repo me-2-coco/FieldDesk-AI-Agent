@@ -10,7 +10,13 @@ const {
   createRecloudAdapter,
 } = require("../connectors/recloud-adapter");
 const { RecloudSyncService } = require("../services/recloud-sync-service");
-const { buildNodePayload, validateNodePayload } = require("../connectors/recloud-sync-mapping");
+const {
+  RECLOUD_REPAIR_FIELD_TARGETS,
+  RECLOUD_RECEIPT_FIELD_TARGETS,
+  buildRecloudRepairFormPlan,
+  buildNodePayload,
+  validateNodePayload,
+} = require("../connectors/recloud-sync-mapping");
 
 async function outboxFixture(t) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "fielddesk-sync-outbox-"));
@@ -22,12 +28,14 @@ const ORDER = {
   id: "LOCAL-WORK-1", rmaNo: "RMA-MOCK-1", logisticsNo: "LOGISTICS-MOCK-1", sn: "SN-MOCK-1",
   remark: "洗地机", specialty: "洗地机", productLine: "洗地机",
   receiptCompletedAt: "2026-08-03T01:00:00.000Z",
+  receiptAttachments: [{ id: "MOCK-RECEIPT-PHOTO", name: "receipt.jpg", mimeType: "image/jpeg" }],
   inspectionResult: "模拟检测完成", inspectionRemark: "模拟备注",
   inspectionUpdatedAt: "2026-08-03T02:00:00.000Z",
   repairCompletion: {
     faultLevel1: "功能故障", faultLevel2: "清洁功能", faultLevel3: "不出水",
-    responsibilityType: "保内质保", repairMeasure: "模拟维修措施",
-    usedParts: [{ partCode: "MOCK-PART", partName: "模拟配件", quantity: 1 }],
+    responsibilityType: "保内质保", detectionResult: "维修后整机功能正常", repairMeasure: "模拟维修措施",
+    usedParts: [{ partCode: "MOCK-PART", partName: "模拟配件", quantity: 1, repairLevel: "中修", retailPrice: 29, returnRequired: true }],
+    pricing: { status: "IN_WARRANTY", partsFee: 0, fee: 0, oneWayLogisticsFee: 0, logisticsFee: 0, totalFee: 0 },
     attachments: [{ id: "MOCK-ATTACHMENT" }], submittedAt: "2026-08-03T03:00:00.000Z",
   },
   returnShipment: {
@@ -51,7 +59,7 @@ test("outbox stores required safe fields and enforces idempotency", async (t) =>
   );
   assert.equal("customerName" in first, false);
   assert.equal("phone" in first, false);
-  assert.equal(first.mappingVersion, "v1");
+  assert.equal(first.mappingVersion, "v6");
   assert.deepEqual(first.payload, buildNodePayload(ORDER, "RECEIPT"));
 });
 
@@ -116,6 +124,62 @@ test("field mapping validates each node and state machine rejects invalid transi
   await assert.rejects(outbox.transition(task.id, TASK_STATUS.SUCCESS), {
     code: "SYNC_TASK_TRANSITION_INVALID",
   });
+});
+
+test("repair mapping confirms observed Recloud columns and blocks ambiguous fee writes", () => {
+  assert.equal(RECLOUD_RECEIPT_FIELD_TARGETS.attachments.target, "寄修单附件");
+  assert.equal(RECLOUD_REPAIR_FIELD_TARGETS.usedParts.target, "服务单更换件明细");
+  assert.equal(RECLOUD_REPAIR_FIELD_TARGETS.responsibilityType.target, "保内保外");
+  assert.equal(RECLOUD_REPAIR_FIELD_TARGETS.highestRepairLevel.target, "维修等级");
+  assert.equal(RECLOUD_REPAIR_FIELD_TARGETS.partsRetailAmount.status, "SYSTEM_CALCULATED");
+  assert.equal(RECLOUD_REPAIR_FIELD_TARGETS.repairFeeReceivable.status, "SYSTEM_CALCULATED");
+  assert.equal(RECLOUD_REPAIR_FIELD_TARGETS.customerPaidAmount.status, "CONFIRMED");
+  assert.deepEqual(RECLOUD_REPAIR_FIELD_TARGETS.attachments, { target: "附件", status: "CONFIRMED" });
+  assert.deepEqual(RECLOUD_REPAIR_FIELD_TARGETS.detectionReportAttachments, { target: "附件（检测报告）", status: "EXCLUDED" });
+  assert.deepEqual(RECLOUD_REPAIR_FIELD_TARGETS.warrantyConversion, { target: "保外转保内", status: "CONFIRMED" });
+  assert.equal(RECLOUD_REPAIR_FIELD_TARGETS.logisticsAmount.target, "快递金额");
+  assert.equal(RECLOUD_REPAIR_FIELD_TARGETS.logisticsAmount.status, "CONFIRMED");
+  assert.equal(RECLOUD_REPAIR_FIELD_TARGETS.personalizedLogisticsAmount.status, "EXCLUDED");
+});
+
+test("repair form plan only pre-fills confirmed customer-facing fields", () => {
+  const payload = buildNodePayload({
+    ...ORDER,
+    repairCompletion: {
+      ...ORDER.repairCompletion,
+      responsibilityType: "保外维修",
+      pricing: {
+        status: "OUT_OF_WARRANTY",
+        highestLevel: "小修",
+        partsFee: 255,
+        fee: 70,
+        oneWayLogisticsFee: 61,
+        logisticsFee: 122,
+        totalFee: 447,
+      },
+    },
+  }, "REPAIR_COMPLETED");
+  const plan = buildRecloudRepairFormPlan(payload);
+  const writes = Object.fromEntries(plan.safeWrites.map((item) => [item.key, item.value]));
+
+  assert.equal(writes.responsibilityType, "保外");
+  assert.equal(writes.highestRepairLevel, "小修");
+  assert.equal("repairFeeReceivable" in writes, false);
+  assert.equal("partsRetailAmount" in writes, false);
+  assert.equal(writes.customerPaidAmount, 447);
+  assert.equal(writes.logisticsAmount, 122);
+  assert.equal(writes.attachments.length, 1);
+  assert.equal(writes.warrantyConversion, "否");
+  assert.equal("laborAmount" in writes, false);
+  assert.equal(plan.canAutoConfirm, false);
+  assert.deepEqual(plan.manualReviewFields, []);
+});
+
+test("in-warranty repair does not write customer or logistics charges", () => {
+  const payload = buildNodePayload(ORDER, "REPAIR_COMPLETED");
+  const writes = Object.fromEntries(buildRecloudRepairFormPlan(payload).safeWrites.map((item) => [item.key, item.value]));
+  assert.equal("customerPaidAmount" in writes, false);
+  assert.equal("logisticsAmount" in writes, false);
 });
 
 test("admin page exposes task status and retry while server hooks all five nodes", async () => {

@@ -1,4 +1,4 @@
-const { validateNodePayload } = require("./recloud-sync-mapping");
+const { buildRecloudRepairFormPlan, validateNodePayload } = require("./recloud-sync-mapping");
 
 class RecloudAdapter {
   async syncReceipt() { throw new Error("syncReceipt must be implemented"); }
@@ -22,7 +22,10 @@ class DryRunRecloudAdapter extends RecloudAdapter {
   }
   async syncReceipt(task) { return this.result("RECEIPT", task); }
   async syncInspectionCompleted(task) { return this.result("INSPECTION_COMPLETED", task); }
-  async syncRepairCompleted(task) { return this.result("REPAIR_COMPLETED", task); }
+  async syncRepairCompleted(task) {
+    const result = this.result("REPAIR_COMPLETED", task);
+    return { ...result, formPlan: buildRecloudRepairFormPlan(task.payload) };
+  }
   async syncReturnShipped(task) { return this.result("RETURN_SHIPPED", task); }
   async syncOrderCompleted(task) { return this.result("ORDER_COMPLETED", task); }
 }

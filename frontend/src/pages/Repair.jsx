@@ -5,7 +5,9 @@ import {
   completeLocalReceipt,
   getCurrentFieldDeskUser,
   prepareReceipt,
-  queryCrmOrderByLogisticsNo
+  queryCrmOrderByLogisticsNo,
+  transferToHeadquarters,
+  uploadReceiptAttachment
 } from "../shared/crmService.js"
 import {
   createRepairOrder,
@@ -30,7 +32,9 @@ function Repair({ setPage }) {
   const [sn, setSn] = useState("")
   const [specialty, setSpecialty] = useState("")
   const [receiptMessage, setReceiptMessage] = useState("")
+  const [modelAuthorization, setModelAuthorization] = useState(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [receiptAttachments, setReceiptAttachments] = useState([])
   const [currentUser, setCurrentUser] = useState(null)
   const [authError, setAuthError] = useState("")
   const specialtyGate = getReceiptSpecialtyGate(
@@ -66,6 +70,7 @@ function Repair({ setPage }) {
       setRepairDetail(result)
       setReceiptStep("detail")
       setReceiptMessage("")
+      setReceiptAttachments([])
 
     } catch (error) {
       setErrorMessage(error.message)
@@ -82,6 +87,8 @@ function Repair({ setPage }) {
     setRepairDetail(null)
     setReceiptStep("detail")
     setReceiptMessage("")
+    setModelAuthorization(null)
+    setReceiptAttachments([])
   }
 
   function startReceiptPreparation() {
@@ -143,10 +150,57 @@ function Repair({ setPage }) {
         regionAddress: repairDetail.customer?.regionAddress || "",
         reportedFault: repairDetail.reportedFault
       })
+      setModelAuthorization(result.authorization || result.modelAuthorization || null)
+      setReceiptAttachments(result.receiptAttachments || [])
       setReceiptMessage(
         result.message || "签收资料已准备，尚未同步瑞云"
       )
       setReceiptStep("saved")
+    } catch (error) {
+      setErrorMessage(error.message)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  async function uploadReceiptPhotos(event) {
+    const files = Array.from(event.target.files || [])
+    if (!files.length) return
+    try {
+      setIsSaving(true)
+      setErrorMessage("")
+      let attachments = receiptAttachments
+      for (const file of files) {
+        const dataUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(reader.result)
+          reader.onerror = () => reject(new Error("读取照片失败"))
+          reader.readAsDataURL(file)
+        })
+        const result = await uploadReceiptAttachment({
+          rmaNo: repairDetail.rmaNo,
+          name: file.name,
+          mimeType: file.type,
+          data: dataUrl
+        })
+        attachments = result.attachments || [...attachments, result.attachment]
+      }
+      setReceiptAttachments(attachments)
+    } catch (error) {
+      setErrorMessage(error.message)
+    } finally {
+      event.target.value = ""
+      setIsSaving(false)
+    }
+  }
+
+  async function transferUnsupportedMachine() {
+    try {
+      setIsSaving(true)
+      setErrorMessage("")
+      const result = await transferToHeadquarters(repairDetail.rmaNo)
+      setReceiptMessage(result.message)
+      setReceiptStep("transferred")
     } catch (error) {
       setErrorMessage(error.message)
     } finally {
@@ -182,8 +236,8 @@ function Repair({ setPage }) {
         customer: result.customerName,
         phone: result.phoneMasked,
         address: result.regionAddress,
-        product: result.productLine,
-        model: result.productLine,
+        product: result.productLine || result.specialty,
+        model: result.productLine || result.specialty,
         sn: result.sn,
         originalFault: result.reportedFault,
         technician: result.operatorName,
@@ -192,7 +246,7 @@ function Repair({ setPage }) {
         receiptRemark: result.remark
       })
       saveCurrentRepairOrder(order)
-      setPage("repairProcess")
+      setPage("partsApplication")
     } catch (error) {
       setErrorMessage(error.message)
     } finally {
@@ -342,7 +396,6 @@ function Repair({ setPage }) {
             </div>
 
           </dl>
-
           {receiptMessage && (
             <p className="receipt-status-message" role="status">
               {receiptMessage}
@@ -509,25 +562,40 @@ function Repair({ setPage }) {
       {repairDetail && receiptStep === "saved" && (
         <div className="card receipt-preparation-card receipt-success-card">
           <h2>签收准备完成</h2>
-          <p className="receipt-status-message" role="status">
+          <p className={`model-authorization-card ${modelAuthorization?.repairability === "SUPPORTED" ? "model-authorization-supported" : "model-authorization-unsupported"}`} role="status">
             {receiptMessage || "签收资料已准备，尚未同步瑞云"}
           </p>
           <dl className="rma-detail-list">
             <div><dt>SN</dt><dd>{sn}</dd></div>
             <div><dt>维修品类</dt><dd>{specialty}</dd></div>
-            <div><dt>签收备注</dt><dd>{specialty}</dd></div>
-            <div><dt>状态</dt><dd>RECEIPT_PREPARED</dd></div>
           </dl>
+          <div className="receipt-photo-upload">
+            <label htmlFor="receipt-photos"><strong>签收照片（必填）</strong></label>
+            <p>拍摄机器签收时的照片，将对应上传到瑞云寄修单附件。</p>
+            <input
+              id="receipt-photos"
+              type="file"
+              accept="image/*"
+              capture="environment"
+              multiple
+              onChange={uploadReceiptPhotos}
+              disabled={isSaving}
+            />
+            <p>{receiptAttachments.length ? `已上传 ${receiptAttachments.length} 张` : "至少上传 1 张后才能进入检测"}</p>
+          </div>
           <p className="dry-run-notice">
             当前为演练模式，不会操作瑞云签收
           </p>
           <div className="receipt-actions">
-            <button
-              onClick={completeReceiptAndInspect}
-              disabled={isSaving}
-            >
-              {isSaving ? "正在处理..." : "完成本地签收并进入检测"}
-            </button>
+            {modelAuthorization?.repairability === "SUPPORTED" ? (
+              <button onClick={completeReceiptAndInspect} disabled={isSaving || !receiptAttachments.length}>
+                {isSaving ? "正在处理..." : "检测"}
+              </button>
+            ) : (
+              <button className="danger-button" onClick={transferUnsupportedMachine} disabled={isSaving}>
+                {isSaving ? "正在登记..." : "转寄总部"}
+              </button>
+            )}
             <button
               className="secondary-button"
               onClick={() => setReceiptStep("form")}
@@ -543,6 +611,15 @@ function Repair({ setPage }) {
               {isSaving ? "正在处理..." : "取消准备"}
             </button>
           </div>
+        </div>
+      )}
+
+      {repairDetail && receiptStep === "transferred" && (
+        <div className="card receipt-preparation-card">
+          <h2>转寄总部</h2>
+          <p className="model-authorization-card model-authorization-unsupported" role="status">{receiptMessage}</p>
+          <p>该机器未执行瑞云签收，本地已保留经手和转寄记录，当前流程已结束。</p>
+          <button onClick={resetResult}>返回查询</button>
         </div>
       )}
 

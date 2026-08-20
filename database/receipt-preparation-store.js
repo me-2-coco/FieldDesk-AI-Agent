@@ -4,6 +4,7 @@ const { JsonDocumentBackend } = require("./storage-backend");
 
 const ACTIVE_RECEIPT_STATUSES = new Set([
   "RECEIPT_PREPARED",
+  "TRANSFER_TO_HEADQUARTERS_PENDING",
   "RECEIVED_PENDING_INSPECTION",
   "INSPECTION_IN_PROGRESS",
   "INSPECTION_COMPLETED_PENDING_REPAIR",
@@ -44,6 +45,10 @@ function createReceiptPreparation(input, existing = null, now = new Date()) {
     customerName: normalizeRequired(input.customerName),
     regionAddress: normalizeRequired(input.regionAddress),
     reportedFault: normalizeRequired(input.reportedFault),
+    manufacturerWarrantyConversion: existing?.manufacturerWarrantyConversion || {
+      approved: false,
+      approvalNo: "",
+    },
     phoneMasked: normalizeRequired(input.phoneMasked),
     status: "RECEIPT_PREPARED",
     operatorId: normalizeRequired(input.operatorId),
@@ -52,6 +57,7 @@ function createReceiptPreparation(input, existing = null, now = new Date()) {
     operatorTemporary: true,
     technicianId: existing?.technicianId || normalizeRequired(input.operatorId),
     technicianName: existing?.technicianName || normalizeRequired(input.operatorName) || "本地测试用户",
+    receiptAttachments: existing?.receiptAttachments || [],
     timeline: existing?.timeline || [
       timelineEvent("CRM_QUERIED", "物流单查询完成", { userId: input.operatorId, displayName: input.operatorName }, timestamp),
       timelineEvent("RECEIPT_PREPARED", "签收资料已准备", { userId: input.operatorId, displayName: input.operatorName }, timestamp),
@@ -144,6 +150,72 @@ class JsonReceiptPreparationStore {
     return operation;
   }
 
+  async markModelAuthorization(rmaNo, authorization = {}, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing) {
+        const error = new Error("未找到签收准备记录");
+        error.code = "RECEIPT_PREPARATION_NOT_FOUND";
+        error.status = 404;
+        throw error;
+      }
+      const supported = authorization.repairability === "SUPPORTED";
+      const unsupported = authorization.repairability === "UNSUPPORTED";
+      const timestamp = new Date().toISOString();
+      const updated = {
+        ...existing,
+        status: supported ? "RECEIPT_PREPARED" : unsupported ? "TRANSFER_TO_HEADQUARTERS_PENDING" : "MODEL_AUTHORIZATION_REVIEW",
+        modelAuthorization: { ...authorization, checkedAt: timestamp },
+        updatedAt: timestamp,
+        timeline: [
+          ...(existing.timeline || []),
+          timelineEvent(
+            supported ? "MODEL_SUPPORTED" : unsupported ? "TRANSFER_REQUIRED" : "MODEL_REVIEW_REQUIRED",
+            supported ? "下放机型，可以维修" : unsupported ? "未下放机型，需转寄总部" : "机型数据异常，需人工确认",
+            operator,
+            timestamp
+          ),
+        ],
+      };
+      await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
+  async transferToHeadquarters(rmaNo, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing) {
+        const error = new Error("未找到待转寄工单");
+        error.code = "RECEIPT_PREPARATION_NOT_FOUND";
+        error.status = 404;
+        throw error;
+      }
+      if (existing.modelAuthorization?.repairability !== "UNSUPPORTED") {
+        const error = new Error("仅未下放机型可以转寄总部");
+        error.code = "TRANSFER_NOT_ALLOWED";
+        error.status = 409;
+        throw error;
+      }
+      const timestamp = new Date().toISOString();
+      const updated = {
+        ...existing,
+        status: "TRANSFERRED_TO_HEADQUARTERS",
+        transferredToHeadquartersAt: timestamp,
+        updatedAt: timestamp,
+        timeline: [...(existing.timeline || []), timelineEvent("TRANSFERRED_TO_HEADQUARTERS", "已登记转寄总部，流程结束", operator, timestamp)],
+      };
+      await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
   async completeReceipt(rmaNo, operator = {}) {
     const operation = this.writeQueue.then(async () => {
       const records = await this.readAll();
@@ -152,6 +224,18 @@ class JsonReceiptPreparationStore {
         const error = new Error("未找到本地签收准备记录");
         error.code = "RECEIPT_PREPARATION_NOT_FOUND";
         error.status = 404;
+        throw error;
+      }
+      if (existing.modelAuthorization?.repairability !== "SUPPORTED") {
+        const error = new Error("该机器尚未通过下放机型校验，不能进入检测");
+        error.code = "MODEL_AUTHORIZATION_REQUIRED";
+        error.status = 409;
+        throw error;
+      }
+      if (!(existing.receiptAttachments || []).length) {
+        const error = new Error("请先拍摄并上传至少一张签收照片");
+        error.code = "RECEIPT_ATTACHMENT_REQUIRED";
+        error.status = 409;
         throw error;
       }
       const timestamp = new Date().toISOString();
@@ -172,6 +256,69 @@ class JsonReceiptPreparationStore {
       await this.writeAll(
         records.map((record) => record.rmaNo === rmaNo ? updated : record)
       );
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
+  async addReceiptAttachment(rmaNo, attachment, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing) {
+        throw Object.assign(new Error("未找到本地签收准备记录"), {
+          code: "RECEIPT_PREPARATION_NOT_FOUND", status: 404,
+        });
+      }
+      if (existing.status !== "RECEIPT_PREPARED") {
+        throw Object.assign(new Error("当前工单状态不能补充签收照片"), {
+          code: "RECEIPT_ATTACHMENT_NOT_ALLOWED", status: 409,
+        });
+      }
+      const timestamp = new Date().toISOString();
+      const updated = {
+        ...existing,
+        receiptAttachments: [...(existing.receiptAttachments || []), attachment],
+        updatedAt: timestamp,
+        timeline: [...(existing.timeline || []), timelineEvent("RECEIPT_ATTACHMENT_UPLOADED", "已上传签收照片", operator, timestamp)],
+      };
+      await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
+  async recordManufacturerWarrantyConversion(rmaNo, input = {}, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing) {
+        throw Object.assign(new Error("未找到本地工单"), {
+          code: "RECEIPT_PREPARATION_NOT_FOUND", status: 404,
+        });
+      }
+      const approved = input.approved === true;
+      const approvalNo = normalizeRequired(input.approvalNo);
+      if (approved && !approvalNo) {
+        throw Object.assign(new Error("厂家保外转保内必须有特殊申请单号"), {
+          code: "WARRANTY_CONVERSION_APPROVAL_REQUIRED", status: 400,
+        });
+      }
+      const timestamp = new Date().toISOString();
+      const updated = {
+        ...existing,
+        manufacturerWarrantyConversion: { approved, approvalNo: approved ? approvalNo : "" },
+        updatedAt: timestamp,
+        timeline: [...(existing.timeline || []), timelineEvent(
+          "MANUFACTURER_WARRANTY_CONVERSION_RECORDED",
+          approved ? "已记录厂家保外转保内特殊申请" : "已确认非保外转保内",
+          operator,
+          timestamp
+        )],
+      };
+      await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
       return updated;
     });
     this.writeQueue = operation.catch(() => {});
@@ -203,17 +350,18 @@ class JsonReceiptPreparationStore {
         throw error;
       }
       const inspectionResult = normalizeRequired(input.inspectionResult);
-      if (!inspectionResult) {
-        const error = new Error("检测结果不能为空");
-        error.code = "INSPECTION_RESULT_REQUIRED";
-        error.status = 400;
-        throw error;
-      }
       const updated = {
         ...existing,
         status: "INSPECTION_COMPLETED_PENDING_REPAIR",
         inspectionResult,
         inspectionRemark: normalizeRequired(input.inspectionRemark),
+        faultCategory: normalizeRequired(input.faultCategory),
+        technicianWarranty: normalizeRequired(input.technicianWarranty),
+        warrantyDecision: input.warrantyDecision || null,
+        customerReasonConsistent: "是",
+        productFunctionDecision: "功能问题",
+        originalConsumables: "是",
+        consumableName: "",
         inspectionUpdatedAt: new Date().toISOString(),
         operatorId: normalizeRequired(operator.userId),
         operatorName:
@@ -244,8 +392,8 @@ class JsonReceiptPreparationStore {
         error.status = 404;
         throw error;
       }
-      if (existing.status !== "INSPECTION_COMPLETED_PENDING_REPAIR") {
-        const error = new Error("工单尚未完成检测，不能申请配件");
+      if (!["RECEIVED_PENDING_INSPECTION", "INSPECTION_COMPLETED_PENDING_REPAIR"].includes(existing.status)) {
+        const error = new Error("当前工单不能选择维修配件");
         error.code = "PART_APPLICATION_NOT_ALLOWED";
         error.status = 409;
         throw error;
@@ -264,12 +412,21 @@ class JsonReceiptPreparationStore {
         throw error;
       }
       const timestamp = new Date().toISOString();
-      const application = {
+      const existingApplication = (existing.partApplications || []).find((item) => item.partCode === part.code);
+      const application = existingApplication ? {
+        ...existingApplication,
+        quantity: existingApplication.quantity + requestedQuantity,
+        updatedAt: timestamp,
+      } : {
         id: crypto.randomUUID(),
         partCode: normalizeRequired(part.code),
         partName: normalizeRequired(part.name),
         quantity: requestedQuantity,
         stockSnapshot: part.stock,
+        retailPrice: Number(part.retailPrice) || 0,
+        repairLevel: normalizeRequired(part.repairLevel),
+        returnRequired: Boolean(part.returnRequired),
+        projectCode: normalizeRequired(part.projectCode),
         sn: existing.sn,
         status: "PART_APPLICATION_RECORDED",
         operatorId: normalizeRequired(operator.userId),
@@ -279,12 +436,9 @@ class JsonReceiptPreparationStore {
       };
       const updated = {
         ...existing,
-        partApplications: [
-          ...(Array.isArray(existing.partApplications)
-            ? existing.partApplications
-            : []),
-          application,
-        ],
+        partApplications: existingApplication
+          ? (existing.partApplications || []).map((item) => item.id === application.id ? application : item)
+          : [...(Array.isArray(existing.partApplications) ? existing.partApplications : []), application],
         updatedAt: timestamp,
         timeline: [
           ...(existing.timeline || []),
@@ -294,6 +448,38 @@ class JsonReceiptPreparationStore {
       await this.writeAll(
         records.map((record) => record.rmaNo === rmaNo ? updated : record)
       );
+      return { order: updated, application };
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
+  async updatePartApplication(rmaNo, applicationId, input = {}, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing) throw Object.assign(new Error("未找到待维修工单"), { code: "RECEIPT_PREPARATION_NOT_FOUND", status: 404 });
+      if (!["RECEIVED_PENDING_INSPECTION", "INSPECTION_COMPLETED_PENDING_REPAIR", "REPAIR_COMPLETION_DRAFT"].includes(existing.status)) {
+        throw Object.assign(new Error("当前工单不能修改配件"), { code: "PART_APPLICATION_NOT_ALLOWED", status: 409 });
+      }
+      const current = (existing.partApplications || []).find((item) => item.id === applicationId);
+      if (!current) throw Object.assign(new Error("未找到该配件记录"), { code: "PART_APPLICATION_NOT_FOUND", status: 404 });
+      const remove = input.remove === true;
+      const amount = Number(input.quantity);
+      if (!remove && (!Number.isInteger(amount) || amount < 1)) {
+        throw Object.assign(new Error("配件数量必须是正整数"), { code: "PART_QUANTITY_INVALID", status: 400 });
+      }
+      const timestamp = new Date().toISOString();
+      const application = remove ? null : { ...current, quantity: amount, updatedAt: timestamp };
+      const updated = {
+        ...existing,
+        partApplications: remove
+          ? (existing.partApplications || []).filter((item) => item.id !== applicationId)
+          : (existing.partApplications || []).map((item) => item.id === applicationId ? application : item),
+        updatedAt: timestamp,
+        timeline: [...(existing.timeline || []), timelineEvent("PART_APPLICATION_UPDATED", remove ? "已删除误选配件" : "已修改配件数量", operator, timestamp)],
+      };
+      await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
       return { order: updated, application };
     });
     this.writeQueue = operation.catch(() => {});
@@ -318,13 +504,16 @@ class JsonReceiptPreparationStore {
       const faultLevel2 = normalizeRequired(input.faultLevel2);
       const faultLevel3 = normalizeRequired(input.faultLevel3);
       const responsibilityType = normalizeRequired(input.responsibilityType);
+      const detectionResult = normalizeRequired(input.detectionResult);
       const repairMeasure = normalizeRequired(input.repairMeasure);
       if (submit) {
         const missingFields = [];
         if (!existing.sn) missingFields.push("sn");
         if (!faultLevel1 || !faultLevel2 || !faultLevel3) missingFields.push("faultClassification");
         if (!responsibilityType) missingFields.push("responsibilityType");
+        if (!detectionResult) missingFields.push("detectionResult");
         if (!repairMeasure) missingFields.push("repairMeasure");
+        if (!Array.isArray(input.attachments) || !input.attachments.length) missingFields.push("attachments");
         if (missingFields.length) {
           const error = new Error(`缺少必填字段：${missingFields.join(", ")}`);
           error.code = "REPAIR_COMPLETION_INVALID";
@@ -340,8 +529,12 @@ class JsonReceiptPreparationStore {
         repairCompletion: {
           faultLevel1, faultLevel2, faultLevel3,
           responsibilityType,
+          detectionResult,
           speechTemplate: normalizeRequired(input.speechTemplate),
           repairMeasure,
+          oneWayLogisticsFee: Number(input.oneWayLogisticsFee) || 0,
+          logisticsFee: Number(input.logisticsFee) || 0,
+          pricing: input.pricing || null,
           usedParts: Array.isArray(input.usedParts) ? input.usedParts : [],
           attachments: Array.isArray(input.attachments) ? input.attachments : [],
           savedAt: timestamp,

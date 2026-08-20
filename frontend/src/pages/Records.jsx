@@ -373,15 +373,6 @@ function Records() {
   }
 
 
-  function handleKeywordKeyDown(event) {
-
-    if (event.key === "Enter") {
-      searchByKeyword()
-    }
-
-  }
-
-
   function getPartStatusText(status) {
 
     const statusTextMap = {

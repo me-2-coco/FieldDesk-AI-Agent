@@ -237,6 +237,7 @@ function createRecloudSessionManager(options = {}) {
   const env = options.env || process.env;
   const targetUrl = options.targetUrl;
   const isLoginPage = options.isLoginPage;
+  const isReadyPage = options.isReadyPage;
   const defaultTimeout = options.defaultTimeout || 30000;
   const readPassword =
     options.readPassword ||
@@ -256,13 +257,18 @@ function createRecloudSessionManager(options = {}) {
   }
 
   async function ensureOpen(openOptions = {}) {
+    const navigationTimeout =
+      openOptions.navigationTimeout ?? defaultTimeout;
     if (context) {
       page = findLivePage() || (await context.newPage().catch(() => null));
       if (!page) await close();
     }
     if (context && page && !page.isClosed()) {
       logSession("reused", logger);
-      await page.goto(targetUrl, { waitUntil: "domcontentloaded" });
+      await page.goto(targetUrl, {
+        waitUntil: "domcontentloaded",
+        timeout: navigationTimeout,
+      });
       return preparePage();
     }
     if (opening) return opening;
@@ -291,7 +297,10 @@ function createRecloudSessionManager(options = {}) {
         );
         page = context.pages()[0] || (await context.newPage());
         page.setDefaultTimeout(defaultTimeout);
-        await page.goto(targetUrl, { waitUntil: "domcontentloaded" });
+        await page.goto(targetUrl, {
+          waitUntil: "domcontentloaded",
+          timeout: navigationTimeout,
+        });
         if (profileAlreadyExists) logSession("reused", logger);
         return await preparePage();
       } catch (error) {
@@ -313,6 +322,13 @@ function createRecloudSessionManager(options = {}) {
 
   async function preparePage() {
     if (!isLoginPage(page.url())) {
+      if (
+        typeof isReadyPage === "function" &&
+        !(await isReadyPage(page).catch(() => false))
+      ) {
+        logSession("login_required", logger);
+        return { context, page, loginRequired: true };
+      }
       logSession("ready", logger);
       return { context, page, reused: true };
     }

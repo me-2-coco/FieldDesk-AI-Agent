@@ -156,6 +156,30 @@ button:disabled {
   text-align: center;
 }
 
+.model-authorization-card {
+  padding: 14px;
+  border-radius: 10px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.model-authorization-supported {
+  color: #237804;
+  background: #f6ffed;
+  border: 1px solid #b7eb8f;
+}
+
+.model-authorization-unsupported {
+  color: #a8071a;
+  background: #fff1f0;
+  border: 1px solid #ffa39e;
+}
+
+.danger-button {
+  color: #ffffff;
+  background: #cf1322;
+}
+
 .read-only-badge {
   flex: 0 0 auto;
   padding: 4px 10px;
@@ -2256,4 +2280,54 @@ background:#fafafa;
   border:1px solid #ddd;
   background:white;
   font-size:22px;
+}
+.fault-autocomplete {
+  position: relative;
+}
+
+.fault-autocomplete input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.fault-searching {
+  position: absolute;
+  right: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #77808f;
+  font-size: 14px;
+}
+
+.fault-options {
+  position: absolute;
+  z-index: 30;
+  left: 0;
+  right: 0;
+  top: calc(100% + 6px);
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 8px 0;
+  background: #fff;
+  border: 1px solid #dfe3eb;
+  border-radius: 12px;
+  box-shadow: 0 12px 30px rgba(28, 39, 61, 0.16);
+}
+
+.fault-options button {
+  display: block;
+  width: 100%;
+  padding: 14px 18px;
+  border: 0;
+  border-radius: 0;
+  background: #fff;
+  color: #222;
+  text-align: left;
+  line-height: 1.5;
+}
+
+.fault-options button:hover,
+.fault-options button:focus-visible {
+  background: #f3f7ff;
+  color: #1f73f1;
 }

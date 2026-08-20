@@ -4,8 +4,8 @@
 
 export const REPAIR_STATUS = {
   WAIT_RECEIPT: "待签收",
-  WAIT_INSPECTION: "待检测",
-  INSPECTION_COMPLETE: "检测完成/待维修",
+  WAIT_INSPECTION: "已签收/待维修",
+  INSPECTION_COMPLETE: "检测登记完成/待完工确认",
   WAIT_REPAIR: "待维修",
   REPAIRING: "维修中",
   PAUSED: "暂停维修",

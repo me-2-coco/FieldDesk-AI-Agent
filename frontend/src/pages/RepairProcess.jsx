@@ -1,5 +1,6 @@
-import { useState } from "react"
-import { saveInspection } from "../shared/crmService.js"
+import { useEffect, useRef, useState } from "react"
+import { checkInspectionWarranty, saveInspection, searchRecloudFaultCategories } from "../shared/crmService.js"
+import { getPreferredFaultKeyword, rankFaultOptions } from "../shared/faultSearch.js"
 import {
   getCurrentRepairOrder,
   REPAIR_STATUS,
@@ -12,34 +13,80 @@ function RepairProcess({ setPage }) {
   const [repairOrder, setRepairOrder] = useState(() =>
     getCurrentRepairOrder()
   )
-  const [inspectionResult, setInspectionResult] = useState(
-    repairOrder.inspectionResult || ""
+  const [faultCategory, setFaultCategory] = useState(
+    repairOrder.level3Fault || getPreferredFaultKeyword(repairOrder.parts, repairOrder.originalFault)
   )
-  const [inspectionRemark, setInspectionRemark] = useState(
-    repairOrder.inspectionRemark || ""
-  )
+  const [technicianWarranty, setTechnicianWarranty] = useState(repairOrder.warrantyType || "")
+  const [warrantyDecision, setWarrantyDecision] = useState(null)
+  const [faultOptions, setFaultOptions] = useState([])
+  const [faultCategoryConfirmed, setFaultCategoryConfirmed] = useState(Boolean(repairOrder.level3Fault))
+  const [faultDropdownOpen, setFaultDropdownOpen] = useState(false)
+  const [isSearchingFault, setIsSearchingFault] = useState(false)
+  const faultSearchSequence = useRef(0)
   const [message, setMessage] = useState("")
   const [errorMessage, setErrorMessage] = useState("")
   const [isSaving, setIsSaving] = useState(false)
 
+  useEffect(() => {
+    const keyword = faultCategory.trim()
+    if (!keyword || faultCategoryConfirmed) {
+      return undefined
+    }
+    const sequence = ++faultSearchSequence.current
+    const timer = window.setTimeout(async () => {
+      try {
+        setIsSearchingFault(true)
+        setErrorMessage("")
+        const result = await searchRecloudFaultCategories({
+          logisticsNo: repairOrder.logisticsNo,
+          faultKeyword: keyword
+        })
+        if (sequence !== faultSearchSequence.current) return
+        const options = rankFaultOptions(result.items || [], {
+          reportedFault: repairOrder.originalFault,
+          parts: repairOrder.parts
+        })
+        setFaultOptions(options)
+        setFaultDropdownOpen(true)
+        if (!options.length) setErrorMessage(result.syncedAt ? "本地瑞云目录没有匹配项" : "瑞云三级故障目录尚未同步")
+      } catch (error) {
+        if (sequence === faultSearchSequence.current) setErrorMessage(error.message)
+      } finally {
+        if (sequence === faultSearchSequence.current) setIsSearchingFault(false)
+      }
+    }, 450)
+    return () => window.clearTimeout(timer)
+  }, [faultCategory, faultCategoryConfirmed, repairOrder.logisticsNo, repairOrder.originalFault, repairOrder.parts])
+
 
   async function saveDetection() {
-    if (!inspectionResult.trim()) {
-      setErrorMessage("请输入检测结果")
+    if (!faultCategory.trim()) {
+      setErrorMessage("请选择三级故障分类")
       return
     }
-
+    if (!faultCategoryConfirmed) {
+      setErrorMessage("请从瑞云返回的三级故障选项中选择")
+      return
+    }
+    if (!technicianWarranty) {
+      setErrorMessage("请选择师傅判断的保修状态")
+      return
+    }
     try {
       setIsSaving(true)
       setErrorMessage("")
       const result = await saveInspection({
         rmaNo: repairOrder.crmOrderNo,
-        inspectionResult: inspectionResult.trim(),
-        inspectionRemark: inspectionRemark.trim()
+        inspectionResult: "",
+        inspectionRemark: "",
+        faultCategory: faultCategory.trim(),
+        faultCategoryConfirmed: true,
+        technicianWarranty,
       })
       const updated = updateRepairOrder({
-        inspectionResult: result.inspectionResult,
-        inspectionRemark: result.inspectionRemark,
+        inspectionResult: result.inspectionResult || "维修",
+        level3Fault: faultCategory.trim(),
+        warrantyType: technicianWarranty,
         status: REPAIR_STATUS.INSPECTION_COMPLETE
       })
       setRepairOrder(updated)
@@ -51,12 +98,24 @@ function RepairProcess({ setPage }) {
     }
   }
 
+  async function checkWarranty() {
+    try {
+      setErrorMessage("")
+      const result = await checkInspectionWarranty({
+        rmaNo: repairOrder.crmOrderNo,
+        sn: repairOrder.sn
+      })
+      setWarrantyDecision(result)
+    } catch (error) {
+      setErrorMessage(error.message)
+    }
+  }
 
   return (
     <div className="page repair-process-page">
 
       <div className="top-bar">
-        <button className="arrow-back" onClick={() => setPage("repair")}>
+        <button className="arrow-back" onClick={() => setPage("repairWork")}>
           ←
         </button>
         <h1>检测登记</h1>
@@ -68,7 +127,7 @@ function RepairProcess({ setPage }) {
           <span className="repair-status-badge status-working">
             {repairOrder.status === REPAIR_STATUS.INSPECTION_COMPLETE
               ? REPAIR_STATUS.INSPECTION_COMPLETE
-              : "已签收/待检测"}
+              : "维修完成/待检测登记"}
           </span>
         </div>
 
@@ -84,23 +143,48 @@ function RepairProcess({ setPage }) {
       <div className="card">
         <h2>检测记录</h2>
 
-        <label htmlFor="inspection-result">检测结果</label>
-        <textarea
-          id="inspection-result"
-          value={inspectionResult}
-          onChange={(event) => setInspectionResult(event.target.value)}
-          placeholder="请输入检测结果"
-          rows="4"
-        />
+        <label htmlFor="fault-category">故障三级分类（快速搜索）</label>
+        <div className="fault-autocomplete">
+          <input id="fault-category" value={faultCategory} autoComplete="off" onFocus={() => faultOptions.length && setFaultDropdownOpen(true)} onChange={(event) => {
+            setFaultCategory(event.target.value)
+            if (!event.target.value.trim()) setFaultOptions([])
+            setFaultCategoryConfirmed(false)
+            setFaultDropdownOpen(false)
+          }} placeholder="优先按更换配件名称搜索，例如：上下水模组" />
+          {isSearchingFault && <span className="fault-searching">正在查询瑞云…</span>}
+          {faultDropdownOpen && faultOptions.length > 0 && (
+            <div className="fault-options" role="listbox" aria-label="瑞云三级故障分类">
+              {faultOptions.map((item) => (
+                <button key={item} type="button" role="option" onClick={() => {
+                  setFaultCategory(item)
+                  setFaultCategoryConfirmed(true)
+                  setFaultDropdownOpen(false)
+                  setErrorMessage("")
+                }}>{item}</button>
+              ))}
+            </div>
+          )}
+        </div>
+        {faultCategoryConfirmed && <p className="success-text">已选择瑞云三级故障分类</p>}
 
-        <label htmlFor="inspection-remark">检测备注</label>
-        <textarea
-          id="inspection-remark"
-          value={inspectionRemark}
-          onChange={(event) => setInspectionRemark(event.target.value)}
-          placeholder="请输入检测备注（选填）"
-          rows="3"
-        />
+        <label htmlFor="technician-warranty">保修状态</label>
+        <select id="technician-warranty" value={technicianWarranty} onChange={(event) => {
+          const selected = event.target.value
+          setTechnicianWarranty(selected)
+          setWarrantyDecision(null)
+          if (selected) checkWarranty()
+        }}>
+          <option value="">请选择</option>
+          <option value="保内">保内</option>
+          <option value="保外">保外</option>
+        </select>
+        {warrantyDecision?.status === "DETERMINED" && (
+          <p className={warrantyDecision.warrantyStatus === technicianWarranty ? "success-text" : "error-message"}>
+            系统判断：{warrantyDecision.warrantyStatus}（{warrantyDecision.source === "PURCHASE_DATE" ? "按购买日期" : "按SN生产日期并加3个月"}）
+            {warrantyDecision.warrantyStatus !== technicianWarranty ? "；与师傅填写不一致，需人工确认" : "；核对一致"}
+          </p>
+        )}
+        {warrantyDecision?.status === "MANUAL_CONFIRMATION_REQUIRED" && <p className="error-message">{warrantyDecision.reason}</p>}
 
         {errorMessage && <p className="error-message">{errorMessage}</p>}
         {message && <p role="status">{message}</p>}
@@ -118,14 +202,9 @@ function RepairProcess({ setPage }) {
         </p>
 
         {repairOrder.status === REPAIR_STATUS.INSPECTION_COMPLETE && (
-          <>
-            <button className="primary-btn" onClick={() => setPage("partsApplication")}>
-              申请配件
-            </button>
-            <button className="secondary-btn" onClick={() => setPage("repairCompletion")}>
-              进入维修完工
-            </button>
-          </>
+          <button className="primary-btn" onClick={() => setPage("repairCompletion")}>
+            进入维修完工确认
+          </button>
         )}
         {repairOrder.status === REPAIR_STATUS.REPAIR_COMPLETED_PENDING_SHIPMENT && (
           <button className="primary-btn" onClick={() => setPage("returnShipping")}>

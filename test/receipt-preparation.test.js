@@ -45,15 +45,23 @@ async function createTestStore(t) {
     path.join(os.tmpdir(), "fielddesk-receipt-test-")
   );
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
-  return new JsonReceiptPreparationStore(
+  const store = new JsonReceiptPreparationStore(
     path.join(directory, "receipt-preparations.json")
   );
+  const prepare = store.prepare.bind(store);
+  store.prepare = async (input) => {
+    const record = await prepare(input);
+    await store.markModelAuthorization(record.rmaNo, { repairability: "SUPPORTED", status: "MATCHED" }, USERS.dual);
+    return store.addReceiptAttachment(record.rmaNo, { id: "TEST-RECEIPT-PHOTO", name: "receipt.jpg", mimeType: "image/jpeg" }, USERS.dual);
+  };
+  return store;
 }
 
 async function startServer(t, connector, store, user = USERS.dual) {
   const server = await new Promise((resolve, reject) => {
     const instance = createApp(connector, store, {
       getCurrentUser: () => user,
+      feishuModelCatalog: { authorize: async () => ({ repairability: "SUPPORTED", status: "MATCHED", canContinue: true }) },
     }).listen(
       0,
       "127.0.0.1",
@@ -114,6 +122,22 @@ test("SN is trimmed and normalized to uppercase", async (t) => {
   assert.equal(saved.sn, "TEST-SN-A1");
 });
 
+test("receipt preparation uses the validated specialty when CRM product line is empty", async (t) => {
+  const store = await createTestStore(t);
+  const connector = {
+    openRecloud: async () => assert.fail("must not open Recloud"),
+  };
+  const url = await startServer(t, connector, store, USERS.wash);
+  const { response, result } = await post(
+    url,
+    "/api/repairs/prepare-receipt",
+    validPayload({ specialty: "洗地机", productLine: "" })
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(result.data.productLine, "洗地机");
+});
+
 test("local receipt completion moves the order to pending inspection", async (t) => {
   const store = await createTestStore(t);
   await store.prepare({
@@ -133,6 +157,67 @@ test("local receipt completion moves the order to pending inspection", async (t)
   assert.equal(completed.productLine, "扫地机");
   assert.equal(completed.remark, "扫地机");
   assert.equal(completed.operatorName, USERS.sweep.displayName);
+});
+
+test("receipt cannot enter inspection before a receipt photo is uploaded", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "fielddesk-receipt-photo-test-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const store = new JsonReceiptPreparationStore(path.join(directory, "orders.json"));
+  const prepared = await store.prepare(validPayload());
+  await store.markModelAuthorization(prepared.rmaNo, { repairability: "SUPPORTED", status: "MATCHED" }, USERS.sweep);
+  await assert.rejects(store.completeReceipt(prepared.rmaNo, USERS.sweep), { code: "RECEIPT_ATTACHMENT_REQUIRED" });
+  const withPhoto = await store.addReceiptAttachment(prepared.rmaNo, { id: "PHOTO-1", name: "receipt.jpg", mimeType: "image/jpeg" }, USERS.sweep);
+  assert.equal(withPhoto.receiptAttachments.length, 1);
+  assert.equal((await store.completeReceipt(prepared.rmaNo, USERS.sweep)).status, "RECEIVED_PENDING_INSPECTION");
+});
+
+test("unsupported model is recorded for headquarters transfer and cannot enter inspection", async (t) => {
+  const store = await createTestStore(t);
+  const prepared = await store.prepare(validPayload({ rmaNo: "JXTH-UNSUPPORTED-1", sn: "W99990123456" }));
+  const blocked = await store.markModelAuthorization(prepared.rmaNo, {
+    status: "TRANSFER_TO_HEADQUARTERS",
+    repairability: "UNSUPPORTED",
+    canContinue: false,
+  }, USERS.sweep);
+
+  assert.equal(blocked.status, "TRANSFER_TO_HEADQUARTERS_PENDING");
+  await assert.rejects(store.completeReceipt(prepared.rmaNo, USERS.sweep), {
+    code: "MODEL_AUTHORIZATION_REQUIRED",
+  });
+  const transferred = await store.transferToHeadquarters(prepared.rmaNo, USERS.sweep);
+  assert.equal(transferred.status, "TRANSFERRED_TO_HEADQUARTERS");
+  assert.equal(transferred.receiptCompletedAt, undefined);
+});
+
+test("inspection model match uses saved SN and product line without writing Recloud", async (t) => {
+  const store = await createTestStore(t);
+  await store.prepare(validPayload());
+  await store.completeReceipt("JXTH900001001", USERS.sweep);
+  let received;
+  const app = createApp({ openRecloud: async () => assert.fail("must not open Recloud") }, store, {
+    getCurrentUser: () => USERS.sweep,
+    feishuModelCatalog: {
+      match: async (input) => {
+        received = input;
+        return { status: "CHANGE_REQUIRED", currentModel: "M13", expectedModel: "M13S", candidates: ["M13S"] };
+      },
+    },
+  });
+  const server = await new Promise((resolve) => {
+    const instance = app.listen(0, "127.0.0.1", () => resolve(instance));
+  });
+  t.after(() => server.close());
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/repairs/inspection/model-match`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rmaNo: "JXTH900001001", currentModel: "M13", projectCode: "W2211" }),
+  });
+  const result = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(result.data.autoAction, "REPLACE");
+  assert.equal(result.data.expectedModel, "M13S");
+  assert.equal(received.sn, "TEST-SN-A1");
+  assert.equal(received.productLine, "扫地机");
 });
 
 test("inspection result and remark are saved locally without Recloud", async (t) => {
@@ -159,19 +244,18 @@ test("inspection result and remark are saved locally without Recloud", async (t)
   assert.equal(inspected.inspectionRemark, "待进一步拆机确认");
 });
 
-test("inspection result is required", async (t) => {
+test("inspection step may defer result entry until repair completion", async (t) => {
   const store = await createTestStore(t);
   await store.prepare(validPayload());
   await store.completeReceipt("JXTH900001001", USERS.sweep);
 
-  await assert.rejects(
-    store.saveInspection(
-      "JXTH900001001",
-      { inspectionResult: " " },
-      USERS.sweep
-    ),
-    { code: "INSPECTION_RESULT_REQUIRED" }
+  const inspected = await store.saveInspection(
+    "JXTH900001001",
+    { inspectionResult: " " },
+    USERS.sweep
   );
+  assert.equal(inspected.inspectionResult, "");
+  assert.equal(inspected.status, "INSPECTION_COMPLETED_PENDING_REPAIR");
 });
 
 test("part application is bound to the current order SN", async (t) => {
@@ -224,7 +308,7 @@ test("local receipt and inspection APIs never open Recloud", async (t) => {
   };
   const url = await startServer(t, connector, store, USERS.sweep);
   await store.prepare({
-    ...validPayload(),
+    ...validPayload({ sn: "W24480531TEST0001" }),
     operatorId: USERS.sweep.userId,
     operatorName: USERS.sweep.displayName,
     remark: "扫地机",
@@ -249,6 +333,11 @@ test("local receipt and inspection APIs never open Recloud", async (t) => {
       rmaNo: "JXTH900001001",
       inspectionResult: "检测结果",
       inspectionRemark: "检测备注",
+      faultCategory: "功能问题/无法启动",
+      faultCategoryConfirmed: true,
+      technicianWarranty: "保内",
+      purchaseDate: "2026-01-01",
+      warrantyYears: 2,
     }
   );
   assert.equal(inspected.response.status, 200);
@@ -399,7 +488,7 @@ test("prepare API ignores forged remark and specialties from frontend", async (t
   assert.equal(result.data.remark, "洗地机");
   assert.equal(result.data.specialty, "洗地机");
   assert.equal(result.data.status, "RECEIPT_PREPARED");
-  assert.equal(result.data.message, "签收资料已准备，尚未同步瑞云");
+  assert.equal(result.data.message, "下放机型，可以维修");
   assert.equal(result.data.recloudSynced, false);
   assert.equal(result.data.operatorId, "TEST-WASH");
   assert.equal(result.data.operatorName, "测试洗地机师傅");
@@ -510,14 +599,14 @@ test("inspection page shows the required local order fields", async () => {
   assert.match(source, /SN/);
   assert.match(source, /产品线/);
   assert.match(source, /报修描述/);
-  assert.match(source, /检测结果/);
-  assert.match(source, /检测备注/);
-  assert.match(source, /已签收\/待检测/);
+  assert.doesNotMatch(source, /请输入检测结果/);
+  assert.doesNotMatch(source, /请输入检测备注/);
+  assert.match(source, /维修完成\/待检测登记/);
   assert.match(source, /INSPECTION_COMPLETE/);
   assert.doesNotMatch(source, /配件申请/);
 });
 
-test("parts page provides local inventory and SN-bound application", async () => {
+test("parts page provides live Feishu catalog and SN-bound application", async () => {
   const source = await fs.readFile(
     path.join(__dirname, "../frontend/src/pages/PartsApplication.jsx"),
     "utf8"
@@ -526,8 +615,10 @@ test("parts page provides local inventory and SN-bound application", async () =>
   assert.match(source, /寄修单号/);
   assert.match(source, /SN/);
   assert.match(source, /产品线/);
-  assert.match(source, /总库库存/);
+  assert.match(source, /零售价/);
+  assert.match(source, /旧件需返厂/);
+  assert.match(source, /searchPartsCatalog/);
+  assert.match(source, /实时查询厂家飞书表/);
   assert.match(source, /申请数量/);
-  assert.match(source, /库存为 0，无法申请/);
-  assert.match(source, /不连接瑞云/);
+  assert.match(source, /不写入瑞云/);
 });

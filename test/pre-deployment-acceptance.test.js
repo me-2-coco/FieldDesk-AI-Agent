@@ -11,18 +11,23 @@ test("all seven local workflow pages are routed and reachable from status-aware 
   for (const page of ["repair", "repairProcess", "partsApplication", "repairCompletion", "returnShipping"]) assert.match(app, new RegExp(`page === "${page}"`));
   const home = await source("frontend/src/pages/Home.jsx");
   for (const action of ["到店查询与签收准备", "继续当前工单", "查看个人库存与配件流水", "待发货与待完结工单"]) assert.match(home, new RegExp(action));
-  assert.match(home, /WAIT_INSPECTION[\s\S]*repairProcess/);
-  assert.match(home, /INSPECTION_COMPLETE[\s\S]*partsApplication/);
+  assert.match(home, /WAIT_INSPECTION[\s\S]*partsApplication/);
+  assert.match(home, /INSPECTION_COMPLETE[\s\S]*repairCompletion/);
+  assert.match(home, /WAIT_PARTS[\s\S]*inventory/);
+  assert.match(home, /REPAIRING[\s\S]*repairWork/);
+  assert.match(home, /WAIT_CONFIRM[\s\S]*repairProcess/);
   assert.match(home, /REPAIR_COMPLETED_PENDING_SHIPMENT[\s\S]*returnShipping/);
 });
 
 test("inspection, parts, inventory, completion and shipping expose the next local step", async () => {
   const inspection = await source("frontend/src/pages/RepairProcess.jsx");
-  assert.match(inspection, /申请配件/); assert.match(inspection, /进入维修完工/);
+  assert.match(inspection, /进入维修完工确认/);
   const parts = await source("frontend/src/pages/PartsApplication.jsx");
   assert.match(parts, /REPAIR_STATUS\.WAIT_PARTS/); assert.match(parts, /进入个人库存使用配件/);
   const inventory = await source("frontend/src/pages/Inventory.jsx");
-  assert.match(inventory, /REPAIR_STATUS\.REPAIRING/); assert.match(inventory, /进入维修完工/);
+  assert.match(inventory, /REPAIR_STATUS\.REPAIRING/); assert.match(inventory, /进入维修/);
+  const repairWork = await source("frontend/src/pages/RepairWork.jsx");
+  assert.match(repairWork, /维修完成，进入检测登记/); assert.match(repairWork, /setPage\("repairProcess"\)/);
   const completion = await source("frontend/src/pages/RepairCompletion.jsx");
   assert.match(completion, /进入返件发货/);
   const shipping = await source("frontend/src/pages/ReturnShipping.jsx");

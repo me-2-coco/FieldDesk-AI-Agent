@@ -22,6 +22,8 @@ async function fixture(t) {
     specialty: "扫地机", remark: "扫地机", productLine: "扫地机",
     reportedFault: "模拟报修故障", operatorId: USER.userId, operatorName: USER.displayName,
   });
+  await receiptStore.markModelAuthorization("TEST-RMA", { repairability: "SUPPORTED", status: "MATCHED" }, USER);
+  await receiptStore.addReceiptAttachment("TEST-RMA", { id: "RECEIPT-PHOTO", name: "receipt.jpg", mimeType: "image/jpeg" }, USER);
   await receiptStore.completeReceipt("TEST-RMA", USER);
   await receiptStore.saveInspection("TEST-RMA", { inspectionResult: "检测完成" }, USER);
   return { directory, receiptStore, inventoryStore };
@@ -46,6 +48,7 @@ test("completion validates required fields and moves to pending shipment", async
   const completed = await receiptStore.saveRepairCompletion("TEST-RMA", {
     faultLevel1: "功能故障", faultLevel2: "清洁功能", faultLevel3: "不出水",
     responsibilityType: "保内质保", speechTemplate: "维修完成",
+    detectionResult: "维修后检测正常",
     repairMeasure: "维修完成；实际更换配件：主刷电机×1",
     attachments: [{ id: "SAFE-ATTACHMENT", name: "repair.jpg" }],
   }, USER, true);
@@ -77,10 +80,17 @@ test("local attachment store saves media outside tracked data", async (t) => {
   assert.equal(files.length, 1);
 });
 
-test("frontend completion page includes fault search, warranty, media, draft and submit", async () => {
+test("frontend completion page reuses confirmed fault and includes warranty, media, draft and submit", async () => {
   const source = await fs.readFile(path.join(__dirname, "../frontend/src/pages/RepairCompletion.jsx"), "utf8");
-  assert.match(source, /模糊搜索故障名称/);
-  assert.match(source, /责任判定\/质保类型/);
+  const measureSource = await fs.readFile(path.join(__dirname, "../frontend/src/shared/repairMeasure.js"), "utf8");
+  assert.match(source, /检测阶段已确认的三级故障/);
+  assert.doesNotMatch(source, /模糊搜索故障名称/);
+  assert.match(source, /根据师傅在检测阶段选择的保内\/保外自动带入/);
+  assert.doesNotMatch(source, /id="responsibility-type"/);
+  assert.match(source, /维修措施（自动生成后可修改）/);
+  assert.match(source, /机器无法使用，客诉故障复现，检测不良，更换，清理，测试OK寄回/);
+  assert.match(source, /机器正常使用，客诉故障未复现，清理，测试OK寄回/);
+  assert.match(measureSource, /充电母端子组件已打胶/);
   assert.match(source, /维修照片\/视频/);
   assert.match(source, /保存草稿/);
   assert.match(source, /提交完工/);

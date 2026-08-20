@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const {
   LOGISTICS_INPUT_PLACEHOLDER,
+  RECLOUD_URL,
   collectRtxpcFormItemPairs,
   createPhoneResponseListener,
   ensureScanPage,
@@ -937,6 +938,82 @@ test("product-line reader supports an RMA detail div grid by coordinates", async
   assert.doesNotMatch(logs.join("\n"), /洗地机|测试型号/);
 });
 
+test("product-line reader accepts one unique visible supported product when fixed rows are split", async () => {
+  const visible = {
+    isVisible: async () => true,
+    scrollIntoViewIfNeeded: async () => {},
+    boundingBox: async () => ({ x: 200, width: 100 }),
+  };
+  const missingRow = { count: async () => 0 };
+  const sign = { locator: () => ({ first: () => missingRow }) };
+  const textLocator = (element, count = 1) => ({
+    filter: () => ({ first: () => element, count: async () => count }),
+  });
+  const page = {
+    waitForTimeout: async () => {},
+    getByText(text) {
+      if (text === "RMA明细") {
+        return textLocator({
+          ...visible,
+          locator: () => ({ first: () => ({ isVisible: async () => false }) }),
+        });
+      }
+      if (text === "产品线") return textLocator(visible);
+      if (text === "签收") return textLocator(sign);
+      if (text === "洗地机") return textLocator(visible);
+      return textLocator(visible, 0);
+    },
+  };
+  const logs = [];
+
+  const result = await readProductLine(page, {
+    info: (message) => logs.push(message),
+    warn: (message) => logs.push(message),
+  });
+
+  assert.equal(result, "洗地机");
+  assert.ok(logs.includes("RECLOUD_PRODUCT_LINE: unique_visible_value"));
+  assert.doesNotMatch(logs.join("\n"), /洗地机/);
+});
+
+test("product-line reader accepts one unique supported value from visible RMA region text", async () => {
+  const visible = {
+    isVisible: async () => true,
+    scrollIntoViewIfNeeded: async () => {},
+    boundingBox: async () => ({ x: 200, width: 100 }),
+  };
+  const missingRow = { count: async () => 0 };
+  const sign = { locator: () => ({ first: () => missingRow }) };
+  const textLocator = (element, count = 1) => ({
+    filter: () => ({ first: () => element, count: async () => count }),
+  });
+  const page = {
+    waitForTimeout: async () => {},
+    locator: () => ({ innerText: async () => "产品线 洗地机 操作 签收" }),
+    getByText(text) {
+      if (text === "RMA明细") {
+        return textLocator({
+          ...visible,
+          locator: () => ({ first: () => ({ isVisible: async () => false }) }),
+        });
+      }
+      if (text === "产品线") return textLocator(visible);
+      if (text === "签收") return textLocator(sign);
+      return textLocator(visible, 0);
+    },
+  };
+  const logs = [];
+
+  const result = await readProductLine(page, {
+    info: (message) => logs.push(message),
+    warn: (message) => logs.push(message),
+  });
+
+  assert.equal(result, "洗地机");
+  assert.ok(logs.includes("RECLOUD_PRODUCT_LINE: unique_region_text_value"));
+  assert.doesNotMatch(logs.join("\n"), /洗地机/);
+});
+
 test("rtxpc form fixture parses aliases, masks phone, and combines address", () => {
   const html = fs.readFileSync(formFixturePath, "utf8");
 
@@ -1125,6 +1202,43 @@ test("state machine navigates through visible service menus before querying", as
   assert.deepEqual(stageLogs, ["RECLOUD_STAGE: scan_page_ready"]);
 });
 
+test("visible scanner left on an RMA detail route is reset to the scan page", async () => {
+  const actions = [];
+  let currentUrl = "https://crm2.recloud.com.cn/example#/rma/detail";
+  const input = {
+    async isVisible() {
+      return true;
+    },
+    async waitFor(options) {
+      actions.push(["input-ready", options.state]);
+    },
+  };
+  const page = {
+    url: () => currentUrl,
+    locator: () => ({ first: () => input }),
+    async goto(url, options) {
+      actions.push(["goto", url, options.waitUntil]);
+      currentUrl = url;
+    },
+  };
+  const stageLogs = [];
+
+  const result = await ensureScanPage(page, {
+    logger: { info: (message) => stageLogs.push(message) },
+    navigationTimeout: 100,
+  });
+
+  assert.equal(result, input);
+  assert.deepEqual(actions, [
+    ["goto", RECLOUD_URL, "domcontentloaded"],
+    ["input-ready", "visible"],
+  ]);
+  assert.deepEqual(stageLogs, [
+    "RECLOUD_STAGE: scan_page_reset",
+    "RECLOUD_STAGE: scan_page_ready",
+  ]);
+});
+
 test("state machine never presses Enter when the filled value does not match", async () => {
   let enterPressed = false;
   const input = {
@@ -1225,6 +1339,34 @@ test("RMA detail readiness requires all visible detail markers", async () => {
       waitForRmaDetail(page, "TEST-NOT-READY", {
         logger: { info() {} },
         timeout: 20,
+      }),
+    (error) => error.code === "RECLOUD_QUERY_TIMEOUT"
+  );
+});
+
+test("transient empty table text is not classified as a missing order", async () => {
+  const visibleInput = { async isVisible() { return true; } };
+  const page = {
+    url: () => "https://crm2.recloud.com.cn/example#/scanSignin/query",
+    locator(selector) {
+      if (selector === "body") {
+        return { innerText: async () => "RMA明细 暂无数据" };
+      }
+      return { first: () => visibleInput };
+    },
+    keyboard: { press: async () => {} },
+    async waitForTimeout() {
+      await new Promise((resolve) => setTimeout(resolve, 2));
+    },
+  };
+
+  await assert.rejects(
+    () =>
+      waitForRmaDetail(page, "TEST-TRANSIENT-EMPTY", {
+        logger: { info() {} },
+        retryDelay: 100,
+        pollInterval: 1,
+        timeout: 10,
       }),
     (error) => error.code === "RECLOUD_QUERY_TIMEOUT"
   );
@@ -1513,6 +1655,47 @@ test("receive API is blocked before opening Recloud", async (t) => {
 
   assert.equal(response.status, 403);
   assert.equal(result.code, "RECLOUD_WRITE_DISABLED");
+});
+
+test("enabled receive API uses the verified query path and confirms exactly once", async (t) => {
+  let queryCount = 0;
+  let confirmCount = 0;
+  const connector = {
+    openRecloud: async () => ({ loginRequired: false, page: {} }),
+    queryRmaByLogisticsNo: async (_page, logisticsNo) => {
+      queryCount += 1;
+      assert.equal(logisticsNo, "SF-REAL-1");
+      return { rmaNo: "JXTH-REAL-1", productType: "洗地机", productLine: "洗地机", sn: "" };
+    },
+    scanSign: async () => assert.fail("legacy scan path must not be used"),
+    getRepairDetail: async () => assert.fail("legacy detail parser must not be used"),
+    confirmSign: async (_page, sn, productType, remark, options) => {
+      confirmCount += 1;
+      assert.equal(sn, "TEST-SN-REAL-1");
+      assert.equal(productType, "洗地机");
+      assert.equal(remark, "洗地机");
+      assert.equal(options.dryRun, false);
+      return { success: true, confirmed: true, dryRun: false };
+    },
+  };
+  const server = createApp(connector, null, { env: {
+    ...process.env,
+    DRY_RUN: "false",
+    RECLOUD_WRITE_ENABLED: "true",
+  } }).listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  t.after(() => server.close());
+  const url = `http://127.0.0.1:${server.address().port}`;
+  const response = await fetch(`${url}/api/crm/repairs/receive`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ logisticsNo: "SF-REAL-1", sn: "TEST-SN-REAL-1", remark: "洗地机" }),
+  });
+  const result = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(result.data.receipt.confirmed, true);
+  assert.equal(queryCount, 1);
+  assert.equal(confirmCount, 1);
 });
 
 for (const scenario of [

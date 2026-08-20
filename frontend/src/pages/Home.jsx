@@ -2,9 +2,15 @@ import { getCurrentRepairOrder, REPAIR_STATUS } from "../shared/repairOrderStore
 import { USER_ROLES } from "../shared/userStore.js"
 
 function nextPageForStatus(status) {
-  if (status === REPAIR_STATUS.WAIT_INSPECTION) return "repairProcess"
-  if (status === REPAIR_STATUS.INSPECTION_COMPLETE) return "partsApplication"
-  if ([REPAIR_STATUS.WAIT_PARTS, REPAIR_STATUS.REPAIRING, REPAIR_STATUS.WAIT_CONFIRM].includes(status)) return "inventory"
+  if (status === REPAIR_STATUS.WAIT_INSPECTION) return "partsApplication"
+  if (status === REPAIR_STATUS.INSPECTION_COMPLETE) return "repairCompletion"
+  if (status === REPAIR_STATUS.WAIT_PARTS) return "inventory"
+  if ([
+    REPAIR_STATUS.WAIT_REPAIR,
+    REPAIR_STATUS.REPAIRING,
+    REPAIR_STATUS.PAUSED
+  ].includes(status)) return "repairWork"
+  if (status === REPAIR_STATUS.WAIT_CONFIRM) return "repairProcess"
   if (status === REPAIR_STATUS.REPAIR_COMPLETED_PENDING_SHIPMENT || status === REPAIR_STATUS.SHIPPED_PENDING_COMPLETION) return "returnShipping"
   return "repair"
 }

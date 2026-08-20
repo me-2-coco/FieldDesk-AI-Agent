@@ -15,6 +15,7 @@ const {
 } = require("../connectors/recloud-session");
 const { initializeRecloudSession } = require("../server");
 const {
+  hasCrmReadyMarker,
   runLoginInitialization,
 } = require("../init-recloud-login");
 
@@ -109,6 +110,18 @@ function createInitializationPage(initialUrl) {
   };
 }
 
+test("CRM menu text alone does not mark a login session ready", async () => {
+  const page = {
+    locator: () => invisibleLocator(),
+    getByText: () => ({
+      ...invisibleLocator(),
+      isVisible: async () => true,
+    }),
+  };
+
+  assert.equal(await hasCrmReadyMarker(page), false);
+});
+
 test("logged-in persistent profile is reused in one backend process", async (t) => {
   const directory = await createTemporaryDirectory(t);
   const profile = path.join(directory, "profile");
@@ -166,6 +179,31 @@ test("expired session enters login-required flow without keychain access", async
   assert.equal(session.loginRequired, true);
   assert.equal(keychainReads, 0);
   assert.ok(logs.includes("RECLOUD_SESSION: login_required"));
+  await manager.close();
+});
+
+test("CRM shell without scanner input is treated as login required", async (t) => {
+  const directory = await createTemporaryDirectory(t);
+  const browser = createSessionBrowser(
+    "https://crm2.recloud.com.cn/#/scanSignin/query"
+  );
+  const logs = [];
+  const manager = createRecloudSessionManager({
+    chromium: browser.chromium,
+    profileDirectory: path.join(directory, "profile"),
+    lockPath: path.join(directory, "profile.lock"),
+    targetUrl: "https://crm2.recloud.com.cn/#/scanSignin/query",
+    isLoginPage: (url) => url.includes("auth4.recloud.com.cn"),
+    isReadyPage: async () => false,
+    env: { RECLOUD_HEADLESS: "true" },
+    logger: { info: (message) => logs.push(message) },
+  });
+
+  const session = await manager.ensureOpen();
+
+  assert.equal(session.loginRequired, true);
+  assert.ok(logs.includes("RECLOUD_SESSION: login_required"));
+  assert.ok(!logs.includes("RECLOUD_SESSION: ready"));
   await manager.close();
 });
 

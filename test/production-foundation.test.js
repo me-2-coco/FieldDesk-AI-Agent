@@ -6,11 +6,17 @@ const path = require("path");
 const { MemoryDocumentBackend, createDocumentBackend } = require("../database/storage-backend");
 const { AccountStore } = require("../database/account-store");
 const { WorkCoordinationStore } = require("../database/work-coordination-store");
-const { USER_ROLES } = require("../config/local-users");
+const { USER_ROLES, getLocalCurrentUser } = require("../config/local-users");
 
 const admin = { userId: "ADMIN-1", displayName: "管理员", role: USER_ROLES.ADMIN };
 const sweep = { userId: "TECH-S", displayName: "扫地机师傅", role: USER_ROLES.TECHNICIAN };
 const wash = { userId: "TECH-W", displayName: "洗地机师傅", role: USER_ROLES.TECHNICIAN };
+
+test("local frontend user IDs map to the matching backend development accounts", () => {
+  const user = getLocalCurrentUser({}, "USER-004");
+  assert.equal(user.userId, "LOCAL-TECH-WASH");
+  assert.deepEqual(user.repairSpecialties, ["洗地机"]);
+});
 
 test("storage backend switches between memory and sqlite namespaces", async (t) => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "fielddesk-storage-"));
@@ -94,6 +100,7 @@ test("production UI keeps access tokens in memory and exposes admin account mana
   const accounts = await fs.readFile(path.join(root, "frontend/src/pages/AccountManagement.jsx"), "utf8");
   const server = await fs.readFile(path.join(root, "server.js"), "utf8");
   assert.match(crm, /Authorization: `Bearer/);
+  assert.match(crm, /X-FieldDesk-Local-User/);
   assert.doesNotMatch(crm, /localStorage.*TOKEN|localStorage.*token/);
   assert.match(login, /正式账号访问令牌/);
   assert.match(accounts, /账号与权限/);

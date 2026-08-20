@@ -8,9 +8,17 @@ export function setApiAccessToken(value) {
 }
 
 function apiHeaders() {
+  const localUserId =
+    typeof localStorage === "undefined"
+      ? ""
+      : String(localStorage.getItem("currentUserId") || "")
   return {
     "Content-Type": "application/json",
-    ...(API_ACCESS_TOKEN ? { Authorization: `Bearer ${API_ACCESS_TOKEN}` } : {})
+    ...(API_ACCESS_TOKEN
+      ? { Authorization: `Bearer ${API_ACCESS_TOKEN}` }
+      : localUserId
+        ? { "X-FieldDesk-Local-User": localUserId }
+        : {})
   }
 }
 
@@ -77,12 +85,54 @@ export async function completeLocalReceipt(rmaNo) {
   return request("/api/repairs/complete-local-receipt", { rmaNo })
 }
 
+export async function uploadReceiptAttachment(payload) {
+  return request("/api/repairs/receipt/attachments", payload)
+}
+
+export async function transferToHeadquarters(rmaNo) {
+  return request("/api/repairs/transfer-to-headquarters", { rmaNo })
+}
+
 export async function saveInspection(payload) {
   return request("/api/repairs/inspection", payload)
 }
 
+export async function checkInspectionWarranty(payload) {
+  return request("/api/repairs/inspection/warranty-check", payload)
+}
+
+export async function searchRecloudFaultCategories(payload) {
+  const keyword = encodeURIComponent(String(payload?.faultKeyword || "").trim())
+  const local = await get(`/api/recloud/fault-catalog?keyword=${keyword}&limit=80`)
+  if (local.items?.length || local.complete) return local
+  const live = await request("/api/crm/repairs/detection-form/inspect", payload)
+  return {
+    source: "RECLOUD_LIVE_AND_CACHED",
+    syncedAt: new Date().toISOString(),
+    items: live.inspection?.faultOptions || []
+  }
+}
+
+export async function matchInspectionModel(payload) {
+  return request("/api/repairs/inspection/model-match", payload)
+}
+
 export async function applyLocalPart(payload) {
   return request("/api/repairs/parts/apply", payload)
+}
+
+export async function searchPartsCatalog(payload) {
+  const rmaNo = encodeURIComponent(String(payload?.rmaNo || "").trim())
+  const keyword = encodeURIComponent(String(payload?.keyword || "").trim())
+  return get(`/api/parts-catalog?rmaNo=${rmaNo}&keyword=${keyword}`)
+}
+
+export async function getRepairParts(rmaNo) {
+  return get(`/api/repairs/parts?rmaNo=${encodeURIComponent(String(rmaNo || "").trim())}`)
+}
+
+export async function updateRepairPart(payload) {
+  return request("/api/repairs/parts/update", payload)
 }
 
 export async function getLocalInventory() {

@@ -33,18 +33,10 @@ function isCrmPage(url) {
 }
 
 async function hasCrmReadyMarker(page) {
-  if (await getLogisticsInput(page).isVisible().catch(() => false)) {
-    return true;
-  }
-  if (typeof page.getByText !== "function") return false;
-  for (const text of ["服务管理", "扫码签收"]) {
-    const marker = page
-      .getByText(text, { exact: true })
-      .filter({ visible: true })
-      .first();
-    if (await marker.isVisible().catch(() => false)) return true;
-  }
-  return false;
+  // CRM shell/menu text can remain visible while the authenticated query page
+  // is unavailable. Only the exact scanner input proves that the persisted
+  // session can actually reach the read-only workflow.
+  return getLogisticsInput(page).isVisible().catch(() => false);
 }
 
 async function waitForCrmQueryPage(context, initialPage, options = {}) {
@@ -121,6 +113,7 @@ async function runLoginInitialization(options = {}) {
   try {
     session = await openSession({
       headless: false,
+      navigationTimeout: 120000,
     });
     await waitForCrmQueryPage(session.context, session.page, {
       abortPromise,

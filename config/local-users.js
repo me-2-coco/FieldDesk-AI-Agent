@@ -38,13 +38,21 @@ const LOCAL_DEVELOPMENT_USERS = Object.freeze([
 ]);
 
 const DEFAULT_LOCAL_USER_ID = "LOCAL-TECH-DUAL";
+const LOCAL_FRONTEND_USER_IDS = Object.freeze({
+  "USER-001": "LOCAL-TECH-SWEEP",
+  "USER-002": "LOCAL-WAREHOUSE",
+  "USER-003": "LOCAL-ADMIN",
+  "USER-004": "LOCAL-TECH-WASH",
+  "USER-005": "LOCAL-TECH-DUAL",
+});
 
-function getLocalCurrentUser(env = process.env) {
+function getLocalCurrentUser(env = process.env, requestedId = "") {
   const configuredId =
-    String(env.FIELDDESK_LOCAL_USER_ID || "").trim() ||
+    String(requestedId || env.FIELDDESK_LOCAL_USER_ID || "").trim() ||
     DEFAULT_LOCAL_USER_ID;
+  const resolvedId = LOCAL_FRONTEND_USER_IDS[configuredId] || configuredId;
   const user =
-    LOCAL_DEVELOPMENT_USERS.find((item) => item.userId === configuredId) ||
+    LOCAL_DEVELOPMENT_USERS.find((item) => item.userId === resolvedId) ||
     LOCAL_DEVELOPMENT_USERS.find(
       (item) => item.userId === DEFAULT_LOCAL_USER_ID
     );
@@ -59,6 +67,7 @@ function getLocalCurrentUser(env = process.env) {
 
 module.exports = {
   DEFAULT_LOCAL_USER_ID,
+  LOCAL_FRONTEND_USER_IDS,
   LOCAL_DEVELOPMENT_USERS,
   USER_ROLES,
   getLocalCurrentUser,

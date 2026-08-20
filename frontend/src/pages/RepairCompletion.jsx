@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import {
-  getFaultCatalog,
   getRepairCompletionContext,
   saveRepairCompletionDraft,
   submitRepairCompletion,
@@ -11,13 +10,20 @@ import {
   REPAIR_STATUS,
   updateRepairOrder
 } from "../shared/repairOrderStore.js"
+import { buildRepairMeasure } from "../shared/repairMeasure.js"
 
-const SPEECH_TEMPLATES = [
-  "经检测确认故障，已完成维修并测试正常",
-  "已更换故障部件，整机功能测试正常",
-  "已完成清洁维护及故障排除，机器运行正常"
-]
-const RESPONSIBILITY_TYPES = ["保内质保", "保外维修", "客户责任", "非质量问题"]
+const SPEECH_TEMPLATES = {
+  "保内质保": [
+    "机器无法使用，客诉故障复现，检测不良，更换，清理，测试OK寄回",
+    "机器正常使用，客诉故障未复现，清理，测试OK寄回",
+    "机器无法使用，客诉故障复现，检测不良，客户弃修，清理，寄回"
+  ],
+  "保外维修": [
+    "机器无法使用，客诉故障复现，检测不良，更换，清理，测试OK寄回",
+    "机器正常使用，客诉故障未复现，清理，测试OK寄回",
+    "机器无法使用，客诉故障复现，检测不良，客户弃修，清理，寄回"
+  ]
+}
 
 function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -30,14 +36,16 @@ function fileToDataUrl(file) {
 
 function RepairCompletion({ setPage }) {
   const [repairOrder, setRepairOrder] = useState(() => getCurrentRepairOrder())
-  const [catalog, setCatalog] = useState([])
   const [usedParts, setUsedParts] = useState([])
+  const [pricing, setPricing] = useState(null)
+  const [oneWayLogisticsFee, setOneWayLogisticsFee] = useState("")
   const [faultLevel1, setFaultLevel1] = useState("")
   const [faultLevel2, setFaultLevel2] = useState("")
   const [faultLevel3, setFaultLevel3] = useState("")
-  const [faultKeyword, setFaultKeyword] = useState("")
   const [responsibilityType, setResponsibilityType] = useState("")
-  const [speechTemplate, setSpeechTemplate] = useState(SPEECH_TEMPLATES[0])
+  const [detectionResult, setDetectionResult] = useState("")
+  const [speechTemplate, setSpeechTemplate] = useState("")
+  const [repairMeasure, setRepairMeasure] = useState("")
   const [attachments, setAttachments] = useState([])
   const [message, setMessage] = useState("")
   const [errorMessage, setErrorMessage] = useState("")
@@ -45,45 +53,59 @@ function RepairCompletion({ setPage }) {
 
   useEffect(() => {
     let active = true
-    Promise.all([
-      getRepairCompletionContext(repairOrder.crmOrderNo),
-      getFaultCatalog()
-    ]).then(([context, faultData]) => {
+    getRepairCompletionContext(repairOrder.crmOrderNo).then((context) => {
       if (!active) return
-      setUsedParts(context.usedParts || [])
-      setCatalog(faultData.items || [])
+      const contextParts = context.usedParts || []
+      const contextPricing = context.pricing || null
+      const autoResponsibilityType = context.order?.technicianWarranty === "保外" ? "保外维修" : "保内质保"
+      const templates = SPEECH_TEMPLATES[autoResponsibilityType]
+      setUsedParts(contextParts)
+      setPricing(contextPricing)
+      setResponsibilityType(autoResponsibilityType)
+      const confirmedFault = String(context.order?.faultCategory || "").split("/").map((item) => item.trim()).filter(Boolean)
+      if (confirmedFault.length >= 3) {
+        setFaultLevel1(confirmedFault[0])
+        setFaultLevel2(confirmedFault[1])
+        setFaultLevel3(confirmedFault.slice(2).join(" / "))
+      }
       const draft = context.order?.repairCompletion
       if (draft) {
-        setFaultLevel1(draft.faultLevel1 || "")
-        setFaultLevel2(draft.faultLevel2 || "")
-        setFaultLevel3(draft.faultLevel3 || "")
-        setResponsibilityType(draft.responsibilityType || "")
-        setSpeechTemplate(draft.speechTemplate || SPEECH_TEMPLATES[0])
+        if (confirmedFault.length < 3) {
+          setFaultLevel1(draft.faultLevel1 || "")
+          setFaultLevel2(draft.faultLevel2 || "")
+          setFaultLevel3(draft.faultLevel3 || "")
+        }
+        setDetectionResult(draft.detectionResult || "")
+        const selectedTemplate = templates.includes(draft.speechTemplate) ? draft.speechTemplate : templates[0]
+        const draftLogisticsFee = draft.oneWayLogisticsFee === undefined ? "" : String(draft.oneWayLogisticsFee)
+        setSpeechTemplate(selectedTemplate)
+        setRepairMeasure(draft.repairMeasure || buildRepairMeasure(selectedTemplate, contextParts, repairOrder.originalFault))
         setAttachments(draft.attachments || [])
+        setOneWayLogisticsFee(draftLogisticsFee)
+      }
+      if (!draft) {
+        setSpeechTemplate(templates[0])
+        setRepairMeasure(buildRepairMeasure(templates[0], contextParts, repairOrder.originalFault))
       }
     }).catch((error) => active && setErrorMessage(error.message))
     return () => { active = false }
-  }, [repairOrder.crmOrderNo])
+  }, [repairOrder.crmOrderNo, repairOrder.originalFault])
 
-  const level1Options = useMemo(() => {
-    const keyword = faultKeyword.trim().toLowerCase()
-    if (!keyword) return catalog
-    return catalog.filter((level1) =>
-      [level1.name, ...level1.children.flatMap((level2) => [level2.name, ...level2.children])]
-        .some((text) => text.toLowerCase().includes(keyword))
-    )
-  }, [catalog, faultKeyword])
-  const selectedLevel1 = catalog.find((item) => item.name === faultLevel1)
-  const selectedLevel2 = selectedLevel1?.children.find((item) => item.name === faultLevel2)
   const partsText = usedParts.length
-    ? usedParts.map((part) => `${part.partName}×${part.quantity}`).join("、")
+    ? usedParts.map((part) => `${part.partName}×${part.quantity}（${part.repairLevel || "等级待确认"}）`).join("、")
     : "无实际更换配件"
-  const repairMeasure = speechTemplate ? `${speechTemplate}；实际更换配件：${partsText}` : ""
+  const availableTemplates = SPEECH_TEMPLATES[responsibilityType] || []
+
+  function applySpeechTemplate(template = speechTemplate) {
+    setSpeechTemplate(template)
+    setRepairMeasure(buildRepairMeasure(template, usedParts, repairOrder.originalFault))
+  }
 
   const payload = () => ({
     rmaNo: repairOrder.crmOrderNo,
     faultLevel1, faultLevel2, faultLevel3,
-    responsibilityType, speechTemplate, repairMeasure, attachments
+    responsibilityType, detectionResult, speechTemplate, repairMeasure, attachments,
+    oneWayLogisticsFee
   })
 
   async function save(submit) {
@@ -147,37 +169,46 @@ function RepairCompletion({ setPage }) {
         <p>产品线：{repairOrder.product || "未提供"}</p>
         <p>报修描述：{repairOrder.originalFault || "未提供"}</p>
         <p>本单已使用配件：{partsText}</p>
+        {repairOrder.warrantyType === "保外" || responsibilityType === "保外维修" ? (
+          pricing?.canPrice ? (
+            <div className="pricing-summary">
+              <p>最高维修等级：{pricing.highestLevel}</p>
+              <p>配件金额：¥{pricing.partsFee}</p>
+              <p>维修费：¥{pricing.fee}</p>
+              <label htmlFor="one-way-logistics-fee">单程物流费（可修改）</label>
+              <input id="one-way-logistics-fee" type="number" min="0" step="0.01" value={oneWayLogisticsFee} onChange={(event) => setOneWayLogisticsFee(event.target.value)} placeholder="请输入或修改单程快递费" />
+              <p>往返物流费：¥{(Number(oneWayLogisticsFee || 0) * 2).toFixed(2)}（单程 × 2）</p>
+              <p><strong>保外合计：¥{(Number(pricing.subtotal || 0) + Number(oneWayLogisticsFee || 0) * 2).toFixed(2)}</strong></p>
+              <p className="field-hint">物流接口只返回单程费用；可人工修改，提交后由后台按 ×2 复算。</p>
+            </div>
+          ) : <p className="error-message">保外价格暂时无法自动核对，请转人工确认</p>
+        ) : <p className="success-text">保内工单：不向客户收取配件费和维修费</p>}
       </div>
 
       <div className="card">
-        <h2>三级故障</h2>
-        <input value={faultKeyword} onChange={(event) => setFaultKeyword(event.target.value)} placeholder="模糊搜索故障名称" />
-        <select value={faultLevel1} onChange={(event) => { setFaultLevel1(event.target.value); setFaultLevel2(""); setFaultLevel3("") }}>
-          <option value="">请选择一级故障</option>
-          {level1Options.map((item) => <option key={item.name}>{item.name}</option>)}
-        </select>
-        <select value={faultLevel2} onChange={(event) => { setFaultLevel2(event.target.value); setFaultLevel3("") }} disabled={!selectedLevel1}>
-          <option value="">请选择二级故障</option>
-          {selectedLevel1?.children.map((item) => <option key={item.name}>{item.name}</option>)}
-        </select>
-        <select value={faultLevel3} onChange={(event) => setFaultLevel3(event.target.value)} disabled={!selectedLevel2}>
-          <option value="">请选择三级故障</option>
-          {selectedLevel2?.children.map((item) => <option key={item}>{item}</option>)}
-        </select>
-        <p className="dry-run-notice">当前使用本地模拟故障分类，已预留瑞云同步来源。</p>
+        <h2>检测阶段已确认的三级故障</h2>
+        <p>{[faultLevel1, faultLevel2, faultLevel3].filter(Boolean).join(" / ") || "尚未选择三级故障"}</p>
 
-        <label htmlFor="responsibility-type">责任判定/质保类型</label>
-        <select id="responsibility-type" value={responsibilityType} onChange={(event) => setResponsibilityType(event.target.value)}>
-          <option value="">请选择责任判定</option>
-          {RESPONSIBILITY_TYPES.map((item) => <option key={item}>{item}</option>)}
-        </select>
+        <label>质保类型</label>
+        <p><strong>{responsibilityType || "检测阶段尚未确认"}</strong></p>
+        <p className="field-hint">根据师傅在检测阶段选择的保内/保外自动带入，维修完工时不能重复修改。</p>
+
+        <label htmlFor="completion-detection-result">检测结果</label>
+        <textarea
+          id="completion-detection-result"
+          value={detectionResult}
+          onChange={(event) => setDetectionResult(event.target.value)}
+          placeholder="维修完成后填写最终检测结果"
+          rows="3"
+        />
 
         <label htmlFor="speech-template">维修话术</label>
-        <select id="speech-template" value={speechTemplate} onChange={(event) => setSpeechTemplate(event.target.value)}>
-          {SPEECH_TEMPLATES.map((item) => <option key={item}>{item}</option>)}
+        <select id="speech-template" value={speechTemplate} onChange={(event) => applySpeechTemplate(event.target.value)}>
+          {availableTemplates.map((item) => <option key={item}>{item}</option>)}
         </select>
-        <label htmlFor="repair-measure">维修措施（自动生成）</label>
-        <textarea id="repair-measure" value={repairMeasure} readOnly rows="3" />
+        <button type="button" className="secondary-btn" onClick={() => applySpeechTemplate()}>按当前故障和配件重新生成</button>
+        <label htmlFor="repair-measure">维修措施（自动生成后可修改）</label>
+        <textarea id="repair-measure" value={repairMeasure} onChange={(event) => setRepairMeasure(event.target.value)} rows="4" />
 
         <label htmlFor="repair-attachments">维修照片/视频</label>
         <input id="repair-attachments" type="file" accept="image/*,video/*" multiple onChange={uploadFiles} disabled={busy} />

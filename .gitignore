@@ -8,6 +8,7 @@ node_modules/
 connectors/recloud-state.json
 connectors/recloud-storage.json
 connectors/.recloud-browser-profile/
+connectors/.recloud-browser-profile.stale-*/
 connectors/.recloud-browser-profile.lock
 connectors/recloud-screenshots/
 connectors/recloud-downloads/

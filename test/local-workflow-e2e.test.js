@@ -46,6 +46,8 @@ test("one local order completes the full FieldDesk workflow and creates five dry
     ...queryResult, specialty, remark: specialty,
     operatorId: TECH.userId, operatorName: TECH.displayName,
   });
+  await orders.markModelAuthorization(prepared.rmaNo, { repairability: "SUPPORTED", status: "MATCHED" }, TECH);
+  await orders.addReceiptAttachment(prepared.rmaNo, { id: "E2E-RECEIPT-PHOTO", name: "receipt.jpg", mimeType: "image/jpeg" }, TECH);
   states.push(prepared.status);
   assert.equal(prepared.sn, "E2E-SN-001");
   assert.equal(prepared.remark, "扫地机");
@@ -74,7 +76,9 @@ test("one local order completes the full FieldDesk workflow and creates five dry
   const repaired = await orders.saveRepairCompletion(prepared.rmaNo, {
     faultLevel1: "电气故障", faultLevel2: "供电系统", faultLevel3: "无法开机",
     responsibilityType: "保内质保", speechTemplate: "已完成维修",
+    detectionResult: "维修后整机功能检测正常",
     repairMeasure: "已完成维修；实际更换配件：主刷电机×1", usedParts,
+    attachments: [{ id: "E2E-REPAIR-PHOTO", name: "repair.jpg", mimeType: "image/jpeg" }],
   }, TECH, true);
   states.push(repaired.status);
   await sync.enqueueOrderNode(repaired, "REPAIR_COMPLETED", repaired.repairCompletion.submittedAt);
@@ -123,6 +127,6 @@ test("frontend workflow exposes direct transitions between parts, inventory, rep
   const inventory = await fs.readFile(path.join(__dirname, "../frontend/src/pages/Inventory.jsx"), "utf8");
   const completion = await fs.readFile(path.join(__dirname, "../frontend/src/pages/RepairCompletion.jsx"), "utf8");
   assert.match(parts, /setPage\("inventory"\)/);
-  assert.match(inventory, /setPage\("repairCompletion"\)/);
+  assert.match(inventory, /setPage\("repairWork"\)/);
   assert.match(completion, /setPage\("returnShipping"\)/);
 });

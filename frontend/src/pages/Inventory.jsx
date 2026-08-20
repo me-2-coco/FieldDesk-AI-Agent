@@ -73,7 +73,7 @@ function Inventory({ setPage }) {
     </div>
     {message && <div className="card"><p>{message}</p></div>}
     {user.role === "TECHNICIAN" && order.crmOrderNo && [REPAIR_STATUS.INSPECTION_COMPLETE, REPAIR_STATUS.WAIT_PARTS, REPAIR_STATUS.REPAIRING].includes(order.status) && (
-      <button className="primary-btn" onClick={() => setPage("repairCompletion")}>返回当前工单并进入维修完工</button>
+      <button className="primary-btn" onClick={() => setPage("repairWork")}>配件领用完成，进入维修</button>
     )}
   </div>
 }

@@ -22,12 +22,16 @@ async function createFixture(t) {
     regionAddress: "模拟省模拟市", reportedFault: "模拟故障",
     operatorId: TECH.userId, operatorName: TECH.displayName,
   });
+  await store.markModelAuthorization("RMA-SHIPPING-1", { repairability: "SUPPORTED", status: "MATCHED" }, TECH);
+  await store.addReceiptAttachment("RMA-SHIPPING-1", { id: "RECEIPT-PHOTO", name: "receipt.jpg", mimeType: "image/jpeg" }, TECH);
   await store.completeReceipt("RMA-SHIPPING-1", TECH);
   await store.saveInspection("RMA-SHIPPING-1", { inspectionResult: "检测完成" }, TECH);
   await store.saveRepairCompletion("RMA-SHIPPING-1", {
     faultLevel1: "功能故障", faultLevel2: "清洁功能", faultLevel3: "不出水",
     responsibilityType: "保内质保", speechTemplate: "维修完成",
+    detectionResult: "维修后检测正常",
     repairMeasure: "维修完成；实际更换配件：无",
+    attachments: [{ id: "REPAIR-PHOTO", name: "repair.jpg", mimeType: "image/jpeg" }],
   }, TECH, true);
   return { directory, store };
 }

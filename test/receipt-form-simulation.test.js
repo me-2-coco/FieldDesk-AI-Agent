@@ -270,6 +270,7 @@ test("simulation fills, verifies, clears SN, restores remark and closes", async 
     networkGuardEnabled: true,
     mutationRequestDetected: false,
     blockedRequestCount: 0,
+    blockedMethods: [],
     readRequestCount: 0,
     blockedRequests: [],
     readRequests: [],
@@ -341,8 +342,52 @@ test("unexpected mutation is blocked, cleaned up and returned without secrets", 
     }
   );
   assert.equal(fixture.abortedRequests, 1);
+  assert.equal(fixture.continuedRequests, 0);
   assert.equal(fixture.confirmClicks, 0);
   assert.equal(fixture.networkGuardActive, false);
+});
+
+test("all non-query mutation methods are aborted before network continuation", async () => {
+  for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
+    const result = classifyRecloudRequest({
+      method: () => method,
+      resourceType: () => "document",
+      url: () => "https://crm2.recloud.com.cn/api/unknown/action",
+    });
+    assert.equal(result.kind, "mutation", method);
+  }
+  const getResult = classifyRecloudRequest({
+    method: () => "GET",
+    resourceType: () => "script",
+    url: () => "https://crm2.recloud.com.cn/assets/application.js",
+  });
+  assert.equal(getResult.kind, "read");
+});
+
+test("blocked request handler never invokes the network continuation", async () => {
+  const fixture = createSimulationPage({
+    snFillRequest: {
+      method: "PATCH",
+      resourceType: "fetch",
+      url: "https://crm2.recloud.com.cn/api/rma/update",
+    },
+  });
+
+  await assert.rejects(
+    simulateReceiptForm(fixture.page, "NETWORK-BARRIER-SN", "测试备注", {
+      dryRun: true,
+      writeEnabled: false,
+      logger: { info() {}, warn() {} },
+    }),
+    (error) => {
+      assert.equal(error.code, "RECLOUD_UNEXPECTED_WRITE_REQUEST");
+      assert.deepEqual(error.simulation.blockedMethods, ["PATCH"]);
+      assert.equal(error.simulation.confirmClicked, false);
+      return true;
+    }
+  );
+  assert.equal(fixture.abortedRequests, 1);
+  assert.equal(fixture.continuedRequests, 0);
 });
 
 test("simulation restores an originally empty remark", async () => {
@@ -438,6 +483,7 @@ test("simulate API queries then simulates without invoking a Recloud write", asy
         networkGuardEnabled: true,
         mutationRequestDetected: false,
         blockedRequestCount: 0,
+        blockedMethods: [],
         readRequestCount: 0,
         blockedRequests: [],
         readRequests: [],

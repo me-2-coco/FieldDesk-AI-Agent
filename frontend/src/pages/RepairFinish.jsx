@@ -9,18 +9,16 @@ import {
 // 这样"维修记录"页面才能看到已完成的维修
 function appendToRepairRecords(order) {
 
-  let records = []
+  let storedRecords
 
   try {
-    records = JSON.parse(
+    storedRecords = JSON.parse(
       localStorage.getItem("repairRecords") || "[]"
     )
-    if (!Array.isArray(records)) {
-      records = []
-    }
-  } catch (error) {
-    records = []
+  } catch {
+    storedRecords = []
   }
+  const records = Array.isArray(storedRecords) ? storedRecords : []
 
   const record = {
     id: order.id,
