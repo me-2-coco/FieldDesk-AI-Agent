@@ -36,6 +36,7 @@ const {
   monitorInterval,
 } = require("./services/recloud-supervision-monitor");
 const { buildInspectionFormDecision } = require("./services/inspection-form-rules");
+const { assessRecloudInspectionControlMapping } = require("./connectors/recloud-sync-mapping");
 const {
   USER_ROLES,
   getLocalCurrentUser,
@@ -549,6 +550,7 @@ function createApp(
           writeEnabled: false,
           faultKeyword: String(req.body?.faultKeyword || "").trim(),
         });
+        inspection.controlMapping = assessRecloudInspectionControlMapping(inspection.fieldControls);
         if (inspection.faultOptions?.length) await faultCatalogStore.merge(inspection.faultOptions);
         return { logisticsNo, rmaNo: detail.rmaNo, inspection };
       });
@@ -595,6 +597,7 @@ function createApp(
           writeEnabled: false,
           faultKeyword,
         });
+        inspection.controlMapping = assessRecloudInspectionControlMapping(inspection.fieldControls);
         return { logisticsNo, rmaNo: detail.rmaNo, inspection };
       });
       return res.json({ success: true, data });

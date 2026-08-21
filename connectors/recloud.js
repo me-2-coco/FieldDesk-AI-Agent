@@ -7701,14 +7701,16 @@ async function collectDetectionFieldControls(dialog) {
     const labelPattern = new RegExp(
       label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/[（(]/g, "[（(]").replace(/[）)]/g, "[）)]")
     );
-    const item = dialog
+    const items = dialog
       .locator(".rt-form-item:visible, .el-form-item:visible")
-      .filter({ hasText: labelPattern })
-      .last();
-    const found = Boolean(await item.count().catch(() => 0));
+      .filter({ hasText: labelPattern });
+    const itemCount = await items.count().catch(() => 0);
+    const item = items.last();
+    const found = itemCount > 0;
     controls.push({
       label,
       found,
+      itemCount,
       inputCount: found ? await item.locator("input:visible").count().catch(() => 0) : 0,
       textareaCount: found ? await item.locator("textarea:visible").count().catch(() => 0) : 0,
       comboboxCount: found ? await item.locator("[role='combobox']:visible").count().catch(() => 0) : 0,

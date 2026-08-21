@@ -35,6 +35,7 @@ test("detection simulation uses only configured test order and restores keyword"
         confirmClicked: false,
         confirmed: false,
         recloudModified: false,
+        fieldControls: [],
       };
     },
     confirmDetection: async () => assert.fail("must never confirm detection"),
@@ -54,6 +55,7 @@ test("detection simulation uses only configured test order and restores keyword"
   assert.equal(response.status, 200);
   assert.equal(result.data.inspection.faultKeywordRestored, true);
   assert.equal(result.data.inspection.confirmClicked, false);
+  assert.equal(result.data.inspection.controlMapping.readyToPrefill, false);
   assert.deepEqual(calls, [
     ["query", "TEST-DETECTION-ORDER"],
     ["inspect", { dryRun: true, writeEnabled: false, faultKeyword: "水泵" }],

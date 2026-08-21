@@ -15,6 +15,7 @@ const {
   RECLOUD_REPAIR_FIELD_TARGETS,
   RECLOUD_RECEIPT_FIELD_TARGETS,
   buildRecloudInspectionFormPlan,
+  assessRecloudInspectionControlMapping,
   buildRecloudRepairFormPlan,
   buildNodePayload,
   validateNodePayload,
@@ -133,6 +134,50 @@ test("inspection mapping blocks incomplete business decisions", () => {
     assert.deepEqual(error.missingFields, ["faultCategory", "warrantyStatus", "detectionResult"]);
     return true;
   });
+});
+
+test("inspection control mapping requires one compatible Recloud control per writable field", () => {
+  const controls = Object.entries(RECLOUD_INSPECTION_FIELD_TARGETS).map(([, definition]) => ({
+    label: definition.target,
+    found: true,
+    itemCount: 1,
+    inputCount: ["SEARCH_INPUT", "SELECT", "TEXT_INPUT"].includes(definition.control) ? 1 : 0,
+    textareaCount: 0,
+    comboboxCount: definition.control === "SELECT" ? 1 : 0,
+    radioCount: definition.control === "RADIO" ? 2 : 0,
+  }));
+
+  const result = assessRecloudInspectionControlMapping(controls);
+
+  assert.equal(result.readyToPrefill, true);
+  assert.equal(result.canAutoConfirm, false);
+  assert.deepEqual(result.missingFields, []);
+  assert.deepEqual(result.ambiguousFields, []);
+  assert.deepEqual(result.incompatibleFields, []);
+  assert.equal(result.fields.length, 9);
+  assert.deepEqual(result.excludedFields, [{
+    key: "responsibilityDecision",
+    target: "责任判定",
+    expectedControl: "SELECT",
+    itemCount: 1,
+    mapped: true,
+    reason: "保持空白，不参与自动填写",
+  }]);
+});
+
+test("inspection control mapping stops on missing duplicate or incompatible fields", () => {
+  const controls = [
+    { label: "故障分类（快速选择）", found: true, itemCount: 2, inputCount: 2 },
+    { label: "是否与客服登记原因一致", found: true, itemCount: 1, radioCount: 1 },
+  ];
+
+  const result = assessRecloudInspectionControlMapping(controls);
+
+  assert.equal(result.readyToPrefill, false);
+  assert.deepEqual(result.ambiguousFields, ["faultCategory"]);
+  assert.deepEqual(result.incompatibleFields, ["customerReasonConsistent"]);
+  assert.ok(result.missingFields.includes("warrantyStatus"));
+  assert.equal(result.canAutoConfirm, false);
 });
 
 test("adapter factory never selects real adapter when either safety switch blocks writes", () => {

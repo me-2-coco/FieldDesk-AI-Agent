@@ -14,16 +14,16 @@ const RECLOUD_RECEIPT_FIELD_TARGETS = Object.freeze({
 });
 
 const RECLOUD_INSPECTION_FIELD_TARGETS = Object.freeze({
-  faultCategory: { target: "故障分类（快速选择）", status: "CONFIRMED" },
-  customerReasonConsistent: { target: "是否与客服登记原因一致", status: "FIXED_YES" },
-  warrantyStatus: { target: "保修状态", status: "CONFIRMED" },
-  detectionResult: { target: "检测结果", status: "CONFIRMED" },
-  inspectionAbnormal: { target: "检测无异常", status: "FIXED_NO" },
-  productFunctionDecision: { target: "成品功能判断", status: "FIXED_FUNCTION_ISSUE" },
-  originalConsumables: { target: "是否原厂耗材", status: "FIXED_YES" },
-  consumableName: { target: "耗材名称", status: "CLEAR_AFTER_ORIGINAL" },
-  dismantled: { target: "是否拆封", status: "FIXED_YES" },
-  responsibilityDecision: { target: "责任判定", status: "EXCLUDED" },
+  faultCategory: { target: "故障分类（快速选择）", status: "CONFIRMED", control: "SEARCH_INPUT" },
+  customerReasonConsistent: { target: "是否与客服登记原因一致", status: "FIXED_YES", control: "RADIO" },
+  warrantyStatus: { target: "保修状态", status: "CONFIRMED", control: "SELECT" },
+  detectionResult: { target: "检测结果", status: "CONFIRMED", control: "SELECT" },
+  inspectionAbnormal: { target: "检测无异常", status: "FIXED_NO", control: "SELECT" },
+  productFunctionDecision: { target: "成品功能判断", status: "FIXED_FUNCTION_ISSUE", control: "SELECT" },
+  originalConsumables: { target: "是否原厂耗材", status: "FIXED_YES", control: "RADIO" },
+  consumableName: { target: "耗材名称", status: "CLEAR_AFTER_ORIGINAL", control: "TEXT_INPUT" },
+  dismantled: { target: "是否拆封", status: "FIXED_YES", control: "RADIO" },
+  responsibilityDecision: { target: "责任判定", status: "EXCLUDED", control: "SELECT" },
 });
 
 const RECLOUD_REPAIR_FIELD_TARGETS = Object.freeze({
@@ -106,6 +106,63 @@ function buildRecloudInspectionFormPlan(payload = {}) {
     reason: missingFields.length
       ? "检测字段不完整，停止并转人工"
       : "字段可预填；最终确认继续由安全开关和人工确认控制",
+  };
+}
+
+function inspectionControlIsCompatible(control, expectedType) {
+  if (!control) return false;
+  if (expectedType === "RADIO") return Number(control.radioCount || 0) >= 2;
+  if (expectedType === "SELECT") {
+    return Number(control.comboboxCount || 0) >= 1 || Number(control.inputCount || 0) >= 1;
+  }
+  if (expectedType === "TEXT_INPUT") {
+    return Number(control.inputCount || 0) >= 1 || Number(control.textareaCount || 0) >= 1;
+  }
+  if (expectedType === "SEARCH_INPUT") return Number(control.inputCount || 0) >= 1;
+  return false;
+}
+
+function assessRecloudInspectionControlMapping(fieldControls = []) {
+  const observedByLabel = new Map(
+    (Array.isArray(fieldControls) ? fieldControls : [])
+      .filter((control) => control && typeof control === "object")
+      .map((control) => [String(control.label || "").trim(), control])
+  );
+  const fields = [];
+  const missingFields = [];
+  const ambiguousFields = [];
+  const incompatibleFields = [];
+  const excludedFields = [];
+  for (const [key, definition] of Object.entries(RECLOUD_INSPECTION_FIELD_TARGETS)) {
+    const observed = observedByLabel.get(definition.target) || null;
+    const itemCount = Number(observed?.itemCount ?? (observed?.found ? 1 : 0));
+    const mapping = {
+      key,
+      target: definition.target,
+      expectedControl: definition.control,
+      itemCount,
+      mapped: itemCount === 1 && inspectionControlIsCompatible(observed, definition.control),
+    };
+    if (definition.status === "EXCLUDED") {
+      excludedFields.push({ ...mapping, reason: "保持空白，不参与自动填写" });
+      continue;
+    }
+    fields.push(mapping);
+    if (itemCount === 0) missingFields.push(key);
+    else if (itemCount > 1) ambiguousFields.push(key);
+    else if (!mapping.mapped) incompatibleFields.push(key);
+  }
+  return {
+    fields,
+    excludedFields,
+    missingFields,
+    ambiguousFields,
+    incompatibleFields,
+    readyToPrefill:
+      missingFields.length === 0 &&
+      ambiguousFields.length === 0 &&
+      incompatibleFields.length === 0,
+    canAutoConfirm: false,
   };
 }
 
@@ -234,6 +291,7 @@ module.exports = {
   RECLOUD_INSPECTION_FIELD_TARGETS,
   RECLOUD_REPAIR_FIELD_TARGETS,
   buildRecloudInspectionFormPlan,
+  assessRecloudInspectionControlMapping,
   buildRecloudRepairFormPlan,
   buildNodePayload,
   validateNodePayload,
