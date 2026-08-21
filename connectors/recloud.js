@@ -7682,6 +7682,42 @@ async function inspectReceiptForm(page, options = {}) {
   }
 }
 
+const DETECTION_FIELD_LABELS = Object.freeze([
+  "故障分类（快速选择）",
+  "是否与客服登记原因一致",
+  "保修状态",
+  "检测结果",
+  "检测无异常",
+  "成品功能判断",
+  "是否原厂耗材",
+  "耗材名称",
+  "是否拆封",
+  "责任判定",
+]);
+
+async function collectDetectionFieldControls(dialog) {
+  const controls = [];
+  for (const label of DETECTION_FIELD_LABELS) {
+    const labelPattern = new RegExp(
+      label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/[（(]/g, "[（(]").replace(/[）)]/g, "[）)]")
+    );
+    const item = dialog
+      .locator(".rt-form-item:visible, .el-form-item:visible")
+      .filter({ hasText: labelPattern })
+      .last();
+    const found = Boolean(await item.count().catch(() => 0));
+    controls.push({
+      label,
+      found,
+      inputCount: found ? await item.locator("input:visible").count().catch(() => 0) : 0,
+      textareaCount: found ? await item.locator("textarea:visible").count().catch(() => 0) : 0,
+      comboboxCount: found ? await item.locator("[role='combobox']:visible").count().catch(() => 0) : 0,
+      radioCount: found ? await item.locator("input[type='radio'], [role='radio']").count().catch(() => 0) : 0,
+    });
+  }
+  return controls;
+}
+
 async function inspectDetectionForm(page, options = {}) {
   if (options.dryRun !== true || options.writeEnabled !== false) {
     const error = new Error("检测弹窗定位只允许在严格只读模式下执行");
@@ -7694,6 +7730,10 @@ async function inspectDetectionForm(page, options = {}) {
   let networkGuard = null;
   let dialog = null;
   let dialogClosed = false;
+  let faultInput = null;
+  let faultInputTouched = false;
+  let faultKeywordRestored = true;
+  let originalFaultKeyword = "";
   try {
     if (typeof page.context === "function" && typeof page.context()?.route === "function") {
       networkGuard = await createReceiptNetworkGuard(page, guardState);
@@ -7798,19 +7838,27 @@ async function inspectDetectionForm(page, options = {}) {
       .locator(".is-required:visible")
       .evaluateAll((elements) => elements.map((element) => String(element.querySelector("label, .rt-form-item__label, .el-form-item__label")?.textContent || "").replace(/^\*+|\*+$/g, "").trim())))
       .filter((value) => value && value.length <= 40))];
+    const fieldControls = await collectDetectionFieldControls(dialog);
     let faultQuickSelectFound = false;
     let faultOptions = [];
+    let faultKeywordFilled = false;
     const faultKeyword = normalizeText(options.faultKeyword || "").slice(0, 30);
     const listAllFaults = options.listAllFaults === true;
     if (faultKeyword || listAllFaults) {
       const faultItems = dialog.locator(".rt-form-item:visible, .el-form-item:visible").filter({ hasText: /故障分类（快速选择）/ });
       const faultItem = faultItems.last();
       if (await faultItem.count()) {
-        const faultInput = faultItem.locator("input:visible").last();
+        faultInput = faultItem.locator("input:visible").last();
         if (await faultInput.count()) {
           faultQuickSelectFound = true;
+          originalFaultKeyword = await faultInput.inputValue().catch(() => "");
           await faultInput.click({ timeout: 3000 });
-          if (faultKeyword) await faultInput.fill(faultKeyword);
+          if (faultKeyword) {
+            faultInputTouched = true;
+            faultKeywordRestored = false;
+            await faultInput.fill(faultKeyword);
+            faultKeywordFilled = true;
+          }
           await page.waitForTimeout?.(500);
           await networkGuard?.assertSafe();
           const optionLocator = page.locator(".rt-select-dropdown:visible [role='option']:visible, .el-select-dropdown:visible [role='option']:visible, .rt-cascader-dropdown:visible li:visible, .el-cascader__dropdown:visible li:visible");
@@ -7835,6 +7883,8 @@ async function inspectDetectionForm(page, options = {}) {
           if (listAllFaults) {
             const fullPaths = new Set();
             for (const seed of [...collected]) {
+              faultInputTouched = true;
+              faultKeywordRestored = false;
               await faultInput.fill(seed);
               await page.waitForTimeout?.(500);
               await networkGuard?.assertSafe();
@@ -7851,6 +7901,19 @@ async function inspectDetectionForm(page, options = {}) {
             faultOptions = [...fullPaths].slice(0, 5000);
           } else {
             faultOptions = [...collected].slice(0, 50);
+          }
+          if (faultKeywordFilled || listAllFaults) {
+            await faultInput.fill(originalFaultKeyword);
+            await page.waitForTimeout?.(100);
+            await networkGuard?.assertSafe();
+            faultKeywordRestored = (await faultInput.inputValue().catch(() => null)) === originalFaultKeyword;
+            if (!faultKeywordRestored) {
+              const error = new Error("瑞云检测搜索演练内容清理失败");
+              error.code = "RECLOUD_DETECTION_SIMULATION_CLEANUP_FAILED";
+              error.status = 502;
+              error.missingFields = ["detection.faultKeywordRestore"];
+              throw error;
+            }
           }
         }
       }
@@ -7876,8 +7939,12 @@ async function inspectDetectionForm(page, options = {}) {
       placeholders,
       requiredFieldCount,
       requiredFieldLabels,
+      fieldControls,
       faultQuickSelectFound,
       faultOptions,
+      faultKeywordFilled,
+      faultKeywordRestored,
+      valuesVerified: faultKeyword ? faultOptions.length > 0 : true,
       modelFieldFound: [...fieldLabels, ...placeholders].some((value) => /型号/.test(value)),
       dialogClosed,
       blockedRequestCount: guardState.blockedRequestCount,
@@ -7886,10 +7953,27 @@ async function inspectDetectionForm(page, options = {}) {
       recloudModified: false,
     };
   } finally {
+    let cleanupError = null;
+    if (faultInput && faultInputTouched && !faultKeywordRestored) {
+      try {
+        await faultInput.fill(originalFaultKeyword);
+        await page.waitForTimeout?.(100);
+        await networkGuard?.assertSafe();
+        faultKeywordRestored = (await faultInput.inputValue().catch(() => null)) === originalFaultKeyword;
+        if (!faultKeywordRestored) throw new Error("检测搜索框未恢复原值");
+      } catch (error) {
+        cleanupError = new Error("瑞云检测搜索演练内容清理失败");
+        cleanupError.code = "RECLOUD_DETECTION_SIMULATION_CLEANUP_FAILED";
+        cleanupError.status = 502;
+        cleanupError.missingFields = ["detection.faultKeywordRestore"];
+        cleanupError.cause = error;
+      }
+    }
     if (dialog && !dialogClosed) {
       await page.keyboard.press("Escape").catch(() => {});
     }
     await networkGuard?.stop();
+    if (cleanupError) throw cleanupError;
   }
 }
 
@@ -8532,6 +8616,7 @@ module.exports = {
   classifyReceiptRendererConfig,
   diagnoseReceiptRendererConfig,
   inspectReceiptForm,
+  collectDetectionFieldControls,
   inspectDetectionForm,
   inspectRepairForm,
   logReceiptInspection,

@@ -556,6 +556,51 @@ function createApp(
     } catch (error) { return next(error); }
   });
 
+  app.post("/api/crm/repairs/detection-form/simulate", async (req, res, next) => {
+    if (!isDryRun(runtimeEnv) || isRecloudWriteEnabled(runtimeEnv)) {
+      return res.status(403).json({
+        success: false,
+        code: "RECLOUD_DETECTION_SIMULATION_UNSAFE",
+        message: "检测搜索演练只允许在严格只读模式下执行",
+      });
+    }
+    const logisticsNo = normalizeLogisticsNo(req.body?.logisticsNo);
+    const faultKeyword = String(req.body?.faultKeyword || "").trim().slice(0, 30);
+    const testLogisticsNo = normalizeLogisticsNo(runtimeEnv.RECLOUD_DETECTION_TEST_LOGISTICS_NO);
+    const missingFields = [
+      !logisticsNo && "logisticsNo",
+      !faultKeyword && "faultKeyword",
+    ].filter(Boolean);
+    if (missingFields.length) {
+      return res.status(400).json({
+        success: false,
+        code: "RECLOUD_DETECTION_SIMULATION_INVALID",
+        message: "检测搜索演练参数不完整",
+        missingFields,
+      });
+    }
+    if (!testLogisticsNo || logisticsNo !== testLogisticsNo) {
+      return res.status(403).json({
+        success: false,
+        code: "RECLOUD_DETECTION_TEST_ORDER_REQUIRED",
+        message: "仅允许使用后端配置的专用待检测测试工单",
+        missingFields: [],
+      });
+    }
+    try {
+      const data = await withRecloud(connector, async (page) => {
+        const detail = await connector.queryRmaByLogisticsNo(page, logisticsNo);
+        const inspection = await connector.inspectDetectionForm(page, {
+          dryRun: true,
+          writeEnabled: false,
+          faultKeyword,
+        });
+        return { logisticsNo, rmaNo: detail.rmaNo, inspection };
+      });
+      return res.json({ success: true, data });
+    } catch (error) { return next(error); }
+  });
+
   app.post("/api/crm/repairs/repair-form/inspect", async (req, res, next) => {
     if (!isDryRun(runtimeEnv) || isRecloudWriteEnabled(runtimeEnv)) {
       return res.status(403).json({ success: false, code: "RECLOUD_REPAIR_INSPECTION_UNSAFE", message: "维修单定位只允许在严格只读模式下执行" });
