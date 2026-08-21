@@ -11,8 +11,10 @@ const {
 } = require("../connectors/recloud-adapter");
 const { RecloudSyncService, classifyError } = require("../services/recloud-sync-service");
 const {
+  RECLOUD_INSPECTION_FIELD_TARGETS,
   RECLOUD_REPAIR_FIELD_TARGETS,
   RECLOUD_RECEIPT_FIELD_TARGETS,
+  buildRecloudInspectionFormPlan,
   buildRecloudRepairFormPlan,
   buildNodePayload,
   validateNodePayload,
@@ -30,6 +32,15 @@ const ORDER = {
   receiptCompletedAt: "2026-08-03T01:00:00.000Z",
   receiptAttachments: [{ id: "MOCK-RECEIPT-PHOTO", name: "receipt.jpg", mimeType: "image/jpeg" }],
   inspectionResult: "模拟检测完成", inspectionRemark: "模拟备注",
+  faultCategory: "产品质量 / 不出水 / 水泵不良",
+  technicianWarranty: "保内",
+  customerReasonConsistent: "是",
+  detectionResult: "维修",
+  inspectionAbnormal: "否",
+  productFunctionDecision: "功能问题",
+  originalConsumables: "是",
+  consumableName: "",
+  dismantled: "是",
   inspectionUpdatedAt: "2026-08-03T02:00:00.000Z",
   repairCompletion: {
     faultLevel1: "功能故障", faultLevel2: "清洁功能", faultLevel3: "不出水",
@@ -59,7 +70,7 @@ test("outbox stores required safe fields and enforces idempotency", async (t) =>
   );
   assert.equal("customerName" in first, false);
   assert.equal("phone" in first, false);
-  assert.equal(first.mappingVersion, "v6");
+  assert.equal(first.mappingVersion, "v7");
   assert.deepEqual(first.payload, buildNodePayload(ORDER, "RECEIPT"));
 });
 
@@ -73,6 +84,55 @@ test("dry-run adapter processes every business node without real Recloud", async
     const completed = await service.processTask(task.id);
     assert.equal(completed.status, TASK_STATUS.SUCCESS);
   }
+});
+
+test("inspection mapping prepares fixed Recloud fields but never auto-confirms", async () => {
+  const payload = buildNodePayload(ORDER, "INSPECTION_COMPLETED");
+  const plan = buildRecloudInspectionFormPlan(payload);
+  const writes = Object.fromEntries(plan.safeWrites.map((item) => [item.key, item.value]));
+
+  assert.equal(RECLOUD_INSPECTION_FIELD_TARGETS.faultCategory.target, "故障分类（快速选择）");
+  assert.equal(writes.faultCategory, "产品质量 / 不出水 / 水泵不良");
+  assert.equal(writes.warrantyStatus, "保内");
+  assert.equal(writes.detectionResult, "维修");
+  assert.equal(writes.customerReasonConsistent, "是");
+  assert.equal(writes.inspectionAbnormal, "否");
+  assert.equal(writes.productFunctionDecision, "功能问题");
+  assert.equal(writes.originalConsumables, "是");
+  assert.equal(writes.consumableName, "");
+  assert.equal(writes.dismantled, "是");
+  assert.deepEqual(plan.excludedFields, [{
+    key: "responsibilityDecision",
+    target: "责任判定",
+    reason: "每单保持空白",
+  }]);
+  assert.deepEqual(plan.missingFields, []);
+  assert.equal(plan.canAutoConfirm, false);
+
+  const adapter = new DryRunRecloudAdapter();
+  const result = await adapter.syncInspectionCompleted({
+    payload,
+    idempotencyKey: "INSPECTION-PLAN-1",
+    mappingVersion: "v7",
+  });
+  assert.deepEqual(result.formPlan, plan);
+});
+
+test("inspection mapping blocks incomplete business decisions", () => {
+  const incomplete = buildNodePayload({
+    ...ORDER,
+    faultCategory: "",
+    technicianWarranty: "",
+    detectionResult: "",
+  }, "INSPECTION_COMPLETED");
+  const plan = buildRecloudInspectionFormPlan(incomplete);
+  assert.deepEqual(plan.missingFields, ["faultCategory", "warrantyStatus"]);
+  assert.equal(plan.canAutoConfirm, false);
+  assert.throws(() => validateNodePayload("INSPECTION_COMPLETED", incomplete), (error) => {
+    assert.equal(error.code, "RECLOUD_SYNC_VALIDATION_FAILED");
+    assert.deepEqual(error.missingFields, ["faultCategory", "warrantyStatus", "detectionResult"]);
+    return true;
+  });
 });
 
 test("adapter factory never selects real adapter when either safety switch blocks writes", () => {

@@ -57,7 +57,10 @@ test("one local order completes the full FieldDesk workflow and creates five dry
   await sync.enqueueOrderNode(received, "RECEIPT", received.receiptCompletedAt);
 
   const inspected = await orders.saveInspection(prepared.rmaNo, {
-    inspectionResult: "主机电源模块异常", inspectionRemark: "模拟检测备注",
+    inspectionResult: "维修", inspectionRemark: "模拟检测备注",
+    faultCategory: "产品质量 / 无法启动 / 电源模块不良",
+    technicianWarranty: "保内",
+    detectionResult: "维修",
   }, TECH);
   states.push(inspected.status);
   await sync.enqueueOrderNode(inspected, "INSPECTION_COMPLETED", inspected.inspectionUpdatedAt);

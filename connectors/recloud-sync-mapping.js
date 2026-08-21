@@ -1,9 +1,9 @@
-const MAPPING_VERSION = "v6";
+const MAPPING_VERSION = "v7";
 const { resolveWarrantyConversion } = require("../services/warranty-conversion-policy");
 
 const NODE_REQUIRED_FIELDS = Object.freeze({
   RECEIPT: ["sn", "remark", "attachments"],
-  INSPECTION_COMPLETED: ["inspectionResult"],
+  INSPECTION_COMPLETED: ["inspectionResult", "faultCategory", "warrantyStatus", "detectionResult"],
   REPAIR_COMPLETED: ["faultLevel1", "faultLevel2", "faultLevel3", "responsibilityType", "detectionResult", "repairMeasure", "attachments"],
   RETURN_SHIPPED: ["logisticsCompany", "trackingNo", "shippedAt"],
   ORDER_COMPLETED: ["completedAt"],
@@ -11,6 +11,19 @@ const NODE_REQUIRED_FIELDS = Object.freeze({
 
 const RECLOUD_RECEIPT_FIELD_TARGETS = Object.freeze({
   attachments: { target: "寄修单附件", section: "问题涉及的场景照片、视频、APP截图、地图截屏、录屏", status: "CONFIRMED" },
+});
+
+const RECLOUD_INSPECTION_FIELD_TARGETS = Object.freeze({
+  faultCategory: { target: "故障分类（快速选择）", status: "CONFIRMED" },
+  customerReasonConsistent: { target: "是否与客服登记原因一致", status: "FIXED_YES" },
+  warrantyStatus: { target: "保修状态", status: "CONFIRMED" },
+  detectionResult: { target: "检测结果", status: "CONFIRMED" },
+  inspectionAbnormal: { target: "检测无异常", status: "FIXED_NO" },
+  productFunctionDecision: { target: "成品功能判断", status: "FIXED_FUNCTION_ISSUE" },
+  originalConsumables: { target: "是否原厂耗材", status: "FIXED_YES" },
+  consumableName: { target: "耗材名称", status: "CLEAR_AFTER_ORIGINAL" },
+  dismantled: { target: "是否拆封", status: "FIXED_YES" },
+  responsibilityDecision: { target: "责任判定", status: "EXCLUDED" },
 });
 
 const RECLOUD_REPAIR_FIELD_TARGETS = Object.freeze({
@@ -61,6 +74,39 @@ function normalizeWarrantyForRecloud(value) {
   if (text === "保外维修" || text === "保外") return "保外";
   if (text === "保内质保" || text === "保内") return "保内";
   return text;
+}
+
+function buildRecloudInspectionFormPlan(payload = {}) {
+  const fields = {
+    faultCategory: String(payload.faultCategory || "").trim(),
+    customerReasonConsistent: "是",
+    warrantyStatus: normalizeWarrantyForRecloud(payload.warrantyStatus),
+    detectionResult: String(payload.detectionResult || payload.inspectionResult || "").trim(),
+    inspectionAbnormal: "否",
+    productFunctionDecision: "功能问题",
+    originalConsumables: "是",
+    consumableName: "",
+    dismantled: "是",
+  };
+  const missingFields = ["faultCategory", "warrantyStatus", "detectionResult"]
+    .filter((key) => !fields[key]);
+  return {
+    safeWrites: Object.entries(fields).map(([key, value]) => ({
+      key,
+      target: RECLOUD_INSPECTION_FIELD_TARGETS[key].target,
+      value,
+    })),
+    excludedFields: [{
+      key: "responsibilityDecision",
+      target: RECLOUD_INSPECTION_FIELD_TARGETS.responsibilityDecision.target,
+      reason: "每单保持空白",
+    }],
+    missingFields,
+    canAutoConfirm: false,
+    reason: missingFields.length
+      ? "检测字段不完整，停止并转人工"
+      : "字段可预填；最终确认继续由安全开关和人工确认控制",
+  };
 }
 
 function buildRecloudRepairFormPlan(payload = {}) {
@@ -122,6 +168,15 @@ function buildNodePayload(order, nodeType) {
       inspectionResult: order.inspectionResult,
       inspectionRemark: order.inspectionRemark,
       inspectionCompletedAt: order.inspectionUpdatedAt,
+      faultCategory: order.faultCategory,
+      warrantyStatus: order.technicianWarranty,
+      customerReasonConsistent: order.customerReasonConsistent,
+      detectionResult: order.detectionResult,
+      inspectionAbnormal: order.inspectionAbnormal,
+      productFunctionDecision: order.productFunctionDecision,
+      originalConsumables: order.originalConsumables,
+      consumableName: order.consumableName,
+      dismantled: order.dismantled,
     },
     REPAIR_COMPLETED: {
       faultLevel1: completion.faultLevel1,
@@ -176,7 +231,9 @@ module.exports = {
   MAPPING_VERSION,
   NODE_REQUIRED_FIELDS,
   RECLOUD_RECEIPT_FIELD_TARGETS,
+  RECLOUD_INSPECTION_FIELD_TARGETS,
   RECLOUD_REPAIR_FIELD_TARGETS,
+  buildRecloudInspectionFormPlan,
   buildRecloudRepairFormPlan,
   buildNodePayload,
   validateNodePayload,

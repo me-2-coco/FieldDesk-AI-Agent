@@ -359,9 +359,12 @@ class JsonReceiptPreparationStore {
         technicianWarranty: normalizeRequired(input.technicianWarranty),
         warrantyDecision: input.warrantyDecision || null,
         customerReasonConsistent: "是",
+        detectionResult: normalizeRequired(input.detectionResult) || inspectionResult,
+        inspectionAbnormal: "否",
         productFunctionDecision: "功能问题",
         originalConsumables: "是",
         consumableName: "",
+        dismantled: "是",
         inspectionUpdatedAt: new Date().toISOString(),
         operatorId: normalizeRequired(operator.userId),
         operatorName:
