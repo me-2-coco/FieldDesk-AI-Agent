@@ -20,6 +20,8 @@ const {
   readRmaSupervisionOrderStatuses,
   readSupervisionOrders,
 } = require("./recloud-supervision");
+const { executeDetectionPrefillSafely } = require("../services/detection-prefill-executor");
+const { createRecloudDetectionControlAdapter } = require("./recloud-detection-control-adapter");
 
 const LOGIN_STATE = path.join(__dirname, "recloud-state.json");
 const RECLOUD_URL =
@@ -7920,6 +7922,14 @@ async function inspectDetectionForm(page, options = {}) {
         }
       }
     }
+    let prefill = null;
+    if (options.prefillPlan) {
+      prefill = await executeDetectionPrefillSafely(
+        options.prefillPlan,
+        createRecloudDetectionControlAdapter(page, dialog)
+      );
+      await networkGuard?.assertSafe();
+    }
     const closeControl = await firstVisible([
       dialog.getByRole("button", { name: /^(取消|关闭|返回)$/ }).last(),
       dialog.locator("button[aria-label*='关闭'], button[title*='关闭'], .el-dialog__headerbtn, .rt-dialog__close").last(),
@@ -7946,6 +7956,7 @@ async function inspectDetectionForm(page, options = {}) {
       faultOptions,
       faultKeywordFilled,
       faultKeywordRestored,
+      prefill,
       valuesVerified: faultKeyword ? faultOptions.length > 0 : true,
       modelFieldFound: [...fieldLabels, ...placeholders].some((value) => /型号/.test(value)),
       dialogClosed,

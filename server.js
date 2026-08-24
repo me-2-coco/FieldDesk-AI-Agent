@@ -36,7 +36,10 @@ const {
   monitorInterval,
 } = require("./services/recloud-supervision-monitor");
 const { buildInspectionFormDecision } = require("./services/inspection-form-rules");
-const { assessRecloudInspectionControlMapping } = require("./connectors/recloud-sync-mapping");
+const {
+  assessRecloudInspectionControlMapping,
+  buildRecloudInspectionFormPlan,
+} = require("./connectors/recloud-sync-mapping");
 const {
   USER_ROLES,
   getLocalCurrentUser,
@@ -568,10 +571,14 @@ function createApp(
     }
     const logisticsNo = normalizeLogisticsNo(req.body?.logisticsNo);
     const faultKeyword = String(req.body?.faultKeyword || "").trim().slice(0, 30);
+    const prefillRequested = req.body?.prefill === true;
     const testLogisticsNo = normalizeLogisticsNo(runtimeEnv.RECLOUD_DETECTION_TEST_LOGISTICS_NO);
     const missingFields = [
       !logisticsNo && "logisticsNo",
       !faultKeyword && "faultKeyword",
+      prefillRequested && !String(req.body?.faultCategory || "").trim() && "faultCategory",
+      prefillRequested && !String(req.body?.warrantyStatus || "").trim() && "warrantyStatus",
+      prefillRequested && !String(req.body?.detectionResult || "").trim() && "detectionResult",
     ].filter(Boolean);
     if (missingFields.length) {
       return res.status(400).json({
@@ -592,10 +599,18 @@ function createApp(
     try {
       const data = await withRecloud(connector, async (page) => {
         const detail = await connector.queryRmaByLogisticsNo(page, logisticsNo);
+        const prefillPlan = prefillRequested
+          ? buildRecloudInspectionFormPlan({
+              faultCategory: req.body?.faultCategory,
+              warrantyStatus: req.body?.warrantyStatus,
+              detectionResult: req.body?.detectionResult,
+            })
+          : null;
         const inspection = await connector.inspectDetectionForm(page, {
           dryRun: true,
           writeEnabled: false,
           faultKeyword,
+          prefillPlan,
         });
         inspection.controlMapping = assessRecloudInspectionControlMapping(inspection.fieldControls);
         return { logisticsNo, rmaNo: detail.rmaNo, inspection };

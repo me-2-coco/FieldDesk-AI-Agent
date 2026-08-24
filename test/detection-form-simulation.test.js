@@ -58,8 +58,50 @@ test("detection simulation uses only configured test order and restores keyword"
   assert.equal(result.data.inspection.controlMapping.readyToPrefill, false);
   assert.deepEqual(calls, [
     ["query", "TEST-DETECTION-ORDER"],
-    ["inspect", { dryRun: true, writeEnabled: false, faultKeyword: "水泵" }],
+    ["inspect", { dryRun: true, writeEnabled: false, faultKeyword: "水泵", prefillPlan: null }],
   ]);
+});
+
+test("detection simulation builds a complete temporary prefill plan without confirming", async (t) => {
+  let receivedPlan = null;
+  const connector = {
+    openRecloud: async () => ({ page: {} }),
+    queryRmaByLogisticsNo: async () => ({ rmaNo: "JXTH-TEST-PREFILL" }),
+    inspectDetectionForm: async (_page, options) => {
+      receivedPlan = options.prefillPlan;
+      return {
+        dryRun: true,
+        prefill: { valuesVerified: true, valuesRestored: true, confirmClicked: false },
+        fieldControls: [],
+        confirmClicked: false,
+        confirmed: false,
+        recloudModified: false,
+      };
+    },
+    confirmDetection: async () => assert.fail("must never confirm detection"),
+  };
+  const url = await startServer(t, connector);
+  const response = await fetch(`${url}/api/crm/repairs/detection-form/simulate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      logisticsNo: "TEST-DETECTION-ORDER",
+      faultKeyword: "水泵",
+      prefill: true,
+      faultCategory: "产品质量 / 不出水 / 水泵不良",
+      warrantyStatus: "保内",
+      detectionResult: "维修",
+    }),
+  });
+  const result = await response.json();
+  const writes = Object.fromEntries(receivedPlan.safeWrites.map((item) => [item.key, item.value]));
+
+  assert.equal(response.status, 200);
+  assert.equal(writes.customerReasonConsistent, "是");
+  assert.equal(writes.originalConsumables, "是");
+  assert.equal(writes.consumableName, "");
+  assert.equal(receivedPlan.canAutoConfirm, false);
+  assert.equal(result.data.inspection.prefill.confirmClicked, false);
 });
 
 test("detection simulation rejects any non-configured order before opening Recloud", async (t) => {
@@ -81,6 +123,32 @@ test("detection simulation rejects any non-configured order before opening Reclo
 
   assert.equal(response.status, 403);
   assert.equal(result.code, "RECLOUD_DETECTION_TEST_ORDER_REQUIRED");
+  assert.equal(opened, false);
+});
+
+test("detection prefill rejects incomplete business fields before opening Recloud", async (t) => {
+  let opened = false;
+  const connector = {
+    openRecloud: async () => {
+      opened = true;
+      return { page: {} };
+    },
+  };
+  const url = await startServer(t, connector);
+  const response = await fetch(`${url}/api/crm/repairs/detection-form/simulate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      logisticsNo: "TEST-DETECTION-ORDER",
+      faultKeyword: "水泵",
+      prefill: true,
+      faultCategory: "产品质量 / 不出水 / 水泵不良",
+    }),
+  });
+  const result = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.deepEqual(result.missingFields, ["warrantyStatus", "detectionResult"]);
   assert.equal(opened, false);
 });
 
