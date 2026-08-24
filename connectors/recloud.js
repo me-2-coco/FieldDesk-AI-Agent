@@ -7924,23 +7924,97 @@ async function inspectDetectionForm(page, options = {}) {
     }
     let prefill = null;
     if (options.prefillPlan) {
-      prefill = await executeDetectionPrefillSafely(
-        options.prefillPlan,
-        createRecloudDetectionControlAdapter(page, dialog)
-      );
+      try {
+        prefill = await executeDetectionPrefillSafely(
+          options.prefillPlan,
+          createRecloudDetectionControlAdapter(page, dialog)
+        );
+      } catch (error) {
+        if (error?.code !== "RECLOUD_DETECTION_PREFILL_RESTORE_FAILED" || error.valuesVerified !== true) throw error;
+        const visibleCloseButtons = dialog.locator("button[aria-label='Close']:visible");
+        let topmostClose = null;
+        let topmostY = Number.POSITIVE_INFINITY;
+        for (let index = 0; index < await visibleCloseButtons.count(); index += 1) {
+          const candidate = visibleCloseButtons.nth(index);
+          const box = await candidate.boundingBox().catch(() => null);
+          if (box && box.y < topmostY) {
+            topmostY = box.y;
+            topmostClose = candidate;
+          }
+        }
+        const detectionShell = page.locator(".rtxpc-dialog:visible, .el-dialog:visible").filter({
+          has: page.locator(".el-dialog__title:visible, .rtxpc-dialog__title:visible").filter({ hasText: /^检测$/ }),
+        }).last();
+        const rollbackControl = await firstVisible([
+          topmostClose,
+          detectionShell.locator(":scope > .el-dialog__header button[aria-label='Close'], :scope > .rtxpc-dialog__header button[aria-label='Close'], button[aria-label='Close']").first(),
+          dialog.locator(":scope > .el-dialog > .el-dialog__header button[aria-label='Close'], :scope > .rtxpc-dialog > .rtxpc-dialog__header button[aria-label='Close']").first(),
+          dialog.getByRole("button", { name: /^(取消|关闭|返回)$/ }).last(),
+          dialog.locator("button[aria-label='Close'], button[aria-label*='关闭'], button[title*='关闭'], .el-dialog__headerbtn, .rt-dialog__close").first(),
+        ]);
+        if (rollbackControl) await rollbackControl.click({ timeout: 3000, force: true }).catch(() => {});
+        await page.waitForTimeout?.(300);
+        for (let attempt = 0; attempt < 3 && await dialog.isVisible().catch(() => false); attempt += 1) {
+          await page.keyboard.press("Escape").catch(() => {});
+          await page.waitForTimeout?.(300);
+        }
+        dialogClosed = await dialog.isVisible().then((value) => !value).catch(() => true);
+        await networkGuard?.assertSafe();
+        let rollbackMethod = "DIALOG_CLOSE_ROLLBACK";
+        if (!dialogClosed && typeof page.close === "function") {
+          await page.close({ runBeforeUnload: false });
+          dialogClosed = true;
+          rollbackMethod = "PAGE_CLOSE_ROLLBACK";
+        }
+        if (!dialogClosed) {
+          error.rollbackDialogText = String(await dialog.innerText().catch(() => "")).replace(/\s+/g, " ").trim().slice(0, 500);
+          error.rollbackCloseCandidates = await dialog.locator("[class*='close'], [class*='Close'], [aria-label], [title]").evaluateAll((elements) => elements.map((element) => ({
+            tag: String(element.tagName || "").toLowerCase(),
+            text: String(element.textContent || "").replace(/\s+/g, " ").trim().slice(0, 40),
+            title: String(element.getAttribute("title") || "").slice(0, 80),
+            ariaLabel: String(element.getAttribute("aria-label") || "").slice(0, 80),
+            className: String(element.className || "").split(/\s+/).slice(0, 10).join(" ").slice(0, 200),
+          })).slice(0, 40)).catch(() => []);
+          error.rollbackControls = await dialog.locator("button:visible, [role='button']:visible").evaluateAll((elements) => elements.map((element) => ({
+            text: String(element.textContent || "").replace(/\s+/g, " ").trim().slice(0, 80),
+            title: String(element.getAttribute("title") || "").slice(0, 80),
+            ariaLabel: String(element.getAttribute("aria-label") || "").slice(0, 80),
+            className: String(element.className || "").split(/\s+/).slice(0, 8).join(" ").slice(0, 160),
+          })).slice(0, 30)).catch(() => []);
+          throw error;
+        }
+        prefill = {
+          dryRun: true,
+          fieldsPlanned: error.fieldsPlanned,
+          fieldsWritten: error.fieldsWritten,
+          fieldsRestored: [],
+          valuesVerified: true,
+          valuesRestored: true,
+          restoreMethod: rollbackMethod,
+          confirmClicked: false,
+          confirmed: false,
+          recloudModified: false,
+        };
+      }
       await networkGuard?.assertSafe();
     }
-    const closeControl = await firstVisible([
-      dialog.getByRole("button", { name: /^(取消|关闭|返回)$/ }).last(),
-      dialog.locator("button[aria-label*='关闭'], button[title*='关闭'], .el-dialog__headerbtn, .rt-dialog__close").last(),
-    ]);
-    if (closeControl) await closeControl.click({ timeout: 3000 }).catch(() => {});
-    await page.waitForTimeout?.(300);
-    if (await dialog.isVisible().catch(() => false)) {
-      await page.keyboard.press("Escape").catch(() => {});
+    if (!dialogClosed) {
+      const closeControl = await firstVisible([
+        page.locator(".rtxpc-dialog:visible, .el-dialog:visible").filter({
+          has: page.locator(".el-dialog__title:visible, .rtxpc-dialog__title:visible").filter({ hasText: /^检测$/ }),
+        }).last().locator(":scope > .el-dialog__header button[aria-label='Close'], :scope > .rtxpc-dialog__header button[aria-label='Close'], button[aria-label='Close']").first(),
+        dialog.locator(":scope > .el-dialog > .el-dialog__header button[aria-label='Close'], :scope > .rtxpc-dialog > .rtxpc-dialog__header button[aria-label='Close']").first(),
+        dialog.getByRole("button", { name: /^(取消|关闭|返回)$/ }).last(),
+        dialog.locator("button[aria-label='Close'], button[aria-label*='关闭'], button[title*='关闭'], .el-dialog__headerbtn, .rt-dialog__close").first(),
+      ]);
+      if (closeControl) await closeControl.click({ timeout: 3000, force: true }).catch(() => {});
       await page.waitForTimeout?.(300);
+      if (await dialog.isVisible().catch(() => false)) {
+        await page.keyboard.press("Escape").catch(() => {});
+        await page.waitForTimeout?.(300);
+      }
+      dialogClosed = await dialog.isVisible().then((value) => !value).catch(() => true);
     }
-    dialogClosed = await dialog.isVisible().then((value) => !value).catch(() => true);
     await networkGuard?.assertSafe();
     return {
       dryRun: true,
@@ -8305,7 +8379,9 @@ async function createReceiptNetworkGuard(page, state) {
   state.networkGuardEnabled = true;
   return {
     async assertSafe() {
-      await page.waitForTimeout?.(50);
+      if (typeof page.isClosed !== "function" || !page.isClosed()) {
+        await page.waitForTimeout?.(50);
+      }
       if (!state.mutationRequestDetected) return;
       const error = new Error("演练期间检测并阻止了非预期写请求");
       error.code = "RECLOUD_UNEXPECTED_WRITE_REQUEST";

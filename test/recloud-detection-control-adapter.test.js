@@ -3,7 +3,9 @@ const assert = require("node:assert/strict");
 const {
   normalizeControlText,
   uniqueExactCandidate,
+  uniqueFullPathOrLeafCandidate,
   readSelectValue,
+  chooseDropdownValue,
 } = require("../connectors/recloud-detection-control-adapter");
 
 function option(text, calls) {
@@ -38,6 +40,35 @@ test("Recloud detection option matching refuses duplicate exact labels", async (
   );
 });
 
+test("restoration may match a unique leaf label from a full fault path", async () => {
+  const calls = [];
+  const selected = await uniqueFullPathOrLeafCandidate([
+    option("产品质量 / 外观不良 / 软管外观不良", calls),
+    option("产品质量 / 外观不良 / 主机外观不良", calls),
+  ], "软管外观不良", "faultCategory");
+  await selected.click();
+  assert.deepEqual(calls, ["产品质量 / 外观不良 / 软管外观不良"]);
+});
+
+test("restoration may match a unique leaf when the saved value contains a shorter path", async () => {
+  const calls = [];
+  const selected = await uniqueFullPathOrLeafCandidate([
+    option("产品质量 / 管路问题 / 污水管道包胶开裂", calls),
+    option("产品质量 / 外观不良 / 软管外观不良", calls),
+  ], "产品质量 / 污水管道包胶开裂", "faultCategory");
+  assert.equal(await selected.text(), "产品质量 / 管路问题 / 污水管道包胶开裂");
+});
+
+test("restoration refuses duplicate leaf labels from different fault paths", async () => {
+  await assert.rejects(
+    uniqueFullPathOrLeafCandidate([
+      option("产品质量 / 路径甲 / 软管不良", []),
+      option("产品质量 / 路径乙 / 软管不良", []),
+    ], "软管不良", "faultCategory"),
+    { code: "RECLOUD_DETECTION_OPTION_AMBIGUOUS", fieldKey: "faultCategory" }
+  );
+});
+
 test("Recloud select value is read from the visible selected tag instead of the empty search input", async () => {
   const item = {
     locator(selector) {
@@ -52,4 +83,42 @@ test("Recloud select value is read from the visible selected tag instead of the 
   };
 
   assert.equal(await readSelectValue(item), "保外");
+});
+
+test("restoring an empty searchable value clears the selected tag, not only the search text", async () => {
+  let selected = "功能问题";
+  const calls = [];
+  const input = {
+    async count() { return 1; },
+    async fill(value) { calls.push(["fill", value]); },
+    async click() { calls.push(["input-click"]); },
+  };
+  const clear = {
+    async count() { return 1; },
+    first() {
+      return {
+        async click() {
+          calls.push(["clear-click"]);
+          selected = "";
+        },
+      };
+    },
+  };
+  const item = {
+    locator(selector) {
+      if (selector.includes("role='combobox'")) return { last: () => input };
+      if (selector.includes("picklist-clearicon")) return clear;
+      if (selector.includes("rt-picklist__tags")) {
+        return {
+          async count() { return selected ? 1 : 0; },
+          first() { return { async innerText() { return selected; } }; },
+        };
+      }
+      throw new Error(`unexpected selector: ${selector}`);
+    },
+  };
+
+  await chooseDropdownValue({ waitForTimeout: async () => {} }, item, "", "faultCategory", true);
+  assert.equal(selected, "");
+  assert.deepEqual(calls, [["fill", ""], ["input-click"], ["clear-click"]]);
 });

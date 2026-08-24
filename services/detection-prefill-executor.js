@@ -98,7 +98,14 @@ async function executeDetectionPrefillSafely(plan, controlAdapter) {
     }
   }
 
-  if (restoreError) throw restoreError;
+  if (restoreError) {
+    restoreError.valuesVerified = !primaryError && writtenFields.length === plan.safeWrites.length;
+    restoreError.primaryCode = primaryError?.code || "";
+    restoreError.primaryFieldKey = primaryError?.fieldKey || "";
+    restoreError.fieldsPlanned = plan.safeWrites.map((write) => write.key);
+    restoreError.fieldsWritten = [...writtenFields];
+    throw restoreError;
+  }
   if (primaryError) throw primaryError;
   return {
     dryRun: true,

@@ -616,7 +616,27 @@ function createApp(
         return { logisticsNo, rmaNo: detail.rmaNo, inspection };
       });
       return res.json({ success: true, data });
-    } catch (error) { return next(error); }
+    } catch (error) {
+      if (error?.code?.startsWith("RECLOUD_DETECTION_PREFILL_")) {
+        console.warn("RECLOUD_DETECTION_PREFILL_DIAGNOSTIC:", JSON.stringify({
+          code: error.code,
+          fieldKey: String(error.fieldKey || "").slice(0, 80),
+          phase: String(error.phase || "").slice(0, 40),
+          causeCode: String(error.cause?.code || "").slice(0, 80),
+          expectedValue: String(error.cause?.expectedValue || "").slice(0, 120),
+          candidateValues: Array.isArray(error.cause?.candidateValues)
+            ? error.cause.candidateValues.map((value) => String(value).slice(0, 120)).slice(0, 20)
+            : [],
+          primaryCode: String(error.primaryCode || "").slice(0, 80),
+          primaryFieldKey: String(error.primaryFieldKey || "").slice(0, 80),
+          fieldsWritten: Array.isArray(error.fieldsWritten) ? error.fieldsWritten.slice(0, 20) : [],
+          rollbackControls: Array.isArray(error.rollbackControls) ? error.rollbackControls.slice(0, 30) : [],
+          rollbackDialogText: String(error.rollbackDialogText || "").slice(0, 500),
+          rollbackCloseCandidates: Array.isArray(error.rollbackCloseCandidates) ? error.rollbackCloseCandidates.slice(0, 40) : [],
+        }));
+      }
+      return next(error);
+    }
   });
 
   app.post("/api/crm/repairs/repair-form/inspect", async (req, res, next) => {
