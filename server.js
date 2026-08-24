@@ -1384,11 +1384,17 @@ function createApp(
         currentUserProvider(req)
       );
       await enqueueRecloudNode(data, "INSPECTION_COMPLETED", data.inspectionUpdatedAt || data.id);
+      const recloudPrefillPlan = buildRecloudInspectionFormPlan({
+        faultCategory: data.faultCategory,
+        warrantyStatus: data.technicianWarranty,
+        detectionResult: data.detectionResult,
+      });
       return res.json({
         success: true,
         data: {
           ...data,
-          message: "检测信息已保存到 FieldDesk，尚未同步瑞云",
+          recloudPrefillPlan,
+          message: "检测信息已保存到 FieldDesk；请按瑞云预填清单人工核对后确认",
           recloudSynced: false,
         },
       });

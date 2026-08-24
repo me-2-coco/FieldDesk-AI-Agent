@@ -125,6 +125,40 @@ button:disabled {
   text-align: left;
 }
 
+.recloud-review-card {
+  margin: 16px 0;
+  padding: 14px;
+  border: 1px solid #91caff;
+  border-radius: 12px;
+  background: #f0f8ff;
+}
+
+.recloud-review-card h3 {
+  margin: 0 0 8px;
+}
+
+.recloud-review-card dl {
+  margin: 12px 0;
+}
+
+.recloud-review-card dl > div {
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) minmax(0, 1.4fr);
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid #d6e4ff;
+}
+
+.recloud-review-card dt {
+  color: #475569;
+}
+
+.recloud-review-card dd {
+  margin: 0;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
 .receipt-actions {
   display: flex;
   gap: 10px;

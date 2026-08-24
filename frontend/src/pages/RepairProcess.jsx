@@ -27,6 +27,7 @@ function RepairProcess({ setPage }) {
   const [message, setMessage] = useState("")
   const [errorMessage, setErrorMessage] = useState("")
   const [isSaving, setIsSaving] = useState(false)
+  const [recloudPrefillPlan, setRecloudPrefillPlan] = useState(null)
 
   useEffect(() => {
     const keyword = faultCategory.trim()
@@ -91,6 +92,7 @@ function RepairProcess({ setPage }) {
         status: REPAIR_STATUS.INSPECTION_COMPLETE
       })
       setRepairOrder(updated)
+      setRecloudPrefillPlan(result.recloudPrefillPlan || null)
       setMessage(result.message || "检测信息已保存到 FieldDesk")
     } catch (error) {
       setErrorMessage(error.message)
@@ -192,6 +194,22 @@ function RepairProcess({ setPage }) {
         {errorMessage && <p className="error-message">{errorMessage}</p>}
         {message && <p role="status">{message}</p>}
 
+        {recloudPrefillPlan && (
+          <div className="recloud-review-card" aria-label="瑞云检测预填复核清单">
+            <h3>瑞云预填复核清单</h3>
+            <p>以下内容已由 FieldDesk 生成，提交瑞云前必须由师傅逐项核对。</p>
+            <dl>
+              {recloudPrefillPlan.safeWrites.map((item) => (
+                <div key={item.key}>
+                  <dt>{item.target}</dt>
+                  <dd>{item.value || "保持空白"}</dd>
+                </div>
+              ))}
+            </dl>
+            <p className="dry-run-notice">责任判定保持空白；系统不会自动点击瑞云“确认”。</p>
+          </div>
+        )}
+
         <button
           className="primary-btn"
           onClick={saveDetection}
@@ -201,7 +219,7 @@ function RepairProcess({ setPage }) {
         </button>
 
         <p className="dry-run-notice">
-          当前仅保存到 FieldDesk，本阶段不会操作瑞云
+          当前仅保存到 FieldDesk；瑞云最终确认必须由人工操作
         </p>
 
         {repairOrder.status === REPAIR_STATUS.INSPECTION_COMPLETE && (

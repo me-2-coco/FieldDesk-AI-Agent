@@ -346,6 +346,13 @@ test("local receipt and inspection APIs never open Recloud", async (t) => {
     "INSPECTION_COMPLETED_PENDING_REPAIR"
   );
   assert.equal(inspected.result.data.recloudSynced, false);
+  const prefillWrites = Object.fromEntries(
+    inspected.result.data.recloudPrefillPlan.safeWrites.map((item) => [item.key, item.value])
+  );
+  assert.equal(prefillWrites.faultCategory, "功能问题/无法启动");
+  assert.equal(prefillWrites.warrantyStatus, "保内");
+  assert.equal(prefillWrites.detectionResult, "维修");
+  assert.equal(inspected.result.data.recloudPrefillPlan.canAutoConfirm, false);
 });
 
 test("sweep and wash accounts generate their authorized remarks", () => {
@@ -603,6 +610,8 @@ test("inspection page shows the required local order fields", async () => {
   assert.doesNotMatch(source, /请输入检测备注/);
   assert.match(source, /维修完成\/待检测登记/);
   assert.match(source, /INSPECTION_COMPLETE/);
+  assert.match(source, /瑞云预填复核清单/);
+  assert.match(source, /系统不会自动点击瑞云“确认”/);
   assert.doesNotMatch(source, /配件申请/);
 });
 
