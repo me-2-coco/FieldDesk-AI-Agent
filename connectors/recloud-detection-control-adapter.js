@@ -58,6 +58,16 @@ async function readInputValue(item) {
   return normalizeControlText(await input.inputValue().catch(() => ""));
 }
 
+async function readSelectValue(item) {
+  const selected = item.locator(
+    ".rt-picklist__tags .rt-tag-text:visible, .rtxpc-select__tags .rt-tag-text:visible, " +
+    ".el-select__tags .el-tag__content:visible, " +
+    ".rt-select__selected-value:visible, .el-select__selected-item:visible"
+  );
+  if (!await selected.count()) return "";
+  return normalizeControlText(await selected.first().innerText().catch(() => ""));
+}
+
 async function readRadioValue(item) {
   const selected = item.locator(
     ".rt-radio.is-checked:visible, .el-radio.is-checked:visible, [role='radio'][aria-checked='true']:visible, label:has(input[type='radio']:checked):visible"
@@ -86,7 +96,19 @@ async function chooseDropdownValue(page, item, value, key, searchable) {
     throw adapterError(`检测字段 ${key} 缺少可操作输入控件`, "RECLOUD_DETECTION_CONTROL_INCOMPATIBLE", key);
   }
   if (!expected) {
-    if (typeof input.fill === "function") await input.fill("");
+    if (searchable) {
+      await input.fill("");
+      return;
+    }
+    if (!await readSelectValue(item)) return;
+    await input.click({ timeout: 3000 });
+    const clear = item.locator(
+      ".rt-xpc-picklist-clearicon:visible, .el-select__clear:visible, .rt-select__clear:visible"
+    );
+    if (await clear.count() !== 1) {
+      throw adapterError(`检测字段 ${key} 无法安全清空`, "RECLOUD_DETECTION_CONTROL_INCOMPATIBLE", key);
+    }
+    await clear.first().click({ timeout: 3000 });
     return;
   }
   await input.click({ timeout: 3000 });
@@ -94,9 +116,21 @@ async function chooseDropdownValue(page, item, value, key, searchable) {
   await page.waitForTimeout?.(300);
   const optionLocator = page.locator(
     ".rt-select-dropdown:visible [role='option']:visible, .el-select-dropdown:visible [role='option']:visible, " +
-    ".rt-cascader-dropdown:visible li:visible, .el-cascader__dropdown:visible li:visible"
+    ".rt-cascader-dropdown:visible li:visible, .el-cascader__dropdown:visible li:visible, " +
+    "[role='list']:visible > *:visible, [role='listbox']:visible > *:visible"
   );
-  const option = await uniqueExactCandidate(await visibleCandidates(optionLocator), expected, key);
+  const candidates = await visibleCandidates(optionLocator);
+  let hasExactCandidate = false;
+  for (const candidate of candidates) {
+    if (normalizeControlText(await candidate.text()) === expected) {
+      hasExactCandidate = true;
+      break;
+    }
+  }
+  if (!hasExactCandidate && typeof page.getByRole === "function") {
+    candidates.push(...await visibleCandidates(page.getByRole("list").getByText(expected, { exact: true })));
+  }
+  const option = await uniqueExactCandidate(candidates, expected, key);
   await option.click();
   await page.waitForTimeout?.(100);
 }
@@ -122,6 +156,7 @@ function createRecloudDetectionControlAdapter(page, dialog) {
       const definition = await definitionFor(key);
       const item = await locateUniqueItem(dialog, definition, key);
       if (definition.control === "RADIO") return readRadioValue(item);
+      if (definition.control === "SELECT") return readSelectValue(item);
       return readInputValue(item);
     },
     async write(key, value) {
@@ -146,5 +181,6 @@ function createRecloudDetectionControlAdapter(page, dialog) {
 module.exports = {
   normalizeControlText,
   uniqueExactCandidate,
+  readSelectValue,
   createRecloudDetectionControlAdapter,
 };

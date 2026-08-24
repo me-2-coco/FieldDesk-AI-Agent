@@ -97,16 +97,23 @@ test("inspection mapping prepares fixed Recloud fields but never auto-confirms",
   assert.equal(writes.warrantyStatus, "保内");
   assert.equal(writes.detectionResult, "维修");
   assert.equal(writes.customerReasonConsistent, "是");
-  assert.equal(writes.inspectionAbnormal, "否");
+  assert.equal(writes.inspectionAbnormal, undefined);
   assert.equal(writes.productFunctionDecision, "功能问题");
   assert.equal(writes.originalConsumables, "是");
   assert.equal(writes.consumableName, "");
   assert.equal(writes.dismantled, "是");
-  assert.deepEqual(plan.excludedFields, [{
-    key: "responsibilityDecision",
-    target: "责任判定",
-    reason: "每单保持空白",
-  }]);
+  assert.deepEqual(plan.excludedFields, [
+    {
+      key: "inspectionAbnormal",
+      target: "检测无异常",
+      reason: "当前瑞云检测弹窗无此控件，仅保留本地记录",
+    },
+    {
+      key: "responsibilityDecision",
+      target: "责任判定",
+      reason: "每单保持空白",
+    },
+  ]);
   assert.deepEqual(plan.missingFields, []);
   assert.equal(plan.canAutoConfirm, false);
 
@@ -154,15 +161,25 @@ test("inspection control mapping requires one compatible Recloud control per wri
   assert.deepEqual(result.missingFields, []);
   assert.deepEqual(result.ambiguousFields, []);
   assert.deepEqual(result.incompatibleFields, []);
-  assert.equal(result.fields.length, 9);
-  assert.deepEqual(result.excludedFields, [{
-    key: "responsibilityDecision",
-    target: "责任判定",
-    expectedControl: "SELECT",
-    itemCount: 1,
-    mapped: true,
-    reason: "保持空白，不参与自动填写",
-  }]);
+  assert.equal(result.fields.length, 8);
+  assert.deepEqual(result.excludedFields, [
+    {
+      key: "inspectionAbnormal",
+      target: "检测无异常",
+      expectedControl: "SELECT",
+      itemCount: 1,
+      mapped: true,
+      reason: "保持空白，不参与自动填写",
+    },
+    {
+      key: "responsibilityDecision",
+      target: "责任判定",
+      expectedControl: "SELECT",
+      itemCount: 1,
+      mapped: true,
+      reason: "保持空白，不参与自动填写",
+    },
+  ]);
 });
 
 test("inspection control mapping stops on missing duplicate or incompatible fields", () => {

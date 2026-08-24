@@ -18,7 +18,7 @@ const RECLOUD_INSPECTION_FIELD_TARGETS = Object.freeze({
   customerReasonConsistent: { target: "是否与客服登记原因一致", status: "FIXED_YES", control: "RADIO" },
   warrantyStatus: { target: "保修状态", status: "CONFIRMED", control: "SELECT" },
   detectionResult: { target: "检测结果", status: "CONFIRMED", control: "SELECT" },
-  inspectionAbnormal: { target: "检测无异常", status: "FIXED_NO", control: "SELECT" },
+  inspectionAbnormal: { target: "检测无异常", status: "EXCLUDED", control: "SELECT" },
   productFunctionDecision: { target: "成品功能判断", status: "FIXED_FUNCTION_ISSUE", control: "SELECT" },
   originalConsumables: { target: "是否原厂耗材", status: "FIXED_YES", control: "RADIO" },
   consumableName: { target: "耗材名称", status: "CLEAR_AFTER_ORIGINAL", control: "TEXT_INPUT" },
@@ -82,7 +82,6 @@ function buildRecloudInspectionFormPlan(payload = {}) {
     customerReasonConsistent: "是",
     warrantyStatus: normalizeWarrantyForRecloud(payload.warrantyStatus),
     detectionResult: String(payload.detectionResult || payload.inspectionResult || "").trim(),
-    inspectionAbnormal: "否",
     productFunctionDecision: "功能问题",
     originalConsumables: "是",
     consumableName: "",
@@ -96,11 +95,18 @@ function buildRecloudInspectionFormPlan(payload = {}) {
       target: RECLOUD_INSPECTION_FIELD_TARGETS[key].target,
       value,
     })),
-    excludedFields: [{
-      key: "responsibilityDecision",
-      target: RECLOUD_INSPECTION_FIELD_TARGETS.responsibilityDecision.target,
-      reason: "每单保持空白",
-    }],
+    excludedFields: [
+      {
+        key: "inspectionAbnormal",
+        target: RECLOUD_INSPECTION_FIELD_TARGETS.inspectionAbnormal.target,
+        reason: "当前瑞云检测弹窗无此控件，仅保留本地记录",
+      },
+      {
+        key: "responsibilityDecision",
+        target: RECLOUD_INSPECTION_FIELD_TARGETS.responsibilityDecision.target,
+        reason: "每单保持空白",
+      },
+    ],
     missingFields,
     canAutoConfirm: false,
     reason: missingFields.length

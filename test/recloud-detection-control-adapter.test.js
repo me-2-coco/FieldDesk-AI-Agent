@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const {
   normalizeControlText,
   uniqueExactCandidate,
+  readSelectValue,
 } = require("../connectors/recloud-detection-control-adapter");
 
 function option(text, calls) {
@@ -35,4 +36,20 @@ test("Recloud detection option matching refuses duplicate exact labels", async (
     uniqueExactCandidate([option("是", []), option("是", [])], "是", "originalConsumables"),
     { code: "RECLOUD_DETECTION_OPTION_AMBIGUOUS", fieldKey: "originalConsumables" }
   );
+});
+
+test("Recloud select value is read from the visible selected tag instead of the empty search input", async () => {
+  const item = {
+    locator(selector) {
+      assert.match(selector, /rt-picklist__tags/);
+      return {
+        async count() { return 1; },
+        first() {
+          return { async innerText() { return " 保外 "; } };
+        },
+      };
+    },
+  };
+
+  assert.equal(await readSelectValue(item), "保外");
 });
