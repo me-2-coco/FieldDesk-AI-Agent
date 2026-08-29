@@ -27,6 +27,7 @@ CRM_REPLACEMENT_SAVED = "更换件已保存，等待继续"
 CRM_FAULT_MODE_OPENED = "故障模式编辑页已打开，等待继续"
 CRM_FAULT_MODE_FILLED = "维修措施已填写，等待确认"
 CRM_FAULT_MODE_SAVED = "维修措施已保存，等待继续"
+CRM_FINAL_ACTION_READY = "CRM完整流程已准备，等待最终确认"
 CRM_FAILED = "CRM处理失败"
 COMPLETED = "已完成"
 

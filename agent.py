@@ -21,6 +21,7 @@ from task_manager import (
     CRM_FAULT_MODE_OPENED,
     CRM_FAULT_MODE_FILLED,
     CRM_FAULT_MODE_SAVED,
+    CRM_FINAL_ACTION_READY,
     CRM_RMA_OPENED,
     CRM_SIGN_PREVIEW,
     CRM_RUNNING,
@@ -48,6 +49,8 @@ DEFAULT_TIMEOUT_MS = 4_000
 CHOICE_TIMEOUT_MS = 4_000
 CHOICE_POLL_MS = 100
 KNOWLEDGE_FILE = BASE_DIR / "knowledge" / "fault_mapping.json"
+# 工单资料已齐全且不计算大附件实际上传时间时，瑞云页面操作目标为 60 秒。
+ORDER_UI_TARGET_SECONDS = 60
 
 
 def step_started(order_id, step):
@@ -810,12 +813,11 @@ def fill_detection_preview(page, dialog, order):
     choose_detection_radio(dialog, "是否与客服登记原因一致", "否")
     choose_detection_option(page, dialog, "保修状态", order.get("保内保外") or "保内")
     choose_detection_option(page, dialog, "检测结果", "维修")
-    # 当前业务流程不要求填写责任判定，保持空白。
-    fill_detection_text(dialog, "故障描述", order.get("故障"))
+    # 当前业务流程不填写责任判定和故障描述，保持瑞云原值不动。
     choose_detection_option(page, dialog, "成品功能判断", "功能问题")
     choose_detection_radio(dialog, "是否原厂耗材", "是")
     # 当前业务流程中“耗材名称”无需填写，保持空白。
-    choose_detection_radio(dialog, "是否拆封", "否")
+    # “是否拆封”和“拆封备注”均保持瑞云原值不动。
 
 
 def fill_sign_preview(page, order):
@@ -1519,7 +1521,121 @@ def fill_fault_mode_edit(page, order):
     actual = field.input_value()
     if normalize_text(actual) != normalize_text(value):
         raise RuntimeError("维修措施填写后校验不一致，已停止")
+    # 固定业务规则：维修记录均属于排障处理。
+    choose_detection_radio(page, "是否是排障问题", "是")
     return value
+
+
+def confirm_visible_dialog_button(dialog, name, timeout_ms=5_000):
+    """只点击当前弹窗内唯一按钮，避免误点背景页同名操作。"""
+    pattern = re.compile(rf"^\s*{re.escape(name)}\s*$")
+    button = dialog.get_by_role("button", name=pattern)
+    visible = [button.nth(i) for i in range(button.count()) if button.nth(i).is_visible()]
+    if len(visible) != 1:
+        raise RuntimeError(f"当前窗口匹配到 {len(visible)} 个‘{name}’按钮，已停止")
+    visible[0].click(force=True)
+    if not wait_until(lambda: not dialog.is_visible(), timeout_ms=timeout_ms):
+        raise RuntimeError(f"点击‘{name}’后窗口{timeout_ms / 1000:g}秒内没有关闭")
+
+
+def complete_order_fast(page, order, order_id):
+    """同一浏览器会话连续做到瑞云最终完工/提交按钮之前。"""
+    workflow_started_at = time.monotonic()
+    attachment_upload_seconds = 0.0
+    completed_steps = set((get_order(order_id) or {}).get("CRM已完成步骤") or [])
+
+    sign_files = attachment_paths(order, ("SN照片", "开箱及外观照片"))
+    if not crm_has_attachments(page, sign_files):
+        started = step_started(order_id, "上传签收附件")
+        upload_started_at = time.monotonic()
+        upload_rma_attachments(page, sign_files)
+        attachment_upload_seconds += time.monotonic() - upload_started_at
+        step_finished(order_id, "上传签收附件", started, f"共{len(sign_files)}个")
+    else:
+        add_event(order_id, "CRM附件核验通过", "签收照片均已存在，跳过重复上传")
+
+    if "确认CRM签收" not in completed_steps and not order.get("CRM跳过签收动作"):
+        started = step_started(order_id, "确认CRM签收")
+        sign_dialog = fill_sign_preview(page, order)
+        confirm_visible_dialog_button(sign_dialog, "确认")
+        step_finished(order_id, "确认CRM签收", started)
+        completed_steps.add("确认CRM签收")
+    elif order.get("CRM跳过签收动作"):
+        add_event(order_id, "跳过签收动作", "人工已签收；附件已核验")
+
+    if "确认CRM检测" not in completed_steps:
+        started = step_started(order_id, "确认CRM检测")
+        detection_dialog = open_detection_preview(page)
+        fill_detection_preview(page, detection_dialog, order)
+        confirm_visible_dialog_button(detection_dialog, "确认", timeout_ms=8_000)
+        step_finished(order_id, "确认CRM检测", started)
+        completed_steps.add("确认CRM检测")
+
+    started = step_started(order_id, "进入内部维修单")
+    page = ensure_service_report_page(page)
+    step_finished(order_id, "进入内部维修单", started)
+    open_product_info_tab(page)
+    handle_warranty_conversion(page, order)
+    validate_core_fault(order)
+
+    saved_parts = []
+    started = step_started(order_id, "保存全部更换配件")
+    for part in replacement_parts(order):
+        part_name, part_code, part_quantity = part
+        item_step = f"保存更换配件:{part_code}"
+        if item_step in completed_steps:
+            saved_parts.append(part)
+            add_event(order_id, "跳过已完成更换件", f"{part_name} / {part_code}")
+            continue
+        item_started = step_started(order_id, item_step)
+        saved_part = save_replacement(page, open_replacement_add_preview(page), part)
+        saved_parts.append(saved_part)
+        step_finished(order_id, item_step, item_started, f"数量{part_quantity}")
+        completed_steps.add(item_step)
+    step_finished(order_id, "保存全部更换配件", started, f"共{len(saved_parts)}项")
+
+    measure = repair_measure_text(order)
+    if "保存维修措施" not in completed_steps:
+        started = step_started(order_id, "保存维修措施")
+        open_fault_mode_edit(page, order)
+        measure = fill_fault_mode_edit(page, order)
+        save_fault_mode_edit(page)
+        step_finished(order_id, "保存维修措施", started)
+        completed_steps.add("保存维修措施")
+        add_event(order_id, "维修措施已保存", measure)
+
+    finish_files = attachment_paths(order, ("完工照片", "完工视频"))
+    if not crm_has_attachments(page, finish_files):
+        started = step_started(order_id, "上传完工附件")
+        upload_started_at = time.monotonic()
+        upload_rma_attachments(page, finish_files)
+        attachment_upload_seconds += time.monotonic() - upload_started_at
+        step_finished(order_id, "上传完工附件", started, f"共{len(finish_files)}个")
+    else:
+        add_event(order_id, "CRM附件核验通过", "完工照片和视频均已存在")
+
+    elapsed = round(time.monotonic() - workflow_started_at, 1)
+    ui_elapsed = round(max(0.0, elapsed - attachment_upload_seconds), 1)
+    update_order(
+        order_id,
+        状态=CRM_FINAL_ACTION_READY,
+        CRM维修页面网址=page.url,
+        CRM更换件名称=[part[0] for part in saved_parts],
+        CRM更换件编码=[part[1] for part in saved_parts],
+        CRM维修措施=measure,
+        CRM完工附件数量=len(finish_files),
+        CRM自动操作耗时秒=elapsed,
+        CRM附件上传耗时秒=round(attachment_upload_seconds, 1),
+        CRM页面操作耗时秒=ui_elapsed,
+    )
+    add_event(
+        order_id,
+        "完整快速流程已准备",
+        f"页面操作{ui_elapsed}秒，总计{elapsed}秒；停在瑞云最终完工/提交前",
+    )
+    if ui_elapsed > ORDER_UI_TARGET_SECONDS:
+        add_event(order_id, "一分钟目标未达成", f"页面操作{ui_elapsed}秒；请按步骤耗时定位瓶颈")
+    return page, elapsed
 
 
 def save_fault_mode_edit(page):
@@ -1708,7 +1824,16 @@ def run(order_id=None, keep_open=True, stage="rma"):
                 )
                 add_event(order_id, "已打开RMA", "唯一记录；安全暂停；未签收、未提交")
 
-                if stage == "warranty-confirm":
+                if stage == "complete-order":
+                    page, elapsed = complete_order_fast(page, order, order_id)
+                    preview = SCREENSHOT_DIR / f"{order_id}_ready_for_final_action.png"
+                    page.screenshot(path=str(preview), full_page=False)
+                    update_order(order_id, CRM完成截图=str(preview))
+                    print(
+                        "成功：签收、检测、配件、维修措施和完工附件已连续完成；"
+                        f"页面操作共 {elapsed} 秒。Agent停在最终完工/提交前。"
+                    )
+                elif stage == "warranty-confirm":
                     # 必须从RMA点击 FWD 维修单号进入，再在产品信息中处理。
                     page = ensure_service_report_page(page)
                     open_product_info_tab(page)
@@ -2079,6 +2204,7 @@ def main():
         "--stage",
         choices=(
             "rma",
+            "complete-order",
             "warranty-confirm",
             "complete-repair",
             "sign-preview",
@@ -2096,7 +2222,7 @@ def main():
             "finish-video-upload",
         ),
         default="rma",
-        help="执行阶段：打开RMA、上传签收附件、打开检测窗口或自动填写检测预览",
+        help="执行阶段：完整快速做单、打开RMA、上传签收附件或填写检测预览",
     )
     parser.add_argument("--close", action="store_true", help="成功后直接关闭浏览器")
     args = parser.parse_args()
