@@ -1,5 +1,6 @@
-const MAPPING_VERSION = "v9";
+const MAPPING_VERSION = "v10";
 const { resolveWarrantyConversion } = require("../services/warranty-conversion-policy");
+const { buildProjectCorrectionPlan } = require("../services/recloud-project-correction-rules");
 
 const NODE_REQUIRED_FIELDS = Object.freeze({
   RECEIPT: ["sn", "remark", "attachments"],
@@ -334,6 +335,29 @@ function buildNodePayload(order, nodeType) {
   );
 }
 
+function buildRecloudReceiptFormPlan(payload = {}) {
+  const correction = payload.projectCorrection
+    ? buildProjectCorrectionPlan({ status: "CHANGE_REQUIRED", ...payload.projectCorrection }, payload.sn)
+    : {
+        action: "KEEP",
+        required: false,
+        canAutoSave: false,
+      };
+  return {
+    projectCorrection: correction,
+    safeWrites: correction.required ? [{
+      key: "projectCorrection",
+      target: RECLOUD_RECEIPT_FIELD_TARGETS.projectCorrection.target,
+      value: correction,
+    }] : [],
+    readyToPrefill: correction.action === "KEEP" || correction.required === true,
+    canAutoConfirm: false,
+    reason: correction.required
+      ? "项目号不匹配，仅准备数字编码修改步骤；保存仍受安全开关控制"
+      : "项目号匹配，不查询或执行项目号修改",
+  };
+}
+
 function validateNodePayload(nodeType, payload = {}) {
   let required = NODE_REQUIRED_FIELDS[nodeType];
   if (!required) {
@@ -366,6 +390,7 @@ module.exports = {
   RECLOUD_RECEIPT_FIELD_TARGETS,
   RECLOUD_INSPECTION_FIELD_TARGETS,
   RECLOUD_REPAIR_FIELD_TARGETS,
+  buildRecloudReceiptFormPlan,
   buildRecloudInspectionFormPlan,
   assessRecloudInspectionControlMapping,
   buildRecloudRepairFormPlan,

@@ -52,13 +52,14 @@ test("matching Recloud project number skips model correction", () => {
   ], { sn: "W24480531CN6612529", currentProjectCode: "W2448" });
   assert.equal(result.status, "MATCHED");
   assert.equal(result.canContinue, true);
+  assert.equal(result.correctionLookupRequired, false);
 });
 
 test("project matching ignores Chinese and ASCII parentheses from Feishu cells", () => {
   for (const projectCode of ["(W2449)", "（W2449）"]) {
     const result = resolveProjectModel([
       { projectCode, model: "H40 Pro（W2449）", modelCode: "011101AA000163", repairFees: { 大修: 80, 中修: 60, 小修: 0 } },
-    ], { sn: "W2449054ACN6286029" });
+    ], { sn: "W2449054ACN6286029", currentProjectCode: "WRONG" });
     assert.equal(result.status, "CHANGE_REQUIRED");
     assert.equal(result.repairability, "SUPPORTED");
     assert.equal(result.productModelCode, "011101AA000163");
@@ -68,7 +69,7 @@ test("project matching ignores Chinese and ASCII parentheses from Feishu cells",
 test("project matching ignores explanatory text after a project code", () => {
   const result = resolveProjectModel([
     { projectCode: "W2448R（此款机型SN码是不带W）", model: "G20 Pro/T20 Plus/T40 Turbo", modelCode: "011104AA000005" },
-  ], { sn: "W2448R55VCN6215129" });
+  ], { sn: "W2448R55VCN6215129", currentProjectCode: "WRONG" });
   assert.equal(result.repairability, "SUPPORTED");
   assert.equal(result.productModelCode, "011104AA000005");
 });
@@ -79,6 +80,7 @@ test("mismatch resolves one Feishu product model code for Recloud search", () =>
   ], { sn: "W24480531CN6612529", currentProjectCode: "WRONG" });
   assert.equal(result.status, "CHANGE_REQUIRED");
   assert.equal(result.productModelCode, "010103AA000001");
+  assert.equal(result.correctionLookupRequired, true);
 });
 
 test("mismatch stops on duplicate model codes", () => {
@@ -104,6 +106,25 @@ test("same project prefers the one numeric product model code", () => {
   ], { sn: "R25730123456", currentProjectCode: "WRONG" });
   assert.equal(result.status, "CHANGE_REQUIRED");
   assert.equal(result.productModelCode, "010204AA000720");
+});
+
+test("correct current project never requires a product-code correction lookup", () => {
+  const result = resolveProjectModel([
+    { projectCode: "R2573", model: "S40 铂金版", modelCode: "010204AA000720", repairFees: { 大修: 80, 中修: 70, 小修: 50 } },
+    { projectCode: "R2573", model: "组合编码", modelCode: "TM202412250001", repairFees: { 大修: 80, 中修: 70, 小修: 50 } },
+  ], { sn: "R25730123456", currentProjectCode: "R2573" });
+  assert.equal(result.status, "MATCHED");
+  assert.equal(result.canContinue, true);
+});
+
+test("missing Recloud current project stops instead of guessing a correction", () => {
+  const result = resolveProjectModel([
+    { projectCode: "R2580X", model: "X50 Pro 履带上下水版", modelCode: "010201AA000656" },
+  ], { sn: "R2580X5AMCN0146633" });
+  assert.equal(result.status, "CURRENT_PROJECT_MISSING");
+  assert.equal(result.canContinue, false);
+  assert.equal(result.correctionLookupRequired, false);
+  assert.equal(result.productModelCode, undefined);
 });
 
 test("R2580X example resolves the numeric model code used to correct Recloud", () => {

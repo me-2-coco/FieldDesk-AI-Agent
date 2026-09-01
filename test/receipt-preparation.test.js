@@ -57,11 +57,11 @@ async function createTestStore(t) {
   return store;
 }
 
-async function startServer(t, connector, store, user = USERS.dual) {
+async function startServer(t, connector, store, user = USERS.dual, options = {}) {
   const server = await new Promise((resolve, reject) => {
     const instance = createApp(connector, store, {
       getCurrentUser: () => user,
-      feishuModelCatalog: { authorize: async () => ({ repairability: "SUPPORTED", status: "MATCHED", canContinue: true }) },
+      feishuModelCatalog: options.feishuModelCatalog || { authorize: async () => ({ repairability: "SUPPORTED", status: "MATCHED", canContinue: true }) },
     }).listen(
       0,
       "127.0.0.1",
@@ -112,6 +112,47 @@ test("receipt preparation rejects an empty SN", async (t) => {
   assert.equal(response.status, 400);
   assert.equal(result.code, "RECEIPT_SN_REQUIRED");
   assert.equal(result.message, "SN 不能为空");
+});
+
+test("receipt preparation passes the Recloud current project into SN authorization", async (t) => {
+  const store = await createTestStore(t);
+  let authorizationInput = null;
+  const url = await startServer(
+    t,
+    { openRecloud: async () => assert.fail("must not open Recloud") },
+    store,
+    USERS.sweep,
+    {
+      feishuModelCatalog: {
+        authorize: async (input) => {
+          authorizationInput = input;
+          return {
+            repairability: "SUPPORTED",
+            status: "CHANGE_REQUIRED",
+            currentProjectCode: input.currentProjectCode,
+            projectCode: "R2580X",
+            productModelCode: "010201AA000656",
+          };
+        },
+      },
+    }
+  );
+  const { response, result } = await post(
+    url,
+    "/api/repairs/prepare-receipt",
+    validPayload({
+      sn: "R2580X5AMCN0146633",
+      currentProjectCode: "R25808",
+    })
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(authorizationInput, {
+    sn: "R2580X5AMCN0146633",
+    currentProjectCode: "R25808",
+  });
+  assert.equal(result.data.recloudProjectCode, "R25808");
+  assert.equal(result.data.authorization.productModelCode, "010201AA000656");
 });
 
 test("SN is trimmed and normalized to uppercase", async (t) => {
@@ -646,6 +687,8 @@ test("frontend enables SN step and shows the local-only success message", async 
   assert.match(source, /mode=\{scannerMode\}/);
   assert.match(source, /重新扫码/);
   assert.match(source, /placeholder="请输入、扫描枪输入或使用摄像头扫描"/);
+  assert.match(source, /currentProjectCode: repairDetail\.projectCode \|\| ""/);
+  assert.doesNotMatch(source, /recloudProjectCode: repairDetail\.projectCode/);
   assert.match(source, /function startReceiptPreparation\(\)[\s\S]*?setSn\(""\)[\s\S]*?setReceiptStep\("form"\)/);
   assert.doesNotMatch(source, /setSn\(normalizeReceiptSn\(repairDetail\?\.productSerialNo/);
   assert.doesNotMatch(source, /setSn\(resolvedSn\)/);

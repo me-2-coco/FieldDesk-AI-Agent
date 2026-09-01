@@ -42,6 +42,7 @@ function createReceiptPreparation(input, existing = null, now = new Date()) {
     specialty: normalizeRequired(input.specialty),
     remark: normalizeRequired(input.remark),
     productLine: normalizeRequired(input.productLine),
+    recloudProjectCode: normalizeRequired(input.recloudProjectCode),
     customerName: normalizeRequired(input.customerName),
     regionAddress: normalizeRequired(input.regionAddress),
     reportedFault: normalizeRequired(input.reportedFault),

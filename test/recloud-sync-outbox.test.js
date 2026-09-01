@@ -15,6 +15,7 @@ const {
   RECLOUD_INSPECTION_FIELD_TARGETS,
   RECLOUD_REPAIR_FIELD_TARGETS,
   RECLOUD_RECEIPT_FIELD_TARGETS,
+  buildRecloudReceiptFormPlan,
   buildRecloudInspectionFormPlan,
   assessRecloudInspectionControlMapping,
   buildRecloudRepairFormPlan,
@@ -339,8 +340,29 @@ test("receipt sync carries the exact project correction and repair always select
     productModelCode: "010201AA000656",
     model: "X50 Pro 履带上下水版",
   });
+  const receiptPlan = buildRecloudReceiptFormPlan(receipt);
+  assert.equal(receiptPlan.projectCorrection.action, "REPLACE");
+  assert.equal(receiptPlan.projectCorrection.productModelCode, "010201AA000656");
+  assert.equal(receiptPlan.canAutoConfirm, false);
   const plan = buildRecloudRepairFormPlan(buildNodePayload(ORDER, "REPAIR_COMPLETED"));
   assert.equal(plan.safeWrites.find((field) => field.key === "troubleshooting").value, "否");
+});
+
+test("matching receipt creates no project correction write", async () => {
+  const adapter = new DryRunRecloudAdapter();
+  const result = await adapter.syncReceipt({
+    nodeType: "RECEIPT",
+    idempotencyKey: "MATCHED-RECEIPT",
+    mappingVersion: MAPPING_VERSION,
+    payload: {
+      sn: "W2458S53NCN7170529",
+      remark: "洗地机",
+      attachments: [{ id: "PHOTO-1" }],
+    },
+  });
+  assert.equal(result.formPlan.projectCorrection.action, "KEEP");
+  assert.deepEqual(result.formPlan.safeWrites, []);
+  assert.equal(result.formPlan.canAutoConfirm, false);
 });
 
 test("adapter factory never selects real adapter when either safety switch blocks writes", () => {

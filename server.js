@@ -1564,6 +1564,9 @@ function createApp(
       );
       const sn = validateReceiptSn(req.body?.sn, logisticsNo);
       const remark = specialty;
+      const currentProjectCode = String(
+        req.body?.currentProjectCode || req.body?.recloudProjectCode || ""
+      ).trim();
       const data = await receiptStore.prepare({
         logisticsNo,
         rmaNo,
@@ -1573,13 +1576,14 @@ function createApp(
         productLine: productLine || specialty,
         customerName: String(req.body?.customerName || "").trim(),
         reportedFault: String(req.body?.reportedFault || "").trim(),
+        recloudProjectCode: currentProjectCode,
         phoneMasked: normalizeMaskedPhone(req.body?.phoneMasked),
         regionAddress: String(req.body?.regionAddress || "").trim(),
         operatorId: currentUser.userId,
         operatorName: currentUser.displayName,
       });
       const authorization = typeof feishuModelCatalog.authorize === "function"
-        ? await feishuModelCatalog.authorize({ sn, currentProjectCode: req.body?.currentProjectCode })
+        ? await feishuModelCatalog.authorize({ sn, currentProjectCode })
         : await feishuModelCatalog.match({ sn, productLine: productLine || specialty });
       const authorizedData = await receiptStore.markModelAuthorization(
         rmaNo,

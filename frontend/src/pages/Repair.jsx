@@ -347,7 +347,7 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
         phoneMasked: repairDetail.customer?.phoneMasked || "",
         regionAddress: repairDetail.customer?.regionAddress || "",
         reportedFault: repairDetail.reportedFault,
-        recloudProjectCode: repairDetail.projectCode || ""
+        currentProjectCode: repairDetail.projectCode || ""
       })
       if (preparation.authorization?.repairability !== "SUPPORTED" || preparation.status !== "RECEIPT_PREPARED") {
         setReceiptStep("detail")

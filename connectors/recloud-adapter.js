@@ -1,4 +1,5 @@
 const {
+  buildRecloudReceiptFormPlan,
   buildRecloudInspectionFormPlan,
   buildRecloudRepairFormPlan,
   validateNodePayload,
@@ -24,7 +25,10 @@ class DryRunRecloudAdapter extends RecloudAdapter {
       mappedFields: Object.keys(task.payload).sort(),
     };
   }
-  async syncReceipt(task) { return this.result("RECEIPT", task); }
+  async syncReceipt(task) {
+    const result = this.result("RECEIPT", task);
+    return { ...result, formPlan: buildRecloudReceiptFormPlan(task.payload) };
+  }
   async syncInspectionCompleted(task) {
     const result = this.result("INSPECTION_COMPLETED", task);
     return { ...result, formPlan: buildRecloudInspectionFormPlan(task.payload) };

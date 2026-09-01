@@ -86,7 +86,7 @@ function projectCodeMatches(value, expected) {
 
 function resolveProjectModel(rows, input = {}) {
   const snProject = getSnProjectMatch(input.sn);
-  if (!snProject.projectCode) return { status: "INVALID_SN", canContinue: false };
+  if (!snProject.projectCode) return { status: "INVALID_SN", canContinue: false, correctionLookupRequired: false };
   const currentProjectCode = comparableProjectCode(input.currentProjectCode);
   const matches = rows.filter((row) => projectCodeMatches(row.projectCode, snProject.projectCode));
   const modelCodes = [...new Set(matches.map((row) => row.modelCode).filter(Boolean))];
@@ -96,30 +96,46 @@ function resolveProjectModel(rows, input = {}) {
       status: "TRANSFER_TO_HEADQUARTERS",
       repairability: "UNSUPPORTED",
       canContinue: false,
+      correctionLookupRequired: false,
       projectCode: snProject.projectCode,
       reason: "网点派单机型汇总未收录该项目编码",
     };
   }
-  if (numericModelCodes.length !== 1) {
-    return { status: numericModelCodes.length ? "DATA_ANOMALY" : "NO_NUMERIC_MODEL_CODE", repairability: "REVIEW_REQUIRED", canContinue: false, projectCode: snProject.projectCode, candidates: modelCodes };
+  if (!currentProjectCode) {
+    return {
+      status: "CURRENT_PROJECT_MISSING",
+      repairability: "REVIEW_REQUIRED",
+      canContinue: false,
+      correctionLookupRequired: false,
+      projectCode: snProject.projectCode,
+      reason: "未读取到瑞云当前项目号，不能判断是否需要修改",
+    };
   }
-  const selectedCode = numericModelCodes[0];
-  const selectedRow = matches.find((row) => row.modelCode === selectedCode);
-  if (currentProjectCode && currentProjectCode === snProject.projectCode) {
+  if (projectCodeMatches(input.currentProjectCode, snProject.projectCode)) {
+    const selectedCode = numericModelCodes.length === 1 ? numericModelCodes[0] : "";
+    const selectedRow = matches.find((row) => row.modelCode === selectedCode) || matches[0];
     return {
       status: "MATCHED",
       repairability: "SUPPORTED",
       canContinue: true,
+      correctionLookupRequired: false,
       projectCode: snProject.projectCode,
+      currentProjectCode: normalize(input.currentProjectCode),
       productModelCode: selectedCode,
       model: selectedRow?.model || "",
       repairFees: selectedRow?.repairFees || { 大修: 0, 中修: 0, 小修: 0 },
     };
   }
+  if (numericModelCodes.length !== 1) {
+    return { status: numericModelCodes.length ? "DATA_ANOMALY" : "NO_NUMERIC_MODEL_CODE", repairability: "REVIEW_REQUIRED", canContinue: false, correctionLookupRequired: true, projectCode: snProject.projectCode, candidates: modelCodes };
+  }
+  const selectedCode = numericModelCodes[0];
+  const selectedRow = matches.find((row) => row.modelCode === selectedCode);
   return {
     status: "CHANGE_REQUIRED",
     repairability: "SUPPORTED",
     canContinue: false,
+    correctionLookupRequired: true,
     projectCode: snProject.projectCode,
     currentProjectCode: normalize(input.currentProjectCode),
     productModelCode: selectedCode,
