@@ -361,7 +361,7 @@ class JsonReceiptPreparationStore {
         customerReasonConsistent: "是",
         detectionResult: normalizeRequired(input.detectionResult) || inspectionResult,
         inspectionAbnormal: "否",
-        productFunctionDecision: "功能问题",
+        productFunctionDecision: normalizeRequired(input.productFunctionDecision) || "功能问题",
         originalConsumables: "是",
         consumableName: "",
         dismantled: "是",

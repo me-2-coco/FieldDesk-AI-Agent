@@ -10,6 +10,7 @@ const NODE_REQUIRED_FIELDS = Object.freeze({
 });
 
 const RECLOUD_RECEIPT_FIELD_TARGETS = Object.freeze({
+  projectCorrection: { target: "产品信息/RMA明细/产品名称", status: "CONFIRMED" },
   attachments: { target: "寄修单附件", section: "问题涉及的场景照片、视频、APP截图、地图截屏、录屏", status: "CONFIRMED" },
 });
 
@@ -18,10 +19,11 @@ const RECLOUD_INSPECTION_FIELD_TARGETS = Object.freeze({
   customerReasonConsistent: { target: "是否与客服登记原因一致", status: "FIXED_YES", control: "RADIO" },
   warrantyStatus: { target: "保修状态", status: "CONFIRMED", control: "SELECT" },
   detectionResult: { target: "检测结果", status: "CONFIRMED", control: "SELECT" },
+  qualityDescription: { target: "品质描述", status: "EXCLUDED", control: "TEXT_INPUT" },
   inspectionAbnormal: { target: "检测无异常", status: "EXCLUDED", control: "SELECT" },
-  productFunctionDecision: { target: "成品功能判断", status: "FIXED_FUNCTION_ISSUE", control: "SELECT" },
+  productFunctionDecision: { target: "成品功能判断", status: "CONFIRMED", control: "SELECT" },
   originalConsumables: { target: "是否原厂耗材", status: "FIXED_YES", control: "RADIO" },
-  consumableName: { target: "耗材名称", status: "CLEAR_AFTER_ORIGINAL", control: "TEXT_INPUT" },
+  consumableName: { target: "耗材名称", status: "EXCLUDED", control: "TEXT_INPUT" },
   dismantled: { target: "是否拆封", status: "FIXED_YES", control: "RADIO" },
   responsibilityDecision: { target: "责任判定", status: "EXCLUDED", control: "SELECT" },
 });
@@ -43,6 +45,7 @@ const RECLOUD_REPAIR_FIELD_TARGETS = Object.freeze({
   attachments: { target: "附件", status: "CONFIRMED" },
   detectionReportAttachments: { target: "附件（检测报告）", status: "EXCLUDED" },
   warrantyConversion: { target: "保外转保内", status: "CONFIRMED" },
+  troubleshooting: { target: "是否是排障问题", status: "CONFIRMED" },
 });
 
 function compactParts(parts) {
@@ -82,9 +85,8 @@ function buildRecloudInspectionFormPlan(payload = {}) {
     customerReasonConsistent: "是",
     warrantyStatus: normalizeWarrantyForRecloud(payload.warrantyStatus),
     detectionResult: String(payload.detectionResult || payload.inspectionResult || "").trim(),
-    productFunctionDecision: "功能问题",
+    productFunctionDecision: String(payload.productFunctionDecision || "功能问题").trim(),
     originalConsumables: "是",
-    consumableName: "",
     dismantled: "是",
   };
   const missingFields = ["faultCategory", "warrantyStatus", "detectionResult"]
@@ -97,9 +99,19 @@ function buildRecloudInspectionFormPlan(payload = {}) {
     })),
     excludedFields: [
       {
+        key: "qualityDescription",
+        target: RECLOUD_INSPECTION_FIELD_TARGETS.qualityDescription.target,
+        reason: "每单保持空白",
+      },
+      {
         key: "inspectionAbnormal",
         target: RECLOUD_INSPECTION_FIELD_TARGETS.inspectionAbnormal.target,
         reason: "当前瑞云检测弹窗无此控件，仅保留本地记录",
+      },
+      {
+        key: "consumableName",
+        target: RECLOUD_INSPECTION_FIELD_TARGETS.consumableName.target,
+        reason: "选择原厂耗材后不填写耗材名称",
       },
       {
         key: "responsibilityDecision",
@@ -199,6 +211,7 @@ function buildRecloudRepairFormPlan(payload = {}) {
     { key: "logisticsAmount", target: RECLOUD_REPAIR_FIELD_TARGETS.logisticsAmount.target, value: isOutOfWarranty ? Number(pricing.roundTripLogisticsFee || 0) : null },
     { key: "attachments", target: RECLOUD_REPAIR_FIELD_TARGETS.attachments.target, value: Array.isArray(payload.attachments) ? payload.attachments : [] },
     { key: "warrantyConversion", target: RECLOUD_REPAIR_FIELD_TARGETS.warrantyConversion.target, value: warrantyConversion.value },
+    { key: "troubleshooting", target: RECLOUD_REPAIR_FIELD_TARGETS.troubleshooting.target, value: "否" },
   ].filter((field) => field.value !== "" && field.value !== null && field.value !== undefined && (!Array.isArray(field.value) || field.value.length));
 
   const manualReviewFields = Object.entries(RECLOUD_REPAIR_FIELD_TARGETS)
@@ -226,6 +239,12 @@ function buildNodePayload(order, nodeType) {
       receiptCompletedAt: order.receiptCompletedAt,
       attachments: order.receiptAttachments || [],
       attachmentTarget: "RMA_ATTACHMENT",
+      projectCorrection: order.modelAuthorization?.status === "CHANGE_REQUIRED" ? {
+        currentProjectCode: order.modelAuthorization.currentProjectCode,
+        expectedProjectCode: order.modelAuthorization.projectCode,
+        productModelCode: order.modelAuthorization.productModelCode,
+        model: order.modelAuthorization.model,
+      } : null,
     },
     INSPECTION_COMPLETED: {
       inspectionResult: order.inspectionResult,

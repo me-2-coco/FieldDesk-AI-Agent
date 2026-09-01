@@ -21,11 +21,16 @@ function PartsApplication({ setPage }) {
   const [parts, setParts] = useState([])
   const [isSearching, setIsSearching] = useState(false)
   const [selectedParts, setSelectedParts] = useState([])
+  const [pricing, setPricing] = useState(null)
 
   useEffect(() => {
     let active = true
     getRepairParts(repairOrder.crmOrderNo)
-      .then((result) => active && setSelectedParts(result.items || []))
+      .then((result) => {
+        if (!active) return
+        setSelectedParts(result.items || [])
+        setPricing(result.pricing || null)
+      })
       .catch((error) => active && setErrorMessage(error.message))
     return () => { active = false }
   }, [repairOrder.crmOrderNo])
@@ -69,6 +74,7 @@ function PartsApplication({ setPage }) {
         quantity: Number(quantity)
       })
       const application = result.application
+      setPricing(result.pricing || null)
       setSelectedParts((current) => {
         const exists = current.some((item) => item.id === application.id)
         return exists ? current.map((item) => item.id === application.id ? application : item) : [...current, application]
@@ -110,6 +116,7 @@ function PartsApplication({ setPage }) {
         remove
       })
       setSelectedParts(result.order?.partApplications || [])
+      setPricing(result.pricing || null)
       setMessage(result.message)
     } catch (error) {
       setErrorMessage(error.message)
@@ -157,6 +164,14 @@ function PartsApplication({ setPage }) {
         ))}
         {!!selectedParts.length && (
           <p>配件金额合计：¥{selectedParts.reduce((sum, part) => sum + Number(part.retailPrice || 0) * Number(part.quantity || 0), 0)}</p>
+        )}
+        {pricing?.warrantyStatus === "保外" && (
+          <div className="pricing-preview" role="status">
+            <p>维修等级：{pricing.highestLevel || "等待配件维修等级"}</p>
+            <p>维修费：¥{pricing.repairFee || 0}</p>
+            <p>配件费：¥{pricing.partsFee || 0}</p>
+            <strong>当前已知费用：¥{pricing.knownTotal || 0}</strong>
+          </div>
         )}
       </div>
 

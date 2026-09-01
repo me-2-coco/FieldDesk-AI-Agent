@@ -22,6 +22,7 @@ const {
 } = require("./recloud-supervision");
 const { executeDetectionPrefillSafely } = require("../services/detection-prefill-executor");
 const { createRecloudDetectionControlAdapter } = require("./recloud-detection-control-adapter");
+const { validateProjectCorrectionInput } = require("../services/recloud-project-correction-rules");
 
 const LOGIN_STATE = path.join(__dirname, "recloud-state.json");
 const RECLOUD_URL =
@@ -8640,6 +8641,76 @@ async function confirmSign(page, sn, productType, remark, options = {}) {
   };
 }
 
+async function correctRmaProjectModel(page, input = {}, options = {}) {
+  const values = validateProjectCorrectionInput(input);
+  if (values.currentProjectCode.toUpperCase() === values.expectedProjectCode.toUpperCase()) {
+    return { success: true, changed: false, reason: "PROJECT_ALREADY_MATCHED", ...values };
+  }
+
+  const productRow = page.locator("tr:visible").filter({ hasText: values.sn }).first();
+  await productRow.waitFor({ state: "visible" });
+  const projectCell = productRow.getByText(values.currentProjectCode, { exact: true }).first();
+  await projectCell.waitFor({ state: "visible" });
+  await projectCell.dblclick();
+
+  const editDialog = page.locator('.rt-dialog__wrapper:visible, [role="dialog"]:visible').last();
+  await editDialog.waitFor({ state: "visible" });
+  const productNameItem = editDialog
+    .locator('.rt-form-item, .el-form-item, [class*="form-item"]')
+    .filter({ hasText: /产品名称/ })
+    .first();
+  await productNameItem.waitFor({ state: "visible" });
+  const searchButton = productNameItem
+    .locator('button:visible, [role="button"]:visible, .rt-input__suffix:visible, .el-input__suffix:visible')
+    .last();
+  await searchButton.click();
+
+  const lookupDialog = page.locator('.rt-dialog__wrapper:visible, [role="dialog"]:visible').last();
+  await lookupDialog.waitFor({ state: "visible" });
+  const searchInput = await firstVisible([
+    lookupDialog.getByPlaceholder(/产品型号.*产品名称.*配件编码/),
+    lookupDialog.locator('input[type="text"]:visible').last(),
+  ]);
+  if (!searchInput) throw new Error("产品查找弹窗中未找到搜索框");
+  await searchInput.fill(values.productModelCode);
+  await searchInput.press("Enter");
+
+  const exactRows = lookupDialog.locator("tr:visible").filter({ hasText: values.productModelCode });
+  const resultCount = await exactRows.count();
+  if (resultCount !== 1) {
+    throw new Error(`产品型号编码 ${values.productModelCode} 搜索结果不是唯一项`);
+  }
+  const resultRow = exactRows.first();
+  const checkbox = resultRow.locator('input[type="checkbox"], [role="checkbox"]').first();
+  await checkbox.click();
+  const lookupConfirm = lookupDialog
+    .getByRole("button", { name: /^(确认|确定)$/ })
+    .or(lookupDialog.getByText(/^(确认|确定)$/, { exact: true }))
+    .last();
+  await lookupConfirm.click();
+  await lookupDialog.waitFor({ state: "hidden" });
+
+  if (options.dryRun !== false) {
+    return {
+      success: true,
+      changed: false,
+      dryRun: true,
+      selected: true,
+      ...values,
+      message: "DRY_RUN：已选择正确产品型号，未保存项目号修改",
+    };
+  }
+
+  const saveButton = editDialog
+    .getByRole("button", { name: /^保存$/ })
+    .or(editDialog.getByText(/^保存$/, { exact: true }))
+    .last();
+  await saveButton.click();
+  await editDialog.waitFor({ state: "hidden" });
+  await productRow.getByText(values.expectedProjectCode, { exact: true }).first().waitFor({ state: "visible" });
+  return { success: true, changed: true, dryRun: false, ...values, message: "项目号修改完成" };
+}
+
 module.exports = {
   RECLOUD_URL,
   LOGIN_STATE,
@@ -8716,6 +8787,8 @@ module.exports = {
   classifyRecloudRequest,
   createReceiptNetworkGuard,
   confirmSign,
+  validateProjectCorrectionInput,
+  correctRmaProjectModel,
   fillReceiptFields,
   parseRepairDetail,
   readPendingRmaSupervisionOrders,

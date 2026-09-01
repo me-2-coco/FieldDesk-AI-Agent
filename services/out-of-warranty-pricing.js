@@ -28,4 +28,38 @@ function resolveOutOfWarrantyFee(modelRepairFees = {}, usedParts = []) {
   return { status: "READY", canPrice: true, highestLevel, fee };
 }
 
-module.exports = { REPAIR_LEVEL_RANK, resolveOutOfWarrantyFee };
+function buildPricingPreview({ modelRepairFees = {}, usedParts = [], warrantyStatus = "" } = {}) {
+  const partsFee = (Array.isArray(usedParts) ? usedParts : []).reduce(
+    (sum, part) => sum + (Number(part.retailPrice) || 0) * (Number(part.quantity) || 0),
+    0
+  );
+  const repairSchedule = Object.fromEntries(
+    Object.keys(REPAIR_LEVEL_RANK).map((level) => [level, Number(modelRepairFees[level]) || 0])
+  );
+
+  if (String(warrantyStatus || "").trim() !== "保外") {
+    return {
+      status: "PREPARED_NOT_APPLIED",
+      applied: false,
+      canPrice: false,
+      warrantyStatus: String(warrantyStatus || "").trim(),
+      repairSchedule,
+      repairFee: 0,
+      partsFee,
+      knownTotal: partsFee,
+    };
+  }
+
+  const repair = resolveOutOfWarrantyFee(modelRepairFees, usedParts);
+  return {
+    ...repair,
+    applied: repair.canPrice === true,
+    warrantyStatus: "保外",
+    repairSchedule,
+    repairFee: repair.canPrice ? repair.fee : 0,
+    partsFee,
+    knownTotal: partsFee + (repair.canPrice ? repair.fee : 0),
+  };
+}
+
+module.exports = { REPAIR_LEVEL_RANK, resolveOutOfWarrantyFee, buildPricingPreview };
