@@ -614,6 +614,30 @@ test("profile lock rejects a concurrent backend", async (t) => {
   releaseAgain();
 });
 
+test("session open can retry after a profile-lock failure is cleared", async (t) => {
+  const directory = await createTemporaryDirectory(t);
+  const profile = path.join(directory, "profile");
+  const lockPath = path.join(directory, "profile.lock");
+  await fsp.writeFile(lockPath, String(process.pid));
+  const browser = createSessionBrowser("https://crm2.recloud.com.cn/home");
+  const manager = createRecloudSessionManager({
+    chromium: browser.chromium,
+    profileDirectory: profile,
+    lockPath,
+    targetUrl: "https://crm2.recloud.com.cn/#/scanSignin/query",
+    isLoginPage: (url) => url.includes("auth4.recloud.com.cn"),
+    env: { RECLOUD_HEADLESS: "true" },
+  });
+
+  await assert.rejects(manager.ensureOpen(), { code: "RECLOUD_PROFILE_IN_USE" });
+  await fsp.unlink(lockPath);
+  const session = await manager.ensureOpen();
+
+  assert.equal(session.page, browser.page);
+  assert.equal(browser.launchCount, 1);
+  await manager.close();
+});
+
 test("stale application lock is recovered without touching Chromium SingletonLock", async (t) => {
   const directory = await createTemporaryDirectory(t);
   const profile = path.join(directory, "profile");

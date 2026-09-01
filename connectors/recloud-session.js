@@ -277,10 +277,10 @@ function createRecloudSessionManager(options = {}) {
       const profileAlreadyExists = (options.fs || fs).existsSync(
         profileDirectory
       );
-      releaseLock = acquireProfileLock(lockPath, options.fs || fs, {
-        isProcessAlive: options.isProcessAlive,
-      });
       try {
+        releaseLock = acquireProfileLock(lockPath, options.fs || fs, {
+          isProcessAlive: options.isProcessAlive,
+        });
         context = await chromiumImpl.launchPersistentContext(
           profileDirectory,
           {
