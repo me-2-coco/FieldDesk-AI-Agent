@@ -6,6 +6,7 @@ const task = {
   rmaNo: "JXTH900001234",
   workOrderNo: "JXTH900001234",
   payload: {
+    assignee: "唐张帅",
     faultLevel1: "产品质量",
     faultLevel2: "漏水",
     faultLevel3: "单向阀不良",
@@ -21,7 +22,7 @@ function remoteAdapter(calls) {
   return {
     async readRemoteState() {
       calls.push("read");
-      return { parts: [], attachments: [{ fileName: "finish.jpg", size: 200000, mimeType: "image/jpeg" }] };
+      return { assignee: "唐张帅", parts: [], attachments: [{ fileName: "finish.jpg", size: 200000, mimeType: "image/jpeg" }] };
     },
     async applyRepairFields() { calls.push("fields"); },
     async verifyRepairFields() { calls.push("verify-fields"); return true; },

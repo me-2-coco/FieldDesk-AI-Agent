@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const { orchestrateRepairCompletion } = require("../services/recloud-repair-completion-orchestrator");
 
 const PAYLOAD = {
+  assignee: "唐张帅",
   faultLevel1: "产品质量",
   faultLevel2: "地刷不出水",
   faultLevel3: "水泵不良",
@@ -15,12 +16,17 @@ const PAYLOAD = {
 };
 
 function remoteAdapter(initial = {}) {
+  let assignee = initial.assignee || "";
   let parts = initial.parts || [];
   let attachments = initial.attachments || [];
   const calls = [];
   return {
     calls,
-    async readRemoteState() { calls.push("read"); return { parts: [...parts], attachments: [...attachments] }; },
+    async readRemoteState() { calls.push("read"); return { assignee, parts: [...parts], attachments: [...attachments] }; },
+    async assignResponsible(plan) {
+      calls.push(`assign:${plan.servicePerson}:${plan.action}:${plan.forbiddenAction}`);
+      assignee = plan.servicePerson;
+    },
     async addParts(additions, policy) {
       calls.push(`parts:${policy.entryMode}:${policy.target}:${policy.forbiddenAction}`);
       parts = additions.map((item) => ({ ...item }));
@@ -43,7 +49,8 @@ test("repair orchestrator dry-run plans work without touching Recloud", async ()
   const adapter = remoteAdapter();
   const result = await orchestrateRepairCompletion("ORDER-1", PAYLOAD, adapter, { writeEnabled: false });
   assert.equal(result.status, "READY_DRY_RUN");
-  assert.deepEqual(result.additions, { parts: 1, attachments: 1 });
+  assert.deepEqual(result.additions, { assignment: true, parts: 1, attachments: 1 });
+  assert.deepEqual(result.skipped, { assignment: false, parts: 0, attachments: 0 });
   assert.deepEqual(adapter.calls, ["read"]);
   assert.equal(result.finalConfirmClicked, false);
   assert.equal(result.recloudModified, false);
@@ -57,16 +64,36 @@ test("repair orchestrator clicks complete and stops immediately after final subm
     checkpointStore: { async load() { return null; }, async save(value) { checkpoints.push(value); } },
   });
   assert.equal(result.status, "SUCCESS");
-  assert.deepEqual(result.completedSteps, ["PARTS_VERIFIED", "FIELDS_VERIFIED", "ATTACHMENTS_VERIFIED", "COMPLETE_CLICKED", "SUBMIT_READY", "SUBMIT_CLICKED_STOPPED"]);
+  assert.deepEqual(result.completedSteps, ["ASSIGNEE_VERIFIED", "PARTS_VERIFIED", "FIELDS_VERIFIED", "ATTACHMENTS_VERIFIED", "COMPLETE_CLICKED", "SUBMIT_READY", "SUBMIT_CLICKED_STOPPED"]);
   assert.equal(result.finalConfirmClicked, true);
   assert.equal(result.stoppedImmediatelyAfterSubmit, true);
   assert.equal(result.postSubmitActions, 0);
   assert.deepEqual(adapter.calls, [
-    "read", "parts:DIRECT_CODE_INPUT:新件名称:放大镜", "read", "fields", "verify-fields", "read",
+    "read", "assign:唐张帅:负责人:协助", "read", "parts:DIRECT_CODE_INPUT:新件名称:放大镜", "read", "fields", "verify-fields", "read",
     "attachments:附件:附件（检测报告）", "read", "complete", "wait-submit-ready",
     "submit:内部维修单自动审批（成都欣益）:提交:true",
   ]);
   assert.equal(checkpoints.at(-1).status, "SUCCESS");
+});
+
+test("repair orchestrator skips reassignment only when the responsible technician already matches", async () => {
+  const adapter = remoteAdapter({ assignee: "唐张帅" });
+  const result = await orchestrateRepairCompletion("ORDER-1", PAYLOAD, adapter, { writeEnabled: false });
+  assert.equal(result.additions.assignment, false);
+  assert.equal(result.skipped.assignment, true);
+  assert.deepEqual(adapter.calls, ["read"]);
+});
+
+test("repair orchestrator stops when responsible-person verification fails", async () => {
+  const adapter = remoteAdapter();
+  adapter.assignResponsible = async (plan) => {
+    adapter.calls.push(`assign:${plan.servicePerson}:${plan.action}:${plan.forbiddenAction}`);
+  };
+  await assert.rejects(
+    orchestrateRepairCompletion("ORDER-1", PAYLOAD, adapter, { writeEnabled: true }),
+    { code: "RECLOUD_REPAIR_ASSIGNMENT_POSTVERIFY_FAILED", phase: "ASSIGNMENT" }
+  );
+  assert.equal(adapter.calls.some((call) => call.startsWith("parts:")), false);
 });
 
 test("repair orchestrator never submits when Recloud does not become submit-ready", async () => {

@@ -4,6 +4,7 @@ const { buildRecloudRepairPartsPlan } = require("./recloud-repair-parts-plan");
 const { buildRecloudRepairAttachmentsPlan } = require("./recloud-repair-attachments-plan");
 const {
   RECLOUD_WORK_ORDER_OPERATION_POLICY,
+  buildRecloudAssignmentPlan,
   assertRecloudOperationAllowed,
 } = require("./recloud-work-order-operation-policy");
 
@@ -19,6 +20,7 @@ function orchestratorError(message, code, phase, details = {}) {
 function repairCompletionFingerprint(orderKey, payload) {
   const stable = JSON.stringify({
     orderKey: String(orderKey || ""),
+    assignee: payload?.assignee || "",
     faultLevel1: payload?.faultLevel1 || "",
     faultLevel2: payload?.faultLevel2 || "",
     faultLevel3: payload?.faultLevel3 || "",
@@ -72,6 +74,8 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
 
   // 无论是否存在断点，都重新读取瑞云；断点不能替代远端核验。
   let remote = await adapter.readRemoteState();
+  const assignmentPlan = buildRecloudAssignmentPlan(payload.assignee);
+  let assignmentRequired = String(remote.assignee || "").trim() !== assignmentPlan.servicePerson;
   const formPlan = buildRecloudRepairFormPlan(payload);
   let partsPlan = buildRecloudRepairPartsPlan(payload.usedParts, remote.parts);
   let attachmentsPlan = buildRecloudRepairAttachmentsPlan(payload.attachments, remote.attachments);
@@ -93,10 +97,12 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
       status: "READY_DRY_RUN",
       resumed,
       additions: {
+        assignment: assignmentRequired,
         parts: partsPlan.additions.length,
         attachments: attachmentsPlan.additions.length,
       },
       skipped: {
+        assignment: !assignmentRequired,
         parts: partsPlan.skipped.length,
         attachments: attachmentsPlan.skipped.length,
       },
@@ -104,6 +110,23 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
       recloudModified: false,
     };
   }
+
+  if (assignmentRequired) {
+    if (typeof adapter.assignResponsible !== "function") {
+      throw orchestratorError("缺少负责人改派执行器", "RECLOUD_REPAIR_ASSIGNMENT_ADAPTER_INVALID", "ASSIGNMENT");
+    }
+    assertRecloudOperationAllowed({ action: assignmentPlan.action, target: assignmentPlan.servicePerson });
+    await adapter.assignResponsible(assignmentPlan);
+    remote = await adapter.readRemoteState();
+    assignmentRequired = String(remote.assignee || "").trim() !== assignmentPlan.servicePerson;
+    if (assignmentRequired) {
+      throw orchestratorError("负责人改派后远端复核失败", "RECLOUD_REPAIR_ASSIGNMENT_POSTVERIFY_FAILED", "ASSIGNMENT");
+    }
+    partsPlan = buildRecloudRepairPartsPlan(payload.usedParts, remote.parts);
+    attachmentsPlan = buildRecloudRepairAttachmentsPlan(payload.attachments, remote.attachments);
+  }
+  completedSteps.push("ASSIGNEE_VERIFIED");
+  await saveCheckpoint(options.checkpointStore, { orderKey, fingerprint, status: "RUNNING", completedSteps: [...completedSteps] });
 
   if (partsPlan.additions.length) {
     if (typeof adapter.addParts !== "function") {

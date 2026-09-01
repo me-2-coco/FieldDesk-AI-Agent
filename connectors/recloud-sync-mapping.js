@@ -1,4 +1,4 @@
-const MAPPING_VERSION = "v10";
+const MAPPING_VERSION = "v11";
 const { resolveWarrantyConversion } = require("../services/warranty-conversion-policy");
 const { buildProjectCorrectionPlan } = require("../services/recloud-project-correction-rules");
 
@@ -305,6 +305,7 @@ function buildNodePayload(order, nodeType) {
       dismantled: order.dismantled,
     },
     REPAIR_COMPLETED: {
+      assignee: order.technicianName || order.operatorName,
       treatmentMode: order.treatmentMode,
       faultLevel1: completion.faultLevel1,
       faultLevel2: completion.faultLevel2,
