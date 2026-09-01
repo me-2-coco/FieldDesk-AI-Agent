@@ -33,6 +33,10 @@ const ORDER = {
   remark: "洗地机", specialty: "洗地机", productLine: "洗地机",
   receiptCompletedAt: "2026-08-03T01:00:00.000Z",
   receiptAttachments: [{ id: "MOCK-RECEIPT-PHOTO", name: "receipt.jpg", mimeType: "image/jpeg" }],
+  modelAuthorization: {
+    status: "CHANGE_REQUIRED", currentProjectCode: "R25808", projectCode: "R2580X",
+    productModelCode: "010201AA000656", model: "X50 Pro 履带上下水版",
+  },
   inspectionResult: "模拟检测完成", inspectionRemark: "模拟备注",
   faultCategory: "产品质量 / 不出水 / 水泵不良",
   technicianWarranty: "保内",
@@ -146,15 +150,25 @@ test("inspection mapping prepares fixed Recloud fields but never auto-confirms",
   assert.equal(writes.inspectionAbnormal, undefined);
   assert.equal(writes.productFunctionDecision, "功能问题");
   assert.equal(writes.originalConsumables, "是");
-  assert.equal(writes.consumableName, "");
+  assert.equal(writes.consumableName, undefined);
   assert.equal("dismantled" in writes, false);
   assert.equal("faultDescription" in writes, false);
   assert.equal("openedRemark" in writes, false);
   assert.deepEqual(plan.excludedFields, [
     {
+      key: "qualityDescription",
+      target: "品质描述",
+      reason: "每单保持空白",
+    },
+    {
       key: "inspectionAbnormal",
       target: "检测无异常",
       reason: "当前瑞云检测弹窗无此控件，仅保留本地记录",
+    },
+    {
+      key: "consumableName",
+      target: "耗材名称",
+      reason: "选择原厂耗材后不填写耗材名称",
     },
     {
       key: "responsibilityDecision",
@@ -241,12 +255,28 @@ test("inspection control mapping requires one compatible Recloud control per wri
   assert.deepEqual(result.missingFields, []);
   assert.deepEqual(result.ambiguousFields, []);
   assert.deepEqual(result.incompatibleFields, []);
-  assert.equal(result.fields.length, 7);
+  assert.equal(result.fields.length, 6);
   assert.deepEqual(result.excludedFields, [
+    {
+      key: "qualityDescription",
+      target: "品质描述",
+      expectedControl: "TEXT_INPUT",
+      itemCount: 1,
+      mapped: true,
+      reason: "保持空白，不参与自动填写",
+    },
     {
       key: "inspectionAbnormal",
       target: "检测无异常",
       expectedControl: "SELECT",
+      itemCount: 1,
+      mapped: true,
+      reason: "保持空白，不参与自动填写",
+    },
+    {
+      key: "consumableName",
+      target: "耗材名称",
+      expectedControl: "TEXT_INPUT",
       itemCount: 1,
       mapped: true,
       reason: "保持空白，不参与自动填写",
@@ -299,6 +329,18 @@ test("inspection control mapping stops on missing duplicate or incompatible fiel
   assert.deepEqual(result.incompatibleFields, ["customerReasonConsistent"]);
   assert.ok(result.missingFields.includes("warrantyStatus"));
   assert.equal(result.canAutoConfirm, false);
+});
+
+test("receipt sync carries the exact project correction and repair always selects no troubleshooting", () => {
+  const receipt = buildNodePayload(ORDER, "RECEIPT");
+  assert.deepEqual(receipt.projectCorrection, {
+    currentProjectCode: "R25808",
+    expectedProjectCode: "R2580X",
+    productModelCode: "010201AA000656",
+    model: "X50 Pro 履带上下水版",
+  });
+  const plan = buildRecloudRepairFormPlan(buildNodePayload(ORDER, "REPAIR_COMPLETED"));
+  assert.equal(plan.safeWrites.find((field) => field.key === "troubleshooting").value, "否");
 });
 
 test("adapter factory never selects real adapter when either safety switch blocks writes", () => {

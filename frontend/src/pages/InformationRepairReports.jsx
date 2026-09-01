@@ -37,12 +37,15 @@ function InformationRepairReports({ setPage, initialRmaNo = "" }) {
   useEffect(() => {
     if (!initialRmaNo) return undefined
     let active = true
-    setBusy(true)
-    getInformationRepairReport(initialRmaNo)
-      .then((data) => active && setReport(data))
-      .catch((error) => active && setMessage(error.message))
-      .finally(() => active && setBusy(false))
-    return () => { active = false }
+    const timer = window.setTimeout(() => {
+      if (!active) return
+      setBusy(true)
+      getInformationRepairReport(initialRmaNo)
+        .then((data) => active && setReport(data))
+        .catch((error) => active && setMessage(error.message))
+        .finally(() => active && setBusy(false))
+    }, 0)
+    return () => { active = false; window.clearTimeout(timer) }
   }, [initialRmaNo])
 
   async function search(event) {

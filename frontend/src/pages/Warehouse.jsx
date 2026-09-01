@@ -6,7 +6,7 @@ import {
   receiveInventoryPart
 } from "../shared/crmService.js"
 
-function Warehouse({ setPage }) {
+function Warehouse() {
   const [inventory, setInventory] = useState(null)
   const [message, setMessage] = useState("")
   const [stockForm, setStockForm] = useState({ partCode: "", partName: "", quantity: 1 })

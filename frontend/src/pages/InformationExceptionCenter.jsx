@@ -29,9 +29,12 @@ function InformationExceptionCenter({ setPage, onOpenReport }) {
   }, [])
 
   useEffect(() => {
-    refresh()
+    const initialTimer = window.setTimeout(refresh, 0)
     const timer = window.setInterval(refresh, 30000)
-    return () => window.clearInterval(timer)
+    return () => {
+      window.clearTimeout(initialTimer)
+      window.clearInterval(timer)
+    }
   }, [refresh])
 
   const filtered = useMemo(() => {

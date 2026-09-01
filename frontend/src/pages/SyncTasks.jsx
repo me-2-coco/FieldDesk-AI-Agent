@@ -88,13 +88,17 @@ function SyncTasks({ setPage, onOpenOrder }) {
   }, [])
 
   useEffect(() => {
-    refresh({ showLoading: true })
+    const initialTimer = window.setTimeout(() => refresh({ showLoading: true }), 0)
     const timer = window.setInterval(() => refresh(), 5000)
-    return () => window.clearInterval(timer)
+    return () => {
+      window.clearTimeout(initialTimer)
+      window.clearInterval(timer)
+    }
   }, [refresh])
 
   useEffect(() => {
-    setVisibleLimit(PAGE_SIZE)
+    const timer = window.setTimeout(() => setVisibleLimit(PAGE_SIZE), 0)
+    return () => window.clearTimeout(timer)
   }, [keyword, statusFilter])
 
   const filteredTasks = useMemo(() => {

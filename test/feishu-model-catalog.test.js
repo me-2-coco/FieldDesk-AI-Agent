@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { parseModelRows, resolveModel, resolveProjectModel, getSnProjectMatch } = require("../connectors/feishu-model-catalog");
+const { FeishuModelCatalog, parseModelRows, resolveModel, resolveProjectModel, getSnProjectMatch } = require("../connectors/feishu-model-catalog");
 
 test("parses a Feishu model sheet by header names instead of fixed columns", () => {
   const rows = parseModelRows([
@@ -104,4 +104,38 @@ test("same project prefers the one numeric product model code", () => {
   ], { sn: "R25730123456", currentProjectCode: "WRONG" });
   assert.equal(result.status, "CHANGE_REQUIRED");
   assert.equal(result.productModelCode, "010204AA000720");
+});
+
+test("R2580X example resolves the numeric model code used to correct Recloud", () => {
+  const result = resolveProjectModel([
+    { projectCode: "R2580X", model: "X50 Pro 履带上下水版", modelCode: "010201AA000656", repairFees: { 大修: 80, 中修: 70, 小修: 50 } },
+    { projectCode: "R2580X", model: "X50 Pro 履带上下水版组合", modelCode: "TM202609010001" },
+  ], { sn: "R2580X5AMCN0146633", currentProjectCode: "R25808" });
+  assert.equal(result.status, "CHANGE_REQUIRED");
+  assert.equal(result.projectCode, "R2580X");
+  assert.equal(result.productModelCode, "010201AA000656");
+});
+
+test("live model catalog finds the named worksheet when sheet id is not configured", async () => {
+  const requested = [];
+  const responses = [
+    { tenant_access_token: "TOKEN", code: 0 },
+    { code: 0, data: { sheets: [{ sheet_id: "MODEL-SHEET", title: "网点派单机型汇总" }] } },
+    { code: 0, data: { valueRange: { values: [
+      ["机器型号", "项目编码", "产品型号编码", "大修", "中修", "小修"],
+      ["X50 Pro 履带上下水版", "R2580X", "010201AA000656", 80, 70, 50],
+    ] } } },
+  ];
+  const catalog = new FeishuModelCatalog({
+    env: { FEISHU_APP_ID: "APP", FEISHU_APP_SECRET: "SECRET", FEISHU_SPREADSHEET_TOKEN: "SHEET" },
+    fetch: async (url) => {
+      requested.push(String(url));
+      const body = responses.shift();
+      return { ok: true, json: async () => body };
+    },
+  });
+  const result = await catalog.authorize({ sn: "R2580X5AMCN0146633", currentProjectCode: "R25808" });
+  assert.equal(result.productModelCode, "010201AA000656");
+  assert.ok(requested.some((url) => url.includes("sheets/query")));
+  assert.ok(requested.some((url) => url.includes("MODEL-SHEET")));
 });

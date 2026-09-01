@@ -99,7 +99,8 @@ test("detection simulation builds a complete temporary prefill plan without conf
   assert.equal(response.status, 200);
   assert.equal(writes.customerReasonConsistent, "是");
   assert.equal(writes.originalConsumables, "是");
-  assert.equal(writes.consumableName, "");
+  assert.equal(writes.consumableName, undefined);
+  assert.ok(receivedPlan.excludedFields.some((item) => item.key === "consumableName"));
   assert.equal(receivedPlan.canAutoConfirm, false);
   assert.equal(result.data.inspection.prefill.confirmClicked, false);
 });

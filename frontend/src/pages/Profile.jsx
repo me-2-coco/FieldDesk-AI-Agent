@@ -144,7 +144,7 @@ function Profile({
       {isAdmin && <div className="card profile-section-card">
 
         <div className="profile-section-heading">
-          <div><span>账号与权限</span><h2>切换测试账号</h2></div>
+          <div><span>账号管理</span><h2>切换测试账号</h2></div>
           <small>{users.length} 个账号</small>
         </div>
 

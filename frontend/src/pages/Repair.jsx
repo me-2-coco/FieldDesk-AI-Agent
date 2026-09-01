@@ -51,7 +51,7 @@ function MachineRepairHistory({ history }) {
 }
 
 
-function Repair({ setPage, currentUser: signedInUser = null, goBack = () => setPage("home") }) {
+function Repair({ setPage, currentUser: signedInUser = null }) {
 
   const [orderNo, setOrderNo] = useState("")
   const [scannerMode, setScannerMode] = useState("")
@@ -156,15 +156,18 @@ function Repair({ setPage, currentUser: signedInUser = null, goBack = () => setP
   }
 
   useEffect(() => {
-    setCurrentUser(signedInUser)
+    let active = true
+    queueMicrotask(() => active && setCurrentUser(signedInUser))
     getCurrentFieldDeskUser()
       .then((user) => {
+        if (!active) return
         setCurrentUser((existing) => existing?.repairSpecialties?.length ? existing : user)
         setAuthError("")
       })
       .catch((error) => {
-        if (!signedInUser) setAuthError(error.message)
+        if (active && !signedInUser) setAuthError(error.message)
       })
+    return () => { active = false }
   }, [signedInUser])
 
   async function searchRepair(queryOverride = "") {

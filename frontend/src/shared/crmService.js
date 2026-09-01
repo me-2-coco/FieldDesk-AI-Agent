@@ -48,9 +48,9 @@ async function request(path, body, { timeoutMs = 0 } = {}) {
     })
   } catch (error) {
     if (error?.name === "AbortError") {
-      throw new Error("线上查询超过25秒，请稍后重试")
+      throw new Error("线上查询超过25秒，请稍后重试", { cause: error })
     }
-    throw new Error("无法连接 FieldDesk 后端，请确认 API 已启动")
+    throw new Error("无法连接 FieldDesk 后端，请确认 API 已启动", { cause: error })
   } finally {
     if (timer) window.clearTimeout(timer)
   }
@@ -78,9 +78,9 @@ async function get(path, { timeoutMs = 0 } = {}) {
     })
   } catch (error) {
     if (error?.name === "AbortError") {
-      throw new Error("本地查询超过3秒，请检查 FieldDesk 后端状态")
+      throw new Error("本地查询超过3秒，请检查 FieldDesk 后端状态", { cause: error })
     }
-    throw new Error("无法连接 FieldDesk 后端，请确认 API 已启动")
+    throw new Error("无法连接 FieldDesk 后端，请确认 API 已启动", { cause: error })
   } finally {
     if (timer) window.clearTimeout(timer)
   }

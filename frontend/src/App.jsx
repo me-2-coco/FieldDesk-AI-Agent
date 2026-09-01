@@ -74,7 +74,7 @@ function App() {
   useEffect(() => {
     const canMonitorSync = isLoggedIn && currentUser?.role === USER_ROLES.ADMIN
     if (!canMonitorSync) {
-      setSyncAttentionTasks([])
+      queueMicrotask(() => setSyncAttentionTasks([]))
       return undefined
     }
     let active = true
@@ -132,7 +132,7 @@ function App() {
   useEffect(() => {
     const canInspectSupervisionMonitor = isLoggedIn && [USER_ROLES.INFORMATION_CLERK, USER_ROLES.ADMIN].includes(currentUser?.role)
     if (!canInspectSupervisionMonitor) {
-      setSupervisionMonitorWarning("")
+      queueMicrotask(() => setSupervisionMonitorWarning(""))
       return undefined
     }
     let active = true

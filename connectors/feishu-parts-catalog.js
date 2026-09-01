@@ -172,7 +172,7 @@ class FeishuPartsCatalog {
     const sheets = (list.data?.sheets || []).filter((sheet) =>
       sheet.sheet_id === "Aix38w" || projectCodesFromTitle(sheet.title).some((code) => comparable(code) === expected)
     );
-    if (sheets.length === 1) return [];
+    if (!sheets.some((sheet) => sheet.sheet_id !== "Aix38w")) return [];
     const rows = await Promise.all(sheets.map(async (sheet) => {
       const range = `${sheet.sheet_id}!A1:T${sheet.grid_properties?.row_count || 1000}`;
       const response = await this.fetch(`https://open.feishu.cn/open-apis/sheets/v2/spreadsheets/${encodeURIComponent(spreadsheetToken)}/values/${encodeURIComponent(range)}`, { headers: { Authorization: `Bearer ${tenantToken}` } });

@@ -18,13 +18,16 @@ function ReturnShipping({ setPage }) {
   }, [])
 
   useEffect(() => {
-    if (!selectedRmaNo) { setContext(null); return undefined }
     let active = true
-    setErrorMessage("")
-    getShippingContext(selectedRmaNo)
-      .then((data) => active && setContext(data))
-      .catch((error) => active && setErrorMessage(error.message))
-    return () => { active = false }
+    const timer = window.setTimeout(() => {
+      if (!active) return
+      if (!selectedRmaNo) { setContext(null); return }
+      setErrorMessage("")
+      getShippingContext(selectedRmaNo)
+        .then((data) => active && setContext(data))
+        .catch((error) => active && setErrorMessage(error.message))
+    }, 0)
+    return () => { active = false; window.clearTimeout(timer) }
   }, [selectedRmaNo])
 
   const order = context?.order

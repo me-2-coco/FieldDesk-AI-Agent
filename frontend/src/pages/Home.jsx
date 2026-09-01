@@ -100,7 +100,8 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
   }
 
   useEffect(() => {
-    syncCurrentProgress()
+    const timer = window.setTimeout(() => syncCurrentProgress(), 0)
+    return () => window.clearTimeout(timer)
   }, [order?.crmOrderNo])
 
   useEffect(() => {
@@ -139,7 +140,7 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
   const detailOrders = detailStatus === "unfinished" ? unfinished : detailStatus === "waiting" ? waitingParts : detailStatus === "completed" ? completedOrders : []
   const quickActions = isTechnician ? [
     { page: "repair", title: "扫码签收", description: "查询物流并开始寄修" },
-    { page: "records", title: "工单查询", description: "查找历史维修记录" },
+    { page: "records", title: "工单查询", description: "查找历史工单" },
     { page: "inventory", title: "个人库存", description: "查看配件和流水" }
   ] : isWarehouse ? [
     { page: "warehouse", title: "退件确认", description: "处理师傅退回配件" },

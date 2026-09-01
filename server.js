@@ -34,7 +34,7 @@ const { FeishuModelCatalog, getSnProjectMatch } = require("./connectors/feishu-m
 const { FeishuPartsCatalog } = require("./connectors/feishu-parts-catalog");
 const { evaluateWarranty } = require("./services/warranty-policy");
 const localFaultMappings = require("./knowledge/fault_mapping.json").mappings || {};
-const { resolveOutOfWarrantyFee } = require("./services/out-of-warranty-pricing");
+const { resolveOutOfWarrantyFee, buildPricingPreview } = require("./services/out-of-warranty-pricing");
 const { resolveRepairCharge } = require("./services/repair-charge-policy");
 const { analyzeSupervisionOrder } = require("./services/supervision-order-policy");
 const {
@@ -1593,6 +1593,11 @@ function createApp(
         data: {
           ...authorizedData,
           authorization,
+          pricingPreparation: buildPricingPreview({
+            modelRepairFees: authorization.repairFees || {},
+            usedParts: [],
+            warrantyStatus: "",
+          }),
           message: supported ? "下放机型，可以维修" : unsupported ? "未下放机型，需转寄总部" : "机型数据异常，已停止并等待人工确认",
           dryRun: true,
           recloudSynced: false,
@@ -1987,10 +1992,16 @@ function createApp(
         .find((item) => item.code === partCode);
       if (!part) throw createApiError("PART_NOT_FOUND", "该配件不适用于当前机型", 404);
       const data = await receiptStore.applyPart(rmaNo, { ...part, stock: Number(req.body?.quantity) }, req.body?.quantity, user);
+      const pricing = buildPricingPreview({
+        modelRepairFees: data.order?.modelAuthorization?.repairFees || order.modelAuthorization?.repairFees || {},
+        usedParts: data.order?.partApplications || [],
+        warrantyStatus: data.order?.technicianWarranty || order.technicianWarranty,
+      });
       return res.json({
         success: true,
         data: {
           ...data,
+          pricing,
           message: "配件已记录到当前工单",
           recloudSynced: false,
         },
@@ -2018,7 +2029,13 @@ function createApp(
       const rmaNo = String(req.query.rmaNo || "").trim();
       const order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
       if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到当前工单", 404);
-      res.json({ success: true, data: { items: order.partApplications || [] } });
+      const items = order.partApplications || [];
+      const pricing = buildPricingPreview({
+        modelRepairFees: order.modelAuthorization?.repairFees || {},
+        usedParts: items,
+        warrantyStatus: order.technicianWarranty,
+      });
+      res.json({ success: true, data: { items, pricing } });
     } catch (error) { next(error); }
   });
 
@@ -2032,7 +2049,12 @@ function createApp(
         { quantity: req.body?.quantity, remove: req.body?.remove === true },
         user
       );
-      res.json({ success: true, data: { ...data, message: req.body?.remove === true ? "配件已删除" : "配件数量已修改" } });
+      const pricing = buildPricingPreview({
+        modelRepairFees: data.order?.modelAuthorization?.repairFees || {},
+        usedParts: data.order?.partApplications || [],
+        warrantyStatus: data.order?.technicianWarranty,
+      });
+      res.json({ success: true, data: { ...data, pricing, message: req.body?.remove === true ? "配件已删除" : "配件数量已修改" } });
     } catch (error) { next(error); }
   });
 
