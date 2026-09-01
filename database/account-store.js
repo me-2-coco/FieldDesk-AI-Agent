@@ -28,6 +28,7 @@ class AccountStore {
         role: USER_ROLES.ADMIN,
         repairSpecialties: ["扫地机", "洗地机"],
         active: true,
+        allowBearer: true,
         tokenHash: crypto.createHash("sha256").update(String(accessToken)).digest("hex"),
         tokenExpiresAt: new Date(Date.now() + Math.min(168, Math.max(1, Number(process.env.FIELDDESK_SESSION_HOURS || 12))) * 3600_000).toISOString(),
         createdAt: new Date().toISOString(),
@@ -38,14 +39,30 @@ class AccountStore {
   }
   async list() {
     const data = await this.backend.read();
-    return data.users.map(({ tokenHash, ...user }) => user);
+    return data.users.map(({ tokenHash, allowBearer, tokenExpiresAt, ...user }) => user);
+  }
+  async findByUserId(userId) {
+    const data = await this.backend.read();
+    const user = data.users.find((item) => item.active !== false && item.userId === String(userId || "").trim());
+    if (!user) return null;
+    const { tokenHash: ignored, allowBearer, tokenExpiresAt, ...safe } = user;
+    return safe;
   }
   async findByToken(token) {
     if (!token) return null;
     const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
     const data = await this.backend.read();
     const now = Date.now();
-    const user = data.users.find((item) => item.active !== false && item.tokenHash === tokenHash && (!item.tokenExpiresAt || Date.parse(item.tokenExpiresAt) > now));
+    const user = data.users.find((item) => item.active !== false && item.allowBearer !== false && item.tokenHash === tokenHash && (!item.tokenExpiresAt || Date.parse(item.tokenExpiresAt) > now));
+    if (!user) return null;
+    const { tokenHash: ignored, ...safe } = user;
+    return safe;
+  }
+  async findByCredentials(userId, password) {
+    const normalizedUserId = String(userId || "").trim();
+    const tokenHash = crypto.createHash("sha256").update(String(password || "")).digest("hex");
+    const data = await this.backend.read();
+    const user = data.users.find((item) => item.active !== false && item.userId === normalizedUserId && item.tokenHash === tokenHash);
     if (!user) return null;
     const { tokenHash: ignored, ...safe } = user;
     return safe;
@@ -60,12 +77,12 @@ class AccountStore {
     return this.backend.update((data) => {
       const userId = String(input.userId || "").trim();
       const existing = data.users.find((item) => item.userId === userId);
-      const tokenHash = input.accessToken
-        ? crypto.createHash("sha256").update(String(input.accessToken)).digest("hex")
+      const password = input.password || input.accessToken;
+      const tokenHash = password
+        ? crypto.createHash("sha256").update(String(password)).digest("hex")
         : existing?.tokenHash;
       if (!userId || !input.displayName || !tokenHash) throw Object.assign(new Error("账号资料不完整"), { code: "ACCOUNT_FIELDS_REQUIRED", status: 400 });
-      const sessionHours = Math.min(168, Math.max(1, Number(input.sessionHours || process.env.FIELDDESK_SESSION_HOURS || 12)));
-      const next = { userId, displayName: String(input.displayName).trim(), role, repairSpecialties: specialties, active: input.active !== false, tokenHash, tokenExpiresAt: input.accessToken ? new Date(Date.now() + sessionHours * 3600_000).toISOString() : existing?.tokenExpiresAt, updatedAt: new Date().toISOString() };
+      const next = { userId, displayName: String(input.displayName).trim(), role, repairSpecialties: specialties, active: input.active !== false, allowBearer: false, tokenHash, tokenExpiresAt: null, updatedAt: new Date().toISOString() };
       if (existing) Object.assign(existing, next); else data.users.push({ ...next, createdAt: next.updatedAt });
       const { tokenHash: ignored, ...safe } = next;
       return safe;

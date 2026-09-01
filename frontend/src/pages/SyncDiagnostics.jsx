@@ -107,7 +107,7 @@ function SyncDiagnostics({ setPage }) {
   return <div className="page sync-diagnostics-page">
     <div className="top-bar">
       <button className="arrow-back" onClick={() => setPage("profile")}>←</button>
-      <h1>瑞云同步诊断</h1>
+      <h1>同步检查</h1>
     </div>
     <div className="card">
       <p>仅保存入口特征、路径模板和字段名称；禁止填写字段值、客户资料、凭据或完整 URL。</p>

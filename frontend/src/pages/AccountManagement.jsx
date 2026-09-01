@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { getAdminUsers, saveAdminUser } from "../shared/crmService.js"
 
-const EMPTY = { userId: "", displayName: "", role: "TECHNICIAN", repairSpecialties: [], accessToken: "", active: true }
+const EMPTY = { userId: "", displayName: "", role: "TECHNICIAN", repairSpecialties: [], password: "", active: true }
 
 function AccountManagement({ setPage }) {
   const [users, setUsers] = useState([])
@@ -36,24 +36,31 @@ function AccountManagement({ setPage }) {
     } catch (error) { setMessage(error.message) }
   }
 
+  function editUser(user) {
+    setForm({ userId: user.userId, displayName: user.displayName, role: user.role, repairSpecialties: user.repairSpecialties || [], password: "", active: user.active !== false })
+    setMessage("正在编辑账号；不填写新密码则保留原密码")
+  }
+
   return <div className="page">
-    <div className="top-bar"><button className="arrow-back" onClick={() => setPage("profile")}>←</button><h1>账号与权限</h1></div>
+    <div className="top-bar"><button className="arrow-back" onClick={() => setPage("profile")}>←</button><h1>账号管理</h1></div>
     <div className="card">
-      <p>访问令牌只用于本次提交，不在浏览器本地保存。角色和维修品类仅允许管理员配置。</p>
+      <p>管理员统一配置登录账号、密码、角色和维修品类。密码不会显示或保存在浏览器中。</p>
       <form onSubmit={submit}>
         <input value={form.userId} onChange={(event) => setForm({ ...form, userId: event.target.value })} placeholder="用户 ID" required />
         <input value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })} placeholder="显示名称" required />
         <select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value, repairSpecialties: [] })}>
-          <option value="ADMIN">管理员</option><option value="WAREHOUSE">库房</option><option value="TECHNICIAN">维修师傅</option>
+          <option value="ADMIN">管理员</option><option value="INFORMATION_CLERK">信息员</option><option value="WAREHOUSE">库房</option><option value="TECHNICIAN">维修师傅</option>
         </select>
         {(form.role === "TECHNICIAN" || form.role === "ADMIN") && <div>
           {["扫地机", "洗地机"].map((item) => <label key={item}><input type="checkbox" checked={form.repairSpecialties.includes(item)} onChange={() => toggleSpecialty(item)} />{item}</label>)}
         </div>}
-        <input type="password" value={form.accessToken} onChange={(event) => setForm({ ...form, accessToken: event.target.value })} placeholder="新账号访问令牌" autoComplete="new-password" required />
+        <input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder={users.some((user) => user.userId === form.userId) ? "新密码（不修改可留空）" : "设置登录密码"} autoComplete="new-password" required={!users.some((user) => user.userId === form.userId)} />
+        <label><input type="checkbox" checked={form.active} onChange={(event) => setForm({ ...form, active: event.target.checked })} />账号启用</label>
         <button type="submit">保存账号</button>
+        {form.userId && <button type="button" onClick={() => setForm(EMPTY)}>取消编辑</button>}
       </form>
     </div>
-    <div className="card"><h2>正式账号</h2>{users.map((user) => <p key={user.userId}>{user.displayName} · {user.role} · {user.repairSpecialties.join("/") || "无维修品类"} · {user.active ? "启用" : "停用"}</p>)}</div>
+    <div className="card"><h2>正式账号</h2>{users.map((user) => <div key={user.userId}><p>{user.displayName}（{user.userId}） · {user.role} · {user.repairSpecialties.join("/") || "无维修品类"} · {user.active ? "启用" : "停用"}</p><button type="button" onClick={() => editUser(user)}>编辑账号</button></div>)}</div>
     {message && <p role="status">{message}</p>}
   </div>
 }

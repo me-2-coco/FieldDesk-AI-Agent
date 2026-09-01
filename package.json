@@ -3,10 +3,13 @@
     "start": "node server.js",
     "recloud:login": "node init-recloud-login.js",
     "recloud:credentials": "node scripts/configure-recloud-credentials.js",
+    "recloud:backfill-pending": "node scripts/backfill-pending-receipts.js",
+    "recloud:backfill-query-cache": "node scripts/backfill-rma-query-cache.js",
     "db:init": "node scripts/database-maintenance.js init",
     "db:migrate": "node scripts/database-maintenance.js migrate",
     "db:backup": "node scripts/database-maintenance.js backup",
     "db:restore": "node scripts/database-maintenance.js restore",
+    "db:verify-backup": "node scripts/database-maintenance.js verify",
     "data:export": "node scripts/database-maintenance.js export",
     "test": "node --test test/*.test.js"
   },

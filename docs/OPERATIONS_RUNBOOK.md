@@ -18,7 +18,8 @@
 
 ## 备份、导出与恢复
 
-- 每日执行 `npm run db:backup`；默认保留 30 天。备份目录必须放在异机或对象存储的加密卷。
+- 每日执行 `npm run db:backup`；默认保留 30 天。每份备份自动生成 SHA-256 完整性清单并在完成前自检。备份目录必须放在异机或对象存储的加密卷。
+- 恢复前执行 `npm run db:verify-backup -- /var/backups/fielddesk/<backup>`；恢复命令也会强制重复校验，缺少清单或任一文件损坏时拒绝恢复。
 - `npm run data:export -- /var/backups/fielddesk/export-YYYYMMDD` 导出业务数据。导出文件与生产数据同级保密。
 - 恢复前停止 FieldDesk，验证备份校验和并额外备份当前数据，然后执行：
   `npm run db:restore -- /var/backups/fielddesk/<backup> --confirm`。

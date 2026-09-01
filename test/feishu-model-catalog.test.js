@@ -54,6 +54,25 @@ test("matching Recloud project number skips model correction", () => {
   assert.equal(result.canContinue, true);
 });
 
+test("project matching ignores Chinese and ASCII parentheses from Feishu cells", () => {
+  for (const projectCode of ["(W2449)", "（W2449）"]) {
+    const result = resolveProjectModel([
+      { projectCode, model: "H40 Pro（W2449）", modelCode: "011101AA000163", repairFees: { 大修: 80, 中修: 60, 小修: 0 } },
+    ], { sn: "W2449054ACN6286029" });
+    assert.equal(result.status, "CHANGE_REQUIRED");
+    assert.equal(result.repairability, "SUPPORTED");
+    assert.equal(result.productModelCode, "011101AA000163");
+  }
+});
+
+test("project matching ignores explanatory text after a project code", () => {
+  const result = resolveProjectModel([
+    { projectCode: "W2448R（此款机型SN码是不带W）", model: "G20 Pro/T20 Plus/T40 Turbo", modelCode: "011104AA000005" },
+  ], { sn: "W2448R55VCN6215129" });
+  assert.equal(result.repairability, "SUPPORTED");
+  assert.equal(result.productModelCode, "011104AA000005");
+});
+
 test("mismatch resolves one Feishu product model code for Recloud search", () => {
   const result = resolveProjectModel([
     { projectCode: "W2448", model: "T40 Ultra 中版", modelCode: "010103AA000001" },

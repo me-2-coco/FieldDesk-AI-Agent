@@ -6,10 +6,14 @@ import Repair from "./pages/Repair.jsx"
 import RepairWork from "./pages/RepairWork.jsx"
 import RepairProcess from "./pages/RepairProcess.jsx"
 import PartsApplication from "./pages/PartsApplication.jsx"
+import RepairDecision from "./pages/RepairDecision.jsx"
 import RepairCompletion from "./pages/RepairCompletion.jsx"
 import ReturnShipping from "./pages/ReturnShipping.jsx"
 import RepairFinish from "./pages/RepairFinish.jsx"
-import Records from "./pages/Records.jsx"
+import RepairHistoryLookup from "./pages/RepairHistoryLookup.jsx"
+import MachineTracking from "./pages/MachineTracking.jsx"
+import InformationRepairReports from "./pages/InformationRepairReports.jsx"
+import InformationExceptionCenter from "./pages/InformationExceptionCenter.jsx"
 import Inventory from "./pages/Inventory.jsx"
 import Warehouse from "./pages/Warehouse.jsx"
 import Profile from "./pages/Profile.jsx"
@@ -26,10 +30,16 @@ import {
   USER_ROLES
 } from "./shared/userStore.js"
 import {
+  getRecloudSyncTasks,
   getSupervisionInbox,
   getSupervisionMonitorStatus,
   setApiAccessToken
 } from "./shared/crmService.js"
+import {
+  findRepairOrderByCrmOrderNo,
+  setCurrentRepairOrderId
+} from "./shared/repairOrderStore.js"
+import { pageForRepairStatus } from "./shared/repairNavigation.js"
 
 import "./App.css"
 
@@ -58,6 +68,37 @@ function App() {
   const [latestSupervision, setLatestSupervision] = useState(null)
   const [supervisionTargetRmaNo, setSupervisionTargetRmaNo] = useState("")
   const [supervisionMonitorWarning, setSupervisionMonitorWarning] = useState("")
+  const [syncAttentionTasks, setSyncAttentionTasks] = useState([])
+  const [selectedInformationReportRmaNo, setSelectedInformationReportRmaNo] = useState("")
+
+  useEffect(() => {
+    const canMonitorSync = isLoggedIn && currentUser?.role === USER_ROLES.ADMIN
+    if (!canMonitorSync) {
+      setSyncAttentionTasks([])
+      return undefined
+    }
+    let active = true
+    let timer
+    const refreshSyncAttention = async () => {
+      try {
+        const tasks = await getRecloudSyncTasks()
+        if (active) {
+          setSyncAttentionTasks((tasks || [])
+            .filter((task) => ["FAILED", "MANUAL_REVIEW", "READY_DRY_RUN", "AWAITING_FINAL_CONFIRM"].includes(task.status))
+            .sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || ""))))
+        }
+      } catch {
+        // 全局同步提醒短暂不可用时不阻断本地业务，下一轮自动重试。
+      } finally {
+        if (active) timer = window.setTimeout(refreshSyncAttention, 10000)
+      }
+    }
+    refreshSyncAttention()
+    return () => {
+      active = false
+      if (timer) window.clearTimeout(timer)
+    }
+  }, [isLoggedIn, currentUser?.id, currentUser?.role])
 
   useEffect(() => {
     const canReceiveSupervision = isLoggedIn && [USER_ROLES.TECHNICIAN, USER_ROLES.ADMIN].includes(currentUser?.role)
@@ -89,8 +130,11 @@ function App() {
   }, [isLoggedIn, currentUser?.id, currentUser?.role])
 
   useEffect(() => {
-    const canReceiveSupervision = isLoggedIn && [USER_ROLES.TECHNICIAN, USER_ROLES.ADMIN].includes(currentUser?.role)
-    if (!canReceiveSupervision) return undefined
+    const canInspectSupervisionMonitor = isLoggedIn && [USER_ROLES.INFORMATION_CLERK, USER_ROLES.ADMIN].includes(currentUser?.role)
+    if (!canInspectSupervisionMonitor) {
+      setSupervisionMonitorWarning("")
+      return undefined
+    }
     let active = true
     let timer
     const refreshMonitorStatus = async () => {
@@ -145,6 +189,7 @@ function App() {
     setSupervisionUnreadCount(0)
     setLatestSupervision(null)
     setSupervisionMonitorWarning("")
+    setSyncAttentionTasks([])
 
   }
 
@@ -173,7 +218,7 @@ function App() {
 
 
 
-  function setPage(nextPage) {
+  function setPage(nextPage, options = {}) {
 
 
    const latestUser = getCurrentUser()
@@ -208,6 +253,10 @@ function App() {
 
     setPermissionMessage("")
 
+    if (nextPage === "repairReports") {
+      setSelectedInformationReportRmaNo(String(options.initialRmaNo || "").trim())
+    }
+
 
     setPageState(nextPage)
 
@@ -218,6 +267,20 @@ function App() {
     setPage("home")
     setSupervisionTargetRmaNo(String(rmaNo || ""))
     setSupervisionOpenKey((current) => current + 1)
+  }
+
+  function openRepairOrderFromSyncTask(rmaNo = "") {
+    const order = findRepairOrderByCrmOrderNo(String(rmaNo || "").trim())
+    if (!order) {
+      setPermissionMessage("没有找到该同步任务对应的本地工单")
+      return
+    }
+    setCurrentRepairOrderId(order.id)
+    setPage(pageForRepairStatus(order.status))
+  }
+
+  function openInformationReport(rmaNo = "") {
+    setPage("repairReports", { initialRmaNo: rmaNo })
   }
 
 
@@ -281,6 +344,7 @@ function App() {
 
           <Repair
             setPage={setPage}
+            currentUser={currentUser}
           />
 
         )}
@@ -321,6 +385,10 @@ function App() {
 
         )}
 
+        {page === "repairDecision" && (
+          <RepairDecision setPage={setPage} />
+        )}
+
         {page === "repairCompletion" && (
           <RepairCompletion setPage={setPage} />
         )}
@@ -347,10 +415,20 @@ function App() {
 
         {page === "records" && (
 
-          <Records
-            setPage={setPage}
-          />
+          <RepairHistoryLookup setPage={setPage} />
 
+        )}
+
+        {page === "machineTracking" && (
+          <MachineTracking setPage={setPage} />
+        )}
+
+        {page === "repairReports" && (
+          <InformationRepairReports setPage={setPage} initialRmaNo={selectedInformationReportRmaNo} />
+        )}
+
+        {page === "exceptionCenter" && (
+          <InformationExceptionCenter setPage={setPage} onOpenReport={openInformationReport} />
         )}
 
 
@@ -391,7 +469,7 @@ function App() {
         )}
 
         {page === "syncTasks" && (
-          <SyncTasks setPage={setPage} />
+          <SyncTasks setPage={setPage} onOpenOrder={openRepairOrderFromSyncTask} />
         )}
 
         {page === "syncDiagnostics" && (
@@ -409,7 +487,7 @@ function App() {
 
       {supervisionMonitorWarning && (
         <div className="global-monitor-warning" role="status">
-          <b>督办提醒异常</b>
+          <b>督办监测状态</b>
           <span>{supervisionMonitorWarning}</span>
         </div>
       )}
@@ -426,6 +504,21 @@ function App() {
             <small>{String(latestSupervision?.originalContent || "点击查看督办内容").slice(0, 28)}</small>
           </span>
           <strong>{supervisionUnreadCount > 99 ? "99+" : supervisionUnreadCount}</strong>
+        </button>
+      )}
+
+      {currentUser?.role === USER_ROLES.ADMIN && syncAttentionTasks.length > 0 && page !== "syncTasks" && (
+        <button
+          type="button"
+          className={`global-sync-alert${supervisionUnreadCount > 0 ? " with-supervision" : ""}`}
+          onClick={() => setPage("syncTasks")}
+          aria-label={`查看${syncAttentionTasks.length}个待处理同步任务`}
+        >
+          <span>
+            <b>同步任务待处理 · {syncAttentionTasks[0]?.rmaNo || "待查看"}</b>
+            <small>人工复核、执行失败或等待最终确认</small>
+          </span>
+          <strong>{syncAttentionTasks.length > 99 ? "99+" : syncAttentionTasks.length}</strong>
         </button>
       )}
 

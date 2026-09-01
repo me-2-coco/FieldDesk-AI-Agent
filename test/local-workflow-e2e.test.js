@@ -111,7 +111,14 @@ test("one local order completes the full FieldDesk workflow and creates five dry
   ]);
   assert.ok(tasks.every((task) => task.status === "PENDING"));
   for (const task of tasks) await sync.processTask(task.id);
-  assert.ok((await outbox.readAll()).every((task) => task.status === "SUCCESS"));
+  const syncTasks = await outbox.readAll();
+  assert.ok(syncTasks
+    .filter((task) => task.nodeType !== "REPAIR_COMPLETED")
+    .every((task) => task.status === "SUCCESS"));
+  assert.equal(
+    syncTasks.find((task) => task.nodeType === "REPAIR_COMPLETED")?.status,
+    "READY_DRY_RUN"
+  );
 
   assert.equal((await orders.listOrdersForUser(ADMIN, ROLES)).length, 1);
   assert.equal((await orders.listOrdersForUser(TECH, ROLES)).length, 1);
@@ -125,11 +132,12 @@ test("one local order completes the full FieldDesk workflow and creates five dry
   }
 });
 
-test("frontend workflow exposes direct transitions between parts, inventory, repair and shipping", async () => {
+test("frontend workflow lets technicians finish locally while shipping stays in the background", async () => {
   const parts = await fs.readFile(path.join(__dirname, "../frontend/src/pages/PartsApplication.jsx"), "utf8");
-  const inventory = await fs.readFile(path.join(__dirname, "../frontend/src/pages/Inventory.jsx"), "utf8");
   const completion = await fs.readFile(path.join(__dirname, "../frontend/src/pages/RepairCompletion.jsx"), "utf8");
-  assert.match(parts, /setPage\("inventory"\)/);
-  assert.match(inventory, /setPage\("repairWork"\)/);
-  assert.match(completion, /setPage\("returnShipping"\)/);
+  const home = await fs.readFile(path.join(__dirname, "../frontend/src/pages/Home.jsx"), "utf8");
+  assert.match(parts, /setPage\(result\.nextStep === "repairCompletion"/);
+  assert.match(completion, /if \(submit\) setPage\("home"\)/);
+  assert.doesNotMatch(completion, /setPage\("returnShipping"\)/);
+  assert.match(home, /后台发货进度/);
 });

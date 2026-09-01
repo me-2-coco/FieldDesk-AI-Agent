@@ -1,4 +1,4 @@
-const MAPPING_VERSION = "v7";
+const MAPPING_VERSION = "v9";
 const { resolveWarrantyConversion } = require("../services/warranty-conversion-policy");
 
 const NODE_REQUIRED_FIELDS = Object.freeze({
@@ -22,7 +22,9 @@ const RECLOUD_INSPECTION_FIELD_TARGETS = Object.freeze({
   productFunctionDecision: { target: "成品功能判断", status: "FIXED_FUNCTION_ISSUE", control: "SELECT" },
   originalConsumables: { target: "是否原厂耗材", status: "FIXED_YES", control: "RADIO" },
   consumableName: { target: "耗材名称", status: "CLEAR_AFTER_ORIGINAL", control: "TEXT_INPUT" },
-  dismantled: { target: "是否拆封", status: "FIXED_YES", control: "RADIO" },
+  faultDescription: { target: "故障描述", status: "EXCLUDED", control: "TEXT_INPUT" },
+  dismantled: { target: "是否拆封", status: "EXCLUDED", control: "RADIO" },
+  openedRemark: { target: "拆封备注", status: "EXCLUDED", control: "TEXT_INPUT" },
   responsibilityDecision: { target: "责任判定", status: "EXCLUDED", control: "SELECT" },
 });
 
@@ -77,17 +79,18 @@ function normalizeWarrantyForRecloud(value) {
 }
 
 function buildRecloudInspectionFormPlan(payload = {}) {
+  const skipsFaultCategory = ["ABANDONED", "INSPECTION_ONLY", "DEBUGGING"].includes(String(payload.treatmentMode || "").trim());
   const fields = {
-    faultCategory: String(payload.faultCategory || "").trim(),
+    ...(!skipsFaultCategory || payload.faultCategory ? { faultCategory: String(payload.faultCategory || "").trim() } : {}),
     customerReasonConsistent: "是",
     warrantyStatus: normalizeWarrantyForRecloud(payload.warrantyStatus),
     detectionResult: String(payload.detectionResult || payload.inspectionResult || "").trim(),
     productFunctionDecision: "功能问题",
     originalConsumables: "是",
     consumableName: "",
-    dismantled: "是",
   };
-  const missingFields = ["faultCategory", "warrantyStatus", "detectionResult"]
+  const requiredFields = skipsFaultCategory ? ["warrantyStatus", "detectionResult"] : ["faultCategory", "warrantyStatus", "detectionResult"];
+  const missingFields = requiredFields
     .filter((key) => !fields[key]);
   return {
     safeWrites: Object.entries(fields).map(([key, value]) => ({
@@ -105,6 +108,21 @@ function buildRecloudInspectionFormPlan(payload = {}) {
         key: "responsibilityDecision",
         target: RECLOUD_INSPECTION_FIELD_TARGETS.responsibilityDecision.target,
         reason: "每单保持空白",
+      },
+      {
+        key: "faultDescription",
+        target: RECLOUD_INSPECTION_FIELD_TARGETS.faultDescription.target,
+        reason: "不填写，保持瑞云原值",
+      },
+      {
+        key: "dismantled",
+        target: RECLOUD_INSPECTION_FIELD_TARGETS.dismantled.target,
+        reason: "不操作，保持瑞云原值",
+      },
+      {
+        key: "openedRemark",
+        target: RECLOUD_INSPECTION_FIELD_TARGETS.openedRemark.target,
+        reason: "不填写，保持瑞云原值",
       },
     ],
     missingFields,
@@ -182,6 +200,15 @@ function buildRecloudRepairFormPlan(payload = {}) {
     manufacturerApprovalNo: payload.manufacturerWarrantyConversion?.approvalNo,
   });
   const safeWrites = [
+    { key: "repairMeasure", target: RECLOUD_REPAIR_FIELD_TARGETS.repairMeasure.target, value: String(payload.repairMeasure || "").trim() },
+    { key: "usedParts", target: RECLOUD_REPAIR_FIELD_TARGETS.usedParts.target, value: parts },
+    { key: "highestRepairLevel", target: RECLOUD_REPAIR_FIELD_TARGETS.highestRepairLevel.target, value: String(pricing.highestRepairLevel || "").trim() },
+    { key: "customerPaidAmount", target: RECLOUD_REPAIR_FIELD_TARGETS.customerPaidAmount.target, value: isOutOfWarranty ? Number(pricing.totalFee || 0) : null },
+    { key: "logisticsAmount", target: RECLOUD_REPAIR_FIELD_TARGETS.logisticsAmount.target, value: isOutOfWarranty ? Number(pricing.roundTripLogisticsFee || 0) : null },
+    { key: "attachments", target: RECLOUD_REPAIR_FIELD_TARGETS.attachments.target, value: Array.isArray(payload.attachments) ? payload.attachments : [] },
+    { key: "warrantyConversion", target: RECLOUD_REPAIR_FIELD_TARGETS.warrantyConversion.target, value: warrantyConversion.value },
+  ].filter((field) => field.value !== "" && field.value !== null && field.value !== undefined && (!Array.isArray(field.value) || field.value.length));
+  const verifyOnlyFields = [
     {
       key: "faultClassification",
       target: RECLOUD_REPAIR_FIELD_TARGETS.faultClassification.target,
@@ -192,22 +219,37 @@ function buildRecloudRepairFormPlan(payload = {}) {
     },
     { key: "detectionResult", target: RECLOUD_REPAIR_FIELD_TARGETS.detectionResult.target, value: String(payload.detectionResult || "").trim() },
     { key: "responsibilityType", target: RECLOUD_REPAIR_FIELD_TARGETS.responsibilityType.target, value: normalizeWarrantyForRecloud(payload.responsibilityType) },
-    { key: "repairMeasure", target: RECLOUD_REPAIR_FIELD_TARGETS.repairMeasure.target, value: String(payload.repairMeasure || "").trim() },
-    { key: "usedParts", target: RECLOUD_REPAIR_FIELD_TARGETS.usedParts.target, value: parts },
-    { key: "highestRepairLevel", target: RECLOUD_REPAIR_FIELD_TARGETS.highestRepairLevel.target, value: String(pricing.highestRepairLevel || "").trim() },
-    { key: "customerPaidAmount", target: RECLOUD_REPAIR_FIELD_TARGETS.customerPaidAmount.target, value: isOutOfWarranty ? Number(pricing.totalFee || 0) : null },
-    { key: "logisticsAmount", target: RECLOUD_REPAIR_FIELD_TARGETS.logisticsAmount.target, value: isOutOfWarranty ? Number(pricing.roundTripLogisticsFee || 0) : null },
-    { key: "attachments", target: RECLOUD_REPAIR_FIELD_TARGETS.attachments.target, value: Array.isArray(payload.attachments) ? payload.attachments : [] },
-    { key: "warrantyConversion", target: RECLOUD_REPAIR_FIELD_TARGETS.warrantyConversion.target, value: warrantyConversion.value },
-  ].filter((field) => field.value !== "" && field.value !== null && field.value !== undefined && (!Array.isArray(field.value) || field.value.length));
+  ].filter((field) => field.value !== "");
 
   const manualReviewFields = Object.entries(RECLOUD_REPAIR_FIELD_TARGETS)
     .filter(([, config]) => config.status === "FORM_CONFIRMATION_REQUIRED")
     .map(([key, config]) => ({ key, target: config.target }));
 
+  const skipsFaultClassification = ["ABANDONED", "INSPECTION_ONLY", "DEBUGGING"].includes(String(payload.treatmentMode || "").trim());
+  const missingFields = [
+    !skipsFaultClassification && !String(payload.faultLevel1 || "").trim() && "faultLevel1",
+    !skipsFaultClassification && !String(payload.faultLevel2 || "").trim() && "faultLevel2",
+    !skipsFaultClassification && !String(payload.faultLevel3 || "").trim() && "faultLevel3",
+    !String(payload.detectionResult || "").trim() && "detectionResult",
+    !String(payload.responsibilityType || "").trim() && "responsibilityType",
+    !String(payload.repairMeasure || "").trim() && "repairMeasure",
+    !(Array.isArray(payload.attachments) && payload.attachments.length) && "attachments",
+  ].filter(Boolean);
+  const systemCalculatedFields = Object.entries(RECLOUD_REPAIR_FIELD_TARGETS)
+    .filter(([, config]) => config.status === "SYSTEM_CALCULATED")
+    .map(([key, config]) => ({ key, target: config.target }));
+  const excludedFields = Object.entries(RECLOUD_REPAIR_FIELD_TARGETS)
+    .filter(([, config]) => config.status === "EXCLUDED")
+    .map(([key, config]) => ({ key, target: config.target }));
+
   return {
     safeWrites,
+    verifyOnlyFields,
     manualReviewFields,
+    systemCalculatedFields,
+    excludedFields,
+    missingFields,
+    readyToPrefill: missingFields.length === 0,
     warrantyConversion,
     canAutoConfirm: false,
     reason: "保外仅填写客户实际支付金额和快递金额；配件及其他费用由瑞云自动计算",
@@ -228,6 +270,7 @@ function buildNodePayload(order, nodeType) {
       attachmentTarget: "RMA_ATTACHMENT",
     },
     INSPECTION_COMPLETED: {
+      treatmentMode: order.treatmentMode,
       inspectionResult: order.inspectionResult,
       inspectionRemark: order.inspectionRemark,
       inspectionCompletedAt: order.inspectionUpdatedAt,
@@ -242,6 +285,7 @@ function buildNodePayload(order, nodeType) {
       dismantled: order.dismantled,
     },
     REPAIR_COMPLETED: {
+      treatmentMode: order.treatmentMode,
       faultLevel1: completion.faultLevel1,
       faultLevel2: completion.faultLevel2,
       faultLevel3: completion.faultLevel3,
@@ -272,11 +316,18 @@ function buildNodePayload(order, nodeType) {
 }
 
 function validateNodePayload(nodeType, payload = {}) {
-  const required = NODE_REQUIRED_FIELDS[nodeType];
+  let required = NODE_REQUIRED_FIELDS[nodeType];
   if (!required) {
     throw Object.assign(new Error("不支持的瑞云同步节点"), {
       code: "SYNC_NODE_UNSUPPORTED", permanent: true,
     });
+  }
+  const skipsFaultClassification = ["ABANDONED", "INSPECTION_ONLY", "DEBUGGING"].includes(String(payload.treatmentMode || "").trim());
+  if (nodeType === "INSPECTION_COMPLETED" && skipsFaultClassification) {
+    required = required.filter((field) => field !== "faultCategory");
+  }
+  if (nodeType === "REPAIR_COMPLETED" && skipsFaultClassification) {
+    required = required.filter((field) => !["faultLevel1", "faultLevel2", "faultLevel3"].includes(field));
   }
   const missingFields = required.filter((field) => {
     const value = payload[field];

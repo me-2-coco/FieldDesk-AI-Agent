@@ -335,7 +335,9 @@ function parseRmaFieldPairs(pairs, logisticsNo = "", options = {}) {
   const missingFields = [];
   if (!detail.rmaNo) missingFields.push("rmaNo");
   if (!detail.reportedFault) missingFields.push("reportedFault");
-  if (!detail.pickupLogisticsNo) missingFields.push("pickupLogisticsNo");
+  if (options.requirePickupLogisticsNo !== false && !detail.pickupLogisticsNo) {
+    missingFields.push("pickupLogisticsNo");
+  }
 
   if (missingFields.length > 0) {
     throw new RecloudQueryError(

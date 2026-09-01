@@ -6,11 +6,12 @@ const path = require("path");
 const { JsonReceiptPreparationStore } = require("../database/receipt-preparation-store");
 const { LocalShippingAttachmentStore } = require("../database/shipping-attachment-store");
 
-const ROLES = { ADMIN: "ADMIN", TECHNICIAN: "TECHNICIAN", WAREHOUSE: "WAREHOUSE" };
+const ROLES = { ADMIN: "ADMIN", TECHNICIAN: "TECHNICIAN", WAREHOUSE: "WAREHOUSE", INFORMATION_CLERK: "INFORMATION_CLERK" };
 const TECH = { userId: "TECH-1", displayName: "测试师傅", role: ROLES.TECHNICIAN };
 const OTHER_TECH = { userId: "TECH-2", displayName: "其他师傅", role: ROLES.TECHNICIAN };
 const ADMIN = { userId: "ADMIN-1", displayName: "测试管理员", role: ROLES.ADMIN };
 const WAREHOUSE = { userId: "WAREHOUSE-1", displayName: "测试库房", role: ROLES.WAREHOUSE };
+const INFORMATION_CLERK = { userId: "INFO-1", displayName: "测试信息员", role: ROLES.INFORMATION_CLERK };
 
 async function createFixture(t) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "fielddesk-shipping-"));
@@ -65,12 +66,13 @@ test("administrator completes a shipped order once", async (t) => {
   await assert.rejects(store.confirmCompletion("RMA-SHIPPING-1", ADMIN), { code: "ORDER_COMPLETION_DUPLICATE" });
 });
 
-test("technicians see only own shipping orders while admin and warehouse see all", async (t) => {
+test("shipping progress is hidden from technicians and warehouse but visible to information clerks and admin", async (t) => {
   const { store } = await createFixture(t);
-  assert.equal((await store.listShippingOrders(TECH, ROLES)).length, 1);
+  assert.equal((await store.listShippingOrders(TECH, ROLES)).length, 0);
   assert.equal((await store.listShippingOrders(OTHER_TECH, ROLES)).length, 0);
   assert.equal((await store.listShippingOrders(ADMIN, ROLES)).length, 1);
-  assert.equal((await store.listShippingOrders(WAREHOUSE, ROLES)).length, 1);
+  assert.equal((await store.listShippingOrders(INFORMATION_CLERK, ROLES)).length, 1);
+  assert.equal((await store.listShippingOrders(WAREHOUSE, ROLES)).length, 0);
 });
 
 test("timeline covers query, receipt, inspection, repair and shipping", async (t) => {
@@ -98,12 +100,12 @@ test("shipping proof store accepts images and rejects video", async (t) => {
   }), { code: "SHIPPING_ATTACHMENT_INVALID" });
 });
 
-test("frontend exposes scan, proof, timeline and admin completion without Recloud", async () => {
+test("frontend exposes read-only background shipping progress to information roles", async () => {
   const page = await fs.readFile(path.join(__dirname, "../frontend/src/pages/ReturnShipping.jsx"), "utf8");
-  assert.match(page, /扫描返件物流单号/);
-  assert.match(page, /发货凭证照片/);
+  assert.match(page, /后台发货进度/);
+  assert.match(page, /仅供信息员和管理员查询/);
   assert.match(page, /工单时间线/);
-  assert.match(page, /管理员确认完结/);
+  assert.doesNotMatch(page, /扫描返件物流单号|发货凭证照片|管理员确认完结|提交本地发货/);
   assert.doesNotMatch(page, /queryCrm|recloudConnector/);
   const server = await fs.readFile(path.join(__dirname, "../server.js"), "utf8");
   assert.match(server, /\/api\/shipping\/submit/);

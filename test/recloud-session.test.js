@@ -182,6 +182,80 @@ test("expired session enters login-required flow without keychain access", async
   await manager.close();
 });
 
+test("login page opened beside the CRM shell is selected for authentication", async (t) => {
+  const directory = await createTemporaryDirectory(t);
+  const crmPage = {
+    isClosed: () => false,
+    url: () => "https://crm2.recloud.com.cn/#/scanSignin/query",
+    setDefaultTimeout() {},
+    async goto() {},
+  };
+  const loginPage = {
+    isClosed: () => false,
+    url: () => "https://auth4.recloud.com.cn/login",
+  };
+  const context = {
+    pages: () => [crmPage, loginPage],
+    newPage: async () => crmPage,
+    close: async () => {},
+  };
+  const manager = createRecloudSessionManager({
+    chromium: { launchPersistentContext: async () => context },
+    profileDirectory: path.join(directory, "profile"),
+    lockPath: path.join(directory, "profile.lock"),
+    targetUrl: "https://crm2.recloud.com.cn/#/scanSignin/query",
+    isLoginPage: (url) => url.includes("auth4.recloud.com.cn"),
+    env: { RECLOUD_HEADLESS: "true", RECLOUD_LOGIN_AUTOFILL_ENABLED: "false" },
+    logger: { info() {} },
+  });
+
+  const session = await manager.ensureOpen();
+
+  assert.equal(session.loginRequired, true);
+  assert.equal(session.page, loginPage);
+  await manager.close();
+});
+
+test("login redirect appearing while CRM readiness is checked is detected", async (t) => {
+  const directory = await createTemporaryDirectory(t);
+  const pages = [];
+  const crmPage = {
+    isClosed: () => false,
+    url: () => "https://crm2.recloud.com.cn/#/scanSignin/query",
+    setDefaultTimeout() {},
+    async goto() {},
+  };
+  const loginPage = {
+    isClosed: () => false,
+    url: () => "https://auth4.recloud.com.cn/login",
+  };
+  pages.push(crmPage);
+  const context = {
+    pages: () => pages,
+    newPage: async () => crmPage,
+    close: async () => {},
+  };
+  const manager = createRecloudSessionManager({
+    chromium: { launchPersistentContext: async () => context },
+    profileDirectory: path.join(directory, "profile"),
+    lockPath: path.join(directory, "profile.lock"),
+    targetUrl: "https://crm2.recloud.com.cn/#/scanSignin/query",
+    isLoginPage: (url) => url.includes("auth4.recloud.com.cn"),
+    isReadyPage: async () => {
+      pages.push(loginPage);
+      return false;
+    },
+    env: { RECLOUD_HEADLESS: "true", RECLOUD_LOGIN_AUTOFILL_ENABLED: "false" },
+    logger: { info() {} },
+  });
+
+  const session = await manager.ensureOpen();
+
+  assert.equal(session.loginRequired, true);
+  assert.equal(session.page, loginPage);
+  await manager.close();
+});
+
 test("CRM shell without scanner input is treated as login required", async (t) => {
   const directory = await createTemporaryDirectory(t);
   const browser = createSessionBrowser(

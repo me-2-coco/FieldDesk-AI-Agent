@@ -40,7 +40,6 @@ function buildInspectionFormDecision(input = {}) {
       productFunctionDecision: "功能问题",
       originalConsumables: "是",
       consumableName: "",
-      dismantled: "是",
     },
   };
 }

@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react"
 import ScannerModal from "../components/ScannerModal"
+import PhotoCaptureModal from "../components/PhotoCaptureModal"
+import { CameraIcon, ScanIcon } from "../components/AppIcons.jsx"
 import {
-  cancelReceiptPreparation,
   completeLocalReceipt,
   getCurrentFieldDeskUser,
+  getLocalRepairOrders,
+  getRepeatRepairBySn,
   prepareReceipt,
-  queryCrmOrderByLogisticsNo,
-  transferToHeadquarters,
+  queryCrmRepairByAnyIdentifier,
   uploadReceiptAttachment
 } from "../shared/crmService.js"
 import {
@@ -17,47 +19,159 @@ import {
 import {
   getReceiptSpecialtyGate,
   normalizeReceiptSn,
+  REPAIR_SPECIALTIES,
   validateReceiptSn
 } from "../shared/receiptPreparation.js"
 
+function displayRepairTime(value) {
+  if (!value) return "时间未记录"
+  const time = new Date(value)
+  return Number.isNaN(time.getTime()) ? value : time.toLocaleDateString("zh-CN")
+}
 
-function Repair({ setPage }) {
+function MachineRepairHistory({ history }) {
+  if (!history?.records?.length) return null
+  return <section className={`machine-history-panel ${history.isRepeatRepair ? "is-repeat" : ""}`}>
+    <div className="machine-history-heading">
+      <div>
+        {history.isRepeatRepair && <strong>重复维修</strong>}
+        <span>{history.isRepeatRepair ? "同一 SN 一个月内再次送修" : "该机器存在历史维修记录"}</span>
+      </div>
+      <b>{history.records.length} 次</b>
+    </div>
+    {history.previousTechnicianName && <p className="previous-technician">上次维修师傅：<strong>{history.previousTechnicianName}</strong></p>}
+    <div className="machine-history-list">
+      {history.records.map((record) => <article key={`${record.rmaNo}-${record.completedAt}`}>
+        <div><strong>{record.rmaNo || "寄修单号未记录"}</strong><span>{displayRepairTime(record.completedAt)}</span></div>
+        <p>维修师傅：{record.technicianName || "未记录"}</p>
+        <p>故障描述：{record.reportedFault || "未记录"}</p>
+      </article>)}
+    </div>
+  </section>
+}
+
+
+function Repair({ setPage, currentUser: signedInUser = null, goBack = () => setPage("home") }) {
 
   const [orderNo, setOrderNo] = useState("")
   const [scannerMode, setScannerMode] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [repairDetail, setRepairDetail] = useState(null)
+  const [searchMatches, setSearchMatches] = useState([])
   const [errorMessage, setErrorMessage] = useState("")
   const [receiptStep, setReceiptStep] = useState("detail")
   const [sn, setSn] = useState("")
   const [specialty, setSpecialty] = useState("")
   const [receiptMessage, setReceiptMessage] = useState("")
-  const [modelAuthorization, setModelAuthorization] = useState(null)
   const [isSaving, setIsSaving] = useState(false)
-  const [receiptAttachments, setReceiptAttachments] = useState([])
-  const [currentUser, setCurrentUser] = useState(null)
+  const [currentUser, setCurrentUser] = useState(signedInUser)
   const [authError, setAuthError] = useState("")
+  const [receiptAttachments, setReceiptAttachments] = useState([])
+  const [photoCameraOpen, setPhotoCameraOpen] = useState(false)
+  const [machineHistory, setMachineHistory] = useState(null)
   const specialtyGate = getReceiptSpecialtyGate(
     currentUser,
     repairDetail?.productLine
   )
-  const hasFullPhone = /^1[3-9]\d{9}$/.test(
-    repairDetail?.customer?.phoneMasked || ""
-  )
+  const queriedLogisticsNo = repairDetail?.logisticsNo || repairDetail?.pickupLogisticsNo || ""
+
+  function resumePageForLocalOrder(order) {
+    const timelineTypes = new Set((order.timeline || []).map((item) => item.type))
+    if (["REPAIR_COMPLETED_PENDING_SHIPMENT", "SHIPPED_PENDING_COMPLETION", "COMPLETED"].includes(order.status)) return "repairCompletion"
+    if (order.status === "REPAIR_COMPLETION_DRAFT" || timelineTypes.has("PART_USED") || timelineTypes.has("NO_PARTS_REQUIRED")) return "repairCompletion"
+    if (order.status === "INSPECTION_COMPLETED_PENDING_REPAIR") {
+      if (order.treatmentMode && order.treatmentMode !== "REPAIR") return "repairCompletion"
+      return timelineTypes.has("PARTS_CONFIRMED") ? "repairCompletion" : "partsApplication"
+    }
+    if (["RECEIVED_PENDING_INSPECTION", "INSPECTION_IN_PROGRESS"].includes(order.status)) {
+      if (!order.treatmentMode) return "repairDecision"
+      return order.treatmentMode === "REPAIR" ? "partsApplication" : "repairCompletion"
+    }
+    return ""
+  }
+
+  function frontendStatusForLocalOrder(order, targetPage) {
+    if (order.status === "COMPLETED") return REPAIR_STATUS.COMPLETED
+    if (order.status === "SHIPPED_PENDING_COMPLETION") return REPAIR_STATUS.SHIPPED_PENDING_COMPLETION
+    if (order.status === "REPAIR_COMPLETED_PENDING_SHIPMENT") return REPAIR_STATUS.REPAIR_COMPLETED_PENDING_SHIPMENT
+    if (targetPage === "repairCompletion") return REPAIR_STATUS.REPAIRING
+    if (order.status === "INSPECTION_COMPLETED_PENDING_REPAIR") return REPAIR_STATUS.INSPECTION_COMPLETE
+    return REPAIR_STATUS.WAIT_INSPECTION
+  }
+
+  function restoreLocalOrder(order, targetPage, queryResult) {
+    saveCurrentRepairOrder({
+      id: `RMA-${order.rmaNo}`,
+      crmOrderNo: order.rmaNo,
+      logisticsNo: order.logisticsNo || queryResult.logisticsNo || queryResult.pickupLogisticsNo || "",
+      customer: order.customerName || queryResult.customer?.name || "",
+      phone: order.phoneMasked || queryResult.customer?.phoneMasked || "",
+      address: order.regionAddress || queryResult.customer?.regionAddress || "",
+      product: order.productLine || order.specialty || queryResult.productLine || "",
+      model: order.productLine || order.specialty || queryResult.productLine || "",
+      sn: order.sn || "",
+      projectCode: order.recloudProjectCode || order.projectCode || "",
+      warrantyType: order.warrantyType || "",
+      originalFault: order.reportedFault || queryResult.reportedFault || "",
+      inspectionResult: order.inspectionResult || "",
+      inspectionRemark: order.inspectionRemark || "",
+      treatmentMode: order.treatmentMode || "",
+      treatmentLabel: order.treatmentLabel || "",
+      specialty: order.specialty || order.productLine || "",
+      receiptRemark: order.remark || "",
+      technician: order.technicianName || order.operatorName || "",
+      usedParts: order.repairCompletion?.usedParts || [],
+      attachments: order.repairCompletion?.attachments || [],
+      status: frontendStatusForLocalOrder(order, targetPage),
+      createdAt: order.createdAt || "",
+      completedAt: order.completedAt || ""
+    })
+  }
+
+  async function resumeExistingWorkflow(result, queryValue) {
+    try {
+      const localOrders = await getLocalRepairOrders(result.rmaNo || queryValue)
+      const localOrder = localOrders.find((item) =>
+        String(item.rmaNo || "").trim() === String(result.rmaNo || "").trim()
+      )
+      if (!localOrder?.sn) return false
+      const targetPage = resumePageForLocalOrder(localOrder)
+      if (!targetPage) {
+        setRepairDetail({ ...result, localWorkflow: localOrder })
+        setReceiptStep("detail")
+        setErrorMessage("")
+        setReceiptMessage(localOrder.status === "TRANSFER_TO_HEADQUARTERS_PENDING"
+          ? "该工单已录入 SN，当前为转总部待处理，不能重复签收"
+          : `该工单已存在，当前状态：${localOrder.status}`)
+        return true
+      }
+      restoreLocalOrder(localOrder, targetPage, result)
+      setErrorMessage("")
+      setReceiptMessage(`已恢复工单当前进度：${localOrder.status}`)
+      setPage(targetPage)
+      return true
+    } catch {
+      return false
+    }
+  }
 
   useEffect(() => {
+    setCurrentUser(signedInUser)
     getCurrentFieldDeskUser()
       .then((user) => {
-        setCurrentUser(user)
+        setCurrentUser((existing) => existing?.repairSpecialties?.length ? existing : user)
         setAuthError("")
       })
-      .catch((error) => setAuthError(error.message))
-  }, [])
+      .catch((error) => {
+        if (!signedInUser) setAuthError(error.message)
+      })
+  }, [signedInUser])
 
-  async function searchRepair() {
+  async function searchRepair(queryOverride = "") {
+    const queryValue = typeof queryOverride === "string" && queryOverride ? queryOverride : orderNo
 
-    if (!orderNo.trim()) {
-      setErrorMessage("请输入物流单号")
+    if (!queryValue.trim()) {
+      setErrorMessage("请输入物流单号、电话、SN或寄修单号")
       return
     }
 
@@ -65,12 +179,50 @@ function Repair({ setPage }) {
       setIsLoading(true)
       setErrorMessage("")
       setRepairDetail(null)
+      setSearchMatches([])
+      setMachineHistory(null)
+      setSn("")
 
-      const result = await queryCrmOrderByLogisticsNo(orderNo)
+      let result = await queryCrmRepairByAnyIdentifier(queryValue)
+      if (!result || typeof result !== "object") {
+        throw new Error("工单查询返回异常，请重新查询")
+      }
+      if (Array.isArray(result.matches)) {
+        if (result.matches.length === 0) {
+          setReceiptMessage("未找到匹配工单")
+          return
+        }
+        if (result.matches.length > 1) {
+          setSearchMatches(result.matches)
+          setReceiptMessage(`找到${result.matches.length}条匹配工单，请选择对应机器`)
+          return
+        }
+        const match = result.matches[0]
+        const detail = await queryCrmRepairByAnyIdentifier(match.rmaNo)
+        const resolved = Array.isArray(detail?.matches) ? detail.matches[0] || match : detail || match
+        const queriedByPhone = /^1[3-9]\d{9}$/.test(queryValue.trim())
+        result = {
+          ...match,
+          ...resolved,
+          customer: {
+            ...(match.customer || {}),
+            ...(resolved?.customer || {}),
+            phoneMasked: queriedByPhone
+              ? queryValue.trim()
+              : resolved?.customer?.phoneMasked || match.customer?.phoneMasked || resolved?.phoneMasked || match.phoneMasked || "",
+          },
+        }
+      }
+      if (await resumeExistingWorkflow(result, queryValue)) return
       setRepairDetail(result)
+      setMachineHistory({
+        isRepeatRepair: Boolean(result.isRepeatRepair),
+        previousTechnicianName: result.previousTechnicianName || "",
+        previousCompletedAt: result.previousCompletedAt || "",
+        records: Array.isArray(result.repairHistory) ? result.repairHistory : []
+      })
       setReceiptStep("detail")
-      setReceiptMessage("")
-      setReceiptAttachments([])
+      setReceiptMessage(result.cached ? "已从 FieldDesk 本地记录秒查，无需等待瑞云" : "")
 
     } catch (error) {
       setErrorMessage(error.message)
@@ -85,10 +237,11 @@ function Repair({ setPage }) {
   function resetResult() {
     setErrorMessage("")
     setRepairDetail(null)
+    setSearchMatches([])
+    setMachineHistory(null)
+    setSn("")
     setReceiptStep("detail")
     setReceiptMessage("")
-    setModelAuthorization(null)
-    setReceiptAttachments([])
   }
 
   function startReceiptPreparation() {
@@ -100,18 +253,62 @@ function Repair({ setPage }) {
       setErrorMessage(specialtyGate.error)
       return
     }
+    // 瑞云返回的 SN 只用于只读资料展示，不能代替师傅在签收步骤实机核对。
+    // 每次进入录入页都清空，必须由师傅手输、扫码枪或摄像头扫码录入。
     setSn("")
+    setMachineHistory(null)
     setSpecialty(specialtyGate.specialty)
     setErrorMessage("")
     setReceiptMessage("")
+    setReceiptAttachments([])
+    setErrorMessage("")
     setReceiptStep("form")
   }
 
-  function reviewReceiptPreparation() {
+  async function checkMachineHistory(value) {
+    const normalizedSn = normalizeReceiptSn(value)
+    if (!/^[A-Z0-9-]{8,}$/i.test(normalizedSn)) {
+      setMachineHistory(null)
+      return
+    }
+    try {
+      const result = await getRepeatRepairBySn(normalizedSn, repairDetail?.rmaNo || "")
+      setMachineHistory(result)
+    } catch {
+      setMachineHistory(null)
+    }
+  }
+
+  function fileToDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result)
+      reader.onerror = () => reject(new Error("附件读取失败"))
+      reader.readAsDataURL(file)
+    })
+  }
+
+  async function saveReceiptFiles(files) {
+    if (!files.length) return
+    const accepted = files.map((file) => {
+      if (!/^(image|video)\//.test(file.type)) throw new Error("仅支持签收照片和视频")
+      return { id: crypto.randomUUID(), name: file.name, mimeType: file.type, file }
+    })
+    setErrorMessage("")
+    setReceiptAttachments((current) => [...current, ...accepted])
+  }
+
+  async function uploadReceiptFiles(event) {
+    const files = [...event.target.files]
+    await saveReceiptFiles(files)
+    event.target.value = ""
+  }
+
+  async function finishReceiptAndOpenParts() {
     const normalizedSn = normalizeReceiptSn(sn)
     const snError = validateReceiptSn(
       normalizedSn,
-      repairDetail.logisticsNo || orderNo
+      queriedLogisticsNo
     )
     if (snError) {
       setErrorMessage(snError)
@@ -119,6 +316,10 @@ function Repair({ setPage }) {
     }
     if (!specialty) {
       setErrorMessage("请选择本单维修品类")
+      return
+    }
+    if (receiptAttachments.length === 0) {
+      setErrorMessage("请至少拍摄或选择一张签收照片/视频")
       return
     }
     if (
@@ -130,123 +331,54 @@ function Repair({ setPage }) {
       )
       return
     }
-    setSn(normalizedSn)
-    setErrorMessage("")
-    setReceiptStep("confirm")
-  }
-
-  async function saveReceiptPreparation() {
     try {
       setIsSaving(true)
       setErrorMessage("")
-      const result = await prepareReceipt({
-        logisticsNo: repairDetail.logisticsNo || orderNo.trim(),
+      const preparation = await prepareReceipt({
+        logisticsNo: queriedLogisticsNo,
         rmaNo: repairDetail.rmaNo,
-        sn,
+        sn: normalizedSn,
         specialty,
         productLine: repairDetail.productLine || "",
         customerName: repairDetail.customer?.name || "",
         phoneMasked: repairDetail.customer?.phoneMasked || "",
         regionAddress: repairDetail.customer?.regionAddress || "",
-        reportedFault: repairDetail.reportedFault
+        reportedFault: repairDetail.reportedFault,
+        recloudProjectCode: repairDetail.projectCode || ""
       })
-      setModelAuthorization(result.authorization || result.modelAuthorization || null)
-      setReceiptAttachments(result.receiptAttachments || [])
-      setReceiptMessage(
-        result.message || "签收资料已准备，尚未同步瑞云"
-      )
-      setReceiptStep("saved")
-    } catch (error) {
-      setErrorMessage(error.message)
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
-  async function uploadReceiptPhotos(event) {
-    const files = Array.from(event.target.files || [])
-    if (!files.length) return
-    try {
-      setIsSaving(true)
-      setErrorMessage("")
-      let attachments = receiptAttachments
-      for (const file of files) {
-        const dataUrl = await new Promise((resolve, reject) => {
-          const reader = new FileReader()
-          reader.onload = () => resolve(reader.result)
-          reader.onerror = () => reject(new Error("读取照片失败"))
-          reader.readAsDataURL(file)
-        })
-        const result = await uploadReceiptAttachment({
-          rmaNo: repairDetail.rmaNo,
-          name: file.name,
-          mimeType: file.type,
-          data: dataUrl
-        })
-        attachments = result.attachments || [...attachments, result.attachment]
+      if (preparation.authorization?.repairability !== "SUPPORTED" || preparation.status !== "RECEIPT_PREPARED") {
+        setReceiptStep("detail")
+        setReceiptMessage(preparation.authorization?.reason || preparation.message || "当前机型不能在网点继续签收")
+        return
       }
-      setReceiptAttachments(attachments)
-    } catch (error) {
-      setErrorMessage(error.message)
-    } finally {
-      event.target.value = ""
-      setIsSaving(false)
-    }
-  }
-
-  async function transferUnsupportedMachine() {
-    try {
-      setIsSaving(true)
-      setErrorMessage("")
-      const result = await transferToHeadquarters(repairDetail.rmaNo)
-      setReceiptMessage(result.message)
-      setReceiptStep("transferred")
-    } catch (error) {
-      setErrorMessage(error.message)
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
-  async function cancelPreparation() {
-    try {
-      setIsSaving(true)
-      setErrorMessage("")
-      const result = await cancelReceiptPreparation(repairDetail.rmaNo)
-      setReceiptMessage(result.message || "签收准备已取消，未操作瑞云")
-      setReceiptStep("detail")
-      setSn("")
-      setSpecialty("")
-    } catch (error) {
-      setErrorMessage(error.message)
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
-  async function completeReceiptAndInspect() {
-    try {
-      setIsSaving(true)
-      setErrorMessage("")
+      for (const attachment of receiptAttachments) {
+        await uploadReceiptAttachment({
+          rmaNo: repairDetail.rmaNo,
+          name: attachment.name,
+          mimeType: attachment.mimeType,
+          data: await fileToDataUrl(attachment.file)
+        })
+      }
       const result = await completeLocalReceipt(repairDetail.rmaNo)
       const order = createRepairOrder({
         id: `RMA-${result.rmaNo}`,
         crmOrderNo: result.rmaNo,
         logisticsNo: result.logisticsNo,
         customer: result.customerName,
-        phone: result.phoneMasked,
+        phone: result.phoneMasked || repairDetail.customer?.phoneMasked || "",
         address: result.regionAddress,
-        product: result.productLine || result.specialty,
-        model: result.productLine || result.specialty,
+        product: result.productLine,
+        model: result.productLine,
         sn: result.sn,
         originalFault: result.reportedFault,
         technician: result.operatorName,
-        status: REPAIR_STATUS.WAIT_INSPECTION,
+        status: REPAIR_STATUS.WAIT_DECISION,
         specialty: result.specialty,
         receiptRemark: result.remark
       })
       saveCurrentRepairOrder(order)
-      setPage("partsApplication")
+      setSn(normalizedSn)
+      setPage("repairDecision")
     } catch (error) {
       setErrorMessage(error.message)
     } finally {
@@ -257,29 +389,42 @@ function Repair({ setPage }) {
 
   return (
 
-    <div className="page">
+    <div className="page repair-query-page">
 
-      <div className="page-top-header">
-
-        <button
-          className="arrow-back"
-          onClick={() => setPage("home")}
-        >
-          ←
-        </button>
-
-        <h1>到店查询</h1>
+      <div className="page-top-header repair-query-header">
+        <div>
+          <span>工单工作台</span>
+          <h1>到店查询</h1>
+        </div>
 
       </div>
 
 
-      <div className="card">
+      <div className="repair-query-hero">
+        <div className="repair-query-hero-icon">查</div>
+        <div>
+          <span>维修机器快速定位</span>
+          <strong>输入任意一项，即可查询工单</strong>
+        </div>
+        <small>只读</small>
+      </div>
 
-        <h2>查询寄修机器</h2>
+      <div className="card repair-query-card">
 
-        <p>
-          扫描物流单号，只读查询瑞云 RMA 寄修单
-        </p>
+        <div className="repair-query-card-heading">
+          <div>
+            <span>工单检索</span>
+            <h2>查询维修机器</h2>
+          </div>
+          <small>支持扫码</small>
+        </div>
+
+        <div className="repair-query-types" aria-label="支持的查询方式">
+          <span>物流单号</span>
+          <span>联系电话</span>
+          <span>机器 SN</span>
+          <span>寄修单号</span>
+        </div>
 
         <div className="scan-input-row">
 
@@ -294,7 +439,7 @@ function Repair({ setPage }) {
                 searchRepair()
               }
             }}
-            placeholder="请输入物流单号"
+            placeholder="输入物流单号、电话、SN或寄修单号"
             disabled={isLoading}
           />
 
@@ -303,21 +448,23 @@ function Repair({ setPage }) {
             aria-label="扫描物流单号"
             onClick={() => setScannerMode("logistics")}
           >
-            📷
+            <ScanIcon />
           </button>
 
         </div>
 
         <button
+          className="repair-query-submit"
           onClick={searchRepair}
           disabled={isLoading}
         >
-          {isLoading ? "正在只读查询..." : "查询 RMA 寄修单"}
+          {isLoading ? "正在只读查询..." : "查询维修工单"}
         </button>
 
-        <p className="read-only-tip">
-          只读模式：不会签收、不会填写 SN、不会修改瑞云数据
-        </p>
+        <div className="repair-query-safe-tip">
+          <span>✓</span>
+          <p><strong>安全查询模式</strong>不会签收、不会填写 SN，也不会修改瑞云数据</p>
+        </div>
 
       </div>
 
@@ -336,6 +483,44 @@ function Repair({ setPage }) {
 
       )}
 
+      {searchMatches.length > 0 && <div className="card rma-match-card">
+        <div className="rma-match-heading">
+          <div>
+            <span>查询结果</span>
+            <h2>选择对应工单</h2>
+          </div>
+          <strong>{searchMatches.length} 个</strong>
+        </div>
+        <p className="rma-match-tip">同一联系方式关联了多个工单，请根据机器和物流信息选择。</p>
+        <div className="rma-match-list">
+          {searchMatches.map((item) => {
+            const [productName = "机型待确认", orderStatus = "待处理"] = String(item.summary || "").split("｜")
+            return <button type="button" className="rma-match-item" key={item.rmaNo} onClick={() => {
+              setOrderNo(item.rmaNo)
+              setSearchMatches([])
+              setTimeout(() => searchRepair(item.rmaNo), 0)
+            }}>
+              <span className="rma-match-item-top">
+                <span>
+                  <small>寄修单号</small>
+                  <strong>{item.rmaNo}</strong>
+                </span>
+                <b aria-hidden="true">›</b>
+              </span>
+              <span className="rma-match-product">{productName || "机型待确认"}</span>
+              {item.isRepeatRepair && <span className="rma-repeat-badge">重复维修 · 上次师傅：{item.previousTechnicianName || "未记录"}</span>}
+              <span className="rma-match-meta">
+                <span><small>物流单号</small><strong>{item.logisticsNo || "送修"}</strong></span>
+                <span><small>联系电话</small><strong>{item.phoneMasked || "未显示"}</strong></span>
+              </span>
+              <span className={`rma-match-status ${orderStatus.includes("签收") ? "is-signed" : "is-picked"}`}>
+                {orderStatus || "待处理"}
+              </span>
+            </button>
+          })}
+        </div>
+      </div>}
+
 
       {repairDetail && receiptStep === "detail" && (
 
@@ -351,13 +536,13 @@ function Repair({ setPage }) {
 
           </div>
 
-          <dl className="rma-detail-list">
+          <div className="mobile-record-hero">
+            <span>寄修单号</span>
+            <strong>{repairDetail.rmaNo}</strong>
+            <small>{repairDetail.productLine || "待确认品类"}</small>
+          </div>
 
-            <div>
-              <dt>寄修单号</dt>
-              <dd>{repairDetail.rmaNo}</dd>
-            </div>
-
+          <dl className="rma-detail-list mobile-record-grid">
             <div>
               <dt>用户姓名</dt>
               <dd>{repairDetail.customer?.name || "未提供"}</dd>
@@ -367,11 +552,6 @@ function Repair({ setPage }) {
               <dt>联系电话</dt>
               <dd>
                 {repairDetail.customer?.phoneMasked || "未提供"}
-                {hasFullPhone && (
-                  <span className="sensitive-info-badge">
-                    敏感信息
-                  </span>
-                )}
               </dd>
             </div>
 
@@ -379,12 +559,6 @@ function Repair({ setPage }) {
               <dt>所在地区/地址</dt>
               <dd>{repairDetail.customer?.regionAddress || "未提供"}</dd>
             </div>
-
-            <div>
-              <dt>用户报修描述</dt>
-              <dd>{repairDetail.reportedFault}</dd>
-            </div>
-
             <div>
               <dt>产品线</dt>
               <dd>{repairDetail.productLine || "未提供"}</dd>
@@ -394,8 +568,19 @@ function Repair({ setPage }) {
               <dt>取件物流单号</dt>
               <dd>{repairDetail.pickupLogisticsNo}</dd>
             </div>
-
+            <div>
+              <dt>机器 SN</dt>
+              <dd>{repairDetail.productSerialNo || "待录入"}</dd>
+            </div>
           </dl>
+
+          <div className="mobile-record-description">
+            <span>用户报修描述</span>
+            <p>{repairDetail.reportedFault || "未提供"}</p>
+          </div>
+
+          <MachineRepairHistory history={machineHistory} />
+
           {receiptMessage && (
             <p className="receipt-status-message" role="status">
               {receiptMessage}
@@ -408,41 +593,58 @@ function Repair({ setPage }) {
             </p>
           )}
 
-          <button
-            onClick={startReceiptPreparation}
-            disabled={!currentUser || Boolean(authError || specialtyGate.error)}
-          >
-            下一步：录入 SN
-          </button>
+          {repairDetail.localWorkflow?.status ? (
+            <p className="receipt-status-message" role="status">
+              已录入工单，无需重复录入 SN 或补签收照片
+            </p>
+          ) : (
+            <button
+              onClick={startReceiptPreparation}
+              disabled={!currentUser || Boolean(authError || specialtyGate.error)}
+            >
+              下一步：录入 SN
+            </button>
+          )}
 
         </div>
 
       )}
 
       {repairDetail && receiptStep === "form" && (
-        <div className="card receipt-preparation-card">
-          <h2>录入 SN 与签收准备</h2>
-          <dl className="rma-detail-list receipt-summary">
-            <div><dt>寄修单号</dt><dd>{repairDetail.rmaNo}</dd></div>
-            <div>
-              <dt>物流单号</dt>
-              <dd>{repairDetail.logisticsNo || orderNo.trim()}</dd>
-            </div>
+        <div className="card receipt-preparation-card compact-receipt-card">
+          <div className="rma-detail-heading">
+            <h2>录入 SN 与签收准备</h2>
+            <span className="read-only-badge">待录入</span>
+          </div>
+          <div className="mobile-record-hero receipt-form-hero">
+            <span>寄修单号</span>
+            <strong>{repairDetail.rmaNo}</strong>
+            <small>{repairDetail.productLine || "待确认品类"}</small>
+          </div>
+          <dl className="rma-detail-list receipt-summary mobile-record-grid">
             <div>
               <dt>用户姓名</dt>
               <dd>{repairDetail.customer?.name || "未提供"}</dd>
             </div>
             <div>
-              <dt>报修描述</dt>
-              <dd>{repairDetail.reportedFault}</dd>
-            </div>
-            <div>
               <dt>产品线</dt>
               <dd>{repairDetail.productLine || "未提供"}</dd>
             </div>
+            <div>
+              <dt>联系电话</dt>
+              <dd>{repairDetail.customer?.phoneMasked || "未提供"}</dd>
+            </div>
+            <div>
+              <dt>物流单号</dt>
+              <dd>{queriedLogisticsNo || "送修（无物流单号）"}</dd>
+            </div>
           </dl>
+          <div className="mobile-record-description compact-note">
+            <span>报修描述</span>
+            <p>{repairDetail.reportedFault || "未提供"}</p>
+          </div>
 
-          <label htmlFor="receipt-sn">机器 SN</label>
+          <label htmlFor="receipt-sn">机器 SN <span className="inline-required">必填</span></label>
           <div className="scan-input-row">
             <input
               id="receipt-sn"
@@ -451,7 +653,11 @@ function Repair({ setPage }) {
                 setSn(event.target.value.toUpperCase())
                 setErrorMessage("")
               }}
-              onBlur={() => setSn(normalizeReceiptSn(sn))}
+              onBlur={() => {
+                const normalized = normalizeReceiptSn(sn)
+                setSn(normalized)
+                checkMachineHistory(normalized)
+              }}
               placeholder="请输入、扫描枪输入或使用摄像头扫描"
               autoComplete="off"
             />
@@ -460,9 +666,10 @@ function Repair({ setPage }) {
               aria-label={sn ? "重新扫描 SN" : "扫描 SN"}
               onClick={() => setScannerMode("sn")}
             >
-              📷
+              <ScanIcon />
             </button>
           </div>
+          <MachineRepairHistory history={machineHistory} />
           <div className="sn-secondary-actions">
             <button
               type="button"
@@ -476,6 +683,7 @@ function Repair({ setPage }) {
               className="secondary-button"
               onClick={() => {
                 setSn("")
+                setMachineHistory(null)
                 setErrorMessage("")
               }}
               disabled={!sn}
@@ -484,7 +692,7 @@ function Repair({ setPage }) {
             </button>
           </div>
 
-          {specialtyGate.specialties.length > 1 ? (
+          {!REPAIR_SPECIALTIES.includes(repairDetail.productLine) && specialtyGate.specialties.length > 1 ? (
             <>
               <label htmlFor="receipt-specialty">本单维修品类</label>
               <select
@@ -509,6 +717,40 @@ function Repair({ setPage }) {
             </p>
           )}
 
+          <section className="receipt-upload-section">
+            <div className="receipt-upload-heading">
+              <div>
+                <strong>签收照片/视频</strong>
+                <span>归属瑞云寄修单，与维修附件分开</span>
+              </div>
+              <span className="required-field-badge">必填</span>
+            </div>
+            <input
+              id="receipt-album"
+              className="visually-hidden-file"
+              type="file"
+              accept="image/*,video/*"
+              multiple
+              onChange={uploadReceiptFiles}
+              disabled={isSaving}
+            />
+            <div className="receipt-upload-actions">
+              <button type="button" className="receipt-upload-button camera-button" onClick={() => setPhotoCameraOpen(true)} disabled={isSaving}><CameraIcon size={18} />拍照</button>
+              <label className="receipt-upload-button" htmlFor="receipt-album">▧ 从相册选择</label>
+            </div>
+            {receiptAttachments.length > 0 ? (
+              <div className="receipt-upload-list">
+                {receiptAttachments.map((item) => (
+                  <div key={item.id}>
+                    <span>{item.mimeType?.startsWith("video/") ? "视频" : "照片"}</span>
+                    <strong>{item.name}</strong>
+                    <button type="button" onClick={() => setReceiptAttachments((current) => current.filter((file) => file.id !== item.id))}>移除</button>
+                  </div>
+                ))}
+              </div>
+            ) : <p className="receipt-upload-empty">到店签收时拍摄机器外观、包装及异常位置</p>}
+          </section>
+
           <p className="dry-run-notice">
             当前为演练模式，不会操作瑞云签收
           </p>
@@ -517,112 +759,12 @@ function Repair({ setPage }) {
             <button className="secondary-button" onClick={() => setReceiptStep("detail")}>
               返回工单
             </button>
-            <button onClick={reviewReceiptPreparation}>
-              下一步：确认资料
+            <button onClick={finishReceiptAndOpenParts} disabled={isSaving || !sn.trim() || receiptAttachments.length === 0}>
+              {isSaving ? "正在完成签收..." : "完成签收，选择处理方式"}
             </button>
           </div>
         </div>
       )}
-
-      {repairDetail && receiptStep === "confirm" && (
-        <div className="card receipt-preparation-card">
-          <h2>确认签收准备资料</h2>
-          <dl className="rma-detail-list">
-            <div>
-              <dt>操作师傅</dt>
-              <dd>{currentUser?.displayName || "本地测试用户"}</dd>
-            </div>
-            <div><dt>维修品类</dt><dd>{specialty}</dd></div>
-            <div><dt>签收备注</dt><dd>{specialty}</dd></div>
-            <div><dt>SN</dt><dd>{sn}</dd></div>
-            <div><dt>寄修单号</dt><dd>{repairDetail.rmaNo}</dd></div>
-            <div>
-              <dt>物流单号</dt>
-              <dd>{repairDetail.logisticsNo || orderNo.trim()}</dd>
-            </div>
-          </dl>
-          <p className="dry-run-notice">
-            当前为演练模式，不会操作瑞云签收
-          </p>
-          <div className="receipt-actions">
-            <button
-              className="secondary-button"
-              onClick={() => setReceiptStep("form")}
-              disabled={isSaving}
-            >
-              返回修改
-            </button>
-            <button onClick={saveReceiptPreparation} disabled={isSaving}>
-              {isSaving ? "正在保存..." : "确认保存到 FieldDesk"}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {repairDetail && receiptStep === "saved" && (
-        <div className="card receipt-preparation-card receipt-success-card">
-          <h2>签收准备完成</h2>
-          <p className={`model-authorization-card ${modelAuthorization?.repairability === "SUPPORTED" ? "model-authorization-supported" : "model-authorization-unsupported"}`} role="status">
-            {receiptMessage || "签收资料已准备，尚未同步瑞云"}
-          </p>
-          <dl className="rma-detail-list">
-            <div><dt>SN</dt><dd>{sn}</dd></div>
-            <div><dt>维修品类</dt><dd>{specialty}</dd></div>
-          </dl>
-          <div className="receipt-photo-upload">
-            <label htmlFor="receipt-photos"><strong>签收照片（必填）</strong></label>
-            <p>拍摄机器签收时的照片，将对应上传到瑞云寄修单附件。</p>
-            <input
-              id="receipt-photos"
-              type="file"
-              accept="image/*"
-              capture="environment"
-              multiple
-              onChange={uploadReceiptPhotos}
-              disabled={isSaving}
-            />
-            <p>{receiptAttachments.length ? `已上传 ${receiptAttachments.length} 张` : "至少上传 1 张后才能进入检测"}</p>
-          </div>
-          <p className="dry-run-notice">
-            当前为演练模式，不会操作瑞云签收
-          </p>
-          <div className="receipt-actions">
-            {modelAuthorization?.repairability === "SUPPORTED" ? (
-              <button onClick={completeReceiptAndInspect} disabled={isSaving || !receiptAttachments.length}>
-                {isSaving ? "正在处理..." : "检测"}
-              </button>
-            ) : (
-              <button className="danger-button" onClick={transferUnsupportedMachine} disabled={isSaving}>
-                {isSaving ? "正在登记..." : "转寄总部"}
-              </button>
-            )}
-            <button
-              className="secondary-button"
-              onClick={() => setReceiptStep("form")}
-              disabled={isSaving}
-            >
-              返回修改
-            </button>
-            <button
-              className="danger-outline-button"
-              onClick={cancelPreparation}
-              disabled={isSaving}
-            >
-              {isSaving ? "正在处理..." : "取消准备"}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {repairDetail && receiptStep === "transferred" && (
-        <div className="card receipt-preparation-card">
-          <h2>转寄总部</h2>
-          <p className="model-authorization-card model-authorization-unsupported" role="status">{receiptMessage}</p>
-          <p>该机器未执行瑞云签收，本地已保留经手和转寄记录，当前流程已结束。</p>
-          <button onClick={resetResult}>返回查询</button>
-        </div>
-      )}
-
 
       {scannerMode && (
 
@@ -641,6 +783,7 @@ function Repair({ setPage }) {
                 setErrorMessage(scanError)
               } else {
                 setSn(scannedSn)
+                checkMachineHistory(scannedSn)
                 setErrorMessage("")
               }
             } else {
@@ -653,6 +796,12 @@ function Repair({ setPage }) {
         />
 
       )}
+
+      <PhotoCaptureModal
+        open={photoCameraOpen}
+        onCapture={(file) => saveReceiptFiles([file])}
+        onClose={() => setPhotoCameraOpen(false)}
+      />
 
     </div>
 

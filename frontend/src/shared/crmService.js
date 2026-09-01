@@ -7,6 +7,19 @@ export function setApiAccessToken(value) {
   API_ACCESS_TOKEN = String(value || "")
 }
 
+export async function loginFieldDeskAccount(userId, password) {
+  const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userId: String(userId || "").trim(), password: String(password || "") })
+  }).catch(() => null)
+  if (!response) throw new Error("无法连接系统后端，请确认服务已启动")
+  const result = await response.json().catch(() => null)
+  if (!response.ok || !result?.success) throw new Error(result?.message || "登录失败")
+  setApiAccessToken(result.data.sessionToken)
+  return result.data
+}
+
 function apiHeaders() {
   const localUserId =
     typeof localStorage === "undefined"
@@ -22,16 +35,24 @@ function apiHeaders() {
   }
 }
 
-async function request(path, body) {
+async function request(path, body, { timeoutMs = 0 } = {}) {
   let response
+  const controller = timeoutMs > 0 ? new AbortController() : null
+  const timer = controller ? window.setTimeout(() => controller.abort(), timeoutMs) : null
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       method: "POST",
       headers: apiHeaders(),
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      ...(controller ? { signal: controller.signal } : {})
     })
-  } catch {
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error("线上查询超过25秒，请稍后重试")
+    }
     throw new Error("无法连接 FieldDesk 后端，请确认 API 已启动")
+  } finally {
+    if (timer) window.clearTimeout(timer)
   }
 
   const result = await response.json().catch(() => null)
@@ -46,12 +67,22 @@ async function request(path, body) {
   return result.data
 }
 
-async function get(path) {
+async function get(path, { timeoutMs = 0 } = {}) {
   let response
+  const controller = timeoutMs > 0 ? new AbortController() : null
+  const timer = controller ? window.setTimeout(() => controller.abort(), timeoutMs) : null
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, { headers: apiHeaders() })
-  } catch {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      headers: apiHeaders(),
+      ...(controller ? { signal: controller.signal } : {})
+    })
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error("本地查询超过3秒，请检查 FieldDesk 后端状态")
+    }
     throw new Error("无法连接 FieldDesk 后端，请确认 API 已启动")
+  } finally {
+    if (timer) window.clearTimeout(timer)
   }
   const result = await response.json().catch(() => null)
   if (!response.ok || !result?.success) {
@@ -60,13 +91,34 @@ async function get(path) {
   return result.data
 }
 
-export async function queryCrmOrderByLogisticsNo(logisticsNo) {
-  const value = String(logisticsNo || "").trim()
-  if (!value) throw new Error("请输入物流单号")
+async function downloadFile(path, fallbackName) {
+  let response
+  try { response = await fetch(`${API_BASE_URL}${path}`, { headers: apiHeaders() }) }
+  catch { throw new Error("无法连接 FieldDesk 后端，请确认 API 已启动") }
+  if (!response.ok) {
+    const result = await response.json().catch(() => null)
+    throw new Error(result?.message || `附件下载失败（${response.status}）`)
+  }
+  const disposition = response.headers.get("Content-Disposition") || ""
+  const encodedName = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
+  const simpleName = disposition.match(/filename="?([^";]+)"?/i)?.[1]
+  return {
+    blob: await response.blob(),
+    name: encodedName ? decodeURIComponent(encodedName) : simpleName || fallbackName
+  }
+}
+
+export async function queryCrmOrderByLogisticsNo(queryValue) {
+  const value = String(queryValue || "").trim()
+  if (!value) throw new Error("请输入物流单号、电话、SN或寄修单号")
 
   return request("/api/crm/repairs/query", {
-    logisticsNo: value
+    queryValue: value
   })
+}
+
+export async function queryCrmRepairByAnyIdentifier(queryValue) {
+  return queryCrmOrderByLogisticsNo(queryValue)
 }
 
 export async function queryCrmRepair(logisticsNo) {
@@ -83,6 +135,14 @@ export async function cancelReceiptPreparation(rmaNo) {
 
 export async function completeLocalReceipt(rmaNo) {
   return request("/api/repairs/complete-local-receipt", { rmaNo })
+}
+
+export async function saveTreatmentDecision(rmaNo, treatmentMode) {
+  return request("/api/repairs/treatment-decision", { rmaNo, treatmentMode })
+}
+
+export async function getLocalRepairOrders() {
+  return get("/api/repairs/local-orders")
 }
 
 export async function uploadReceiptAttachment(payload) {
@@ -123,14 +183,9 @@ export async function checkInspectionWarranty(payload) {
 
 export async function searchRecloudFaultCategories(payload) {
   const keyword = encodeURIComponent(String(payload?.faultKeyword || "").trim())
-  const local = await get(`/api/recloud/fault-catalog?keyword=${keyword}&limit=80`)
-  if (local.items?.length || local.complete) return local
-  const live = await request("/api/crm/repairs/detection-form/inspect", payload)
-  return {
-    source: "RECLOUD_LIVE_AND_CACHED",
-    syncedAt: new Date().toISOString(),
-    items: live.inspection?.faultOptions || []
-  }
+  const rmaNo = encodeURIComponent(String(payload?.rmaNo || "").trim())
+  const local = await get(`/api/recloud/fault-catalog?keyword=${keyword}&rmaNo=${rmaNo}&limit=80`)
+  return local
 }
 
 export async function matchInspectionModel(payload) {
@@ -155,8 +210,20 @@ export async function updateRepairPart(payload) {
   return request("/api/repairs/parts/update", payload)
 }
 
+export async function confirmRepairParts(rmaNo) {
+  return request("/api/repairs/parts/confirm", { rmaNo })
+}
+
 export async function getLocalInventory() {
   return get("/api/inventory")
+}
+
+export async function receiveInventoryPart(payload) {
+  return request("/api/inventory/stock-in", payload)
+}
+
+export async function allocateInventoryPart(payload) {
+  return request("/api/inventory/allocate", payload)
 }
 
 export async function recordLocalPartUse(payload) {
@@ -212,7 +279,46 @@ export async function confirmLocalOrderCompletion(rmaNo) {
 }
 
 export async function getRecloudSyncTasks() {
-  return get("/api/recloud-sync/tasks")
+  return get("/api/recloud-sync/tasks", { timeoutMs: 3000 })
+}
+
+export async function getRepairSyncOrderStatus(rmaNo) {
+  return get(`/api/recloud-sync/order-status?rmaNo=${encodeURIComponent(String(rmaNo || "").trim())}`)
+}
+
+export async function getRepairHistoryByPhone(keyword) {
+  return get(`/api/repairs/history?keyword=${encodeURIComponent(String(keyword || "").trim())}`, { timeoutMs: 3000 })
+}
+
+export async function getRepeatRepairBySn(sn, excludeRmaNo = "") {
+  const params = new URLSearchParams({
+    sn: String(sn || "").trim(),
+    excludeRmaNo: String(excludeRmaNo || "").trim()
+  })
+  return get(`/api/repairs/repeat-repair?${params.toString()}`, { timeoutMs: 3000 })
+}
+
+export async function getMachinesInHand(keyword) {
+  return get(`/api/repairs/machines-in-hand?keyword=${encodeURIComponent(String(keyword || "").trim())}`, { timeoutMs: 3000 })
+}
+
+export async function getInformationRepairReports(keyword) {
+  return get(`/api/information/repair-reports?keyword=${encodeURIComponent(String(keyword || "").trim())}`, { timeoutMs: 3000 })
+}
+
+export async function getInformationExceptions() {
+  return get("/api/information/exceptions", { timeoutMs: 10000 })
+}
+
+export async function getInformationRepairReport(rmaNo) {
+  return get(`/api/information/repair-reports/${encodeURIComponent(String(rmaNo || "").trim())}`, { timeoutMs: 3000 })
+}
+
+export async function downloadInformationAttachment(rmaNo, attachment) {
+  return downloadFile(
+    `/api/information/repair-reports/${encodeURIComponent(rmaNo)}/attachments/${encodeURIComponent(attachment.category)}/${encodeURIComponent(attachment.id)}`,
+    attachment.name || "attachment"
+  )
 }
 
 export async function retryRecloudSyncTask(taskId) {

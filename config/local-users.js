@@ -2,9 +2,16 @@ const USER_ROLES = Object.freeze({
   ADMIN: "ADMIN",
   TECHNICIAN: "TECHNICIAN",
   WAREHOUSE: "WAREHOUSE",
+  INFORMATION_CLERK: "INFORMATION_CLERK",
 });
 
 const LOCAL_DEVELOPMENT_USERS = Object.freeze([
+  Object.freeze({
+    userId: "LOCAL-INFO",
+    displayName: "本地测试信息员",
+    role: USER_ROLES.INFORMATION_CLERK,
+    repairSpecialties: Object.freeze([]),
+  }),
   Object.freeze({
     userId: "LOCAL-TECH-SWEEP",
     displayName: "本地测试师傅（扫地机）",
@@ -44,6 +51,7 @@ const LOCAL_FRONTEND_USER_IDS = Object.freeze({
   "USER-003": "LOCAL-ADMIN",
   "USER-004": "LOCAL-TECH-WASH",
   "USER-005": "LOCAL-TECH-DUAL",
+  "USER-006": "LOCAL-INFO",
 });
 
 function getLocalCurrentUser(env = process.env, requestedId = "") {

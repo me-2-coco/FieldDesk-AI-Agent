@@ -122,6 +122,35 @@ test("SN is trimmed and normalized to uppercase", async (t) => {
   assert.equal(saved.sn, "TEST-SN-A1");
 });
 
+test("existing local order resumes without opening Recloud", async (t) => {
+  const store = await createTestStore(t);
+  await store.prepare({
+    ...validPayload(),
+    operatorId: USERS.dual.userId,
+    operatorName: USERS.dual.displayName,
+  });
+  await store.completeReceipt("JXTH900001001", USERS.dual);
+  let recloudQueries = 0;
+  const url = await startServer(t, {
+    openRecloud: async () => {
+      recloudQueries += 1;
+      throw new Error("must not open Recloud for a local order");
+    },
+  }, store);
+
+  const { response, result } = await post(
+    url,
+    "/api/crm/repairs/query",
+    { queryValue: "JXTH900001001" }
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(result.data.source, "FIELDDESK_LOCAL");
+  assert.equal(result.data.localWorkflow.status, "RECEIVED_PENDING_INSPECTION");
+  assert.equal(result.data.localWorkflow.sn, "TEST-SN-A1");
+  assert.equal(recloudQueries, 0);
+});
+
 test("receipt preparation uses the validated specialty when CRM product line is empty", async (t) => {
   const store = await createTestStore(t);
   const connector = {
@@ -574,20 +603,39 @@ test("SN scan normalization uppercases without auto-submitting", async () => {
   );
 });
 
+test("frontend specialty gate accepts the signed-in lowercase technician role", async () => {
+  const helpers = await import(
+    "../frontend/src/shared/receiptPreparation.js"
+  );
+
+  assert.deepEqual(
+    helpers.getReceiptSpecialtyGate({
+      role: "technician",
+      repairSpecialties: ["洗地机"],
+    }, "洗地机"),
+    {
+      specialties: ["洗地机"],
+      specialty: "洗地机",
+      error: "",
+    }
+  );
+});
+
 test("frontend enables SN step and shows the local-only success message", async () => {
   const source = await fs.readFile(
     path.join(__dirname, "../frontend/src/pages/Repair.jsx"),
     "utf8"
   );
 
-  assert.match(
-    source,
-    /onClick=\{startReceiptPreparation\}[\s\S]{0,160}下一步：录入 SN/
-  );
-  assert.match(source, /签收资料已准备，尚未同步瑞云/);
+  assert.match(source, /onClick=\{startReceiptPreparation\}/);
+  assert.match(source, /下一步：录入 SN/);
+  assert.match(source, /当前为演练模式，不会操作瑞云签收/);
   assert.match(source, /mode=\{scannerMode\}/);
   assert.match(source, /重新扫码/);
   assert.match(source, /placeholder="请输入、扫描枪输入或使用摄像头扫描"/);
+  assert.match(source, /function startReceiptPreparation\(\)[\s\S]*?setSn\(""\)[\s\S]*?setReceiptStep\("form"\)/);
+  assert.doesNotMatch(source, /setSn\(normalizeReceiptSn\(repairDetail\?\.productSerialNo/);
+  assert.doesNotMatch(source, /setSn\(resolvedSn\)/);
   assert.doesNotMatch(
     source,
     /<button disabled>\s*下一步：录入 SN/
@@ -601,14 +649,15 @@ test("inspection page shows the required local order fields", async () => {
   );
 
   assert.match(source, /检测登记/);
-  assert.match(source, /工单号/);
+  assert.match(source, /寄修单号/);
   assert.match(source, /物流单号/);
   assert.match(source, /SN/);
   assert.match(source, /产品线/);
   assert.match(source, /报修描述/);
   assert.doesNotMatch(source, /请输入检测结果/);
   assert.doesNotMatch(source, /请输入检测备注/);
-  assert.match(source, /维修完成\/待检测登记/);
+  assert.match(source, /已检测/);
+  assert.match(source, /待检测/);
   assert.match(source, /INSPECTION_COMPLETE/);
   assert.match(source, /瑞云预填复核清单/);
   assert.match(source, /系统不会自动点击瑞云“确认”/);
@@ -623,7 +672,7 @@ test("parts page provides live Feishu catalog and SN-bound application", async (
 
   assert.match(source, /寄修单号/);
   assert.match(source, /SN/);
-  assert.match(source, /产品线/);
+  assert.match(source, /维修品类/);
   assert.match(source, /零售价/);
   assert.match(source, /旧件需返厂/);
   assert.match(source, /searchPartsCatalog/);

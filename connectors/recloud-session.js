@@ -292,7 +292,7 @@ function createRecloudSessionManager(options = {}) {
             // Playwright routing cannot observe requests claimed by a Service Worker.
             // Blocking Service Workers ensures the receipt simulation guard sees
             // every page request before it reaches the network.
-            serviceWorkers: "block",
+            serviceWorkers: openOptions.serviceWorkers ?? "block",
           }
         );
         page = context.pages()[0] || (await context.newPage());
@@ -321,11 +321,22 @@ function createRecloudSessionManager(options = {}) {
   }
 
   async function preparePage() {
+    const loginPage = context
+      ?.pages?.()
+      .find((candidate) => !candidate.isClosed() && isLoginPage(candidate.url()));
+    if (loginPage) page = loginPage;
     if (!isLoginPage(page.url())) {
       if (
         typeof isReadyPage === "function" &&
         !(await isReadyPage(page).catch(() => false))
       ) {
+        const redirectedLoginPage = context
+          ?.pages?.()
+          .find((candidate) => !candidate.isClosed() && isLoginPage(candidate.url()));
+        if (redirectedLoginPage) {
+          page = redirectedLoginPage;
+          return preparePage();
+        }
         logSession("login_required", logger);
         return { context, page, loginRequired: true };
       }

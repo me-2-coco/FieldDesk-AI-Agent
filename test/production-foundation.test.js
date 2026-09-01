@@ -36,7 +36,7 @@ test("storage backend switches between memory and sqlite namespaces", async (t) 
   inventory.close();
 });
 
-test("administrator configures five account profiles and tokens stay private", async () => {
+test("administrator configures six account profiles and tokens stay private", async () => {
   const store = new AccountStore({ backend: new MemoryDocumentBackend({ users: [] }) });
   const profiles = [
     ["A", USER_ROLES.ADMIN, ["扫地机", "洗地机"]],
@@ -44,14 +44,17 @@ test("administrator configures five account profiles and tokens stay private", a
     ["S", USER_ROLES.TECHNICIAN, ["扫地机"]],
     ["F", USER_ROLES.TECHNICIAN, ["洗地机"]],
     ["D", USER_ROLES.TECHNICIAN, ["扫地机", "洗地机"]],
+    ["I", USER_ROLES.INFORMATION_CLERK, []],
   ];
   for (const [userId, role, repairSpecialties] of profiles) {
     await store.upsert({ userId, displayName: userId, role, repairSpecialties, accessToken: `safe-${userId}` }, admin);
   }
   const users = await store.list();
-  assert.equal(users.length, 5);
+  assert.equal(users.length, 6);
   assert.ok(users.every((user) => !("tokenHash" in user) && !("accessToken" in user)));
-  assert.equal((await store.findByToken("safe-D")).userId, "D");
+  assert.equal(await store.findByToken("safe-D"), null);
+  assert.equal((await store.findByCredentials("D", "safe-D")).userId, "D");
+  assert.equal(await store.findByCredentials("D", "wrong-password"), null);
   assert.throws(() => store.upsert({ userId: "X" }, sweep), { code: "ACCOUNT_ADMIN_REQUIRED" });
 });
 
@@ -102,8 +105,10 @@ test("production UI keeps access tokens in memory and exposes admin account mana
   assert.match(crm, /Authorization: `Bearer/);
   assert.match(crm, /X-FieldDesk-Local-User/);
   assert.doesNotMatch(crm, /localStorage.*TOKEN|localStorage.*token/);
-  assert.match(login, /正式账号访问令牌/);
-  assert.match(accounts, /账号与权限/);
+  assert.match(login, /登录密码/);
+  assert.match(accounts, /账号管理/);
+  assert.match(accounts, /编辑账号/);
+  assert.match(server, /\/api\/auth\/login/);
   assert.match(server, /\/api\/admin\/users/);
   assert.match(server, /Idempotency-Key/);
   assert.match(server, /\/api\/orders\/lock/);

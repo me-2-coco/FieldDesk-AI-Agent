@@ -21,7 +21,7 @@ test("故障未复现不编造更换配件", async () => {
   const { buildRepairMeasure } = await generator();
   assert.equal(
     buildRepairMeasure("机器正常使用，客诉故障未复现，清理，测试OK寄回", [], "不出水"),
-    "不出水# 客诉故障未复现，清理，测试ok寄回"
+    "机器正常使用，客诉故障未复现，清理，测试ok寄回"
   );
 });
 
@@ -29,6 +29,14 @@ test("客户弃修不写更换动作", async () => {
   const { buildRepairMeasure } = await generator();
   assert.equal(
     buildRepairMeasure("机器无法使用，客诉故障复现，检测主电机不良，客户弃修，清理，寄回", [{ partName: "主电机" }], "无法启动"),
-    "无法启动# 客诉故障复现，检测主电机不良，客户弃修，清理，寄回"
+    "客诉故障复现，检测主电机不良，客户弃修，清理，寄回"
+  );
+});
+
+test("只检测不维修使用保内检测话术", async () => {
+  const { buildRepairMeasure } = await generator();
+  assert.equal(
+    buildRepairMeasure("只检测不维修，清理，寄回", [], "不吸水", "主电机"),
+    "客诉故障复现，检测主电机不良，客户机无法使用，只检测不维修，清理，寄回"
   );
 });

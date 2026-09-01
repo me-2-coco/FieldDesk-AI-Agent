@@ -3,6 +3,7 @@ import {
   getCurrentRepairOrder,
   updateStatusByAction
 } from "../shared/repairOrderStore.js"
+import WarrantyBadge from "../components/WarrantyBadge.jsx"
 
 
 // 把完成的工单也写进 Records.jsx 读取的 repairRecords 列表，
@@ -48,6 +49,7 @@ function RepairFinish({ setPage }) {
   const [repairOrder] = useState(() =>
     getCurrentRepairOrder()
   )
+  const completedDetail = ["REPAIR_COMPLETED_PENDING_SHIPMENT", "SHIPPED_PENDING_COMPLETION", "COMPLETED"].includes(repairOrder?.status)
 
 
   function submitRepair() {
@@ -64,10 +66,10 @@ function RepairFinish({ setPage }) {
     <div className="page repair-finish-page">
 
       <div className="top-bar">
-        <button className="arrow-back" onClick={() => setPage("repairWork")}>
+        <button className="arrow-back" onClick={() => setPage(completedDetail ? "home" : "repairWork")}>
           ←
         </button>
-        <h1>提交确认</h1>
+        <h1>{completedDetail ? "维修完成详情" : "提交确认"}</h1>
       </div>
 
       <div className="card report-card machine-info-card">
@@ -125,12 +127,14 @@ function RepairFinish({ setPage }) {
 
       <div className="card report-card">
         <h2>🛡保内保外</h2>
-        <p>{repairOrder.warrantyType || "未判断"}</p>
+        <p><WarrantyBadge value={repairOrder.warrantyType} fallback="未判断" /></p>
       </div>
 
-      <button className="primary-btn" onClick={submitRepair}>
-        确认提交维修
-      </button>
+      {completedDetail ? (
+        <button className="secondary-btn" onClick={() => setPage("home")}>返回首页</button>
+      ) : (
+        <button className="primary-btn" onClick={submitRepair}>确认提交维修</button>
+      )}
 
     </div>
   )

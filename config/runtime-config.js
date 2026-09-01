@@ -27,7 +27,7 @@ function validateRuntimeConfig(env = process.env) {
     environment, production,
     port: Number(env.PORT || 3000),
     trustProxy: env.TRUST_PROXY || (production ? "loopback" : false),
-    frontendOrigins: String(env.FRONTEND_ORIGIN || "http://localhost:5173").split(",").map((item) => item.trim()).filter(Boolean),
+    frontendOrigins: String(env.FRONTEND_ORIGIN || "http://localhost:5173,http://127.0.0.1:5173").split(",").map((item) => item.trim()).filter(Boolean),
     tls: {
       enabled: boolean(env.TLS_ENABLED, false),
       certFile: env.TLS_CERT_FILE || "",

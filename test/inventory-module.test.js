@@ -62,6 +62,17 @@ test("zero and excessive total stock applications are rejected", async (t) => {
   await assert.rejects(store.apply(context, "00100123", 51, techA), { code: "PART_OUT_OF_STOCK" });
 });
 
+test("warehouse can register a real catalog part and allocate it to a technician", async (t) => {
+  const store = await storeFor(t);
+  await store.receive("20020100010817", "售后地刷PCBA组件", 1, warehouse);
+  await store.allocate("20020100010817", 1, techA, warehouse);
+  const view = await store.view(techA, roles);
+  assert.equal(view.technicianStock[techA.userId].parts[0].stock, 1);
+  await store.use(context, "20020100010817", 1, techA);
+  assert.equal((await store.view(techA, roles)).technicianStock[techA.userId].parts[0].stock, 0);
+  assert.deepEqual((await store.view(warehouse, roles)).transactions.slice(-3).map((item) => item.type), ["STOCK_RECEIVED", "PART_ALLOCATED", "PART_USED"]);
+});
+
 test("inventory pages expose role views and local-only operations", async () => {
   const inventory = await fs.readFile(path.join(__dirname, "../frontend/src/pages/Inventory.jsx"), "utf8");
   const warehousePage = await fs.readFile(path.join(__dirname, "../frontend/src/pages/Warehouse.jsx"), "utf8");
@@ -70,6 +81,8 @@ test("inventory pages expose role views and local-only operations", async () => 
   assert.match(inventory, /库存流水/);
   assert.match(warehousePage, /确认退还入总库/);
   assert.match(warehousePage, /全部师傅库存/);
+  assert.match(warehousePage, /配件入库/);
+  assert.match(warehousePage, /发放给师傅/);
 });
 
 test("inventory API enforces technician and warehouse role boundaries", async () => {

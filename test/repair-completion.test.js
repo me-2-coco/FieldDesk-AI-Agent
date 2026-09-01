@@ -6,11 +6,43 @@ const path = require("path");
 const { JsonReceiptPreparationStore } = require("../database/receipt-preparation-store");
 const { JsonInventoryStore } = require("../database/inventory-store");
 const { LocalRepairAttachmentStore } = require("../database/repair-attachment-store");
+const { getOutOfWarrantyFeePolicy } = require("../server");
 
 const USER = {
   userId: "TECH-REPAIR-1", displayName: "本地测试师傅",
   role: "TECHNICIAN", repairSpecialties: ["扫地机"],
 };
+
+test("调试按 SN 质保结果显示费用，但只有正常保外维修必填", () => {
+  assert.deepEqual(getOutOfWarrantyFeePolicy({ treatmentMode: "DEBUGGING", technicianWarranty: "保内" }), {
+    noPartsService: true,
+    isOutOfWarranty: false,
+    requiresOutOfWarrantyFee: false,
+  });
+  assert.deepEqual(getOutOfWarrantyFeePolicy({ treatmentMode: "DEBUGGING", technicianWarranty: "保外" }), {
+    noPartsService: true,
+    isOutOfWarranty: true,
+    requiresOutOfWarrantyFee: false,
+  });
+  assert.deepEqual(getOutOfWarrantyFeePolicy({ treatmentMode: "REPAIR", technicianWarranty: "保外" }), {
+    noPartsService: false,
+    isOutOfWarranty: true,
+    requiresOutOfWarrantyFee: true,
+  });
+});
+
+test("完工页按处理方式显示质保标签，并使用紧凑收费卡片", async () => {
+  const source = await fs.readFile(
+    path.join(__dirname, "../frontend/src/pages/RepairCompletion.jsx"),
+    "utf8"
+  );
+
+  assert.match(source, /"保外弃修"/);
+  assert.doesNotMatch(source, /"保内弃修"/);
+  assert.match(source, /"保外调试"/);
+  assert.match(source, /compact-pricing-summary/);
+  assert.match(source, /查看费用备注/);
+});
 
 async function fixture(t) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "fielddesk-completion-"));
@@ -57,6 +89,64 @@ test("completion validates required fields and moves to pending shipment", async
   assert.equal(completed.repairCompletion.operatorId, USER.userId);
 });
 
+test("treatment decision routes repair to parts and no-parts modes to completion", async (t) => {
+  const { receiptStore } = await fixture(t);
+  await assert.rejects(receiptStore.saveTreatmentDecision("TEST-RMA", {
+    treatmentMode: "ABANDONED",
+    detectionResult: "弃修",
+    technicianWarranty: "保内",
+  }, USER), { code: "IN_WARRANTY_ABANDONMENT_NOT_ALLOWED" });
+  const abandoned = await receiptStore.saveTreatmentDecision("TEST-RMA", {
+    treatmentMode: "ABANDONED",
+    detectionResult: "弃修",
+    technicianWarranty: "保外",
+  }, USER);
+  assert.equal(abandoned.status, "INSPECTION_COMPLETED_PENDING_REPAIR");
+  assert.equal(abandoned.skipsParts, true);
+  assert.equal(abandoned.detectionResult, "弃修");
+
+  const completed = await receiptStore.saveRepairCompletion("TEST-RMA", {
+    responsibilityType: "保外维修",
+    detectionResult: "弃修",
+    speechTemplate: "客户弃修",
+    repairMeasure: "客诉故障复现，客户弃修，清理，寄回",
+    attachments: [{ id: "ABANDONED-PHOTO", name: "abandoned.jpg", mimeType: "image/jpeg" }],
+  }, USER, true);
+  assert.equal(completed.status, "REPAIR_COMPLETED_PENDING_SHIPMENT");
+  assert.equal(completed.repairCompletion.faultLevel1, "");
+});
+
+test("inspection-only completion requires a PDF inspection report", async (t) => {
+  const { receiptStore } = await fixture(t);
+  await receiptStore.saveTreatmentDecision("TEST-RMA", {
+    treatmentMode: "INSPECTION_ONLY",
+    detectionResult: "只检测不维修",
+    technicianWarranty: "保内",
+  }, USER);
+  const base = {
+    responsibilityType: "保内质保",
+    detectionResult: "只检测不维修",
+    speechTemplate: "出具检测报告",
+    repairMeasure: "已完成检测并出具检测报告，只检测不维修，原机寄回",
+  };
+  await assert.rejects(receiptStore.saveRepairCompletion("TEST-RMA", {
+    ...base,
+    attachments: [{ id: "PHOTO", name: "inspection.jpg", mimeType: "image/jpeg" }],
+  }, USER, true), { code: "REPAIR_COMPLETION_INVALID" });
+  await assert.rejects(receiptStore.saveRepairCompletion("TEST-RMA", {
+    ...base,
+    attachments: [{ id: "REPORT", name: "inspection.pdf", mimeType: "application/pdf" }],
+  }, USER, true), { code: "REPAIR_COMPLETION_INVALID" });
+  const completed = await receiptStore.saveRepairCompletion("TEST-RMA", {
+    ...base,
+    attachments: [
+      { id: "REPORT", name: "inspection.pdf", mimeType: "application/pdf" },
+      { id: "PHOTO", name: "inspection.jpg", mimeType: "image/jpeg" },
+    ],
+  }, USER, true);
+  assert.equal(completed.status, "REPAIR_COMPLETED_PENDING_SHIPMENT");
+});
+
 test("used parts are aggregated from PART_USED inventory transactions", async (t) => {
   const { inventoryStore } = await fixture(t);
   const context = { rmaNo: "TEST-RMA", sn: "TEST-SN-01" };
@@ -83,19 +173,42 @@ test("local attachment store saves media outside tracked data", async (t) => {
 test("frontend completion page reuses confirmed fault and includes warranty, media, draft and submit", async () => {
   const source = await fs.readFile(path.join(__dirname, "../frontend/src/pages/RepairCompletion.jsx"), "utf8");
   const measureSource = await fs.readFile(path.join(__dirname, "../frontend/src/shared/repairMeasure.js"), "utf8");
-  assert.match(source, /检测阶段已确认的三级故障/);
+  assert.match(source, /已确认三级故障/);
   assert.doesNotMatch(source, /模糊搜索故障名称/);
-  assert.match(source, /根据师傅在检测阶段选择的保内\/保外自动带入/);
+  assert.match(source, /technicianWarranty === "保外"/);
   assert.doesNotMatch(source, /id="responsibility-type"/);
-  assert.match(source, /维修措施（自动生成后可修改）/);
+  assert.match(source, /维修措施/);
+  assert.match(source, /系统生成 · 只读/);
   assert.match(source, /机器无法使用，客诉故障复现，检测不良，更换，清理，测试OK寄回/);
   assert.match(source, /机器正常使用，客诉故障未复现，清理，测试OK寄回/);
   assert.match(measureSource, /充电母端子组件已打胶/);
   assert.match(source, /维修照片\/视频/);
   assert.match(source, /保存草稿/);
   assert.match(source, /提交完工/);
+  assert.match(source, /canSubmitCompletion/);
+  assert.match(source, /保外费用待核对/);
+  assert.match(source, /请填写单程物流费/);
+  assert.match(source, /保外调试费用选填/);
+  assert.match(source, /requiresOutOfWarrantyFee/);
+  assert.match(source, /disabled=\{busy \|\| !canSubmitCompletion\}/);
   assert.doesNotMatch(source, /recloud|瑞云.*fetch/i);
   const serverSource = await fs.readFile(path.join(__dirname, "../server.js"), "utf8");
   assert.match(serverSource, /\/api\/repairs\/completion\/attachments/);
   assert.match(serverSource, /attachmentStore\.save/);
+  assert.match(serverSource, /requiresOutOfWarrantyFee/);
+});
+
+test("frontend exposes four treatment choices and skips parts for three modes", async () => {
+  const decisionSource = await fs.readFile(path.join(__dirname, "../frontend/src/pages/RepairDecision.jsx"), "utf8");
+  const completionSource = await fs.readFile(path.join(__dirname, "../frontend/src/pages/RepairCompletion.jsx"), "utf8");
+  for (const mode of ["REPAIR", "ABANDONED", "INSPECTION_ONLY", "DEBUGGING"]) {
+    assert.match(decisionSource, new RegExp(mode));
+  }
+  assert.match(decisionSource, /partsApplication/);
+  assert.match(decisionSource, /setPage\(result\.nextStep\)/);
+  const serverSource = await fs.readFile(path.join(__dirname, "../server.js"), "utf8");
+  assert.match(serverSource, /ABANDONED: \{ label: "弃修", detectionResult: "弃修", nextStep: "repairCompletion" \}/);
+  assert.match(completionSource, /application\/pdf/);
+  assert.match(completionSource, /检测报告与照片\/视频/);
+  assert.match(completionSource, /保内检测/);
 });

@@ -11,6 +11,7 @@ const {
 } = require("../connectors/recloud-adapter");
 const { RecloudSyncService, classifyError } = require("../services/recloud-sync-service");
 const {
+  MAPPING_VERSION,
   RECLOUD_INSPECTION_FIELD_TARGETS,
   RECLOUD_REPAIR_FIELD_TARGETS,
   RECLOUD_RECEIPT_FIELD_TARGETS,
@@ -71,7 +72,7 @@ test("outbox stores required safe fields and enforces idempotency", async (t) =>
   );
   assert.equal("customerName" in first, false);
   assert.equal("phone" in first, false);
-  assert.equal(first.mappingVersion, "v7");
+  assert.equal(first.mappingVersion, MAPPING_VERSION);
   assert.deepEqual(first.payload, buildNodePayload(ORDER, "RECEIPT"));
 });
 
@@ -83,8 +84,53 @@ test("dry-run adapter processes every business node without real Recloud", async
   for (const node of nodes) {
     const task = await service.enqueueOrderNode(ORDER, node, `${node}-RECORD`);
     const completed = await service.processTask(task.id);
-    assert.equal(completed.status, TASK_STATUS.SUCCESS);
+    assert.equal(
+      completed.status,
+      node === "REPAIR_COMPLETED" ? TASK_STATUS.READY_DRY_RUN : TASK_STATUS.SUCCESS
+    );
   }
+});
+
+test("repair sync keeps dry-run ready and awaiting-confirm distinct from success", async (t) => {
+  const outbox = await outboxFixture(t);
+  const readyService = new RecloudSyncService(outbox, new DryRunRecloudAdapter(), { scheduler: () => {} });
+  const readyTask = await readyService.enqueueOrderNode(ORDER, "REPAIR_COMPLETED", "READY-RECORD");
+  const ready = await readyService.processTask(readyTask.id);
+  assert.equal(ready.status, TASK_STATUS.READY_DRY_RUN);
+  assert.equal(ready.resultStatus, "READY_DRY_RUN");
+
+  const awaitingOutbox = await outboxFixture(t);
+  const awaitingService = new RecloudSyncService(awaitingOutbox, {
+    async syncRepairCompleted() {
+      return { status: "AWAITING_FINAL_CONFIRM", completedSteps: ["PARTS_VERIFIED", "FIELDS_VERIFIED", "ATTACHMENTS_VERIFIED"] };
+    },
+  }, { scheduler: () => {} });
+  const awaitingTask = await awaitingService.enqueueOrderNode(ORDER, "REPAIR_COMPLETED", "AWAITING-RECORD");
+  const awaiting = await awaitingService.processTask(awaitingTask.id);
+  assert.equal(awaiting.status, TASK_STATUS.AWAITING_FINAL_CONFIRM);
+  assert.deepEqual(awaiting.completedSteps, ["PARTS_VERIFIED", "FIELDS_VERIFIED", "ATTACHMENTS_VERIFIED"]);
+  assert.notEqual(awaiting.status, TASK_STATUS.SUCCESS);
+});
+
+test("repair manual review stores only safe conflict stage names", async (t) => {
+  const outbox = await outboxFixture(t);
+  const service = new RecloudSyncService(outbox, {
+    async syncRepairCompleted() {
+      return {
+        status: "MANUAL_REVIEW",
+        reviewReasons: [
+          { step: "PARTS", reason: "REMOTE_CONFLICT", privateDetail: "must-not-persist" },
+          { step: "ATTACHMENTS", reason: "REMOTE_CONFLICT" },
+          { step: "PARTS", reason: "DUPLICATE" },
+        ],
+      };
+    },
+  }, { scheduler: () => {} });
+  const task = await service.enqueueOrderNode(ORDER, "REPAIR_COMPLETED", "REVIEW-RECORD");
+  const reviewed = await service.processTask(task.id);
+  assert.equal(reviewed.status, TASK_STATUS.MANUAL_REVIEW);
+  assert.deepEqual(reviewed.reviewSteps, ["PARTS", "ATTACHMENTS"]);
+  assert.equal(JSON.stringify(reviewed).includes("must-not-persist"), false);
 });
 
 test("inspection mapping prepares fixed Recloud fields but never auto-confirms", async () => {
@@ -101,7 +147,9 @@ test("inspection mapping prepares fixed Recloud fields but never auto-confirms",
   assert.equal(writes.productFunctionDecision, "功能问题");
   assert.equal(writes.originalConsumables, "是");
   assert.equal(writes.consumableName, "");
-  assert.equal(writes.dismantled, "是");
+  assert.equal("dismantled" in writes, false);
+  assert.equal("faultDescription" in writes, false);
+  assert.equal("openedRemark" in writes, false);
   assert.deepEqual(plan.excludedFields, [
     {
       key: "inspectionAbnormal",
@@ -113,6 +161,21 @@ test("inspection mapping prepares fixed Recloud fields but never auto-confirms",
       target: "责任判定",
       reason: "每单保持空白",
     },
+    {
+      key: "faultDescription",
+      target: "故障描述",
+      reason: "不填写，保持瑞云原值",
+    },
+    {
+      key: "dismantled",
+      target: "是否拆封",
+      reason: "不操作，保持瑞云原值",
+    },
+    {
+      key: "openedRemark",
+      target: "拆封备注",
+      reason: "不填写，保持瑞云原值",
+    },
   ]);
   assert.deepEqual(plan.missingFields, []);
   assert.equal(plan.canAutoConfirm, false);
@@ -121,9 +184,26 @@ test("inspection mapping prepares fixed Recloud fields but never auto-confirms",
   const result = await adapter.syncInspectionCompleted({
     payload,
     idempotencyKey: "INSPECTION-PLAN-1",
-    mappingVersion: "v7",
+    mappingVersion: "v8",
   });
   assert.deepEqual(result.formPlan, plan);
+});
+
+test("no-parts treatment maps the selected Recloud detection result without inventing a fault category", () => {
+  const plan = buildRecloudInspectionFormPlan({
+    treatmentMode: "ABANDONED",
+    warrantyStatus: "保内",
+    detectionResult: "弃修",
+  });
+  assert.deepEqual(plan.missingFields, []);
+  assert.equal(plan.safeWrites.some((item) => item.key === "faultCategory"), false);
+  assert.equal(plan.safeWrites.find((item) => item.key === "detectionResult").value, "弃修");
+  assert.doesNotThrow(() => validateNodePayload("INSPECTION_COMPLETED", {
+    treatmentMode: "ABANDONED",
+    inspectionResult: "弃修",
+    warrantyStatus: "保内",
+    detectionResult: "弃修",
+  }));
 });
 
 test("inspection mapping blocks incomplete business decisions", () => {
@@ -161,12 +241,36 @@ test("inspection control mapping requires one compatible Recloud control per wri
   assert.deepEqual(result.missingFields, []);
   assert.deepEqual(result.ambiguousFields, []);
   assert.deepEqual(result.incompatibleFields, []);
-  assert.equal(result.fields.length, 8);
+  assert.equal(result.fields.length, 7);
   assert.deepEqual(result.excludedFields, [
     {
       key: "inspectionAbnormal",
       target: "检测无异常",
       expectedControl: "SELECT",
+      itemCount: 1,
+      mapped: true,
+      reason: "保持空白，不参与自动填写",
+    },
+    {
+      key: "faultDescription",
+      target: "故障描述",
+      expectedControl: "TEXT_INPUT",
+      itemCount: 1,
+      mapped: true,
+      reason: "保持空白，不参与自动填写",
+    },
+    {
+      key: "dismantled",
+      target: "是否拆封",
+      expectedControl: "RADIO",
+      itemCount: 1,
+      mapped: true,
+      reason: "保持空白，不参与自动填写",
+    },
+    {
+      key: "openedRemark",
+      target: "拆封备注",
+      expectedControl: "TEXT_INPUT",
       itemCount: 1,
       mapped: true,
       reason: "保持空白，不参与自动填写",
@@ -344,7 +448,7 @@ test("repair form plan only pre-fills confirmed customer-facing fields", () => {
   const plan = buildRecloudRepairFormPlan(payload);
   const writes = Object.fromEntries(plan.safeWrites.map((item) => [item.key, item.value]));
 
-  assert.equal(writes.responsibilityType, "保外");
+  assert.equal(plan.verifyOnlyFields.find((item) => item.key === "responsibilityType").value, "保外");
   assert.equal(writes.highestRepairLevel, "小修");
   assert.equal("repairFeeReceivable" in writes, false);
   assert.equal("partsRetailAmount" in writes, false);
@@ -352,9 +456,39 @@ test("repair form plan only pre-fills confirmed customer-facing fields", () => {
   assert.equal(writes.logisticsAmount, 122);
   assert.equal(writes.attachments.length, 1);
   assert.equal(writes.warrantyConversion, "否");
+  assert.equal("faultClassification" in writes, false);
+  assert.equal("detectionResult" in writes, false);
+  assert.equal("responsibilityType" in writes, false);
+  assert.deepEqual(plan.verifyOnlyFields.map((item) => item.key), [
+    "faultClassification", "detectionResult", "responsibilityType",
+  ]);
   assert.equal("laborAmount" in writes, false);
   assert.equal(plan.canAutoConfirm, false);
+  assert.equal(plan.readyToPrefill, true);
+  assert.deepEqual(plan.missingFields, []);
+  assert.deepEqual(plan.systemCalculatedFields.map((item) => item.key).sort(), [
+    "partsCostAmount", "partsRetailAmount", "repairFeeReceivable", "serviceFeeCost",
+  ]);
+  assert.deepEqual(plan.excludedFields.map((item) => item.key).sort(), [
+    "detectionReportAttachments", "personalizedLogisticsAmount",
+  ]);
   assert.deepEqual(plan.manualReviewFields, []);
+});
+
+test("repair form plan stops before prefill when confirmed completion fields are missing", () => {
+  const payload = buildNodePayload({
+    ...ORDER,
+    repairCompletion: {
+      ...ORDER.repairCompletion,
+      faultLevel3: "",
+      repairMeasure: "",
+      attachments: [],
+    },
+  }, "REPAIR_COMPLETED");
+  const plan = buildRecloudRepairFormPlan(payload);
+  assert.equal(plan.readyToPrefill, false);
+  assert.deepEqual(plan.missingFields, ["faultLevel3", "repairMeasure", "attachments"]);
+  assert.equal(plan.canAutoConfirm, false);
 });
 
 test("in-warranty repair does not write customer or logistics charges", () => {
@@ -369,6 +503,9 @@ test("admin page exposes task status and retry while server hooks all five nodes
   assert.match(page, /FAILED/);
   assert.match(page, /MANUAL_REVIEW/);
   assert.match(page, /人工重试/);
+  assert.match(page, /等待最终确认/);
+  assert.match(page, /更换配件已核对/);
+  assert.match(page, /最终确认仍未点击/);
   const server = await fs.readFile(path.join(__dirname, "../server.js"), "utf8");
   for (const node of ["RECEIPT", "INSPECTION_COMPLETED", "REPAIR_COMPLETED", "RETURN_SHIPPED", "ORDER_COMPLETED"]) {
     assert.match(server, new RegExp(`enqueueRecloudNode\\([\\s\\S]{0,180}\"${node}\"`));

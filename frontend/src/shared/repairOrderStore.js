@@ -4,6 +4,7 @@
 
 export const REPAIR_STATUS = {
   WAIT_RECEIPT: "待签收",
+  WAIT_DECISION: "已签收/待选择处理方式",
   WAIT_INSPECTION: "已签收/待维修",
   INSPECTION_COMPLETE: "检测登记完成/待完工确认",
   WAIT_REPAIR: "待维修",
@@ -24,6 +25,7 @@ export const REPAIR_STATUS_LIST = Object.values(
 
 export const REPAIR_STATUS_ORDER = [
   REPAIR_STATUS.WAIT_RECEIPT,
+  REPAIR_STATUS.WAIT_DECISION,
   REPAIR_STATUS.WAIT_INSPECTION,
   REPAIR_STATUS.INSPECTION_COMPLETE,
   REPAIR_STATUS.WAIT_REPAIR,
@@ -173,6 +175,12 @@ function createDefaultOrder({
     originalFault,
 
     inspectionResult: "",
+
+    inspectionRemark: "",
+
+    treatmentMode: "",
+
+    treatmentLabel: "",
 
     faultSystem: "",
 
@@ -408,6 +416,12 @@ function normalizeOrder(order) {
 
     inspectionRemark:
       order.inspectionRemark || "",
+
+    treatmentMode:
+      order.treatmentMode || "",
+
+    treatmentLabel:
+      order.treatmentLabel || "",
 
     specialty:
       order.specialty || "",
@@ -873,6 +887,12 @@ export function createRepairOrder(
 
     inspectionRemark:
       fields.inspectionRemark || "",
+
+    treatmentMode:
+      fields.treatmentMode || "",
+
+    treatmentLabel:
+      fields.treatmentLabel || "",
 
     specialty:
       fields.specialty || "",

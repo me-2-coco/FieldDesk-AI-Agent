@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { buildInspectionFormDecision } = require("../services/inspection-form-rules");
 
-test("inspection decision fixes both yes fields and clears consumable name", () => {
+test("inspection decision only fixes original consumables and leaves skipped fields absent", () => {
   const result = buildInspectionFormDecision({
     faultCategory: "产品质量 / 出水大/水渍大",
     technicianWarranty: "保内",
@@ -17,7 +17,9 @@ test("inspection decision fixes both yes fields and clears consumable name", () 
   assert.equal(result.fields.detectionResult, "维修");
   assert.equal(result.fields.inspectionAbnormal, "否");
   assert.equal(Object.hasOwn(result.fields, "responsibilityDecision"), false);
-  assert.equal(result.fields.dismantled, "是");
+  assert.equal(Object.hasOwn(result.fields, "faultDescription"), false);
+  assert.equal(Object.hasOwn(result.fields, "dismantled"), false);
+  assert.equal(Object.hasOwn(result.fields, "openedRemark"), false);
 });
 
 test("inspection decision stops when technician and SN warranty disagree", () => {

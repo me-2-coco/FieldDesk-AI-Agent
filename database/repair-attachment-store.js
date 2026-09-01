@@ -9,7 +9,7 @@ class LocalRepairAttachmentStore {
     this.directory = directory;
     this.maxFileBytes = Number(options.maxFileBytes || process.env.UPLOAD_MAX_FILE_BYTES || 25 * 1024 * 1024);
     this.maxStorageBytes = Number(options.maxStorageBytes || process.env.UPLOAD_MAX_STORAGE_BYTES || 5 * 1024 * 1024 * 1024);
-    this.allowedMimeTypes = new Set(options.allowedMimeTypes || ["image/jpeg", "image/png", "image/webp", "video/mp4", "video/quicktime"]);
+    this.allowedMimeTypes = new Set(options.allowedMimeTypes || ["image/jpeg", "image/png", "image/webp", "video/mp4", "video/quicktime", "application/pdf"]);
   }
 
   async storageUsage(directory = this.directory) {
@@ -29,7 +29,7 @@ class LocalRepairAttachmentStore {
     const type = String(mimeType || "");
     const content = String(data || "");
     if (!orderNo || !this.allowedMimeTypes.has(type) || !content) {
-      throw Object.assign(new Error("仅支持维修照片或视频"), {
+      throw Object.assign(new Error("仅支持维修照片、视频或 PDF 检测报告"), {
         code: "REPAIR_ATTACHMENT_INVALID", status: 400,
       });
     }
@@ -47,6 +47,7 @@ class LocalRepairAttachmentStore {
       "image/webp": new Set([".webp"]),
       "video/mp4": new Set([".mp4"]),
       "video/quicktime": new Set([".mov"]),
+      "application/pdf": new Set([".pdf"]),
     };
     const allowedExtensions = extensionsByType[type] || new Set();
     if (extension && !allowedExtensions.has(extension.toLowerCase())) throw Object.assign(new Error("附件扩展名与类型不匹配"), { code: "REPAIR_ATTACHMENT_INVALID", status: 400 });
@@ -58,6 +59,25 @@ class LocalRepairAttachmentStore {
     await fs.mkdir(orderDirectory, { recursive: true });
     await fs.writeFile(path.join(orderDirectory, fileName), buffer, { mode: 0o600 });
     return { id: crypto.randomUUID(), name: safeName, mimeType: type, fileName, size: buffer.length, localOnly: true };
+  }
+
+  async read(rmaNo, attachment = {}) {
+    const orderNo = String(rmaNo || "").trim();
+    const fileName = path.basename(String(attachment.fileName || ""));
+    if (!orderNo || !fileName || fileName !== attachment.fileName) {
+      throw Object.assign(new Error("附件路径无效"), { code: "ATTACHMENT_PATH_INVALID", status: 400 });
+    }
+    const orderDirectory = path.join(this.directory, crypto.createHash("sha256").update(orderNo).digest("hex"));
+    const location = path.resolve(orderDirectory, fileName);
+    const resolvedRoot = path.resolve(this.directory);
+    if (!location.startsWith(`${resolvedRoot}${path.sep}`)) {
+      throw Object.assign(new Error("附件路径无效"), { code: "ATTACHMENT_PATH_INVALID", status: 400 });
+    }
+    try { return await fs.readFile(location); }
+    catch (error) {
+      if (error.code === "ENOENT") throw Object.assign(new Error("附件文件不存在"), { code: "ATTACHMENT_NOT_FOUND", status: 404 });
+      throw error;
+    }
   }
 }
 

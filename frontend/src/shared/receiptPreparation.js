@@ -5,8 +5,9 @@ export function normalizeReceiptSn(value) {
 export const REPAIR_SPECIALTIES = ["扫地机", "洗地机"]
 
 export function getAllowedSpecialties(user) {
-  if (user?.role === "ADMIN") return [...REPAIR_SPECIALTIES]
-  if (user?.role !== "TECHNICIAN") return []
+  const role = String(user?.role || "").trim().toUpperCase()
+  if (role === "ADMIN") return [...REPAIR_SPECIALTIES]
+  if (role !== "TECHNICIAN") return []
   return Array.isArray(user?.repairSpecialties)
     ? user.repairSpecialties.filter((item) =>
         REPAIR_SPECIALTIES.includes(item)

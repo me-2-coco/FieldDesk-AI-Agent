@@ -5,7 +5,7 @@ import {
   setAuthenticatedUser,
   setCurrentUser
 } from "../shared/userStore.js"
-import { getCurrentFieldDeskUser, setApiAccessToken } from "../shared/crmService.js"
+import { loginFieldDeskAccount } from "../shared/crmService.js"
 
 
 function Login({ onLogin }) {
@@ -13,16 +13,15 @@ function Login({ onLogin }) {
   const users = getUsers()
 
   const [account, setAccount] = useState("")
-  const [accessToken, setAccessToken] = useState("")
+  const [password, setPassword] = useState("")
   const [message, setMessage] = useState("")
 
 
   async function handleLogin() {
 
-    if (accessToken) {
+    if (password) {
       try {
-        setApiAccessToken(accessToken)
-        const profile = await getCurrentFieldDeskUser()
+        const profile = await loginFieldDeskAccount(account, password)
         const user = setAuthenticatedUser({
           id: profile.userId,
           name: profile.displayName,
@@ -30,11 +29,10 @@ function Login({ onLogin }) {
           role: String(profile.role).toLowerCase(),
           repairSpecialties: profile.repairSpecialties || []
         })
-        setAccessToken("")
+        setPassword("")
         onLogin(user)
         return
       } catch (error) {
-        setApiAccessToken("")
         setMessage(error.message)
         return
       }
@@ -104,17 +102,17 @@ function Login({ onLogin }) {
 
 
         <div className="login-logo">
-          FD
+          维
         </div>
 
 
         <h1>
-          FieldDesk AI
+          网点维修管理
         </h1>
 
 
         <p className="login-subtitle">
-          智能维修工作台
+          维修工单系统
         </p>
 
 
@@ -144,8 +142,8 @@ function Login({ onLogin }) {
           登录
         </button>
 
-        <label htmlFor="login-token">正式账号访问令牌</label>
-        <input id="login-token" type="password" value={accessToken} onChange={(event) => setAccessToken(event.target.value)} placeholder="生产模式使用，不在浏览器保存" autoComplete="current-password" />
+        <label htmlFor="login-password">登录密码</label>
+        <input id="login-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} onKeyDown={handleKeyDown} placeholder="请输入登录密码" autoComplete="current-password" />
 
 
         {message && (

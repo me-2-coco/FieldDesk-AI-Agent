@@ -31,7 +31,7 @@ class DryRunRecloudAdapter extends RecloudAdapter {
   }
   async syncRepairCompleted(task) {
     const result = this.result("REPAIR_COMPLETED", task);
-    return { ...result, formPlan: buildRecloudRepairFormPlan(task.payload) };
+    return { ...result, status: "READY_DRY_RUN", formPlan: buildRecloudRepairFormPlan(task.payload) };
   }
   async syncReturnShipped(task) { return this.result("RETURN_SHIPPED", task); }
   async syncOrderCompleted(task) { return this.result("ORDER_COMPLETED", task); }

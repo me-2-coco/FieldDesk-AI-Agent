@@ -14,6 +14,7 @@ const {
   getSelectAllShortcut,
   isRecloudLoginPage,
   isRevealPhoneEnabled,
+  parseRmaDateTime,
   parseRepairDetail,
   revealFeedbackPhone,
   readProductLine,
@@ -85,6 +86,14 @@ async function startServer(connector) {
     url: `http://127.0.0.1:${server.address().port}`,
   };
 }
+
+test("RMA number exposes its encoded Shanghai creation date for pending backfill", () => {
+  assert.equal(
+    new Date(parseRmaDateTime("JXTH202608311002")).toISOString(),
+    "2026-08-30T16:00:00.000Z"
+  );
+  assert.equal(Number.isNaN(parseRmaDateTime("INVALID")), true);
+});
 
 test("HTML fixture parses only the approved V1 RMA fields", () => {
   const html = fs.readFileSync(fixturePath, "utf8");
@@ -442,6 +451,7 @@ test("phone response listener filters unrelated mobile numbers", async () => {
 
 function createPhoneSurface({
   inputValues = [],
+  componentValues = [],
   fragments = [],
   innerText = "",
   textContent = "",
@@ -455,6 +465,11 @@ function createPhoneSurface({
         return locatorList(inputValues.map((value) => ({
           inputValue: async () => value,
           getAttribute: async () => value,
+        })));
+      }
+      if (selector.includes(".plat-mask-input[value]")) {
+        return locatorList(componentValues.map((value) => ({
+          getAttribute: async (name) => name === "value" ? value : null,
         })));
       }
       if (selector === "span:visible, div:visible") {
@@ -518,6 +533,21 @@ test("phone reveal reads a complete number from an input value", async () => {
     await findRevealedPhone(item, page, {
       inputValue: async () => "189****0053",
     }, { maskedValue: "189****0053" }),
+    completePhone
+  );
+});
+
+test("phone reveal reads Recloud plat-mask wrapper value", async () => {
+  const completePhone = ["186", "1234", "0058"].join("");
+  const { item, page } = createPhoneSurface({
+    inputValues: ["186****0058"],
+    componentValues: [completePhone],
+  });
+
+  assert.equal(
+    await findRevealedPhone(item, page, {
+      inputValue: async () => "186****0058",
+    }, { maskedValue: "186****0058" }),
     completePhone
   );
 });
@@ -1616,6 +1646,129 @@ test("query API calls only the read-only connector operation", async (t) => {
     ["open"],
     ["query", "TEST-SCAN-0006"],
   ]);
+});
+
+test("phone query uses the dedicated read-only connector path", async (t) => {
+  const calls = [];
+  const connector = {
+    async openRecloud() {
+      calls.push(["open"]);
+      return { page: {} };
+    },
+    async queryRmaByPhone(_page, phone) {
+      calls.push(["phone", phone]);
+      return {
+        rmaNo: "JXTH-PHONE-0001",
+        customer: { phoneMasked: "187****0883" },
+        reportedFault: "测试故障",
+        pickupLogisticsNo: "",
+        queryMatchedBy: "PHONE",
+        readOnly: true,
+      };
+    },
+    async queryRmaByLogisticsNo() {
+      assert.fail("phone query must not use logistics-only parsing");
+    },
+  };
+  const { server, url } = await startServer(connector);
+  t.after(() => server.close());
+
+  const response = await fetch(`${url}/api/crm/repairs/query`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ queryValue: "18788910883" }),
+  });
+  const result = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(result.data.queryMatchedBy, "PHONE");
+  assert.deepEqual(calls, [["open"], ["phone", "18788910883"]]);
+});
+
+test("phone detail parsing does not require a pickup logistics number", () => {
+  const detail = parseRmaFieldPairs([
+    ["寄修单号", "JXTH-PHONE-0002"],
+    ["联系电话", "18788910883"],
+    ["报修描述", "测试故障"],
+  ], "", {
+    allowFullPhone: true,
+    requirePickupLogisticsNo: false,
+  });
+
+  assert.equal(detail.rmaNo, "JXTH-PHONE-0002");
+  assert.equal(detail.customer.phoneMasked, "18788910883");
+  assert.equal(detail.pickupLogisticsNo, "");
+});
+
+test("phone query matches a masked pending-receipt cache without opening Recloud", async (t) => {
+  const connector = {
+    async openRecloud() {
+      assert.fail("masked pending-receipt match must not open Recloud");
+    },
+  };
+  const pendingReceiptStore = {
+    async readAll() {
+      return [{
+        rmaNo: "JXTH-PENDING-0001",
+        logisticsNo: "PENDING-LOGISTICS-0001",
+        phone: "138****5681",
+        reportedFault: "待签收测试故障",
+        productLine: "扫地机",
+        source: "RECLOUD_PENDING_RECEIPT",
+      }];
+    },
+  };
+  const server = createApp(connector, null, { pendingReceiptStore }).listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  t.after(() => server.close());
+
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/crm/repairs/query`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ queryValue: "13888585681" }),
+  });
+  const result = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(result.data.rmaNo, "JXTH-PENDING-0001");
+  assert.equal(result.data.cached, true);
+});
+
+test("phone query trusts a matching masked live-query cache and returns the complete queried phone", async (t) => {
+  const connector = {
+    async openRecloud() {
+      assert.fail("complete local live-query cache must not open Recloud");
+    },
+  };
+  const pendingReceiptStore = {
+    async readAll() {
+      return [{
+        rmaNo: "JXTH-LIVE-0001",
+        logisticsNo: "SF-LIVE-0001",
+        phone: "151****2282",
+        reportedFault: "清洁中断",
+        productLine: "扫地机",
+        phoneVerified: false,
+        source: "RECLOUD_LIVE_QUERY_CACHE",
+      }];
+    },
+  };
+  const server = createApp(connector, null, { pendingReceiptStore }).listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  t.after(() => server.close());
+
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/crm/repairs/query`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ queryValue: "15196862282" }),
+  });
+  const result = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(result.data.rmaNo, "JXTH-LIVE-0001");
+  assert.equal(result.data.customer.phoneMasked, "15196862282");
+  assert.equal(result.data.phoneVerified, true);
+  assert.equal(result.data.cached, true);
 });
 
 test("API validates logistics number without opening CRM", async (t) => {

@@ -325,6 +325,53 @@ class JsonReceiptPreparationStore {
     return operation;
   }
 
+  async saveTreatmentDecision(rmaNo, input = {}, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing) throw Object.assign(new Error("未找到已签收工单"), { code: "RECEIPT_PREPARATION_NOT_FOUND", status: 404 });
+      if (!["RECEIVED_PENDING_INSPECTION", "INSPECTION_IN_PROGRESS", "INSPECTION_COMPLETED_PENDING_REPAIR", "REPAIR_COMPLETION_DRAFT"].includes(existing.status)) {
+        throw Object.assign(new Error("当前工单不能选择维修处理方式"), { code: "TREATMENT_DECISION_NOT_ALLOWED", status: 409 });
+      }
+      const treatmentMode = normalizeRequired(input.treatmentMode);
+      const labels = {
+        REPAIR: "维修",
+        ABANDONED: "弃修",
+        INSPECTION_ONLY: "只检测不维修",
+        DEBUGGING: "调试",
+      };
+      if (!labels[treatmentMode]) throw Object.assign(new Error("请选择有效的维修处理方式"), { code: "TREATMENT_MODE_INVALID", status: 400 });
+      const technicianWarranty = normalizeRequired(input.technicianWarranty) || existing.technicianWarranty || "";
+      if (treatmentMode === "ABANDONED" && technicianWarranty !== "保外") {
+        throw Object.assign(new Error("弃修仅适用于保外机器；保内机器无需付费，不能选择弃修"), { code: "IN_WARRANTY_ABANDONMENT_NOT_ALLOWED", status: 409 });
+      }
+      const skipsParts = treatmentMode !== "REPAIR";
+      const timestamp = new Date().toISOString();
+      const updated = {
+        ...existing,
+        treatmentMode,
+        treatmentLabel: labels[treatmentMode],
+        skipsParts,
+        status: skipsParts ? "INSPECTION_COMPLETED_PENDING_REPAIR" : "RECEIVED_PENDING_INSPECTION",
+        inspectionResult: normalizeRequired(input.detectionResult),
+        detectionResult: normalizeRequired(input.detectionResult),
+        technicianWarranty,
+        warrantyDecision: input.warrantyDecision || existing.warrantyDecision || null,
+        treatmentDecidedAt: timestamp,
+        inspectionUpdatedAt: skipsParts ? timestamp : existing.inspectionUpdatedAt,
+        updatedAt: timestamp,
+        timeline: [
+          ...(existing.timeline || []),
+          timelineEvent("TREATMENT_DECIDED", `维修处理方式：${labels[treatmentMode]}`, operator, timestamp),
+        ],
+      };
+      await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
   async saveInspection(rmaNo, input = {}, operator = {}) {
     const operation = this.writeQueue.then(async () => {
       const records = await this.readAll();
@@ -395,7 +442,7 @@ class JsonReceiptPreparationStore {
         error.status = 404;
         throw error;
       }
-      if (!["RECEIVED_PENDING_INSPECTION", "INSPECTION_COMPLETED_PENDING_REPAIR"].includes(existing.status)) {
+      if (!["RECEIVED_PENDING_INSPECTION", "INSPECTION_COMPLETED_PENDING_REPAIR", "REPAIR_COMPLETION_DRAFT"].includes(existing.status)) {
         const error = new Error("当前工单不能选择维修配件");
         error.code = "PART_APPLICATION_NOT_ALLOWED";
         error.status = 409;
@@ -489,6 +536,32 @@ class JsonReceiptPreparationStore {
     return operation;
   }
 
+  async confirmParts(rmaNo, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing) throw Object.assign(new Error("未找到待维修工单"), { code: "RECEIPT_PREPARATION_NOT_FOUND", status: 404 });
+      if (!["RECEIVED_PENDING_INSPECTION", "INSPECTION_IN_PROGRESS", "INSPECTION_COMPLETED_PENDING_REPAIR", "REPAIR_COMPLETION_DRAFT"].includes(existing.status)) {
+        throw Object.assign(new Error("当前工单不能确认维修配件"), { code: "PART_CONFIRMATION_NOT_ALLOWED", status: 409 });
+      }
+      if (!(existing.partApplications || []).length) {
+        throw Object.assign(new Error("请先添加维修配件"), { code: "PART_CONFIRMATION_EMPTY", status: 409 });
+      }
+      const timestamp = new Date().toISOString();
+      const inspectionComplete = ["INSPECTION_COMPLETED_PENDING_REPAIR", "REPAIR_COMPLETION_DRAFT"].includes(existing.status);
+      const updated = {
+        ...existing,
+        status: inspectionComplete ? "REPAIR_COMPLETION_DRAFT" : existing.status,
+        updatedAt: timestamp,
+        timeline: [...(existing.timeline || []), timelineEvent("PARTS_CONFIRMED", "维修配件已确认，进入维修完工", operator, timestamp)],
+      };
+      await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
+      return { order: updated, nextStep: inspectionComplete ? "repairCompletion" : "repairProcess" };
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
   async saveRepairCompletion(rmaNo, input = {}, operator = {}, submit = false) {
     const operation = this.writeQueue.then(async () => {
       const records = await this.readAll();
@@ -512,11 +585,18 @@ class JsonReceiptPreparationStore {
       if (submit) {
         const missingFields = [];
         if (!existing.sn) missingFields.push("sn");
-        if (!faultLevel1 || !faultLevel2 || !faultLevel3) missingFields.push("faultClassification");
+        const skipsFaultClassification = ["ABANDONED", "INSPECTION_ONLY", "DEBUGGING"].includes(existing.treatmentMode);
+        if (!skipsFaultClassification && (!faultLevel1 || !faultLevel2 || !faultLevel3)) missingFields.push("faultClassification");
         if (!responsibilityType) missingFields.push("responsibilityType");
         if (!detectionResult) missingFields.push("detectionResult");
         if (!repairMeasure) missingFields.push("repairMeasure");
         if (!Array.isArray(input.attachments) || !input.attachments.length) missingFields.push("attachments");
+        if (existing.treatmentMode === "INSPECTION_ONLY" && !(Array.isArray(input.attachments) && input.attachments.some((item) => item?.mimeType === "application/pdf"))) {
+          missingFields.push("inspectionReportPdf");
+        }
+        if (existing.treatmentMode === "INSPECTION_ONLY" && !(Array.isArray(input.attachments) && input.attachments.some((item) => /^(image|video)\//.test(item?.mimeType || "")))) {
+          missingFields.push("inspectionMedia");
+        }
         if (missingFields.length) {
           const error = new Error(`缺少必填字段：${missingFields.join(", ")}`);
           error.code = "REPAIR_COMPLETION_INVALID";
@@ -674,8 +754,7 @@ class JsonReceiptPreparationStore {
     const allowedStatuses = new Set(["REPAIR_COMPLETED_PENDING_SHIPMENT", "SHIPPED_PENDING_COMPLETION"]);
     return records.filter((record) => {
       if (!allowedStatuses.has(record.status)) return false;
-      if ([roles.ADMIN, roles.WAREHOUSE].includes(user.role)) return true;
-      return (record.technicianId || record.operatorId) === user.userId;
+      return [roles.ADMIN, roles.INFORMATION_CLERK].includes(user.role);
     });
   }
 

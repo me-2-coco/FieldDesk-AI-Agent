@@ -2,6 +2,12 @@ const DEFAULT_RANGE = "A1:K5000";
 
 function text(value) { return String(value ?? "").trim(); }
 function comparable(value) { return text(value).toUpperCase().replace(/[\s_-]+/g, ""); }
+function retailPrice(value) {
+  const normalized = text(value).replace(/[,，￥¥\s]/g, "");
+  if (!normalized) return null;
+  const amount = Number.parseFloat(normalized);
+  return Number.isFinite(amount) ? amount : null;
+}
 
 function parsePartRows(values = []) {
   const parts = [];
@@ -30,7 +36,7 @@ function parsePartRows(values = []) {
       sourceRow: index + 1,
       code,
       name,
-      retailPrice: Number(row[columns.price]) || 0,
+      retailPrice: retailPrice(row[columns.price]),
       repairLevel,
       returnRequired: text(row[columns.returnRequired]) === "是",
       projectCode,
@@ -82,7 +88,7 @@ function parseSweepPartRows(values = [], sheet = {}) {
     if (!/^\d{8,}$/.test(code) || !name || !repairLevel || (!sheet.common && !projectCodes.length)) continue;
     parts.push({
       sourceRow: index + 1, sourceSheetId: sheet.sheetId, sourceSheetTitle: sheet.title,
-      code, name, retailPrice: Number.parseFloat(text(row[columns.price])) || 0,
+      code, name, retailPrice: retailPrice(row[columns.price]),
       repairLevel, returnRequired: columns.returnRequired >= 0 && text(row[columns.returnRequired]) === "是",
       projectCode: sheet.common ? "*" : projectCodes.join("/"), productLine: sheet.productLine || "扫地机",
     });
@@ -204,4 +210,4 @@ class FeishuPartsCatalog {
   }
 }
 
-module.exports = { FeishuPartsCatalog, parsePartRows, parseSweepPartRows, projectCodesFromTitle, partSupportsProject };
+module.exports = { FeishuPartsCatalog, parsePartRows, parseSweepPartRows, projectCodesFromTitle, partSupportsProject, retailPrice };

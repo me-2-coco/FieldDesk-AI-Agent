@@ -1,6 +1,7 @@
 export const USER_ROLES = {
   TECHNICIAN: "technician",
   WAREHOUSE: "warehouse",
+  INFORMATION_CLERK: "information_clerk",
   ADMIN: "admin"
 }
 
@@ -8,11 +9,19 @@ export const USER_ROLES = {
 export const USER_ROLE_NAMES = {
   technician: "师傅",
   warehouse: "库房",
+  information_clerk: "信息员",
   admin: "管理员"
 }
 
 
 const DEFAULT_USERS = [
+  {
+    id: "USER-006",
+    name: "信息员",
+    account: "info",
+    role: USER_ROLES.INFORMATION_CLERK,
+    repairSpecialties: []
+  },
   {
     id: "USER-001",
     name: "张师傅",
@@ -218,9 +227,9 @@ export function canAccessPage(
     "repairTask",
     "repairWork",
     "repairProcess",
+    "repairDecision",
     "partsApplication",
     "repairCompletion",
-    "returnShipping",
     "repairFinish",
     "records",
     "inventory",
@@ -231,7 +240,16 @@ export function canAccessPage(
       "home",
       "inventory",
       "warehouse",
+      "profile"
+    ],
+
+    information_clerk: [
+      "home",
+      "records",
       "returnShipping",
+      "machineTracking",
+      "repairReports",
+      "exceptionCenter",
       "profile"
     ],
 
@@ -241,6 +259,7 @@ export function canAccessPage(
   "repairTask",
   "repairWork",
   "repairProcess",
+  "repairDecision",
   "partsApplication",
   "repairCompletion",
   "returnShipping",
@@ -251,6 +270,9 @@ export function canAccessPage(
   "syncTasks",
   "syncDiagnostics",
   "accountManagement",
+  "machineTracking",
+  "repairReports",
+  "exceptionCenter",
   "profile"
 ],
 
@@ -278,11 +300,11 @@ export function getNavigationItems(
       },
       {
         page: "repair",
-        label: "维修"
+        label: "工单"
       },
       {
         page: "records",
-        label: "记录"
+        label: "历史"
       },
       {
         page: "inventory",
@@ -313,6 +335,15 @@ export function getNavigationItems(
       }
     ],
 
+    information_clerk: [
+      { page: "home", label: "首页" },
+      { page: "machineTracking", label: "去向" },
+      { page: "repairReports", label: "档案" },
+      { page: "exceptionCenter", label: "问题" },
+      { page: "records", label: "历史" },
+      { page: "profile", label: "我的" }
+    ],
+
     admin: [
       {
         page: "home",
@@ -320,11 +351,11 @@ export function getNavigationItems(
       },
       {
         page: "repair",
-        label: "维修"
+        label: "工单"
       },
       {
         page: "records",
-        label: "记录"
+        label: "历史"
       },
       {
         page: "inventory",
@@ -334,6 +365,7 @@ export function getNavigationItems(
         page: "warehouse",
         label: "库房"
       },
+      { page: "machineTracking", label: "去向" },
       {
         page: "profile",
         label: "我的"

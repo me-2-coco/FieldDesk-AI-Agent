@@ -309,6 +309,21 @@ test("known POST query remains allowed and is counted as a read request", async 
   assert.equal(fixture.abortedRequests, 0);
 });
 
+test("repair list allows only the observed exact POST read paths", () => {
+  for (const path of [
+    "/t/dreame/api/common/menuclick",
+    "/t/dreame/api/vlist/ExecuteQuery",
+    "/t/dreame/api/vlist/GetQueryListBadges",
+    "/t/dreame/api/systemparameter/getvalues",
+  ]) {
+    assert.equal(classifyRecloudRequest({ method: () => "POST", url: () => `https://crm2.recloud.com.cn${path}` }).kind, "read");
+  }
+  assert.equal(classifyRecloudRequest({
+    method: () => "POST",
+    url: () => "https://crm2.recloud.com.cn/t/dreame/api/vlist/ExecuteQuery/save",
+  }).kind, "mutation");
+});
+
 test("unexpected mutation is blocked, cleaned up and returned without secrets", async () => {
   const fixture = createSimulationPage({
     originalRemark: "原测试备注",

@@ -22,10 +22,21 @@ const {
 } = require("./recloud-supervision");
 const { executeDetectionPrefillSafely } = require("../services/detection-prefill-executor");
 const { createRecloudDetectionControlAdapter } = require("./recloud-detection-control-adapter");
+const { inspectDirectRepairControls } = require("./recloud-repair-control-adapter");
+const { inspectRepairPartsTable } = require("./recloud-repair-parts-reader");
+const {
+  openRepairPartAddDialog,
+  inspectAndCloseRepairPartAddDialog,
+} = require("./recloud-repair-part-dialog");
+const { inspectRepairAttachmentPanel } = require("./recloud-repair-attachments-reader");
 
 const LOGIN_STATE = path.join(__dirname, "recloud-state.json");
 const RECLOUD_URL =
   "https://crm2.recloud.com.cn/t/dreame/webapp/dreame/?mainNavName=serviceprovider#/scanSignin/query";
+const RECLOUD_PENDING_LIST_URL =
+  "https://crm2.recloud.com.cn/t/dreame/webapp/dreame/?mainNavName=serviceprovider#/vmlist/new_srv_rmaline/wdjx";
+const RECLOUD_HISTORY_QUERY_URL =
+  "https://crm2.recloud.com.cn/t/dreame/webapp/dreame/?mainNavName=serviceprovider#/HistoryOrderQuery/query";
 const DEFAULT_TIMEOUT = Number(process.env.RECLOUD_TIMEOUT_MS) || 30000;
 const SCAN_PAGE_PROBE_TIMEOUT = 1200;
 const QUERY_RETRY_DELAY = 3000;
@@ -127,6 +138,14 @@ function isCompleteMobilePhone(value) {
   return /^1[3-9]\d{9}$/.test(normalizeText(value));
 }
 
+function parseRmaDateTime(value) {
+  const match = String(value || "").trim().toUpperCase().match(/^JXTH(20\d{2})(\d{2})(\d{2})/);
+  if (!match) return NaN;
+  const [, year, month, day] = match;
+  const timestamp = Date.parse(`${year}-${month}-${day}T00:00:00+08:00`);
+  return Number.isFinite(timestamp) ? timestamp : NaN;
+}
+
 function logPhoneReveal(stage, logger = console) {
   logger.info(`RECLOUD_PHONE_REVEAL: ${stage}`);
 }
@@ -146,7 +165,35 @@ async function getFeedbackPhoneSearchScope(item) {
 }
 
 async function findFeedbackPhoneRevealButton(item, page) {
+  try {
+    const fieldMaskControl = item.locator('.hidemask.canHideMask').first();
+    if (await fieldMaskControl.isVisible().catch(() => false)) {
+      return fieldMaskControl;
+    }
+    const fieldEyeIcon = item
+      .locator(
+        [
+          ".hidemask.canHideMask .el-tooltip.rtxpc-tooltip.rt-icon",
+          ".hidemask.canHideMask i.plat-icon-eye-close-lined",
+          ".hidemask.canHideMask i[class*='eye']",
+        ].join(", ")
+      )
+      .first();
+    if (await fieldEyeIcon.isVisible().catch(() => false)) {
+      return fieldEyeIcon;
+    }
+  } catch {
+    // Older/test DOM adapters do not support Recloud's current CSS classes.
+  }
   const scope = await getFeedbackPhoneSearchScope(item);
+  try {
+    const recloudMaskControl = scope.locator('.hidemask.canHideMask').first();
+    if (await recloudMaskControl.isVisible().catch(() => false)) {
+      return recloudMaskControl;
+    }
+  } catch {
+    // Continue with the generic accessible/tooltip discovery path.
+  }
   const attributedButton = scope
     .locator(
       [
@@ -220,7 +267,11 @@ function extractCompleteMobilePhone(value) {
 }
 
 function getMaskedPhoneSignature(value) {
-  const match = String(value || "").match(/(\d{3})\D*(\d{4})\s*$/);
+  const normalized = String(value || "").replace(/\s+/g, "");
+  if (/^1[3-9]\d{9}$/.test(normalized)) {
+    return { prefix: normalized.slice(0, 3), suffix: normalized.slice(-4) };
+  }
+  const match = normalized.match(/(\d{3})\D*(\d{4})$/);
   return match ? { prefix: match[1], suffix: match[2] } : null;
 }
 
@@ -252,7 +303,7 @@ function collectStringValues(value, output = []) {
   return output;
 }
 
-function createPhoneResponseListener(page, maskedValue) {
+function createPhoneResponseListener(page, maskedValue, options = {}) {
   let phone = "";
   let stopped = false;
   let handler;
@@ -281,10 +332,20 @@ function createPhoneResponseListener(page, maskedValue) {
         payload = await response.text();
       }
       if (stopped || phone) return;
-      phone = selectMatchingPhone(
-        collectStringValues(payload),
-        maskedValue
-      );
+      const stringValues = collectStringValues(payload);
+      phone = selectMatchingPhone(stringValues, maskedValue);
+      if (options.debug === true) {
+        let pathname = "unknown";
+        try {
+          pathname = new URL(response.url()).pathname;
+        } catch {}
+        const status = typeof response.status === "function"
+          ? response.status()
+          : "unknown";
+        (options.logger || console).info(
+          `RECLOUD_PHONE_RESPONSE: path=${pathname} status=${status} values=${stringValues.length} matched=${Boolean(phone)}`
+        );
+      }
       if (phone) stop();
     } catch {
       // Network parsing is best-effort and never changes the query outcome.
@@ -383,6 +444,12 @@ async function findCurrentFeedbackPhoneItem(page, fallbackItem) {
     const count = await items.count();
     for (let index = 0; index < count; index += 1) {
       const candidate = items.nth(index);
+      if (
+        typeof candidate.isVisible === "function" &&
+        !(await candidate.isVisible().catch(() => false))
+      ) {
+        continue;
+      }
       const label = candidate
         .locator(
           "label, .rtxpc-form-item__label, [class*='form-item__label']"
@@ -414,6 +481,21 @@ async function readControlValues(locator) {
       );
     }
     for (const attribute of ["value", "aria-label", "title", "data-value"]) {
+      if (typeof field.getAttribute === "function") {
+        values.push(await field.getAttribute(attribute).catch(() => ""));
+      }
+    }
+  }
+  return values;
+}
+
+async function readComponentValueAttributes(locator) {
+  if (!locator || typeof locator.count !== "function") return [];
+  const values = [];
+  const count = await locator.count().catch(() => 0);
+  for (let index = 0; index < count; index += 1) {
+    const field = locator.nth(index);
+    for (const attribute of ["value", "data-value"]) {
       if (typeof field.getAttribute === "function") {
         values.push(await field.getAttribute(attribute).catch(() => ""));
       }
@@ -454,8 +536,31 @@ async function findRevealedPhone(item, page, originalControl, options = {}) {
   const currentItem = await findCurrentFeedbackPhoneItem(page, item);
 
   try {
+    // Recloud updates the existing input in place after the eye control is
+    // clicked. Read that exact control first; pages can retain hidden copies
+    // of the same form field, so a broad lookup may otherwise pick stale data.
+    if (originalControl && typeof originalControl.inputValue === "function") {
+      values.push(await originalControl.inputValue().catch(() => ""));
+      if (typeof originalControl.evaluate === "function") {
+        values.push(
+          await originalControl
+            .evaluate((element) => element.value || "")
+            .catch(() => "")
+        );
+      }
+      if (typeof originalControl.getAttribute === "function") {
+        values.push(
+          await originalControl.getAttribute("value").catch(() => "")
+        );
+      }
+    }
     values.push(...await readControlValues(
       currentItem.locator("input, textarea")
+    ));
+    // Recloud's plat-mask component keeps the revealed number on the wrapper
+    // element's value attribute while the disabled input can remain masked.
+    values.push(...await readComponentValueAttributes(
+      currentItem.locator(".plat-mask-input[value], [datafieldname='new_feedbacktel'] [value], [data-value]")
     ));
     values.push(await currentItem.innerText().catch(() => ""));
     values.push(await currentItem.textContent().catch(() => ""));
@@ -526,10 +631,54 @@ async function revealFeedbackPhone(item, page, control, options = {}) {
     const ariaDescribedBy = typeof button.getAttribute === "function"
       ? await button.getAttribute("aria-describedby").catch(() => "")
       : "";
-    const network = createPhoneResponseListener(page, originalValue);
+    const network = createPhoneResponseListener(page, originalValue, {
+      debug: String(process.env.RECLOUD_PHONE_DEBUG).toLowerCase() === "true",
+      logger,
+    });
     try {
-      await button.click();
+      const directClick = typeof item?.evaluate === "function"
+        ? await item.evaluate((element) => {
+            const candidates = [
+              ...element.querySelectorAll(
+                ".hidemask.canHideMask .rt-icon, .hidemask.canHideMask, .hidemask .rt-icon"
+              ),
+            ];
+            const target = candidates.find((candidate) => {
+              const box = candidate.getBoundingClientRect();
+              return box.width > 0 && box.height > 0;
+            });
+            if (!target) return false;
+            target.click();
+            return true;
+          }).catch(() => false)
+        : false;
+      if (!directClick) await button.click();
       logPhoneReveal("clicked", logger);
+
+      const revealState = typeof control.evaluate === "function"
+        ? await control
+            .evaluate((element) => {
+              const value = String(element.value || "");
+              return {
+                length: value.length,
+                masked: value.includes("*"),
+                complete: /^1[3-9]\d{9}$/.test(value.trim()),
+              };
+            })
+            .catch(() => null)
+        : null;
+      if (revealState) {
+        logPhoneReveal(
+          `control_state length=${revealState.length} masked=${revealState.masked} complete=${revealState.complete}`,
+          logger
+        );
+      }
+      if (revealState?.masked) {
+        // The eye is a toggle. A second click while the reveal request is
+        // still in flight hides/cancels the full value, so wait for the first
+        // click instead of retrying it.
+        logPhoneReveal("reveal_pending", logger);
+      }
 
       const deadline =
         Date.now() + (options.timeout ?? PHONE_REVEAL_TIMEOUT);
@@ -580,6 +729,7 @@ async function ensureScanPage(page, options = {}) {
   assertRecloudAuthenticated(page);
   let inputVisible = await input.isVisible().catch(() => false);
   if (
+    (!inputVisible || !isScanQueryUrl(page.url())) &&
     typeof page.url === "function" &&
     typeof page.goto === "function" &&
     (() => {
@@ -732,6 +882,28 @@ async function collectRtxpcFormItemPairs(page, options = {}) {
   return pairs;
 }
 
+async function collectRtxpcFormItemPairsFast(page) {
+  if (typeof page.evaluate !== "function") return null;
+  return page.evaluate(() => {
+    const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
+    return [...document.querySelectorAll(".rtxpc-form-item")]
+      .filter((item) => {
+        const box = item.getBoundingClientRect();
+        const style = getComputedStyle(item);
+        return box.width > 0 && box.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+      })
+      .map((item) => {
+        const label = item.querySelector("label, .rtxpc-form-item__label, [class*='form-item__label']");
+        const title = clean(item.getAttribute("fieldTitle") || item.getAttribute("field-title") || label?.textContent).replace(/[：:]$/, "");
+        const control = item.querySelector("input, textarea");
+        const content = item.querySelector(".rtxpc-form-item__content");
+        const value = clean(control?.value || content?.textContent || clean(item.textContent).replace(title, ""));
+        return title && value ? [title, value] : null;
+      })
+      .filter(Boolean);
+  }).catch(() => null);
+}
+
 async function readProductLine(page, logger = console) {
   const fail = (reason) => {
     logger.warn?.(`RECLOUD_PRODUCT_LINE: failed ${reason}`);
@@ -740,6 +912,43 @@ async function readProductLine(page, logger = console) {
   if (typeof page.getByText !== "function") return "";
 
   try {
+    // Element UI gives every header/body cell in the same logical column a
+    // shared generated class (for example el-table_2_xpc_column_19). Reading
+    // through that class is more reliable than pairing the wide main table
+    // with its fixed operation-column clone.
+    if (typeof page.evaluate === "function") {
+      const boundValue = await page.evaluate(() => {
+        const visible = (element) => {
+          const box = element.getBoundingClientRect();
+          const style = getComputedStyle(element);
+          return box.width > 0 && box.height > 0
+            && style.display !== "none" && style.visibility !== "hidden";
+        };
+        const headers = [...document.querySelectorAll("th")]
+          .filter((element) => visible(element) && element.innerText.trim() === "产品线");
+        for (const header of headers) {
+          const columnClass = [...header.classList].find((name) =>
+            /^el-table_\d+_.+_column_\d+$/.test(name)
+          );
+          if (!columnClass) continue;
+          const table = header.closest(".el-table") || document;
+          const values = [...table.querySelectorAll(`td.${columnClass}`)]
+            .filter(visible)
+            .map((element) => element.innerText.replace(/\s+/g, " ").trim())
+            .filter(Boolean);
+          const uniqueValues = [...new Set(values)];
+          if (uniqueValues.length === 1) return uniqueValues[0];
+          const explicit = uniqueValues.filter((value) => value === "扫地机" || value === "洗地机");
+          if (explicit.length === 1) return explicit[0];
+        }
+        return "";
+      }).catch(() => "");
+      if (boundValue) {
+        logger.info?.("RECLOUD_PRODUCT_LINE: bound_column_value_ready");
+        return normalizeText(boundValue);
+      }
+    }
+
     const marker = page
       .getByText("RMA明细", { exact: true })
       .filter({ visible: true })
@@ -890,20 +1099,102 @@ function selectCellByHeaderCoordinate(headerBox, cells) {
   return "";
 }
 
-async function readRmaDetail(page, logisticsNo = "") {
+async function readRmaDetail(page, logisticsNo = "", options = {}) {
   assertRecloudAuthenticated(page);
   const bodyText = await page.locator("body").innerText();
-  const revealPhoneEnabled = isRevealPhoneEnabled();
-  const formItemPairs = await collectRtxpcFormItemPairs(page, {
+  const revealPhoneEnabled = options.revealPhoneEnabled ?? isRevealPhoneEnabled();
+  const fastPairs = options.fastDomRead
+    ? await collectRtxpcFormItemPairsFast(page)
+    : null;
+  const formItemPairs = fastPairs || await collectRtxpcFormItemPairs(page, {
     revealPhoneEnabled,
+    phoneRevealTimeout: options.phoneRevealTimeout,
   });
   const productLine = await readProductLine(page);
   const textPairs = extractTextFieldPairs(bodyText);
+  const projectCode = [...formItemPairs, ...textPairs]
+    .find(([label]) => normalizeText(label).replace(/[：:]$/, "") === "项目号")?.[1] || "";
   return parseRmaFieldPairs([...formItemPairs, ...textPairs], logisticsNo, {
     rmaNoFromTitle: extractRmaNoFromTitle(bodyText),
     allowFullPhone: revealPhoneEnabled,
     productLine,
+    projectCode,
+    requirePickupLogisticsNo: options.requirePickupLogisticsNo,
   });
+}
+
+function inferProductLineFromCurrentOrder(detail = {}) {
+  const text = [
+    detail.productModel,
+    detail.productName,
+    detail.reportedFault,
+  ].filter(Boolean).join(" ");
+  if (/洗地机|无线洗地|\bH\d{1,3}\b/i.test(text)) return "洗地机";
+  if (/扫地机|扫拖|扫地机器人|机器人|\b(?:S|X|R)\d{1,3}\b/i.test(text)) return "扫地机";
+  return "";
+}
+
+async function readPendingListRow(page, rmaNo, options = {}) {
+  const normalizedRmaNo = normalizeText(rmaNo).toUpperCase();
+  if (!/^JXTH\d+$/i.test(normalizedRmaNo)) return null;
+  await page.goto(RECLOUD_PENDING_LIST_URL, { waitUntil: "domcontentloaded" });
+  assertRecloudAuthenticated(page);
+  const input = page.locator('input[placeholder*="产品序列号/RMA单号"]').first();
+  await input.waitFor({ state: "visible", timeout: options.navigationTimeout ?? DEFAULT_TIMEOUT });
+  await input.fill(normalizedRmaNo);
+  await input.press("Enter");
+  const deadline = Date.now() + (options.metadataTimeout ?? 8000);
+  while (Date.now() < deadline) {
+    const row = await page.evaluate((targetRmaNo) => {
+      const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
+      const tables = [...document.querySelectorAll("table")];
+      const headerTable = tables
+        .filter((table) => [...table.querySelectorAll("th")].some((cell) => clean(cell.textContent) === "寄修单号"))
+        .sort((left, right) => right.querySelectorAll("th").length - left.querySelectorAll("th").length)[0];
+      const headers = headerTable
+        ? [...headerTable.querySelectorAll("th")].map((cell) => clean(cell.textContent))
+        : [];
+      if (!headers.length) return null;
+      for (const table of tables) {
+        for (const tableRow of table.querySelectorAll("tbody tr")) {
+          const cells = [...tableRow.querySelectorAll("td")].map((cell) => clean(cell.textContent));
+          if (!cells.some((value) => value.toUpperCase() === targetRmaNo)) continue;
+          return Object.fromEntries(headers.map((header, index) => [header, cells[index] || ""]));
+        }
+      }
+      return null;
+    }, normalizedRmaNo).catch(() => null);
+    if (row) return row;
+    await page.waitForTimeout(options.pollInterval ?? 200);
+  }
+  return null;
+}
+
+async function enrichRmaFromPendingList(page, detail, options = {}) {
+  if (!detail?.rmaNo) return detail;
+  let row = null;
+  if (!detail.productLine || !detail.productModel || !detail.productSerialNo) {
+    row = await readPendingListRow(page, detail.rmaNo, options).catch(() => null);
+  }
+  const enriched = {
+    ...detail,
+    logisticsNo: detail.logisticsNo || row?.["取件物流单号"] || "",
+    pickupLogisticsNo: detail.pickupLogisticsNo || row?.["取件物流单号"] || "",
+    reportedFault: detail.reportedFault || row?.["故障描述"] || "",
+    productSerialNo: detail.productSerialNo || row?.["产品序列号"] || "",
+    productLine: detail.productLine || row?.["产品线"] || "",
+    productModel: detail.productModel || row?.["产品名称"] || row?.["产品型号"] || "",
+    pickupStatus: detail.pickupStatus || row?.["取件物流状态"] || "",
+    customer: {
+      ...(detail.customer || {}),
+      name: detail.customer?.name || row?.["联系人"] || "",
+      phoneMasked: detail.customer?.phoneMasked || row?.["联系电话"] || "",
+    },
+  };
+  if (!enriched.productLine) {
+    enriched.productLine = inferProductLineFromCurrentOrder(enriched);
+  }
+  return enriched;
 }
 
 function isScanQueryUrl(url) {
@@ -972,7 +1263,7 @@ async function waitForRmaDetail(page, logisticsNo = "", options = {}) {
         }
         diagnosticsLogged = true;
       }
-      return readRmaDetail(page, logisticsNo);
+      return readRmaDetail(page, logisticsNo, options);
     }
 
     if (!enterRetried && Date.now() >= retryAt) {
@@ -1003,10 +1294,580 @@ async function waitForRmaDetail(page, logisticsNo = "", options = {}) {
 async function queryRmaByLogisticsNo(page, logisticsNo, options = {}) {
   try {
     await enterRmaQuery(page, logisticsNo, options);
-    return await waitForRmaDetail(page, logisticsNo, options);
+    const detail = await waitForRmaDetail(page, logisticsNo, options);
+    return await enrichRmaFromPendingList(page, detail, options);
   } catch (error) {
     throw toQueryError(error);
   }
+}
+
+function maskCompletePhone(phone) {
+  return String(phone || "").replace(/^(1[3-9]\d)\d{4}(\d{4})$/, "$1****$2");
+}
+
+async function waitForPhoneQueryResult(page, phone, options = {}) {
+  const isPhoneQuery = /^1[3-9]\d{9}$/.test(String(phone || "").trim());
+  const matchedBy = options.queryMatchedBy || (isPhoneQuery ? "PHONE" : "IDENTIFIER");
+  const deadline = Date.now() + (options.timeout ?? DEFAULT_TIMEOUT);
+  while (Date.now() < deadline) {
+    assertRecloudAuthenticated(page);
+    const bodyText = await page.locator("body").innerText().catch(() => "");
+    const queryInput = getLogisticsInput(page);
+    const scanInputHidden = !(await queryInput.isVisible().catch(() => false));
+    const signals = getRmaDetailSignals(bodyText, {
+      scanInputHidden,
+      leftScanQueryRoute: !isScanQueryUrl(page.url()),
+    });
+    if (isRmaDetailReady(signals)) {
+      const detail = await readRmaDetail(page, "", {
+        ...options,
+        fastDomRead: true,
+        revealPhoneEnabled: isPhoneQuery,
+        requirePickupLogisticsNo: false,
+      });
+      if (!isPhoneQuery) return { ...detail, queryMatchedBy: matchedBy };
+      const actualPhone = normalizeText(
+        detail?.customer?.phoneMasked || detail?.phoneMasked || ""
+      );
+      const phoneMasked = maskCompletePhone(phone);
+      const actualDigits = actualPhone.replace(/\D/g, "");
+      const queriedDigits = String(phone || "").replace(/\D/g, "");
+      const exactMatch = actualDigits.length === 11 && actualDigits === queriedDigits;
+      if (!exactMatch) {
+        throw new RecloudQueryError(
+          "RECLOUD_PHONE_RESULT_MISMATCH",
+          actualPhone.includes("*")
+            ? "瑞云只返回了脱敏电话，无法确认是同一用户，请重新查询"
+            : "瑞云返回的工单联系电话与查询号码不一致，请重新查询",
+          { status: 409, retryable: true }
+        );
+      }
+      return {
+        ...detail,
+        phoneMasked: actualPhone,
+        customer: { ...(detail.customer || {}), phoneMasked: actualPhone },
+        phoneVerified: true,
+      };
+    }
+
+    const rows = await page.evaluate(() => {
+      const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
+      const headerRow = [...document.querySelectorAll("tr")].find((row) => {
+        const labels = [...row.querySelectorAll("th")].map((cell) => clean(cell.textContent));
+        return labels.includes("寄修单号") && labels.includes("产品序列号");
+      });
+      if (!headerRow) return [];
+      const headers = [...headerRow.querySelectorAll("th")].map((cell) => clean(cell.textContent));
+      return [...document.querySelectorAll("tr")].map((row) => {
+        const cells = [...row.querySelectorAll("td")].map((cell) => clean(cell.textContent));
+        if (!/^JXTH\d+$/i.test(cells[0] || "")) return null;
+        return Object.fromEntries(headers.map((header, index) => [header, cells[index] || ""]));
+      }).filter(Boolean);
+    }).catch(() => []);
+
+    if (rows.length > 0) {
+      // The scan-sign list does not expose a complete phone per row. A list
+      // returned after typing a phone therefore cannot prove that any row
+      // belongs to that phone; accepting it caused product lines to cross
+      // between unrelated orders.
+      if (isPhoneQuery) {
+        throw new RecloudQueryError(
+          "RECLOUD_PHONE_RESULT_UNVERIFIED",
+          "当前瑞云页面无法核对完整电话，已停止返回未验证工单",
+          { status: 409, retryable: false }
+        );
+      }
+      return {
+        matches: rows.map((row) => ({
+          rmaNo: row["寄修单号"] || row["RMA单号"] || "",
+          logisticsNo: row["取件物流单号"] || "",
+          pickupLogisticsNo: row["取件物流单号"] || "",
+          productSerialNo: row["产品序列号"] || "",
+          productLine: row["产品线"] || "",
+          productModel: row["产品名称"] || "",
+          pickupStatus: row["取件物流状态"] || "",
+          ...(isPhoneQuery ? {
+            phoneMasked: maskCompletePhone(phone),
+            customer: { phoneMasked: maskCompletePhone(phone) },
+          } : {}),
+          queryMatchedBy: matchedBy,
+          readOnly: true,
+          summary: [row["产品名称"], row["取件物流状态"]].filter(Boolean).join("｜"),
+        })),
+        queryMatchedBy: matchedBy,
+        readOnly: true,
+      };
+    }
+
+    if (/未找到|查询不到|暂无(?:相关)?工单|工单不存在/.test(bodyText)) {
+      throw new RecloudQueryError(
+        "RECLOUD_ORDER_NOT_FOUND",
+        "没有查询到对应的瑞云 RMA 寄修单",
+        { status: 404, retryable: false }
+      );
+    }
+    await page.waitForTimeout(options.pollInterval ?? 200);
+  }
+  throw new RecloudQueryError("RECLOUD_QUERY_TIMEOUT", "瑞云工单查询超时", {
+    status: 504,
+    retryable: true,
+  });
+}
+
+async function enterHistoryPhoneQuery(page, phone, options = {}) {
+  await page.goto(RECLOUD_HISTORY_QUERY_URL, { waitUntil: "domcontentloaded" });
+  assertRecloudAuthenticated(page);
+  const input = page.locator('input[placeholder="请输入设备序列号/手机号"]').first();
+  await input.waitFor({ state: "visible", timeout: options.navigationTimeout ?? DEFAULT_TIMEOUT });
+  await input.click();
+  await input.fill("");
+  // This page binds its lookup to Element UI's change event. Enter alone does
+  // not submit it; typing followed by blur is what the real page expects.
+  if (typeof input.pressSequentially === "function") {
+    await input.pressSequentially(phone, { delay: 25 });
+  } else {
+    await input.fill(phone);
+  }
+  await input.press("Tab");
+  const deadline = Date.now() + (options.timeout ?? DEFAULT_TIMEOUT);
+  while (Date.now() < deadline) {
+    assertRecloudAuthenticated(page);
+    const bodyText = await page.locator("body").innerText().catch(() => "");
+    const rmaNos = [...new Set((bodyText.match(/JXTH\d+/gi) || []).map((value) => value.toUpperCase()))];
+    if (rmaNos.length) return rmaNos.slice(0, 20);
+    if (/未找到|查询不到|暂无(?:相关)?工单|没有查询到|工单不存在/.test(bodyText)) return [];
+    await page.waitForTimeout(options.pollInterval ?? 200);
+  }
+  throw new RecloudQueryError("RECLOUD_QUERY_TIMEOUT", "瑞云手机号查询超时", {
+    status: 504,
+    retryable: true,
+  });
+}
+
+async function clickVisibleExactText(page, text) {
+  return page.evaluate((targetText) => {
+    const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
+    const candidates = [...document.querySelectorAll("button,li,span,div,a")]
+      .filter((element) => {
+        const rect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        return rect.width > 0 && rect.height > 0
+          && style.display !== "none" && style.visibility !== "hidden"
+          && clean(element.textContent) === targetText;
+      })
+      .sort((left, right) => left.children.length - right.children.length);
+    const target = candidates[0];
+    if (!target) return false;
+    HTMLElement.prototype.click.call(target);
+    return true;
+  }, text);
+}
+
+async function selectAllRmaListView(page, options = {}) {
+  await page.goto(RECLOUD_PENDING_LIST_URL, { waitUntil: "domcontentloaded" });
+  assertRecloudAuthenticated(page);
+  await page.waitForTimeout(options.settleDelay ?? 800);
+  if (await clickVisibleExactText(page, "更多")) {
+    await page.waitForTimeout(150);
+  }
+  if (!(await clickVisibleExactText(page, "网点寄修明细"))) {
+    throw new RecloudQueryError("RECLOUD_ALL_RMA_VIEW_MISSING", "无法打开瑞云网点寄修明细", {
+      status: 503,
+      retryable: true,
+    });
+  }
+  await page.waitForTimeout(options.viewSettleDelay ?? 800);
+}
+
+async function enterAllRmaPhoneQuery(page, phone, options = {}) {
+  await selectAllRmaListView(page, options);
+  const filterButton = page.locator("button:has(.plat-icon-new-filter-lined)").filter({ visible: true }).first();
+  await filterButton.waitFor({ state: "visible", timeout: options.navigationTimeout ?? DEFAULT_TIMEOUT });
+  await filterButton.click();
+  const phoneFilter = page.locator(".grid-form-filter-item").filter({ hasText: "联系电话" }).first();
+  const input = phoneFilter.locator("input").first();
+  await input.waitFor({ state: "visible", timeout: options.navigationTimeout ?? DEFAULT_TIMEOUT });
+  await input.fill(phone);
+  await page.getByRole("button", { name: "筛选", exact: true }).filter({ visible: true }).click();
+  await page.waitForTimeout(options.filterSettleDelay ?? 900);
+  const phoneSignature = getMaskedPhoneSignature(phone);
+  const deadline = Date.now() + (options.timeout ?? DEFAULT_TIMEOUT);
+  while (Date.now() < deadline) {
+    assertRecloudAuthenticated(page);
+    const result = await page.evaluate(() => {
+      const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
+      const tables = [...document.querySelectorAll("table")];
+      const headers = tables.map((table) => [...table.querySelectorAll("thead th")].map((cell) => clean(cell.textContent)))
+        .sort((left, right) => right.length - left.length)
+        .find((items) => items.includes("寄修单号"));
+      const bodyTable = tables
+        .sort((left, right) => right.querySelectorAll("tbody tr:first-child td").length
+          - left.querySelectorAll("tbody tr:first-child td").length)[0];
+      if (!headers || !bodyTable) return { rows: [], loading: true };
+      const rows = [...bodyTable.querySelectorAll("tbody tr")]
+        .map((row) => {
+          const cells = [...row.querySelectorAll("td")].map((cell) => clean(cell.textContent));
+          return Object.fromEntries(headers.map((header, index) => [header, cells[index] || ""]));
+        })
+        .filter((row) => row["寄修单号"] || row["RMA单号"]);
+      const bodyText = clean(document.body.textContent);
+      return {
+        rows,
+        loading: /加载中|正在加载/.test(bodyText),
+        empty: /暂无数据|未找到/.test(bodyText),
+      };
+    });
+    const matchingRows = result.rows.filter((row) => {
+      if (!phoneSignature) return false;
+      const value = String(row["联系电话"] || "").replace(/\s+/g, "");
+      return value.startsWith(phoneSignature.prefix) && value.endsWith(phoneSignature.suffix);
+    });
+    if (matchingRows.length) return matchingRows.slice(0, 50);
+    if (result.empty && !result.loading) return [];
+    await page.waitForTimeout(options.pollInterval ?? 150);
+  }
+  throw new RecloudQueryError("RECLOUD_QUERY_TIMEOUT", "瑞云工单查询超时", {
+    status: 504,
+    retryable: true,
+  });
+}
+
+async function queryRmaByPhone(page, phone, options = {}) {
+  try {
+    const normalizedPhone = normalizeText(phone);
+    if (!isCompleteMobilePhone(normalizedPhone)) {
+      throw new RecloudQueryError("RECLOUD_PHONE_INVALID", "请输入完整手机号", {
+        status: 400,
+        retryable: false,
+      });
+    }
+    const rows = await enterAllRmaPhoneQuery(page, normalizedPhone, options);
+    if (!rows.length) {
+      throw new RecloudQueryError("RECLOUD_ORDER_NOT_FOUND", "没有查询到该手机号对应的瑞云工单", {
+        status: 404,
+        retryable: false,
+      });
+    }
+    if (rows.length > 1) {
+      const matches = rows.map((row) => ({
+        rmaNo: row["寄修单号"] || row["RMA单号"] || "",
+        logisticsNo: row["取件物流单号"] || "",
+        pickupLogisticsNo: row["取件物流单号"] || "",
+        productSerialNo: row["产品序列号"] || "",
+        productLine: row["产品线"] || "",
+        productModel: row["产品名称"] || "",
+        pickupStatus: row["取件物流状态"] || "",
+        customer: {
+          name: row["联系人"] || "",
+          phoneMasked: normalizedPhone,
+          regionAddress: [row["所属省份"], row["所属城市"]].filter(Boolean).join(" / "),
+        },
+        phoneMasked: normalizedPhone,
+        phoneVerified: true,
+        queryMatchedBy: "PHONE",
+        readOnly: true,
+        summary: [row["产品名称"], row["取件物流状态"]].filter(Boolean).join("｜"),
+      }));
+      return { matches, queryMatchedBy: "PHONE", phoneVerified: true, readOnly: true };
+    }
+    const matches = [];
+    for (const row of rows) {
+      const rmaNo = row["寄修单号"] || row["RMA单号"] || "";
+      try {
+        await enterRmaQuery(page, rmaNo, options);
+        let detail = await waitForRmaDetail(page, rmaNo, {
+          ...options,
+          revealPhoneEnabled: false,
+          requirePickupLogisticsNo: false,
+        });
+        detail = await enrichRmaFromPendingList(page, detail, options);
+        matches.push({
+          ...detail,
+          phoneMasked: normalizedPhone,
+          customer: { ...(detail.customer || {}), phoneMasked: normalizedPhone },
+          phoneVerified: true,
+          queryMatchedBy: "PHONE",
+          readOnly: true,
+          summary: [detail.productModel || detail.productLine, detail.pickupStatus]
+            .filter(Boolean).join("｜"),
+        });
+      } catch (error) {
+        if (error?.code === "RECLOUD_LOGIN_REQUIRED") throw error;
+      }
+    }
+    if (!matches.length) {
+      throw new RecloudQueryError("RECLOUD_ORDER_NOT_FOUND", "手机号已匹配，但未能读取对应寄修单资料", {
+        status: 404,
+        retryable: true,
+      });
+    }
+    return matches.length === 1
+      ? matches[0]
+      : { matches, queryMatchedBy: "PHONE", phoneVerified: true, readOnly: true };
+  } catch (error) {
+    throw toQueryError(error);
+  }
+}
+
+async function queryRmaByIdentifier(page, identifier, options = {}) {
+  try {
+    await enterRmaQuery(page, identifier, options);
+    return await waitForPhoneQueryResult(page, identifier, {
+      ...options,
+      queryMatchedBy: options.queryMatchedBy || "IDENTIFIER",
+    });
+  } catch (error) {
+    throw toQueryError(error);
+  }
+}
+
+async function readPendingReceiptOrders(page, options = {}) {
+  assertRecloudAuthenticated(page);
+  await page.goto(RECLOUD_PENDING_LIST_URL, { waitUntil: 'domcontentloaded' });
+  assertRecloudAuthenticated(page);
+  await page.waitForTimeout(options.settleDelay ?? 1200);
+  const orders = new Map();
+  const existingRmaNos = new Set(options.existingRmaNos || []);
+  const maxPages = options.maxPages ?? 500;
+  const sinceTime = Date.parse(options.since || '');
+  const dateFromTime = Date.parse(options.dateFrom || '');
+  const parseRowTime = (row) => {
+    const value = row['创建时间'] || row['寄修单创建时间'] || row['申请时间'] || row['日期'] || '';
+    const normalized = String(value).trim().replace(/年|月/g, '-').replace(/日/g, '').replace(/\//g, '-');
+    const explicitTime = Date.parse(/[zZ]|[+-]\d\d:?\d\d$/.test(normalized) ? normalized : `${normalized}+08:00`);
+    if (Number.isFinite(explicitTime)) return explicitTime;
+    return parseRmaDateTime(row['寄修单号'] || row['RMA单号']);
+  };
+  let scannedAll = true;
+  for (let pageNumber = 0; pageNumber < maxPages; pageNumber += 1) {
+    if (options.shouldYield?.()) {
+      scannedAll = false;
+      break;
+    }
+    const rows = await page.evaluate(() => {
+      const clean = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+      const tables = [...document.querySelectorAll('table')];
+      const headers = tables.map((table) => [...table.querySelectorAll('thead th')].map((cell) => clean(cell.textContent)))
+        .sort((a, b) => b.length - a.length)
+        .find((items) => items.includes('寄修单号') && items.includes('取件物流状态'));
+      const bodyTable = tables.sort((a, b) => b.querySelectorAll('tbody tr:first-child td').length - a.querySelectorAll('tbody tr:first-child td').length)[0];
+      if (!headers || !bodyTable) return [];
+      return [...bodyTable.querySelectorAll('tbody tr')].map((row) => {
+        const cells = [...row.querySelectorAll('td')].map((cell) => clean(cell.textContent));
+        return Object.fromEntries(headers.map((header, index) => [header, cells[index] || '']));
+      });
+    });
+    for (const row of rows) {
+      const rowTime = parseRowTime(row);
+      if (Number.isFinite(dateFromTime) && (!Number.isFinite(rowTime) || rowTime < dateFromTime)) continue;
+      const signedAt = String(row['取件物流签收时间'] || '').trim();
+      if (row['取件物流状态'] !== '已取件' || !['', '-', '--'].includes(signedAt)) continue;
+      const rmaNo = row['寄修单号'] || row['RMA单号'];
+      if (!rmaNo) continue;
+      orders.set(rmaNo, {
+        rmaNo,
+        logisticsNo: row['取件物流单号'] || '',
+        phone: row['联系电话'] || '',
+        customerName: row['联系人'] || '',
+        reportedFault: row['故障描述'] || '',
+        sn: row['产品序列号'] || '',
+        productLine: row['产品线'] || '',
+        productModel: row['产品型号'] || '',
+        pickupStatus: row['取件物流状态'] || '',
+        sourceCreatedAt: row['创建时间'] || row['寄修单创建时间'] || row['申请时间'] || row['日期'] || (Number.isFinite(rowTime) ? new Date(rowTime).toISOString() : ''),
+        source: 'RECLOUD_PENDING_RECEIPT',
+      });
+    }
+    if (Number.isFinite(dateFromTime) && rows.length > 0) {
+      const datedRows = rows.map(parseRowTime).filter(Number.isFinite);
+      if (datedRows.length > 0 && datedRows.every((value) => value < dateFromTime)) break;
+    }
+    if (!options.catchUp && Number.isFinite(sinceTime) && rows.length > 0) {
+      const rowTimes = rows.map(parseRowTime).filter(Number.isFinite);
+      if (rowTimes.length > 0 && rowTimes.every((value) => value <= sinceTime)) {
+        scannedAll = false;
+        break;
+      }
+    }
+    const next = page.locator('button.btn-next:not([disabled]), .btn-next:not(.is-disabled)').filter({ visible: true }).first();
+    if (!(await next.isVisible().catch(() => false)) || await next.isDisabled().catch(() => true)) break;
+    await next.click();
+    await page.waitForTimeout(options.pageDelay ?? 350);
+  }
+  const activeRmaNos = [...orders.keys()];
+  if (options.shouldYield?.()) {
+    return { orders: [], activeRmaNos: null, fullSnapshot: false, yielded: true };
+  }
+  const prioritySignature = getMaskedPhoneSignature(options.priorityPhone || '');
+  const priorityMatches = (order) => {
+    if (!prioritySignature) return false;
+    const value = String(order.phone || '').replace(/\s+/g, '');
+    return value.startsWith(prioritySignature.prefix) && value.endsWith(prioritySignature.suffix);
+  };
+  const newOrders = [...orders.values()]
+    .filter((order) => !existingRmaNos.has(order.rmaNo))
+    .sort((left, right) => Number(priorityMatches(right)) - Number(priorityMatches(left)))
+    // Keep the shared Recloud page available for foreground searches. Old
+    // masked cache rows are repaired gradually instead of monopolising the
+    // browser for several minutes in one sync cycle.
+    .slice(0, options.maxPhoneDetailsPerRun ?? 1);
+  const completedOrders = [];
+  for (const order of newOrders) {
+    if (options.shouldYield?.()) break;
+    try {
+      const detail = await queryRmaByLogisticsNo(page, order.logisticsNo || order.rmaNo, {
+        revealPhoneEnabled: true,
+        phoneRevealTimeout: options.phoneRevealTimeout ?? 3000,
+        requirePickupLogisticsNo: false,
+      });
+      order.phone = detail?.customer?.phoneMasked || detail?.phoneMasked || order.phone;
+      order.customerName = detail?.customer?.name || order.customerName;
+      order.regionAddress = detail?.customer?.regionAddress || order.regionAddress || '';
+      order.reportedFault = detail?.reportedFault || order.reportedFault;
+      order.sn = detail?.productSerialNo || order.sn;
+      order.productLine = detail?.productLine || order.productLine;
+      order.productModel = detail?.productModel || order.productModel;
+      if (!/^1[3-9]\d{9}$/.test(String(order.phone || '').trim())) {
+        const error = new Error('完整联系电话读取失败');
+        error.code = 'RECLOUD_FULL_PHONE_REQUIRED';
+        throw error;
+      }
+      completedOrders.push(order);
+      if (typeof options.onOrder === 'function') {
+        await options.onOrder(order);
+      }
+      (options.logger || console).info?.(`PENDING_RECEIPT_BACKFILL: completed ${completedOrders.length}/${newOrders.length}`);
+    } catch (error) {
+      (options.logger || console).warn?.(`PENDING_RECEIPT_PHONE: failed ${error.code || 'UNKNOWN'}`);
+    }
+  }
+  return { orders: completedOrders, activeRmaNos: scannedAll ? activeRmaNos : null, fullSnapshot: scannedAll };
+}
+
+async function resetAllRmaListFilters(page) {
+  const filterButton = page.locator("button:has(.plat-icon-new-filter-lined)").filter({ visible: true }).first();
+  if (!(await filterButton.isVisible().catch(() => false))) return;
+  await filterButton.click();
+  const resetButton = page.getByRole("button", { name: "重置", exact: true }).filter({ visible: true }).first();
+  if (await resetButton.isVisible().catch(() => false)) {
+    await resetButton.click();
+    await page.waitForTimeout(300);
+    await page.keyboard.press("Escape").catch(() => {});
+    await page.waitForTimeout(300);
+  }
+}
+
+async function setRmaListPageSize(page, size = 100) {
+  try {
+    const paginationSize = page.locator(".el-pagination__sizes, .rtxpc-pagination__sizes").filter({ visible: true }).first();
+    if (!(await paginationSize.isVisible().catch(() => false))) return false;
+    await paginationSize.click();
+    const option = page.getByText(`${size}条/页`, { exact: true }).filter({ visible: true }).first();
+    if (!(await option.isVisible().catch(() => false))) {
+      await page.keyboard.press("Escape").catch(() => {});
+      return false;
+    }
+    await option.click();
+    await page.waitForTimeout(600);
+    return true;
+  } catch {
+    await page.keyboard.press("Escape").catch(() => {});
+    return false;
+  }
+}
+
+async function readRecentRmaOrders(page, options = {}) {
+  assertRecloudAuthenticated(page);
+  await selectAllRmaListView(page, options);
+  await resetAllRmaListFilters(page);
+  await setRmaListPageSize(page, options.pageSize ?? 100);
+  const orders = new Map();
+  const existingRmaNos = new Set(options.existingRmaNos || []);
+  const maxPages = options.maxPages ?? 500;
+  const maxRecords = options.maxRecords ?? 10000;
+  const dateFromTime = Date.parse(options.dateFrom || "");
+  const parseRowTime = (row) => {
+    const value = row["寄修单创建时间"] || row["创建时间"] || "";
+    const normalized = String(value).trim().replace(/年|月/g, "-").replace(/日/g, "").replace(/\//g, "-");
+    const explicitTime = Date.parse(/[zZ]|[+-]\d\d:?\d\d$/.test(normalized) ? normalized : `${normalized}+08:00`);
+    if (Number.isFinite(explicitTime)) return explicitTime;
+    return parseRmaDateTime(row["寄修单号"] || row["RMA单号"]);
+  };
+  for (let pageNumber = 0; pageNumber < maxPages && orders.size < maxRecords; pageNumber += 1) {
+    if (options.shouldYield?.()) break;
+    const rows = await page.evaluate(() => {
+      const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
+      const tables = [...document.querySelectorAll("table")];
+      const headers = tables.map((table) => [...table.querySelectorAll("thead th")].map((cell) => clean(cell.textContent)))
+        .sort((left, right) => right.length - left.length)
+        .find((items) => items.includes("寄修单号"));
+      const bodyTable = tables
+        .sort((left, right) => right.querySelectorAll("tbody tr:first-child td").length
+          - left.querySelectorAll("tbody tr:first-child td").length)[0];
+      if (!headers || !bodyTable) return [];
+      return [...bodyTable.querySelectorAll("tbody tr")].map((row) => {
+        const cells = [...row.querySelectorAll("td")].map((cell) => clean(cell.textContent));
+        return Object.fromEntries(headers.map((header, index) => [header, cells[index] || ""]));
+      });
+    });
+    let pageEntirelyOlder = rows.length > 0;
+    for (const row of rows) {
+      const rowTime = parseRowTime(row);
+      if (!Number.isFinite(dateFromTime) || (Number.isFinite(rowTime) && rowTime >= dateFromTime)) {
+        pageEntirelyOlder = false;
+      }
+      if (Number.isFinite(dateFromTime) && (!Number.isFinite(rowTime) || rowTime < dateFromTime)) continue;
+      const rmaNo = row["寄修单号"] || row["RMA单号"] || "";
+      if (!rmaNo) continue;
+      orders.set(rmaNo, {
+        rmaNo,
+        logisticsNo: row["取件物流单号"] || "",
+        phone: row["联系电话"] || "",
+        customerName: row["联系人"] || "",
+        regionAddress: [row["所属省份"], row["所属城市"]].filter(Boolean).join(" / "),
+        reportedFault: "",
+        sn: row["产品序列号"] || "",
+        productLine: row["产品线"] || "",
+        productModel: row["产品名称"] || "",
+        pickupStatus: row["取件物流状态"] || "",
+        sourceCreatedAt: row["寄修单创建时间"] || row["创建时间"] || (Number.isFinite(rowTime) ? new Date(rowTime).toISOString() : ""),
+        source: "RECLOUD_RECENT_RMA_BACKFILL",
+      });
+      if (orders.size >= maxRecords) break;
+    }
+    if (pageEntirelyOlder) break;
+    const next = page.locator("button.btn-next:not([disabled]), .btn-next:not(.is-disabled)").filter({ visible: true }).first();
+    if (!(await next.isVisible().catch(() => false)) || await next.isDisabled().catch(() => true)) break;
+    await next.click();
+    await page.waitForTimeout(options.pageDelay ?? 350);
+  }
+  const pendingDetails = [...orders.values()].filter((order) => !existingRmaNos.has(order.rmaNo));
+  const completedOrders = [];
+  for (const order of pendingDetails) {
+    if (options.shouldYield?.()) break;
+    try {
+      const detail = await queryRmaByLogisticsNo(page, order.logisticsNo || order.rmaNo, {
+        revealPhoneEnabled: true,
+        phoneRevealTimeout: options.phoneRevealTimeout ?? 5000,
+        requirePickupLogisticsNo: false,
+      });
+      order.phone = detail?.customer?.phoneMasked || detail?.phoneMasked || order.phone;
+      order.customerName = detail?.customer?.name || order.customerName;
+      order.regionAddress = detail?.customer?.regionAddress || order.regionAddress;
+      order.reportedFault = detail?.reportedFault || order.reportedFault;
+      order.sn = detail?.productSerialNo || order.sn;
+      order.productLine = detail?.productLine || order.productLine;
+      order.productModel = detail?.productModel || order.productModel;
+      order.phoneVerified = /^1[3-9]\d{9}$/.test(String(order.phone || "").trim());
+      if (!order.phoneVerified) throw Object.assign(new Error("完整联系电话读取失败"), { code: "RECLOUD_FULL_PHONE_REQUIRED" });
+      completedOrders.push(order);
+      if (typeof options.onOrder === "function") await options.onOrder(order);
+      (options.logger || console).info?.(`RECLOUD_RMA_BACKFILL: completed ${completedOrders.length}/${pendingDetails.length}`);
+    } catch (error) {
+      (options.logger || console).warn?.(`RECLOUD_RMA_BACKFILL: failed ${error.code || "UNKNOWN"}`);
+    }
+  }
+  return { orders: completedOrders, discovered: orders.size, pending: pendingDetails.length };
 }
 
 // 旧写操作兼容层。只读 V1 不调用这些函数。
@@ -8082,6 +8943,7 @@ async function inspectRepairForm(page, options = {}) {
       networkGuard = await createReceiptNetworkGuard(page, guardState);
     }
     const entries = [];
+    const observedActionTexts = new Set();
     const scopes = typeof page.frames === "function"
       ? [page, ...page.frames().filter((frame) => typeof page.mainFrame !== "function" || frame !== page.mainFrame())]
       : [page];
@@ -8089,6 +8951,10 @@ async function inspectRepairForm(page, options = {}) {
       await activateReceiptDetailTabs(scope, page, options.logger || console);
       const region = await prepareRmaDetailRegion(scope, page);
       if (!region) continue;
+      for (const value of await region.locator("button:visible, a:visible, [role='button']:visible").allInnerTexts().catch(() => [])) {
+        const normalized = normalizeText(value);
+        if (normalized && normalized.length <= 30) observedActionTexts.add(normalized);
+      }
       const candidates = region.locator("button:visible, a:visible, [role='button']:visible").filter({ hasText: /^维修$/ });
       for (let index = 0; index < await candidates.count(); index += 1) {
         const candidate = candidates.nth(index);
@@ -8121,15 +8987,195 @@ async function inspectRepairForm(page, options = {}) {
       if (inViewport.length === 1) entries.splice(0, entries.length, inViewport[0]);
     }
     if (entries.length !== 1) {
-      const error = new Error(entries.length ? "瑞云维修入口不唯一" : "未找到瑞云维修入口");
-      error.code = entries.length ? "RECLOUD_REPAIR_ENTRY_AMBIGUOUS" : "RECLOUD_REPAIR_ENTRY_NOT_FOUND";
-      error.status = 502;
-      error.missingFields = ["repair.entry"];
-      throw error;
+      (options.logger || console).info("RECLOUD_REPAIR_ACTIONS:", JSON.stringify([...observedActionTexts].slice(0, 80)));
+      if (entries.length === 0) {
+        const rmaBodyText = String(await page.locator("body").innerText().catch(() => ""));
+        const serviceOrderCandidates = [...new Set(rmaBodyText.match(/\b(?:FW|WX|SO)[A-Z0-9-]{8,}\b/gi) || [])].slice(0, 30);
+        const serialCandidates = [...new Set((rmaBodyText.match(/\b[A-Z0-9]{6,}CN[A-Z0-9]{4,}\b/gi) || [])
+          .map((value) => value.toUpperCase()))].slice(0, 20);
+        const serviceOrderRegions = (await page.getByText(/服务单|关联服务/, { exact: false }).allInnerTexts().catch(() => []))
+          .map(normalizeText)
+          .filter((value) => value && value.length <= 80)
+          .slice(0, 50);
+        (options.logger || console).info("RECLOUD_RMA_SERVICE_ORDER_REFERENCES:", JSON.stringify({
+          candidates: serviceOrderCandidates,
+          serialCandidateCount: serialCandidates.length,
+          labels: [...new Set(serviceOrderRegions)],
+        }));
+        const directServiceOrder = serviceOrderCandidates.length === 1
+          ? page.getByText(serviceOrderCandidates[0], { exact: true }).filter({ visible: true })
+          : null;
+        if (directServiceOrder && await directServiceOrder.count() === 1) {
+          entries.push(directServiceOrder.first());
+        }
+        const repairOrdersMenu = page.getByText("寄修-维修单", { exact: true }).filter({ visible: true }).first();
+        if (entries.length === 0 && serviceOrderCandidates.length === 1 && await repairOrdersMenu.count() && await repairOrdersMenu.isVisible().catch(() => false)) {
+          await repairOrdersMenu.click({ timeout: options.clickTimeout ?? 5000 });
+          await page.waitForTimeout?.(800);
+          const repairSearchInput = page.getByPlaceholder("服务单号/反馈人/反馈电话/联系地址", { exact: true }).filter({ visible: true }).first();
+          if (await repairSearchInput.count() && await repairSearchInput.isVisible().catch(() => false)) {
+            await repairSearchInput.fill(serviceOrderCandidates[0]);
+            await repairSearchInput.press("Enter");
+            await page.waitForTimeout?.(800);
+          }
+          const matchedServiceOrders = page.getByText(serviceOrderCandidates[0], { exact: true }).filter({ visible: true });
+          (options.logger || console).info("RECLOUD_REPAIR_SERVICE_ORDER_MATCHES:", JSON.stringify({ count: await matchedServiceOrders.count() }));
+          if (await matchedServiceOrders.count() === 1) {
+            entries.push(matchedServiceOrders.first());
+          } else if (await matchedServiceOrders.count() === 0) {
+            const historyMenu = page.getByText("历史维修单查询", { exact: true }).filter({ visible: true }).first();
+            if (await historyMenu.count() && await historyMenu.isVisible().catch(() => false)) {
+              await historyMenu.click({ timeout: options.clickTimeout ?? 5000 });
+              await page.waitForTimeout?.(800);
+              const historyInputs = page.locator("input:visible");
+              const historyPlaceholders = await historyInputs.evaluateAll((elements) => elements.map((element) => String(element.getAttribute("placeholder") || "").trim())).catch(() => []);
+              (options.logger || console).info("RECLOUD_REPAIR_HISTORY_SCHEMA:", JSON.stringify({
+                placeholders: [...new Set(historyPlaceholders)].filter(Boolean).slice(0, 50),
+              }));
+              const historyInput = page.getByPlaceholder("请输入设备序列号/手机号", { exact: true }).filter({ visible: true }).first();
+              const historyTerm = serialCandidates.length === 1 ? serialCandidates[0] : "";
+              if (historyTerm && await historyInput.count() && await historyInput.isVisible().catch(() => false)) {
+                await historyInput.fill(historyTerm);
+                await historyInput.press("Enter");
+                const historyLoading = page.locator(".el-loading-mask:visible, .rt-loading:visible, [class*='loading']:visible").first();
+                if (await historyLoading.count() && await historyLoading.isVisible().catch(() => false)) {
+                  await historyLoading.waitFor({ state: "hidden", timeout: options.actionTimeout ?? 10000 }).catch(() => {});
+                } else {
+                  await page.waitForTimeout?.(1500);
+                }
+              }
+              const historyMatches = page.getByText(serviceOrderCandidates[0], { exact: true }).filter({ visible: true });
+              (options.logger || console).info("RECLOUD_REPAIR_HISTORY_MATCHES:", JSON.stringify({
+                count: await historyMatches.count(),
+                rowCount: await page.locator("tbody tr:visible, [role='row']:visible").count(),
+                actions: [...new Set((await page.locator("button:visible, [role='button']:visible").allInnerTexts().catch(() => [])).map(normalizeText).filter((value) => value && value.length <= 30))].slice(0, 50),
+              }));
+              if (await historyMatches.count() === 1) entries.push(historyMatches.first());
+            }
+          }
+          (options.logger || console).info("RECLOUD_REPAIR_BLOCKED_REQUESTS:", JSON.stringify(guardState.blockedRequests.slice(0, 20)));
+        }
+      }
+      if (entries.length !== 1) {
+        const error = new Error(entries.length ? "瑞云维修入口不唯一" : "未找到瑞云维修入口");
+        error.code = entries.length ? "RECLOUD_REPAIR_ENTRY_AMBIGUOUS" : "RECLOUD_REPAIR_ENTRY_NOT_FOUND";
+        error.status = 502;
+        error.missingFields = ["repair.entry"];
+        throw error;
+      }
     }
     await entries[0].click({ timeout: options.clickTimeout ?? 5000 });
     await page.waitForTimeout?.(800);
-    await networkGuard?.assertSafe();
+    try {
+      await networkGuard?.assertSafe();
+    } catch (error) {
+      (options.logger || console).info("RECLOUD_REPAIR_DETAIL_BLOCKED_REQUESTS:", JSON.stringify(guardState.blockedRequests.slice(0, 20)));
+      throw error;
+    }
+    const serviceReportTab = page.getByText("服务报告", { exact: true }).filter({ visible: true }).first();
+    let serviceReportOpened = false;
+    if (await serviceReportTab.count() && await serviceReportTab.isVisible().catch(() => false)) {
+      await serviceReportTab.click({ timeout: options.clickTimeout ?? 5000 });
+      await page.waitForTimeout?.(800);
+      await networkGuard?.assertSafe();
+      serviceReportOpened = true;
+    }
+    let repairMeasureSimulation = null;
+    const simulationText = String(options.simulateMeasureText || "").trim();
+    if (serviceReportOpened && simulationText) {
+      const heading = page.getByText("故障模式及责任判定", { exact: true }).filter({ visible: true }).last();
+      if (!(await heading.count()) || !(await heading.isVisible().catch(() => false))) {
+        const error = new Error("服务报告中没有找到故障模式及责任判定区域");
+        error.code = "RECLOUD_REPAIR_MEASURE_SECTION_NOT_FOUND";
+        error.status = 502;
+        error.missingFields = ["repair.faultModeSection"];
+        throw error;
+      }
+      await heading.scrollIntoViewIfNeeded();
+      const headingBox = await heading.boundingBox();
+      const rows = page.locator("tbody tr:visible");
+      const rowCandidates = [];
+      for (let index = 0; index < await rows.count(); index += 1) {
+        const row = rows.nth(index);
+        const box = await row.boundingBox().catch(() => null);
+        if (!box || !headingBox || box.y <= headingBox.y) continue;
+        const distance = box.y - (headingBox.y + headingBox.height);
+        if (distance >= 0 && distance <= 260) rowCandidates.push({ distance, width: box.width, row, box });
+      }
+      rowCandidates.sort((left, right) => left.distance - right.distance || right.width - left.width);
+      if (!rowCandidates.length) {
+        const error = new Error("故障模式及责任判定区域没有找到已有数据行");
+        error.code = "RECLOUD_REPAIR_MEASURE_ROW_NOT_FOUND";
+        error.status = 502;
+        error.missingFields = ["repair.faultModeRow"];
+        throw error;
+      }
+      const editableTextareas = page.locator("textarea:visible:not([disabled])");
+      const textareaCountBefore = await editableTextareas.count();
+      const target = rowCandidates[0];
+      const waitForMeasureEditor = async (timeoutMs = 2500) => {
+        const deadline = Date.now() + timeoutMs;
+        while (Date.now() < deadline) {
+          if (await editableTextareas.count() > textareaCountBefore) return true;
+          await page.waitForTimeout?.(100);
+        }
+        return false;
+      };
+      await target.row.dblclick({
+        force: true,
+        position: { x: Math.max(12, target.box.width - 36), y: target.box.height / 2 },
+        delay: 120,
+      });
+      if (!(await waitForMeasureEditor())) {
+        await target.row.dispatchEvent("dblclick");
+        await waitForMeasureEditor();
+      }
+      await networkGuard?.assertSafe();
+      const editableCandidates = [];
+      for (let index = 0; index < await editableTextareas.count(); index += 1) {
+        const field = editableTextareas.nth(index);
+        if (!(await field.isEditable().catch(() => false))) continue;
+        const box = await field.boundingBox().catch(() => null);
+        if (box) editableCandidates.push({ area: box.width * box.height, index, field });
+      }
+      editableCandidates.sort((left, right) => right.area - left.area || right.index - left.index);
+      if (!editableCandidates.length || await editableTextareas.count() <= textareaCountBefore) {
+        const error = new Error("双击已有故障记录后没有打开维修措施编辑框");
+        error.code = "RECLOUD_REPAIR_MEASURE_EDITOR_NOT_FOUND";
+        error.status = 502;
+        error.missingFields = ["repair.measureTextarea"];
+        throw error;
+      }
+      const measureField = editableCandidates[0].field;
+      const originalValue = await measureField.inputValue();
+      let restored = false;
+      try {
+        await measureField.fill(simulationText);
+        await networkGuard?.assertSafe();
+        if (normalizeText(await measureField.inputValue()) !== normalizeText(simulationText)) {
+          throw new Error("维修措施演练值校验失败");
+        }
+      } finally {
+        await measureField.fill(originalValue).catch(() => {});
+        restored = (await measureField.inputValue().catch(() => null)) === originalValue;
+      }
+      if (!restored) {
+        const error = new Error("维修措施原内容恢复失败");
+        error.code = "RECLOUD_REPAIR_MEASURE_RESTORE_FAILED";
+        error.status = 502;
+        error.missingFields = ["repair.measureRestore"];
+        throw error;
+      }
+      await page.keyboard.press("Escape").catch(() => {});
+      await page.waitForTimeout?.(200);
+      repairMeasureSimulation = {
+        editorOpened: true,
+        valueFilled: true,
+        valueVerified: true,
+        originalValueRestored: true,
+        saveClicked: false,
+      };
+    }
     const visibleDialogs = page.locator(".rt-dialog__wrapper:visible, .el-dialog__wrapper:visible, [role='dialog']:visible");
     dialog = await visibleDialogs.count() ? visibleDialogs.last() : null;
     const formScope = dialog || page;
@@ -8147,10 +9193,58 @@ async function inspectRepairForm(page, options = {}) {
       .allInnerTexts())
       .map(normalizeText)
       .filter((value) => value && value.length <= 30))];
+    const navigationTexts = [...new Set((await formScope
+      .locator("a:visible, [role='tab']:visible")
+      .allInnerTexts())
+      .map(normalizeText)
+      .filter((value) => value && value.length <= 30))];
+    const repairSectionNames = ["服务单更换件明细", "故障模式及责任判定", "维修内容", "附件"];
+    const sectionTitles = [];
+    for (const sectionName of repairSectionNames) {
+      const matches = formScope.getByText(sectionName, { exact: true }).filter({ visible: true });
+      if (await matches.count()) sectionTitles.push(sectionName);
+    }
     const requiredFieldLabels = [...new Set((await formScope
       .locator(".is-required:visible")
       .evaluateAll((elements) => elements.map((element) => String(element.querySelector("label, .rt-form-item__label, .el-form-item__label")?.textContent || "").replace(/^\*+|\*+$/g, "").trim())))
       .filter(Boolean))];
+    const directRepairControls = serviceReportOpened
+      ? await inspectDirectRepairControls(formScope)
+      : [];
+    const partsTableSchema = serviceReportOpened
+      ? await inspectRepairPartsTable(formScope).catch((error) => ({
+          errorCode: error.code || "RECLOUD_REPAIR_PARTS_SCHEMA_CHANGED",
+          missingFields: error.missingFields || [],
+        }))
+      : null;
+    const attachmentPanelSchema = serviceReportOpened
+      ? await inspectRepairAttachmentPanel(formScope).catch((error) => ({
+          errorCode: error.code || "RECLOUD_REPAIR_ATTACHMENT_SCHEMA_CHANGED",
+          missingFields: error.missingFields || [],
+        }))
+      : null;
+    let partAddDialogInspection = null;
+    if (serviceReportOpened && options.inspectPartAddDialog === true) {
+      let partDialog = null;
+      try {
+        partDialog = await openRepairPartAddDialog(page, {
+          assertSafe: () => networkGuard?.assertSafe(),
+          timeoutMs: options.actionTimeout ?? 5000,
+        });
+        partAddDialogInspection = await inspectAndCloseRepairPartAddDialog(page, partDialog);
+      } catch (error) {
+        if (partDialog && await partDialog.isVisible().catch(() => false)) await page.keyboard.press("Escape").catch(() => {});
+        if (options.allowUnavailablePartAdd === true && error.code === "RECLOUD_REPAIR_PART_ADD_NOT_FOUND") {
+          partAddDialogInspection = {
+            unavailable: true,
+            errorCode: error.code,
+            missingFields: error.missingFields || ["repair.partsAddButton"],
+          };
+        } else {
+          throw error;
+        }
+      }
+    }
     const closeControl = dialog ? await firstVisible([
       dialog.getByRole("button", { name: /^(取消|关闭|返回)$/ }).last(),
       dialog.locator("button[aria-label*='关闭'], button[title*='关闭'], .el-dialog__headerbtn, .rt-dialog__close").last(),
@@ -8166,11 +9260,19 @@ async function inspectRepairForm(page, options = {}) {
       dryRun: true,
       repairEntryCandidateCount: 1,
       repairEntryClicked: true,
+      serviceReportOpened,
+      repairMeasureSimulation,
       formOpened: true,
       fieldLabels,
       placeholders,
       actionTexts,
+      navigationTexts,
+      sectionTitles,
       requiredFieldLabels,
+      directRepairControls,
+      partsTableSchema,
+      attachmentPanelSchema,
+      partAddDialogInspection,
       dialogClosed,
       blockedRequestCount: guardState.blockedRequestCount,
       confirmClicked: false,
@@ -8331,6 +9433,16 @@ function classifyRecloudRequest(request) {
   const path = sanitizeRecloudRequestPath(request.url?.() || "");
   const descriptor = { method, path };
   if (["GET", "HEAD", "OPTIONS"].includes(method)) {
+    return { kind: "read", descriptor };
+  }
+
+  const exactReadOnlyPostPaths = new Set([
+    "/t/dreame/api/common/menuclick",
+    "/t/dreame/api/vlist/ExecuteQuery",
+    "/t/dreame/api/vlist/GetQueryListBadges",
+    "/t/dreame/api/systemparameter/getvalues",
+  ]);
+  if (method === "POST" && exactReadOnlyPostPaths.has(path)) {
     return { kind: "read", descriptor };
   }
 
@@ -8642,6 +9754,7 @@ async function confirmSign(page, sn, productType, remark, options = {}) {
 
 module.exports = {
   RECLOUD_URL,
+  RECLOUD_PENDING_LIST_URL,
   LOGIN_STATE,
   LOGIN_REQUIRED_MESSAGE,
   LOGISTICS_INPUT_PLACEHOLDER,
@@ -8658,6 +9771,7 @@ module.exports = {
   isScanQueryUrl,
   getSelectAllShortcut,
   isCompleteMobilePhone,
+  parseRmaDateTime,
   extractCompleteMobilePhone,
   collectStringValues,
   createPhoneResponseListener,
@@ -8676,6 +9790,12 @@ module.exports = {
   selectCellByHeaderCoordinate,
   revealFeedbackPhone,
   queryRmaByLogisticsNo,
+  queryRmaByPhone,
+  queryRmaByIdentifier,
+  selectAllRmaListView,
+  enterAllRmaPhoneQuery,
+  readPendingReceiptOrders,
+  readRecentRmaOrders,
   toQueryError,
   scanSign,
   getRepairDetail,

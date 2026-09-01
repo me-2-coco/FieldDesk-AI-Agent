@@ -62,8 +62,34 @@ class RecloudSyncService {
       return this.fail(task, error);
     }
     try {
-      await this.adapter[method](task);
-      return this.outbox.transition(task.id, TASK_STATUS.SUCCESS, { lastError: "", errorCategory: "" });
+      const result = await this.adapter[method](task);
+      const resultStatus = String(result?.status || "");
+      if (task.nodeType === "REPAIR_COMPLETED" && resultStatus === "MANUAL_REVIEW") {
+        return this.outbox.transition(task.id, TASK_STATUS.MANUAL_REVIEW, {
+          lastError: "RECLOUD_REPAIR_MANUAL_REVIEW",
+          errorCategory: "BUSINESS_CONFLICT",
+          resultStatus,
+          reviewSteps: [...new Set((Array.isArray(result.reviewReasons) ? result.reviewReasons : [])
+            .map((item) => String(item?.step || "").trim())
+            .filter(Boolean))].slice(0, 10),
+        });
+      }
+      if (task.nodeType === "REPAIR_COMPLETED" && resultStatus === "READY_DRY_RUN") {
+        return this.outbox.transition(task.id, TASK_STATUS.READY_DRY_RUN, {
+          lastError: "",
+          errorCategory: "",
+          resultStatus,
+        });
+      }
+      if (task.nodeType === "REPAIR_COMPLETED" && resultStatus === "AWAITING_FINAL_CONFIRM") {
+        return this.outbox.transition(task.id, TASK_STATUS.AWAITING_FINAL_CONFIRM, {
+          lastError: "",
+          errorCategory: "",
+          resultStatus,
+          completedSteps: Array.isArray(result.completedSteps) ? result.completedSteps.slice(0, 20) : [],
+        });
+      }
+      return this.outbox.transition(task.id, TASK_STATUS.SUCCESS, { lastError: "", errorCategory: "", resultStatus: resultStatus || "SUCCESS" });
     } catch (error) {
       return this.fail(task, error);
     }
@@ -85,8 +111,8 @@ class RecloudSyncService {
   async retry(taskId) {
     const task = await this.outbox.get(taskId);
     if (!task) throw Object.assign(new Error("同步任务不存在"), { code: "SYNC_TASK_NOT_FOUND", status: 404 });
-    if (![TASK_STATUS.FAILED, TASK_STATUS.MANUAL_REVIEW].includes(task.status)) {
-      throw Object.assign(new Error("仅失败或待人工处理任务可以重试"), { code: "SYNC_TASK_RETRY_NOT_ALLOWED", status: 409 });
+    if (![TASK_STATUS.FAILED, TASK_STATUS.MANUAL_REVIEW, TASK_STATUS.READY_DRY_RUN].includes(task.status)) {
+      throw Object.assign(new Error("仅失败、待人工处理或演练就绪任务可以重新执行"), { code: "SYNC_TASK_RETRY_NOT_ALLOWED", status: 409 });
     }
     const pending = await this.outbox.transition(taskId, TASK_STATUS.PENDING, { lastError: "", errorCategory: "" });
     this.scheduler(() => this.processTask(taskId).catch(() => {}));

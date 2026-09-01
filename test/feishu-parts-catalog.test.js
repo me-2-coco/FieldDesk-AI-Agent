@@ -1,6 +1,12 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { parsePartRows, parseSweepPartRows, projectCodesFromTitle, partSupportsProject } = require("../connectors/feishu-parts-catalog");
+const { parsePartRows, parseSweepPartRows, projectCodesFromTitle, partSupportsProject, retailPrice } = require("../connectors/feishu-parts-catalog");
+
+test("零售价兼容飞书货币符号和千位分隔格式", () => {
+  assert.equal(retailPrice("¥1,299.50"), 1299.5);
+  assert.equal(retailPrice("￥ 88"), 88);
+  assert.equal(retailPrice(""), null);
+});
 
 test("解析飞书售后配件表并保留收费规则", () => {
   const rows = [

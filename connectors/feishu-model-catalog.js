@@ -20,6 +20,10 @@ function comparable(value) {
   return normalize(value).toUpperCase().replace(/[\s_-]+/g, "");
 }
 
+function comparableProjectCode(value) {
+  return normalize(value).toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
 function findColumn(headers, aliases) {
   const normalized = headers.map((header) => comparable(header));
   return aliases.map(comparable).map((alias) => normalized.indexOf(alias)).find((index) => index >= 0) ?? -1;
@@ -71,14 +75,19 @@ function getSnProjectMatch(sn) {
 }
 
 function projectCodeMatches(value, expected) {
-  const candidates = normalize(value).split(/[/,，;；\s]+/).map(comparable).filter(Boolean);
-  return candidates.includes(comparable(expected));
+  const expectedCode = comparableProjectCode(expected);
+  const extractedCodes = normalize(value).toUpperCase().match(/[A-Z]\d{4}[A-Z0-9]?/g) || [];
+  const candidates = [
+    ...extractedCodes.map(comparableProjectCode),
+    ...normalize(value).split(/[/,，;；\s]+/).map(comparableProjectCode),
+  ].filter(Boolean);
+  return candidates.includes(expectedCode);
 }
 
 function resolveProjectModel(rows, input = {}) {
   const snProject = getSnProjectMatch(input.sn);
   if (!snProject.projectCode) return { status: "INVALID_SN", canContinue: false };
-  const currentProjectCode = comparable(input.currentProjectCode);
+  const currentProjectCode = comparableProjectCode(input.currentProjectCode);
   const matches = rows.filter((row) => projectCodeMatches(row.projectCode, snProject.projectCode));
   const modelCodes = [...new Set(matches.map((row) => row.modelCode).filter(Boolean))];
   const numericModelCodes = modelCodes.filter((code) => /^\d/.test(code));

@@ -93,6 +93,35 @@ class JsonInventoryStore {
       });
     return [...totals.values()];
   }
+  receive(partCode, partName, count, operator) {
+    return this.run((data) => {
+      const amount = quantity(count);
+      const code = String(partCode || "").trim();
+      const name = String(partName || "").trim();
+      if (!code || !name) throw Object.assign(new Error("配件编码和名称不能为空"), { code: "INVENTORY_PART_REQUIRED", status: 400 });
+      let part = data.totalStock.find((item) => item.code === code);
+      if (!part) { part = { code, name, stock: 0 }; data.totalStock.push(part); }
+      if (part.name !== name) throw Object.assign(new Error("同一配件编码的名称不一致"), { code: "INVENTORY_PART_NAME_CONFLICT", status: 409 });
+      part.stock += amount;
+      this.transaction(data, "STOCK_RECEIVED", { rmaNo: "", sn: "" }, part, amount, operator);
+      return { part };
+    });
+  }
+  allocate(partCode, count, technician, operator) {
+    return this.run((data) => {
+      const amount = quantity(count);
+      const part = data.totalStock.find((item) => item.code === String(partCode || "").trim());
+      if (!part) throw Object.assign(new Error("总库没有该配件"), { code: "PART_NOT_FOUND", status: 404 });
+      if (part.stock < amount) throw Object.assign(new Error("总库库存不足"), { code: "PART_OUT_OF_STOCK", status: 409 });
+      part.stock -= amount;
+      const personal = this.technicianPart(data, technician, part, true);
+      personal.stock += amount;
+      this.transaction(data, "PART_ALLOCATED", { rmaNo: "", sn: "" }, part, amount, technician);
+      data.transactions.at(-1).operatorId = operator.userId;
+      data.transactions.at(-1).operatorName = operator.displayName;
+      return { part: personal, totalStock: part.stock };
+    });
+  }
   apply(context, partCode, count, user) {
     return this.run((data) => {
       const amount = quantity(count);

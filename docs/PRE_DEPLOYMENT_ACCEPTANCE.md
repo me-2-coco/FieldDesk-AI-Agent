@@ -2,7 +2,7 @@
 
 验收环境必须保持 `DRY_RUN=true`、`RECLOUD_WRITE_ENABLED=false`、`RECLOUD_REVEAL_PHONE_ENABLED=false`，仅使用本地测试工单和模拟库存。
 
-## 账号与权限
+## 账号管理
 
 - 扫地机师傅 `zhang`：可处理扫地机工单、查看个人库存；洗地机工单应被后端拒绝。
 - 洗地机师傅 `li`：可处理洗地机工单、查看个人库存；扫地机工单应被后端拒绝。

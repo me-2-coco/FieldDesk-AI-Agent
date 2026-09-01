@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import SupervisionNoticeCard from "../components/SupervisionNoticeCard.jsx"
-import { applyLocalPart, getRepairParts, searchPartsCatalog, updateRepairPart } from "../shared/crmService.js"
+import { applyLocalPart, confirmRepairParts, getRepairParts, searchPartsCatalog, updateRepairPart } from "../shared/crmService.js"
 import {
   getCurrentRepairOrder,
   REPAIR_STATUS,
@@ -32,6 +32,9 @@ function PartsApplication({ setPage }) {
 
   useEffect(() => {
     let active = true
+    if (!keyword.trim()) {
+      return () => { active = false }
+    }
     const timer = setTimeout(async () => {
       try {
         setIsSearching(true)
@@ -54,6 +57,9 @@ function PartsApplication({ setPage }) {
   const selectedPart = parts.find(
     (part) => part.code === selectedCode
   )
+  const priceText = (value) => Number.isFinite(Number(value)) && value !== null && value !== ""
+    ? `¥${Number(value).toFixed(2)}`
+    : "暂无价格"
 
   async function submitApplication() {
     if (!selectedPart) {
@@ -118,10 +124,28 @@ function PartsApplication({ setPage }) {
     }
   }
 
+  async function continueToCompletion() {
+    if (!selectedParts.length) return
+    try {
+      setIsSaving(true)
+      setErrorMessage("")
+      const result = await confirmRepairParts(repairOrder.crmOrderNo)
+      const updated = updateRepairOrder({
+        status: result.nextStep === "repairCompletion" ? REPAIR_STATUS.REPAIRING : REPAIR_STATUS.WAIT_INSPECTION
+      })
+      setRepairOrder(updated)
+      setPage(result.nextStep === "repairCompletion" ? "repairCompletion" : "repairProcess")
+    } catch (error) {
+      setErrorMessage(error.message)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   return (
-    <div className="page">
+    <div className="page parts-application-page">
       <div className="top-bar">
-        <button className="arrow-back" onClick={() => setPage("repair")}>
+        <button className="arrow-back" onClick={() => setPage("repairDecision")}>
           ←
         </button>
         <h1>申请配件</h1>
@@ -129,20 +153,25 @@ function PartsApplication({ setPage }) {
 
       <SupervisionNoticeCard rmaNo={repairOrder.crmOrderNo} />
 
-      <div className="card">
-        <p>寄修单号：{repairOrder.crmOrderNo || "-"}</p>
-        <p>SN：{repairOrder.sn || "-"}</p>
-        <p>产品线：{repairOrder.product || "-"}</p>
-      </div>
+      <section className="card parts-order-card">
+        <div className="parts-order-hero"><span>机器 SN</span><strong>{repairOrder.sn || "-"}</strong><small>{repairOrder.product || "待确认品类"}</small></div>
+        <dl className="parts-order-grid">
+          <div><dt>寄修单号</dt><dd>{repairOrder.crmOrderNo || "-"}</dd></div>
+          <div><dt>物流单号</dt><dd>{repairOrder.logisticsNo || "送修（无物流单号）"}</dd></div>
+          <div><dt>用户姓名</dt><dd>{repairOrder.customer || "未提供"}</dd></div>
+          <div><dt>维修品类</dt><dd>{repairOrder.specialty || repairOrder.product || "未提供"}</dd></div>
+        </dl>
+        <div className="parts-order-fault"><span>报修描述</span><p>{repairOrder.originalFault || "未提供"}</p></div>
+      </section>
 
-      <div className="card">
+      <section className="card selected-parts-card">
         <h2>本工单已选配件</h2>
         {!selectedParts.length && <p>尚未选择配件</p>}
         {selectedParts.map((part) => (
           <div className="selected-part-row" key={part.id}>
             <div>
               <strong>{part.partName}</strong>
-              <p>{part.partCode} · {part.repairLevel} · ¥{part.retailPrice}{part.returnRequired ? " · 旧件需返厂" : ""}</p>
+              <p>{part.partCode} · {part.repairLevel} · {priceText(part.retailPrice)}{part.returnRequired && <strong className="part-return-required">旧件需返厂</strong>}</p>
             </div>
             <input
               aria-label={`${part.partName}数量`}
@@ -158,22 +187,30 @@ function PartsApplication({ setPage }) {
         {!!selectedParts.length && (
           <p>配件金额合计：¥{selectedParts.reduce((sum, part) => sum + Number(part.retailPrice || 0) * Number(part.quantity || 0), 0)}</p>
         )}
-      </div>
+      </section>
 
-      <div className="card">
-        <label htmlFor="part-search">搜索配件</label>
+      <section className="card parts-search-card">
+        <h2>搜索配件</h2>
         <input
           id="part-search"
           value={keyword}
-          onChange={(event) => setKeyword(event.target.value)}
+          onChange={(event) => {
+            const value = event.target.value
+            setKeyword(value)
+            if (!value.trim()) {
+              setParts([])
+              setIsSearching(false)
+              setSelectedCode("")
+            }
+          }}
           placeholder="输入配件编码或名称"
         />
 
         <div className="part-search-result">
           {isSearching && <p>正在查询厂家飞书配件表...</p>}
-          {!isSearching && matches.length === 0 && <p>当前机型下未找到匹配配件</p>}
+          {!isSearching && keyword.trim() && matches.length === 0 && <p>当前机型下未找到匹配配件</p>}
           {matches.map((part) => (
-            <label key={part.code}>
+            <label className="part-search-item" key={part.code}>
               <input
                 type="radio"
                 name="part"
@@ -181,8 +218,10 @@ function PartsApplication({ setPage }) {
                 checked={selectedCode === part.code}
                 onChange={() => setSelectedCode(part.code)}
               />
-              {part.name}（{part.code}）— {part.repairLevel} / 零售价 ¥{part.retailPrice}
-              {part.returnRequired ? " / 旧件需返厂" : ""}
+              <span className="part-search-copy">
+                <span>{part.name}（{part.code}）— {part.repairLevel} / 零售价 {priceText(part.retailPrice)}</span>
+                {part.returnRequired && <strong className="part-return-required">旧件需返厂</strong>}
+              </span>
             </label>
           ))}
         </div>
@@ -210,13 +249,10 @@ function PartsApplication({ setPage }) {
         <p className="dry-run-notice">
           配件与价格实时查询厂家飞书表；当前只记录到 FieldDesk，不写入瑞云
         </p>
-        {message && (
-          <div className="workflow-actions">
-            <button className="primary-btn" onClick={() => setPage("inventory")}>进入个人库存使用配件</button>
-            <button className="secondary-btn" onClick={() => setPage("repairWork")}>配件准备完成，进入维修</button>
-          </div>
-        )}
-      </div>
+        <button className="primary-btn" onClick={continueToCompletion} disabled={isSaving || selectedParts.length === 0}>
+          {selectedParts.length ? "配件确认完成，进入维修完工" : "请先添加维修配件"}
+        </button>
+      </section>
     </div>
   )
 }
