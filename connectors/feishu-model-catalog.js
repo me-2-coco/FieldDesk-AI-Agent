@@ -160,8 +160,8 @@ class FeishuModelCatalog {
     const appId = normalize(this.env.FEISHU_APP_ID);
     const appSecret = normalize(this.env.FEISHU_APP_SECRET);
     const spreadsheetToken = normalize(this.env.FEISHU_SPREADSHEET_TOKEN);
-    const sheetId = normalize(this.env.FEISHU_MODEL_SHEET_ID);
-    if (!appId || !appSecret || !spreadsheetToken || !sheetId) {
+    let sheetId = normalize(this.env.FEISHU_MODEL_SHEET_ID);
+    if (!appId || !appSecret || !spreadsheetToken) {
       const error = new Error("飞书型号表配置不完整");
       error.code = "FEISHU_MODEL_CONFIG_MISSING";
       throw error;
@@ -172,6 +172,24 @@ class FeishuModelCatalog {
     const tokenResult = await tokenResponse.json();
     if (!tokenResponse.ok || tokenResult.code !== 0 || !tokenResult.tenant_access_token) {
       const error = new Error("获取飞书只读凭证失败"); error.code = "FEISHU_AUTH_FAILED"; throw error;
+    }
+    if (!sheetId) {
+      const sheetResponse = await this.fetch(
+        `https://open.feishu.cn/open-apis/sheets/v3/spreadsheets/${encodeURIComponent(spreadsheetToken)}/sheets/query`,
+        { headers: { Authorization: `Bearer ${tokenResult.tenant_access_token}` } }
+      );
+      const sheetResult = await sheetResponse.json();
+      if (!sheetResponse.ok || sheetResult.code !== 0) {
+        const error = new Error("读取飞书型号工作表列表失败"); error.code = "FEISHU_MODEL_SHEETS_FAILED"; throw error;
+      }
+      const preferredTitle = normalize(this.env.FEISHU_MODEL_SHEET_TITLE) || "网点派单机型汇总";
+      const sheets = sheetResult.data?.sheets || [];
+      const selected = sheets.find((sheet) => comparable(sheet.title) === comparable(preferredTitle))
+        || (sheets.length === 1 ? sheets[0] : null);
+      if (!selected?.sheet_id) {
+        const error = new Error(`飞书型号表中未找到工作表：${preferredTitle}`); error.code = "FEISHU_MODEL_SHEET_NOT_FOUND"; throw error;
+      }
+      sheetId = selected.sheet_id;
     }
     const range = `${sheetId}!${normalize(this.env.FEISHU_MODEL_RANGE) || DEFAULT_RANGE}`;
     const url = `https://open.feishu.cn/open-apis/sheets/v2/spreadsheets/${encodeURIComponent(spreadsheetToken)}/values/${encodeURIComponent(range)}`;

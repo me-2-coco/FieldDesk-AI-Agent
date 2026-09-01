@@ -36,3 +36,12 @@ test("inspection decision never invents technician inputs", () => {
   assert.equal(result.status, "INCOMPLETE");
   assert.deepEqual(result.missingFields, ["faultCategory", "technicianWarranty"]);
 });
+
+test("maps the three detection outcomes and maps tuning to no abnormality", () => {
+  const base = { faultCategory: "产品质量 / 清洁异常", technicianWarranty: "保外", snWarranty: "保外" };
+  assert.equal(buildInspectionFormDecision({ ...base, detectionResult: "弃修" }).fields.detectionResult, "弃修");
+  assert.equal(buildInspectionFormDecision({ ...base, detectionResult: "只检测不维修" }).fields.detectionResult, "检测不维修");
+  const tuning = buildInspectionFormDecision({ ...base, detectionResult: "调试" }).fields;
+  assert.equal(tuning.detectionResult, "维修");
+  assert.equal(tuning.productFunctionDecision, "无异常");
+});

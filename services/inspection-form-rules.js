@@ -28,6 +28,12 @@ function buildInspectionFormDecision(input = {}) {
       canAutoSubmit: false,
     };
   }
+  const requestedResult = requiredText(input.detectionResult);
+  const detectionResult = ["弃修", "不修"].includes(requestedResult)
+    ? "弃修"
+    : ["只检测不维修", "检测不维修"].includes(requestedResult)
+      ? "检测不维修"
+      : "维修";
   return {
     status: "READY",
     canAutoSubmit: true,
@@ -35,9 +41,9 @@ function buildInspectionFormDecision(input = {}) {
       faultCategory,
       customerReasonConsistent: "是",
       warrantyStatus: technicianWarranty,
-      detectionResult: "维修",
+      detectionResult,
       inspectionAbnormal: "否",
-      productFunctionDecision: "功能问题",
+      productFunctionDecision: requestedResult === "调试" ? "无异常" : "功能问题",
       originalConsumables: "是",
       consumableName: "",
       dismantled: "是",

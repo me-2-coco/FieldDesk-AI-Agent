@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { resolveOutOfWarrantyFee } = require("../services/out-of-warranty-pricing");
+const { resolveOutOfWarrantyFee, buildPricingPreview } = require("../services/out-of-warranty-pricing");
 
 const fees = { 大修: 80, 中修: 70, 小修: 50 };
 
@@ -19,4 +19,21 @@ test("stops instead of guessing when a part has no repair level", () => {
   const result = resolveOutOfWarrantyFee(fees, [{ name: "未知件" }]);
   assert.equal(result.status, "PART_LEVEL_MISSING");
   assert.equal(result.canPrice, false);
+});
+
+test("prepares fees but does not apply them before warranty is out of warranty", () => {
+  const result = buildPricingPreview({ modelRepairFees: fees, usedParts: [], warrantyStatus: "" });
+  assert.equal(result.status, "PREPARED_NOT_APPLIED");
+  assert.deepEqual(result.repairSchedule, { 小修: 50, 中修: 70, 大修: 80 });
+});
+
+test("shows repair fee, parts fee and known total immediately for out-of-warranty parts", () => {
+  const result = buildPricingPreview({
+    modelRepairFees: fees,
+    warrantyStatus: "保外",
+    usedParts: [{ retailPrice: 120, quantity: 2, repairLevel: "中修" }],
+  });
+  assert.equal(result.repairFee, 70);
+  assert.equal(result.partsFee, 240);
+  assert.equal(result.knownTotal, 310);
 });
