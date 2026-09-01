@@ -1,5 +1,5 @@
 function cleanPartName(value) {
-  return String(value || "").trim().replace(/^售后/, "")
+  return String(value || "").trim()
 }
 
 export function buildRepairMeasure(template, usedParts = [], reportedFault = "", detectedFault = "") {
@@ -8,7 +8,7 @@ export function buildRepairMeasure(template, usedParts = [], reportedFault = "",
   const partNames = [...new Set(
     usedParts.map((part) => cleanPartName(part.partName)).filter(Boolean)
   )]
-  const partsText = partNames.join("，")
+  const partsText = partNames.join("、")
   const detectedFaultText = String(detectedFault || "").trim() || partsText || "故障部件"
   let description
 

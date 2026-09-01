@@ -2,6 +2,10 @@ const crypto = require("crypto");
 const { buildRecloudRepairFormPlan } = require("../connectors/recloud-sync-mapping");
 const { buildRecloudRepairPartsPlan } = require("./recloud-repair-parts-plan");
 const { buildRecloudRepairAttachmentsPlan } = require("./recloud-repair-attachments-plan");
+const {
+  RECLOUD_WORK_ORDER_OPERATION_POLICY,
+  assertRecloudOperationAllowed,
+} = require("./recloud-work-order-operation-policy");
 
 function orchestratorError(message, code, phase, details = {}) {
   const error = new Error(message);
@@ -105,7 +109,12 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
     if (typeof adapter.addParts !== "function") {
       throw orchestratorError("缺少配件新增执行器", "RECLOUD_REPAIR_PART_WRITE_ADAPTER_INVALID", "PARTS");
     }
-    await adapter.addParts(partsPlan.additions);
+    assertRecloudOperationAllowed({ action: "直接输入编码", target: RECLOUD_WORK_ORDER_OPERATION_POLICY.partEntryTarget });
+    await adapter.addParts(partsPlan.additions, {
+      entryMode: RECLOUD_WORK_ORDER_OPERATION_POLICY.partEntryMode,
+      target: RECLOUD_WORK_ORDER_OPERATION_POLICY.partEntryTarget,
+      forbiddenAction: RECLOUD_WORK_ORDER_OPERATION_POLICY.forbiddenPartLookup,
+    });
     remote = await adapter.readRemoteState();
     partsPlan = buildRecloudRepairPartsPlan(payload.usedParts, remote.parts);
     if (!partsPlan.readyToAdd || partsPlan.additions.length) {
@@ -135,7 +144,11 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
     if (typeof adapter.uploadAttachments !== "function") {
       throw orchestratorError("缺少附件上传执行器", "RECLOUD_REPAIR_ATTACHMENT_WRITE_ADAPTER_INVALID", "ATTACHMENTS");
     }
-    await adapter.uploadAttachments(attachmentsPlan);
+    assertRecloudOperationAllowed({ action: "上传附件", target: RECLOUD_WORK_ORDER_OPERATION_POLICY.attachmentTarget });
+    await adapter.uploadAttachments(attachmentsPlan, {
+      target: RECLOUD_WORK_ORDER_OPERATION_POLICY.attachmentTarget,
+      forbiddenTarget: RECLOUD_WORK_ORDER_OPERATION_POLICY.forbiddenAttachmentTarget,
+    });
     remote = await adapter.readRemoteState();
     attachmentsPlan = buildRecloudRepairAttachmentsPlan(payload.attachments, remote.attachments);
     if (!attachmentsPlan.readyToUpload || attachmentsPlan.additions.length) {
@@ -165,11 +178,14 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
   if (typeof adapter.clickSubmit !== "function") {
     throw orchestratorError("缺少瑞云提交按钮执行器", "RECLOUD_REPAIR_SUBMIT_ADAPTER_INVALID", "SUBMIT");
   }
-  await adapter.clickSubmit();
-  if (typeof adapter.verifySubmitted !== "function" || !await adapter.verifySubmitted()) {
-    throw orchestratorError("瑞云提交后未确认工单已锁定", "RECLOUD_REPAIR_SUBMIT_POSTVERIFY_FAILED", "SUBMIT_VERIFY");
-  }
-  completedSteps.push("SUBMIT_VERIFIED");
+  await adapter.clickSubmit({
+    approvalFlow: RECLOUD_WORK_ORDER_OPERATION_POLICY.approvalFlow,
+    terminalAction: RECLOUD_WORK_ORDER_OPERATION_POLICY.terminalAction,
+    stopImmediately: true,
+  });
+  // 点击签核流程中的“提交”即为本单终点。提交后禁止打开审批历史、
+  // 打印预览或其它页面做额外核验，避免完成后继续误操作。
+  completedSteps.push("SUBMIT_CLICKED_STOPPED");
   await saveCheckpoint(options.checkpointStore, {
     orderKey, fingerprint, status: "SUCCESS", completedSteps: [...completedSteps],
   });
@@ -179,7 +195,8 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
     completedSteps,
     completeClicked: true,
     finalConfirmClicked: true,
-    remoteLocked: true,
+    stoppedImmediatelyAfterSubmit: true,
+    postSubmitActions: 0,
   };
 }
 

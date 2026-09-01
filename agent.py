@@ -809,8 +809,8 @@ def fill_detection_preview(page, dialog, order):
     validate_core_fault(order)
     categories = order.get("故障分类", {})
     choose_fault_path(page, dialog, categories)
-    fill_detection_text(dialog, "品质描述", order.get("检测结果") or order.get("故障"))
-    choose_detection_radio(dialog, "是否与客服登记原因一致", "否")
+    # 品质描述保持空白；实际签收做单中客服登记原因与现场故障一致。
+    choose_detection_radio(dialog, "是否与客服登记原因一致", "是")
     choose_detection_option(page, dialog, "保修状态", order.get("保内保外") or "保内")
     choose_detection_option(page, dialog, "检测结果", "维修")
     # 当前业务流程不填写责任判定和故障描述，保持瑞云原值不动。
@@ -821,13 +821,12 @@ def fill_detection_preview(page, dialog, order):
 
 
 def fill_sign_preview(page, order):
-    # 瑞云不同账号/页面版本会把同一动作显示为“签收”或“代客户收件”。
-    # 上传完成后先滚动到产品/RMA明细区域，再按实际可见名称点击。
+    # 只允许点击 RMA 明细数据行的“签收”。“代客户收件”属于另一个业务动作，
+    # 无论页面版本如何都禁止用它兜底。
     page.keyboard.press("Escape")
     page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
 
-    # 优先点击 RMA 明细数据行最右侧的“签收”。上方“代客户收件”必须先
-    # 勾选数据行，直接点击只会提示“请选择一条记录”。
+    # 点击 RMA 明细数据行最右侧的“签收”。
     sign_pattern = re.compile(r"^\s*签收\s*$")
     sign_links = page.get_by_text(sign_pattern)
     visible_sign_links = [
@@ -840,27 +839,7 @@ def fill_sign_preview(page, order):
         target.scroll_into_view_if_needed()
         target.click(force=True)
     else:
-        # 部分账号不显示行内“签收”，此时勾选唯一数据行后使用
-        # “代客户收件”。若行数不唯一则停止，避免操作错单。
-        rows = page.locator("tbody tr:visible")
-        data_rows = [
-            rows.nth(index)
-            for index in range(rows.count())
-            if normalize_text(rows.nth(index).inner_text())
-        ]
-        if len(data_rows) != 1:
-            raise RuntimeError(
-                f"没有行内‘签收’，且RMA明细不是唯一数据行（{len(data_rows)}条）"
-            )
-        checkbox = data_rows[0].locator("input[type='checkbox']")
-        if checkbox.count():
-            checkbox.first.check(force=True)
-        else:
-            check_role = data_rows[0].get_by_role("checkbox")
-            if not check_role.count():
-                raise RuntimeError("RMA唯一数据行没有找到选择框")
-            check_role.first.check(force=True)
-        click_named(page, "代客户收件", timeout=5_000)
+        raise RuntimeError("RMA明细没有找到行内‘签收’，已停止；禁止点击‘代客户收件’")
 
     dialog = wait_for_dialog(page)
 
@@ -1228,84 +1207,11 @@ def select_replacement_part(page, dialog, part_name, part_code):
     controls = item.locator("input:visible:not([disabled])")
     if controls.count() == 0:
         raise RuntimeError("更换件新增窗口找不到新件名称选择框")
-    # “新件名称”是带放大镜的选择控件，不是普通文本框。
-    # 必须点击该字段右侧放大镜，等待配件选择窗口出现；禁止在主窗口其它搜索框里填编码。
-    dialogs = page.locator("[role='dialog']:visible, .el-dialog:visible, .ant-modal:visible")
-    dialog_count_before = dialogs.count()
+    # 真实瑞云流程：在“新件名称”输入框直接输入配件编码，禁止点击右侧放大镜。
     field = controls.last
     field.scroll_into_view_if_needed()
-    box = field.bounding_box()
-    if not box:
-        raise RuntimeError("无法定位新件名称右侧的查询按钮")
-    # 瑞云的放大镜没有独立按钮语义，必须像真人一样点击输入框最右侧图标。
-    page.mouse.click(
-        box["x"] + box["width"] - 22,
-        box["y"] + box["height"] / 2,
-        button="left",
-    )
-
-    deadline = time.monotonic() + CHOICE_TIMEOUT_MS / 1000
-    while time.monotonic() < deadline:
-        page.wait_for_timeout(CHOICE_POLL_MS)
-        dialogs = page.locator(
-            "[role='dialog']:visible, .el-dialog:visible, .ant-modal:visible"
-        )
-        if dialogs.count() > dialog_count_before:
-            break
-    else:
-        raise RuntimeError("点击新件名称后没有出现配件选择窗口，已停止")
-
-    if dialogs.count() <= dialog_count_before:
-        raise RuntimeError("未能唯一确认新件名称的配件选择窗口，已停止")
-    lookup = dialogs.last
-    search_fields = lookup.locator("input:visible:not([disabled])")
-    editable = []
-    for index in range(search_fields.count()):
-        field = search_fields.nth(index)
-        if field.is_editable():
-            editable.append(field)
-    if not editable:
-        raise RuntimeError("配件选择窗口没有找到搜索框")
-
-    # 配件选择弹窗中只允许使用查询输入框，不使用底层更换件窗口的任何字段。
-    search = editable[0] if len(editable) == 1 else editable[-1]
-    search.fill(part_code)
-    search.press("Enter")
-    rows = lookup.locator("tbody tr:visible, [role='row']:visible")
-
-    def matching_rows():
-        return [
-            rows.nth(index)
-            for index in range(rows.count())
-            if part_code in normalize_text(rows.nth(index).inner_text())
-        ]
-
-    matches = []
-    if wait_until(lambda: bool(matches.extend(matching_rows()) or matches)):
-        # 去掉轮询过程中可能累积的同一 DOM 行。
-        matches = matching_rows()
-    if len(matches) != 1:
-        raise RuntimeError(f"配件编码 {part_code} 匹配到 {len(matches)} 条记录，已停止")
-
-    row = matches[0]
-    row.click(force=True)
-    checkbox = row.locator("[role='checkbox'], input[type='checkbox']")
-    if checkbox.count():
-        try:
-            checkbox.first.click(force=True)
-        except Exception:
-            pass
-
-    confirm = lookup.get_by_role(
-        "button", name=re.compile(r"^\s*(确定|确认|选择)\s*$")
-    )
-    visible_confirm = [
-        confirm.nth(i) for i in range(confirm.count()) if confirm.nth(i).is_visible()
-    ]
-    if visible_confirm:
-        visible_confirm[-1].click(force=True)
-    else:
-        row.dblclick(force=True)
+    field.fill(part_code)
+    field.press("Tab")
     # 只以当前新增窗口中的“新件编码”精确回填作为成功条件。一旦命中立即推进。
     def selected_code_matches():
         try:
@@ -1319,7 +1225,7 @@ def select_replacement_part(page, dialog, part_name, part_code):
             return False
 
     if not wait_until(selected_code_matches):
-        raise RuntimeError(f"选择配件后5秒内未回填正确编码：{part_code}")
+        raise RuntimeError(f"直接输入配件编码后5秒内未回填正确编码：{part_code}")
 
 
 def save_replacement(page, dialog, part):
@@ -1469,34 +1375,14 @@ def repair_measure_text(order):
     fault = str(order.get("故障") or "").strip()
     parts = replacement_parts(order)
     part_names = [name for name, _, _ in parts]
-    detection_result = str(order.get("检测结果") or "").strip()
-    if len(part_names) == 1 and detection_result.endswith("不良") and len(detection_result) > 2:
-        # 配件编码决定实际物料；维修话术使用师傅确认的检测部件名称，
-        # 避免师傅端配件文本中的同音字/录入笔误进入 CRM。
-        part_names = [detection_result[:-2].strip()]
     if not fault or not part_names:
         raise RuntimeError("缺少故障现象或更换配件，无法生成维修措施")
-    # 同一配件即使数量大于 1，也只描述一次；不同配件按照师傅端
-    # 的填写顺序逐项说明，避免“检测A、B不良，更换A、B”含义含混。
     unique_part_names = list(dict.fromkeys(part_names))
-    if len(unique_part_names) == 1:
-        part_name = unique_part_names[0]
-        return (
-            f"{fault}，客诉故障复现，检测{part_name}不良，"
-            f"更换{part_name}，清理，测试ok寄回"
-        )
-
-    actions = [
-        f"检测{unique_part_names[0]}不良，更换{unique_part_names[0]}"
-    ]
-    actions.extend(
-        f"另检测{part_name}不良，更换{part_name}"
-        for part_name in unique_part_names[1:]
-    )
+    fault_prefix = fault.rstrip("#").strip()
+    parts_text = "、".join(unique_part_names)
     return (
-        f"{fault}无法使用，客诉故障复现，"
-        + "，".join(actions)
-        + "，清理，测试ok寄回"
+        f"{fault_prefix}# 客诉故障复现，检测{parts_text}不良，"
+        f"更换{parts_text}，清理，测试ok寄回"
     )
 
 
@@ -1521,8 +1407,8 @@ def fill_fault_mode_edit(page, order):
     actual = field.input_value()
     if normalize_text(actual) != normalize_text(value):
         raise RuntimeError("维修措施填写后校验不一致，已停止")
-    # 固定业务规则：维修记录均属于排障处理。
-    choose_detection_radio(page, "是否是排障问题", "是")
+    # 固定业务规则：是否是排障问题选择“否”。
+    choose_detection_radio(page, "是否是排障问题", "否")
     return value
 
 

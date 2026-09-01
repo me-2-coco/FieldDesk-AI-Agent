@@ -21,17 +21,21 @@ function remoteAdapter(initial = {}) {
   return {
     calls,
     async readRemoteState() { calls.push("read"); return { parts: [...parts], attachments: [...attachments] }; },
-    async addParts(additions) { calls.push("parts"); parts = additions.map((item) => ({ ...item })); },
+    async addParts(additions, policy) {
+      calls.push(`parts:${policy.entryMode}:${policy.target}:${policy.forbiddenAction}`);
+      parts = additions.map((item) => ({ ...item }));
+    },
     async applyRepairFields() { calls.push("fields"); },
     async verifyRepairFields() { calls.push("verify-fields"); return true; },
-    async uploadAttachments(plan) {
-      calls.push("attachments");
+    async uploadAttachments(plan, policy) {
+      calls.push(`attachments:${policy.target}:${policy.forbiddenTarget}`);
       attachments = plan.additions.map((item) => ({ ...item }));
     },
     async clickComplete() { calls.push("complete"); },
     async waitForSubmitReady() { calls.push("wait-submit-ready"); return true; },
-    async clickSubmit() { calls.push("submit"); },
-    async verifySubmitted() { calls.push("verify-submitted"); return true; },
+    async clickSubmit(policy) {
+      calls.push(`submit:${policy.approvalFlow}:${policy.terminalAction}:${policy.stopImmediately}`);
+    },
   };
 }
 
@@ -45,7 +49,7 @@ test("repair orchestrator dry-run plans work without touching Recloud", async ()
   assert.equal(result.recloudModified, false);
 });
 
-test("repair orchestrator clicks complete, waits for the remote state, then submits and verifies the lock", async () => {
+test("repair orchestrator clicks complete and stops immediately after final submit", async () => {
   const adapter = remoteAdapter();
   const checkpoints = [];
   const result = await orchestrateRepairCompletion("ORDER-1", PAYLOAD, adapter, {
@@ -53,12 +57,14 @@ test("repair orchestrator clicks complete, waits for the remote state, then subm
     checkpointStore: { async load() { return null; }, async save(value) { checkpoints.push(value); } },
   });
   assert.equal(result.status, "SUCCESS");
-  assert.deepEqual(result.completedSteps, ["PARTS_VERIFIED", "FIELDS_VERIFIED", "ATTACHMENTS_VERIFIED", "COMPLETE_CLICKED", "SUBMIT_READY", "SUBMIT_VERIFIED"]);
+  assert.deepEqual(result.completedSteps, ["PARTS_VERIFIED", "FIELDS_VERIFIED", "ATTACHMENTS_VERIFIED", "COMPLETE_CLICKED", "SUBMIT_READY", "SUBMIT_CLICKED_STOPPED"]);
   assert.equal(result.finalConfirmClicked, true);
-  assert.equal(result.remoteLocked, true);
+  assert.equal(result.stoppedImmediatelyAfterSubmit, true);
+  assert.equal(result.postSubmitActions, 0);
   assert.deepEqual(adapter.calls, [
-    "read", "parts", "read", "fields", "verify-fields", "read", "attachments", "read",
-    "complete", "wait-submit-ready", "submit", "verify-submitted",
+    "read", "parts:DIRECT_CODE_INPUT:新件名称:放大镜", "read", "fields", "verify-fields", "read",
+    "attachments:附件:附件（检测报告）", "read", "complete", "wait-submit-ready",
+    "submit:内部维修单自动审批（成都欣益）:提交:true",
   ]);
   assert.equal(checkpoints.at(-1).status, "SUCCESS");
 });

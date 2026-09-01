@@ -18,7 +18,11 @@ test("fast order agent compiles and exposes one bounded complete-order entry", (
   assert.match(source, /def complete_order_fast\(/);
   assert.match(source, /"complete-order"/);
   assert.match(source, /ORDER_UI_TARGET_SECONDS = 60/);
-  assert.match(source, /choose_detection_radio\(page, "是否是排障问题", "是"\)/);
+  assert.match(source, /choose_detection_radio\(page, "是否是排障问题", "否"\)/);
+  assert.match(source, /choose_detection_radio\(dialog, "是否与客服登记原因一致", "是"\)/);
+  assert.doesNotMatch(source, /click_named\(page, "代客户收件"/);
+  assert.match(source, /field\.fill\(part_code\)/);
+  assert.doesNotMatch(source, /box\["x"\] \+ box\["width"\] - 22/);
   assert.match(source, /状态=CRM_FINAL_ACTION_READY/);
   assert.doesNotMatch(source.match(/def complete_order_fast\([\s\S]*?return page, elapsed/)[0], /状态=COMPLETED/);
   assert.match(source, /Agent停在最终完工\/提交前/);
@@ -35,6 +39,6 @@ test("playbook preserves the established order rules without redefining other mo
     "不得进入“备件申请单”",
     "是否是排障问题",
     "责任判定保持空白",
-    "最终“完工/提交”动作之前",
+    "点击提交后立即停止",
   ]) assert.match(source, new RegExp(rule));
 });

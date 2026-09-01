@@ -27,8 +27,7 @@ function remoteAdapter(calls) {
     async verifyRepairFields() { calls.push("verify-fields"); return true; },
     async clickComplete() { calls.push("complete"); },
     async waitForSubmitReady() { calls.push("wait"); return true; },
-    async clickSubmit() { calls.push("submit"); },
-    async verifySubmitted() { calls.push("verify-submit"); return true; },
+    async clickSubmit(policy) { calls.push(`submit:${policy.stopImmediately}`); },
   };
 }
 
@@ -46,7 +45,7 @@ test("command executor delegates repair completion to the guarded two-step orche
   assert.equal(result.status, "SUCCESS");
   assert.deepEqual(calls, [
     "open:JXTH900001234", "read", "fields", "verify-fields", "read",
-    "complete", "wait", "submit", "verify-submit", "release",
+    "complete", "wait", "submit:true", "release",
   ]);
 });
 
