@@ -51,6 +51,17 @@ test("repair page readiness fails closed on ambiguous controls and missing remot
   assert.match(result.missingFields.join("|"), /repair\.completeOrSubmitAction/);
 });
 
+test("repair page readiness includes execution-control diagnostics when supplied", () => {
+  const result = assessRecloudRepairPageReadiness(readyInspection({
+    executionReadiness: {
+      ready: false,
+      missingFields: ["repair.execution.targetTechnicianRow"],
+    },
+  }));
+  assert.equal(result.ready, false);
+  assert.match(result.missingFields.join("|"), /targetTechnicianRow/);
+});
+
 test("completed read-only inspection accepts locked controls and unavailable add-parts action", () => {
   const result = assessRecloudRepairPageReadiness(readyInspection({
     directRepairControls: [
@@ -77,5 +88,7 @@ test("repair form inspection endpoint is restricted to a configured test order a
   assert.match(block, /RECLOUD_REPAIR_TEST_LOGISTICS_NO/);
   assert.match(block, /RECLOUD_REPAIR_TEST_ORDER_REQUIRED/);
   assert.match(block, /inspectPartAddDialog: true/);
+  assert.match(block, /inspectExecutionControls: true/);
+  assert.match(block, /targetAssignee/);
   assert.match(block, /assessRecloudRepairPageReadiness/);
 });

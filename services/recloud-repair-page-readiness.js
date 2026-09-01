@@ -29,6 +29,11 @@ function assessRecloudRepairPageReadiness(inspection = {}, options = {}) {
   if (inspection.attachmentPanelSchema?.errorCode) {
     missingFields.push(...(inspection.attachmentPanelSchema.missingFields || ["repair.attachmentsSection"]));
   }
+  if (inspection.executionReadiness && inspection.executionReadiness.ready !== true) {
+    missingFields.push(...(
+      inspection.executionReadiness.missingFields || ["repair.executionControls"]
+    ));
+  }
   if (inspection.partAddDialogInspection?.unavailable === true && readOnlyCompleted) {
     // Submitted repairs are locked by Recloud, so an add-parts action is not expected.
   } else if (inspection.partAddDialogInspection) {

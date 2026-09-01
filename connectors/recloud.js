@@ -29,6 +29,7 @@ const {
   inspectAndCloseRepairPartAddDialog,
 } = require("./recloud-repair-part-dialog");
 const { inspectRepairAttachmentPanel } = require("./recloud-repair-attachments-reader");
+const { inspectRepairExecutionControls } = require("./recloud-repair-execution-inspector");
 const { validateProjectCorrectionInput } = require("../services/recloud-project-correction-rules");
 
 const LOGIN_STATE = path.join(__dirname, "recloud-state.json");
@@ -9246,6 +9247,25 @@ async function inspectRepairForm(page, options = {}) {
         }
       }
     }
+    let executionInspection = null;
+    let executionReadiness = null;
+    if (serviceReportOpened && options.inspectExecutionControls === true) {
+      const execution = await inspectRepairExecutionControls(
+        page,
+        String(options.targetAssignee || "").trim(),
+        {
+          dryRun: true,
+          writeEnabled: false,
+          openAssignmentDialog: true,
+          inspectPartAddDialog: true,
+          assertSafe: () => networkGuard?.assertSafe(),
+          guardState,
+          timeoutMs: options.actionTimeout ?? 5000,
+        }
+      );
+      executionInspection = execution.inspection;
+      executionReadiness = execution.readiness;
+    }
     const closeControl = dialog ? await firstVisible([
       dialog.getByRole("button", { name: /^(取消|关闭|返回)$/ }).last(),
       dialog.locator("button[aria-label*='关闭'], button[title*='关闭'], .el-dialog__headerbtn, .rt-dialog__close").last(),
@@ -9274,6 +9294,8 @@ async function inspectRepairForm(page, options = {}) {
       partsTableSchema,
       attachmentPanelSchema,
       partAddDialogInspection,
+      executionInspection,
+      executionReadiness,
       dialogClosed,
       blockedRequestCount: guardState.blockedRequestCount,
       confirmClicked: false,

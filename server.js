@@ -964,6 +964,8 @@ function createApp(
     }
     const logisticsNo = normalizeLogisticsNo(req.body?.logisticsNo);
     if (!logisticsNo) return res.status(400).json({ success: false, message: "缺少物流单号" });
+    const targetAssignee = String(req.body?.targetAssignee || "").trim();
+    if (!targetAssignee) return res.status(400).json({ success: false, message: "缺少目标师傅" });
     const testLogisticsNo = normalizeLogisticsNo(runtimeEnv.RECLOUD_REPAIR_TEST_LOGISTICS_NO);
     if (!testLogisticsNo || logisticsNo !== testLogisticsNo) {
       return res.status(403).json({
@@ -980,6 +982,8 @@ function createApp(
           writeEnabled: false,
           searchTerm: detail.rmaNo,
           inspectPartAddDialog: true,
+          inspectExecutionControls: true,
+          targetAssignee,
         });
         return {
           logisticsNo,
