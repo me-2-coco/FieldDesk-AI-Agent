@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { resolveOutOfWarrantyFee, buildPricingPreview } = require("../services/out-of-warranty-pricing");
+const { resolvePartsFee, resolveOutOfWarrantyFee, buildPricingPreview } = require("../services/out-of-warranty-pricing");
 
 const fees = { 大修: 80, 中修: 70, 小修: 50 };
 
@@ -36,4 +36,40 @@ test("shows repair fee, parts fee and known total immediately for out-of-warrant
   assert.equal(result.repairFee, 70);
   assert.equal(result.partsFee, 240);
   assert.equal(result.knownTotal, 310);
+});
+
+test("W2458S live-table example calculates three known parts and medium repair fee", () => {
+  const result = buildPricingPreview({
+    modelRepairFees: { 大修: 60, 中修: 40, 小修: 20 },
+    warrantyStatus: "保外",
+    usedParts: [
+      { partCode: "20020100013703", retailPrice: 29, quantity: 1, repairLevel: "中修" },
+      { partCode: "20020100013687", retailPrice: 5, quantity: 1, repairLevel: "中修" },
+      { partCode: "20020100007849", retailPrice: 1, quantity: 1, repairLevel: "小修" },
+    ],
+  });
+  assert.equal(result.highestLevel, "中修");
+  assert.equal(result.repairFee, 40);
+  assert.equal(result.partsFee, 35);
+  assert.equal(result.knownTotal, 75);
+});
+
+test("missing retail price never becomes a free part", () => {
+  assert.deepEqual(
+    resolvePartsFee([{ partCode: "20020100010822", retailPrice: null, quantity: 1 }]),
+    {
+      status: "PART_PRICE_MISSING",
+      canPrice: false,
+      partsFee: null,
+      unresolvedParts: [{ partCode: "20020100010822", partName: "" }],
+    }
+  );
+  const result = buildPricingPreview({
+    modelRepairFees: fees,
+    warrantyStatus: "保外",
+    usedParts: [{ partCode: "20020100010822", retailPrice: null, quantity: 1, repairLevel: "小修" }],
+  });
+  assert.equal(result.status, "PART_PRICE_MISSING");
+  assert.equal(result.canPrice, false);
+  assert.equal(result.knownTotal, null);
 });

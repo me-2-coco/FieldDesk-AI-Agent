@@ -172,6 +172,7 @@ test("local attachment store saves media outside tracked data", async (t) => {
 
 test("frontend completion page reuses confirmed fault and includes warranty, media, draft and submit", async () => {
   const source = await fs.readFile(path.join(__dirname, "../frontend/src/pages/RepairCompletion.jsx"), "utf8");
+  const partsSource = await fs.readFile(path.join(__dirname, "../frontend/src/pages/PartsApplication.jsx"), "utf8");
   const measureSource = await fs.readFile(path.join(__dirname, "../frontend/src/shared/repairMeasure.js"), "utf8");
   assert.match(source, /已确认三级故障/);
   assert.doesNotMatch(source, /模糊搜索故障名称/);
@@ -189,6 +190,7 @@ test("frontend completion page reuses confirmed fault and includes warranty, med
   assert.match(source, /保外费用待核对/);
   assert.match(source, /请填写单程物流费/);
   assert.match(source, /保外调试费用选填/);
+  assert.match(partsSource, /待核价（存在未配置零售价）/);
   assert.match(source, /requiresOutOfWarrantyFee/);
   assert.match(source, /disabled=\{busy \|\| !canSubmitCompletion\}/);
   assert.doesNotMatch(source, /recloud|瑞云.*fetch/i);

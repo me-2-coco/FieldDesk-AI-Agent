@@ -62,6 +62,13 @@ function PartsApplication({ setPage }) {
   const selectedPart = parts.find(
     (part) => part.code === selectedCode
   )
+  const selectedPartsHaveKnownPrice = selectedParts.every((part) =>
+    part.retailPrice !== null && part.retailPrice !== undefined && part.retailPrice !== "" &&
+    Number.isFinite(Number(part.retailPrice)) && Number(part.retailPrice) >= 0
+  )
+  const selectedPartsTotal = selectedPartsHaveKnownPrice
+    ? selectedParts.reduce((sum, part) => sum + Number(part.retailPrice) * Number(part.quantity || 0), 0)
+    : null
   const priceText = (value) => Number.isFinite(Number(value)) && value !== null && value !== ""
     ? `¥${Number(value).toFixed(2)}`
     : "暂无价格"
@@ -192,7 +199,7 @@ function PartsApplication({ setPage }) {
           </div>
         ))}
         {!!selectedParts.length && (
-          <p>配件金额合计：¥{selectedParts.reduce((sum, part) => sum + Number(part.retailPrice || 0) * Number(part.quantity || 0), 0)}</p>
+          <p>配件金额合计：{selectedPartsTotal === null ? "待核价（存在未配置零售价）" : `¥${selectedPartsTotal.toFixed(2)}`}</p>
         )}
         {pricing?.warrantyStatus === "保外" && (
           <div className="pricing-preview" role="status">

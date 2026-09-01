@@ -306,7 +306,20 @@ test("part application is bound to the current order SN", async (t) => {
 
   assert.equal(result.application.sn, "TEST-SN-A1");
   assert.equal(result.application.quantity, 2);
+  assert.equal(result.application.retailPrice, null);
   assert.equal(result.order.partApplications.length, 1);
+
+  const refreshed = await store.applyPart(
+    "JXTH900001001",
+    { code: "00100123", name: "售后主刷电机", stock: 10, retailPrice: 29, repairLevel: "中修", returnRequired: true },
+    1,
+    USERS.sweep
+  );
+  assert.equal(refreshed.application.quantity, 3);
+  assert.equal(refreshed.application.partName, "售后主刷电机");
+  assert.equal(refreshed.application.retailPrice, 29);
+  assert.equal(refreshed.application.repairLevel, "中修");
+  assert.equal(refreshed.application.returnRequired, true);
 });
 
 test("part application rejects zero stock", async (t) => {

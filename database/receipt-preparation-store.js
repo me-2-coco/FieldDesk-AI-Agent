@@ -462,10 +462,18 @@ class JsonReceiptPreparationStore {
         throw error;
       }
       const timestamp = new Date().toISOString();
+      const rawRetailPrice = part.retailPrice;
+      const normalizedRetailPrice = rawRetailPrice === null || rawRetailPrice === undefined || rawRetailPrice === ""
+        ? null
+        : Number(rawRetailPrice);
       const existingApplication = (existing.partApplications || []).find((item) => item.partCode === part.code);
       const application = existingApplication ? {
         ...existingApplication,
+        partName: normalizeRequired(part.name),
         quantity: existingApplication.quantity + requestedQuantity,
+        retailPrice: Number.isFinite(normalizedRetailPrice) && normalizedRetailPrice >= 0 ? normalizedRetailPrice : null,
+        repairLevel: normalizeRequired(part.repairLevel),
+        returnRequired: Boolean(part.returnRequired),
         updatedAt: timestamp,
       } : {
         id: crypto.randomUUID(),
@@ -473,7 +481,7 @@ class JsonReceiptPreparationStore {
         partName: normalizeRequired(part.name),
         quantity: requestedQuantity,
         stockSnapshot: part.stock,
-        retailPrice: Number(part.retailPrice) || 0,
+        retailPrice: Number.isFinite(normalizedRetailPrice) && normalizedRetailPrice >= 0 ? normalizedRetailPrice : null,
         repairLevel: normalizeRequired(part.repairLevel),
         returnRequired: Boolean(part.returnRequired),
         projectCode: normalizeRequired(part.projectCode),

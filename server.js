@@ -34,7 +34,7 @@ const { FeishuModelCatalog, getSnProjectMatch } = require("./connectors/feishu-m
 const { FeishuPartsCatalog } = require("./connectors/feishu-parts-catalog");
 const { evaluateWarranty } = require("./services/warranty-policy");
 const localFaultMappings = require("./knowledge/fault_mapping.json").mappings || {};
-const { resolveOutOfWarrantyFee, buildPricingPreview } = require("./services/out-of-warranty-pricing");
+const { resolvePartsFee, resolveOutOfWarrantyFee, buildPricingPreview } = require("./services/out-of-warranty-pricing");
 const { resolveRepairCharge } = require("./services/repair-charge-policy");
 const { analyzeSupervisionOrder } = require("./services/supervision-order-policy");
 const {
@@ -2146,7 +2146,7 @@ function createApp(
       }
       const appliedParts = (order.partApplications || []).map((part) => ({
         partCode: part.partCode, partName: part.partName, quantity: part.quantity,
-        repairLevel: part.repairLevel, retailPrice: Number(part.retailPrice) || 0,
+        repairLevel: part.repairLevel, retailPrice: part.retailPrice,
         returnRequired: Boolean(part.returnRequired),
       }));
       const usedParts = appliedParts.length ? appliedParts : await inventoryStore.usedPartsForOrder(order.rmaNo, order.sn);
@@ -2154,9 +2154,18 @@ function createApp(
       const repairPricing = noPartsService
         ? { status: "NO_PARTS_SERVICE", canPrice: true, highestLevel: "无配件", fee: 0 }
         : resolveOutOfWarrantyFee(order.modelAuthorization?.repairFees || {}, usedParts);
-      const partsFee = usedParts.reduce((sum, part) => sum + (Number(part.retailPrice) || 0) * (Number(part.quantity) || 0), 0);
+      const partsPricing = noPartsService
+        ? { status: "READY", canPrice: true, partsFee: 0 }
+        : resolvePartsFee(usedParts);
+      const canPrice = repairPricing.canPrice === true && partsPricing.canPrice === true;
       const pricing = order.technicianWarranty === "保外"
-        ? { ...repairPricing, partsFee, subtotal: repairPricing.canPrice ? partsFee + repairPricing.fee : null }
+        ? {
+            ...repairPricing,
+            ...(!partsPricing.canPrice ? { status: partsPricing.status, unresolvedParts: partsPricing.unresolvedParts } : {}),
+            canPrice,
+            partsFee: partsPricing.partsFee,
+            subtotal: canPrice ? Number((partsPricing.partsFee + repairPricing.fee).toFixed(2)) : null,
+          }
         : { status: "IN_WARRANTY", canPrice: true, partsFee: 0, fee: 0, subtotal: 0 };
       res.json({ success: true, data: { order, usedParts, pricing, recloudSynced: false } });
     } catch (error) { next(error); }
@@ -2175,7 +2184,7 @@ function createApp(
       if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到待维修工单", 404);
       const appliedParts = (order.partApplications || []).map((part) => ({
         partCode: part.partCode, partName: part.partName, quantity: part.quantity,
-        repairLevel: part.repairLevel, retailPrice: Number(part.retailPrice) || 0,
+        repairLevel: part.repairLevel, retailPrice: part.retailPrice,
         returnRequired: Boolean(part.returnRequired),
       }));
       const usedParts = appliedParts.length ? appliedParts : await inventoryStore.usedPartsForOrder(order.rmaNo, order.sn);
@@ -2200,12 +2209,16 @@ function createApp(
       const repairPricing = noPartsService
         ? { status: "NO_PARTS_SERVICE", canPrice: true, highestLevel: "无配件", fee: 0 }
         : resolveOutOfWarrantyFee(order.modelAuthorization?.repairFees || {}, usedParts);
-      const partsFee = usedParts.reduce((sum, part) => sum + (Number(part.retailPrice) || 0) * (Number(part.quantity) || 0), 0);
-      if (submit && isOutOfWarranty && !repairPricing.canPrice) {
-        throw createApiError("OUT_OF_WARRANTY_PRICE_REVIEW_REQUIRED", "配件维修等级或机型维修费不完整，请转人工核价", 409);
+      const partsPricing = noPartsService
+        ? { status: "READY", canPrice: true, partsFee: 0 }
+        : resolvePartsFee(usedParts);
+      const canPrice = repairPricing.canPrice === true && partsPricing.canPrice === true;
+      const partsFee = partsPricing.partsFee;
+      if (submit && isOutOfWarranty && !canPrice) {
+        throw createApiError("OUT_OF_WARRANTY_PRICE_REVIEW_REQUIRED", "配件零售价、维修等级或机型维修费不完整，请转人工核价", 409);
       }
       let charge = null;
-      if (isOutOfWarranty && repairPricing.canPrice) {
+      if (isOutOfWarranty && canPrice) {
         try {
           charge = resolveRepairCharge({
             partsFee,
@@ -2233,7 +2246,9 @@ function createApp(
               primaryRemark: null,
               secondaryRemark: null,
             }),
-            subtotal: repairPricing.canPrice ? partsFee + repairPricing.fee : null,
+            canPrice,
+            ...(!partsPricing.canPrice ? { status: partsPricing.status, unresolvedParts: partsPricing.unresolvedParts } : {}),
+            subtotal: canPrice ? Number((partsFee + repairPricing.fee).toFixed(2)) : null,
             logisticsSource: "MANUAL_EDITABLE",
           }
         : {
