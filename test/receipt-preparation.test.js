@@ -203,6 +203,15 @@ test("strict dry run may continue the local workflow when the current Recloud pr
   );
   assert.equal(completed.response.status, 200);
   assert.equal(completed.result.data.status, "RECEIVED_PENDING_INSPECTION");
+
+  const treatment = await post(
+    url,
+    "/api/repairs/treatment-decision",
+    { rmaNo: "JXTH900001001", treatmentMode: "REPAIR" }
+  );
+  assert.equal(treatment.response.status, 200);
+  assert.equal(treatment.result.data.treatmentLabel, "维修");
+  assert.equal(treatment.result.data.nextStep, "partsApplication");
 });
 
 test("SN is trimmed and normalized to uppercase", async (t) => {
