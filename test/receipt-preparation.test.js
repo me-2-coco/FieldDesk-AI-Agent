@@ -823,6 +823,7 @@ test("inspection page shows the required local order fields", async () => {
   assert.match(source, /setPage\("partsApplication"\)/);
   assert.match(source, /inspectionIsSaved/);
   assert.match(source, /repairOrder\.level3Fault && repairOrder\.warrantyType/);
+  assert.match(source, /\{inspectionIsSaved[\s\S]*\? "已检测"/);
   assert.doesNotMatch(source, /配件申请/);
 });
 

@@ -88,11 +88,13 @@ function RepairCompletion({ setPage }) {
   const [message, setMessage] = useState("")
   const [errorMessage, setErrorMessage] = useState("")
   const [busy, setBusy] = useState(false)
+  const [contextLoading, setContextLoading] = useState(true)
   const [syncStatus, setSyncStatus] = useState(null)
   const pricingSummaryRef = useRef(null)
 
   useEffect(() => {
     let active = true
+    setContextLoading(true)
     getRepairCompletionContext(repairOrder.crmOrderNo).then((context) => {
       if (!active) return
       const contextParts = context.usedParts || []
@@ -135,6 +137,7 @@ function RepairCompletion({ setPage }) {
         setRepairMeasure(buildRepairMeasure(presetTemplate, contextParts, repairOrder.originalFault, confirmedFault.at(-1)))
       }
     }).catch((error) => active && setErrorMessage(error.message))
+      .finally(() => active && setContextLoading(false))
     return () => { active = false }
   }, [repairOrder.crmOrderNo, repairOrder.originalFault, treatmentMode])
 
@@ -259,6 +262,37 @@ function RepairCompletion({ setPage }) {
 
   function showPricingSummary() {
     pricingSummaryRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })
+  }
+
+  if (contextLoading) {
+    return (
+      <div className="page repair-completion-page">
+        <div className="top-bar">
+          <button className="arrow-back" onClick={() => setPage("repairProcess")}>←</button>
+          <h1>维修完工</h1>
+        </div>
+        <div className="card completion-context-state" role="status">
+          <h2>正在读取维修资料</h2>
+          <p>正在加载已保存的三级故障、配件和维修方案…</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!pricing && errorMessage) {
+    return (
+      <div className="page repair-completion-page">
+        <div className="top-bar">
+          <button className="arrow-back" onClick={() => setPage("repairProcess")}>←</button>
+          <h1>维修完工</h1>
+        </div>
+        <div className="card completion-context-state" role="alert">
+          <h2>维修资料读取失败</h2>
+          <p>{errorMessage}</p>
+          <button className="secondary-btn" onClick={() => setPage("repairProcess")}>返回检测记录</button>
+        </div>
+      </div>
+    )
   }
 
   return (

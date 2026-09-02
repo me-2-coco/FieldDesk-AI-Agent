@@ -80,6 +80,29 @@ test("only inspected orders may enter repair completion", async (t) => {
   await assert.rejects(other.saveRepairCompletion("R2", {}, USER, false), { code: "REPAIR_COMPLETION_NOT_ALLOWED" });
 });
 
+test("reselecting repair preserves a saved inspection and can return to completion", async (t) => {
+  const { receiptStore } = await fixture(t);
+  await receiptStore.saveInspection("TEST-RMA", {
+    inspectionResult: "维修",
+    faultCategory: "产品质量|无法启动|电源模块不良",
+    technicianWarranty: "保外",
+  }, USER);
+  await receiptStore.applyPart("TEST-RMA", {
+    code: "00100123", name: "主刷电机", stock: 3,
+    retailPrice: 29, repairLevel: "中修",
+  }, 1, USER);
+
+  const reselected = await receiptStore.saveTreatmentDecision("TEST-RMA", {
+    treatmentMode: "REPAIR",
+  }, USER);
+  assert.equal(reselected.status, "INSPECTION_COMPLETED_PENDING_REPAIR");
+  assert.equal(reselected.faultCategory, "产品质量|无法启动|电源模块不良");
+
+  const confirmed = await receiptStore.confirmParts("TEST-RMA", USER);
+  assert.equal(confirmed.order.status, "REPAIR_COMPLETION_DRAFT");
+  assert.equal(confirmed.nextStep, "repairCompletion");
+});
+
 test("completion validates required fields and moves to pending shipment", async (t) => {
   const { receiptStore } = await fixture(t);
   await assert.rejects(receiptStore.saveRepairCompletion("TEST-RMA", {}, USER, true), {
@@ -198,6 +221,8 @@ test("frontend completion page reuses confirmed fault and includes warranty, med
   assert.match(source, /保外费用待核对/);
   assert.match(source, /请填写单程物流费/);
   assert.match(source, /保外调试费用选填/);
+  assert.match(source, /正在读取维修资料/);
+  assert.match(source, /维修资料读取失败/);
   assert.match(partsSource, /完整费用在维修完工页核对/);
   assert.match(source, /requiresOutOfWarrantyFee/);
   assert.match(source, /disabled=\{busy \|\| !canSubmitCompletion\}/);
@@ -207,6 +232,7 @@ test("frontend completion page reuses confirmed fault and includes warranty, med
   assert.match(serverSource, /attachmentStore\.save/);
   assert.match(serverSource, /requiresOutOfWarrantyFee/);
   assert.match(serverSource, /!logisticsFeeIsWaived/);
+  assert.match(serverSource, /hasSavedInspection/);
 });
 
 test("frontend exposes five treatment choices including headquarters transfer", async () => {

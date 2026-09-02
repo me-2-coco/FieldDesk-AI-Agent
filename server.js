@@ -2198,7 +2198,8 @@ function createApp(
       const rmaNo = String(req.body?.rmaNo || "").trim();
       const order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
       if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到待维修工单", 404);
-      if (!["INSPECTION_COMPLETED_PENDING_REPAIR", "REPAIR_COMPLETION_DRAFT"].includes(order.status)) {
+      const hasSavedInspection = Boolean(order.inspectionUpdatedAt && order.faultCategory && order.technicianWarranty);
+      if (!["INSPECTION_COMPLETED_PENDING_REPAIR", "REPAIR_COMPLETION_DRAFT"].includes(order.status) && !hasSavedInspection) {
         throw createApiError("REPAIR_COMPLETION_NOT_ALLOWED", "仅已完成检测的工单可以进入维修完工", 409);
       }
       const appliedParts = (await hydratePartApplications(order)).map((part) => ({

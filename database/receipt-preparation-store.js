@@ -359,13 +359,14 @@ class JsonReceiptPreparationStore {
         throw Object.assign(new Error("弃修仅适用于保外机器；保内机器无需付费，不能选择弃修"), { code: "IN_WARRANTY_ABANDONMENT_NOT_ALLOWED", status: 409 });
       }
       const skipsParts = treatmentMode !== "REPAIR";
+      const hasSavedInspection = Boolean(existing.inspectionUpdatedAt && existing.faultCategory && existing.technicianWarranty);
       const timestamp = new Date().toISOString();
       const updated = {
         ...existing,
         treatmentMode,
         treatmentLabel: labels[treatmentMode],
         skipsParts,
-        status: skipsParts ? "INSPECTION_COMPLETED_PENDING_REPAIR" : "RECEIVED_PENDING_INSPECTION",
+        status: skipsParts || hasSavedInspection ? "INSPECTION_COMPLETED_PENDING_REPAIR" : "RECEIVED_PENDING_INSPECTION",
         inspectionResult: normalizeRequired(input.detectionResult),
         detectionResult: normalizeRequired(input.detectionResult),
         technicianWarranty,
@@ -565,7 +566,8 @@ class JsonReceiptPreparationStore {
         throw Object.assign(new Error("请先添加维修配件"), { code: "PART_CONFIRMATION_EMPTY", status: 409 });
       }
       const timestamp = new Date().toISOString();
-      const inspectionComplete = ["INSPECTION_COMPLETED_PENDING_REPAIR", "REPAIR_COMPLETION_DRAFT"].includes(existing.status);
+      const inspectionComplete = ["INSPECTION_COMPLETED_PENDING_REPAIR", "REPAIR_COMPLETION_DRAFT"].includes(existing.status)
+        || Boolean(existing.inspectionUpdatedAt && existing.faultCategory && existing.technicianWarranty);
       const updated = {
         ...existing,
         status: inspectionComplete ? "REPAIR_COMPLETION_DRAFT" : existing.status,
@@ -588,7 +590,8 @@ class JsonReceiptPreparationStore {
           code: "RECEIPT_PREPARATION_NOT_FOUND", status: 404,
         });
       }
-      if (!["INSPECTION_COMPLETED_PENDING_REPAIR", "REPAIR_COMPLETION_DRAFT"].includes(existing.status)) {
+      const hasSavedInspection = Boolean(existing.inspectionUpdatedAt && existing.faultCategory && existing.technicianWarranty);
+      if (!["INSPECTION_COMPLETED_PENDING_REPAIR", "REPAIR_COMPLETION_DRAFT"].includes(existing.status) && !hasSavedInspection) {
         throw Object.assign(new Error("仅已完成检测的工单可以进入维修完工"), {
           code: "REPAIR_COMPLETION_NOT_ALLOWED", status: 409,
         });

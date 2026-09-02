@@ -130,7 +130,7 @@ function RepairProcess({ setPage }) {
         <div className="machine-card-header">
           <h2>机器信息</h2>
           <span className="repair-status-badge status-working">
-            {repairOrder.status === REPAIR_STATUS.INSPECTION_COMPLETE
+            {inspectionIsSaved
               ? "已检测"
               : "待检测"}
           </span>
