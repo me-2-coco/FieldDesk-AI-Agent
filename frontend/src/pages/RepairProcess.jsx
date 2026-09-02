@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { checkInspectionWarranty, saveInspection, searchRecloudFaultCategories } from "../shared/crmService.js"
+import { checkInspectionWarranty, saveInspection, saveRepairResumeStep, searchRecloudFaultCategories } from "../shared/crmService.js"
 import SupervisionNoticeCard from "../components/SupervisionNoticeCard.jsx"
 import { rankFaultOptions } from "../shared/faultSearch.js"
 import {
@@ -116,6 +116,19 @@ function RepairProcess({ setPage }) {
     }
   }
 
+  async function navigateToSavedStep(nextPage) {
+    try {
+      setIsSaving(true)
+      setErrorMessage("")
+      await saveRepairResumeStep(repairOrder.crmOrderNo, nextPage)
+      setPage(nextPage)
+    } catch (error) {
+      setErrorMessage(error.message)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   return (
     <div className="page repair-process-page">
 
@@ -212,7 +225,7 @@ function RepairProcess({ setPage }) {
 
         <div className="inspection-actions">
           {inspectionIsSaved ? (
-            <button className="secondary-btn" onClick={() => setPage("partsApplication")} disabled={isSaving}>
+            <button className="secondary-btn" onClick={() => navigateToSavedStep("partsApplication")} disabled={isSaving}>
               返回添加配件
             </button>
           ) : (
@@ -225,7 +238,7 @@ function RepairProcess({ setPage }) {
             </button>
           )}
           {inspectionIsSaved && (
-            <button className="primary-btn" onClick={() => setPage("repairCompletion")}>
+            <button className="primary-btn" onClick={() => navigateToSavedStep("repairCompletion")} disabled={isSaving}>
               进入维修完工确认
             </button>
           )}

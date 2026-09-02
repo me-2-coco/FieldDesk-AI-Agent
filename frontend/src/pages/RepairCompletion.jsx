@@ -6,6 +6,7 @@ import {
   getRepairCompletionContext,
   getRepairSyncOrderStatus,
   saveRepairCompletionDraft,
+  saveRepairResumeStep,
   submitRepairCompletion,
   uploadRepairAttachment
 } from "../shared/crmService.js"
@@ -264,6 +265,24 @@ function RepairCompletion({ setPage }) {
     pricingSummaryRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })
   }
 
+  async function leaveCompletion() {
+    if (completedDetail) {
+      setPage("home")
+      return
+    }
+    const nextPage = skipsParts ? "repairDecision" : "repairProcess"
+    try {
+      setBusy(true)
+      setErrorMessage("")
+      await saveRepairResumeStep(repairOrder.crmOrderNo, nextPage)
+      setPage(nextPage)
+    } catch (error) {
+      setErrorMessage(error.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   if (contextLoading) {
     return (
       <div className="page repair-completion-page">
@@ -298,7 +317,7 @@ function RepairCompletion({ setPage }) {
   return (
     <div className="page repair-completion-page">
       <div className="top-bar">
-        <button className="arrow-back" onClick={() => setPage(completedDetail ? "home" : skipsParts ? "repairDecision" : "repairProcess")}>←</button>
+        <button className="arrow-back" onClick={leaveCompletion} disabled={busy}>←</button>
         <h1>{completedDetail ? "维修完成详情" : "维修完工"}</h1>
       </div>
 

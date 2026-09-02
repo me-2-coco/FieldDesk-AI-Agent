@@ -103,6 +103,22 @@ test("reselecting repair preserves a saved inspection and can return to completi
   assert.equal(confirmed.nextStep, "repairCompletion");
 });
 
+test("unfinished order persists the exact page to resume", async (t) => {
+  const { receiptStore } = await fixture(t);
+  assert.equal((await receiptStore.readAll())[0].resumeStep, "repairProcess");
+
+  await receiptStore.setResumeStep("TEST-RMA", "partsApplication", USER);
+  assert.equal((await receiptStore.readAll())[0].resumeStep, "partsApplication");
+
+  await receiptStore.setResumeStep("TEST-RMA", "repairCompletion", USER);
+  assert.equal((await receiptStore.readAll())[0].resumeStep, "repairCompletion");
+
+  await assert.rejects(
+    receiptStore.setResumeStep("TEST-RMA", "unknownPage", USER),
+    { code: "REPAIR_RESUME_STEP_INVALID" }
+  );
+});
+
 test("completion validates required fields and moves to pending shipment", async (t) => {
   const { receiptStore } = await fixture(t);
   await assert.rejects(receiptStore.saveRepairCompletion("TEST-RMA", {}, USER, true), {
@@ -233,6 +249,7 @@ test("frontend completion page reuses confirmed fault and includes warranty, med
   assert.match(serverSource, /requiresOutOfWarrantyFee/);
   assert.match(serverSource, /!logisticsFeeIsWaived/);
   assert.match(serverSource, /hasSavedInspection/);
+  assert.match(serverSource, /\/api\/repairs\/resume-step/);
 });
 
 test("frontend exposes five treatment choices including headquarters transfer", async () => {

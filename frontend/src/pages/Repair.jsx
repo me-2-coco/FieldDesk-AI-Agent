@@ -16,6 +16,7 @@ import {
   REPAIR_STATUS,
   saveCurrentRepairOrder
 } from "../shared/repairOrderStore.js"
+import { resumePageForLocalWorkflow } from "../shared/repairNavigation.js"
 import {
   getReceiptSpecialtyGate,
   normalizeReceiptSn,
@@ -75,21 +76,6 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
   )
   const queriedLogisticsNo = repairDetail?.logisticsNo || repairDetail?.pickupLogisticsNo || ""
 
-  function resumePageForLocalOrder(order) {
-    const timelineTypes = new Set((order.timeline || []).map((item) => item.type))
-    if (["REPAIR_COMPLETED_PENDING_SHIPMENT", "SHIPPED_PENDING_COMPLETION", "COMPLETED"].includes(order.status)) return "repairCompletion"
-    if (order.status === "REPAIR_COMPLETION_DRAFT" || timelineTypes.has("PART_USED") || timelineTypes.has("NO_PARTS_REQUIRED")) return "repairCompletion"
-    if (order.status === "INSPECTION_COMPLETED_PENDING_REPAIR") {
-      if (order.treatmentMode && order.treatmentMode !== "REPAIR") return "repairCompletion"
-      return timelineTypes.has("PARTS_CONFIRMED") ? "repairCompletion" : "partsApplication"
-    }
-    if (["RECEIVED_PENDING_INSPECTION", "INSPECTION_IN_PROGRESS"].includes(order.status)) {
-      if (!order.treatmentMode) return "repairDecision"
-      return order.treatmentMode === "REPAIR" ? "partsApplication" : "repairCompletion"
-    }
-    return ""
-  }
-
   function frontendStatusForLocalOrder(order, targetPage) {
     if (order.status === "COMPLETED") return REPAIR_STATUS.COMPLETED
     if (order.status === "SHIPPED_PENDING_COMPLETION") return REPAIR_STATUS.SHIPPED_PENDING_COMPLETION
@@ -100,6 +86,11 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
   }
 
   function restoreLocalOrder(order, targetPage, queryResult) {
+    const restoredParts = order.repairCompletion?.usedParts?.length
+      ? order.repairCompletion.usedParts
+      : Array.isArray(order.partApplications)
+        ? order.partApplications
+        : []
     saveCurrentRepairOrder({
       id: `RMA-${order.rmaNo}`,
       crmOrderNo: order.rmaNo,
@@ -119,10 +110,12 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
       level3Fault: order.faultCategory || "",
       treatmentMode: order.treatmentMode || "",
       treatmentLabel: order.treatmentLabel || "",
+      resumeStep: targetPage,
       specialty: order.specialty || order.productLine || "",
       receiptRemark: order.remark || "",
       technician: order.technicianName || order.operatorName || "",
-      usedParts: order.repairCompletion?.usedParts || [],
+      usedParts: restoredParts,
+      parts: restoredParts,
       attachments: order.repairCompletion?.attachments || [],
       status: frontendStatusForLocalOrder(order, targetPage),
       createdAt: order.createdAt || "",
@@ -137,7 +130,7 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
         String(item.rmaNo || "").trim() === String(result.rmaNo || "").trim()
       )
       if (!localOrder?.sn) return false
-      const targetPage = resumePageForLocalOrder(localOrder)
+      const targetPage = resumePageForLocalWorkflow(localOrder)
       if (!targetPage) {
         setRepairDetail({ ...result, localWorkflow: localOrder })
         setReceiptStep("detail")

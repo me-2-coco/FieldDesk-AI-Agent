@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react"
 import { getLocalRepairOrders, getShippingOrders } from "../shared/crmService.js"
 import { findRepairOrderByCrmOrderNo, getCurrentRepairOrder, REPAIR_STATUS, saveCurrentRepairOrder } from "../shared/repairOrderStore.js"
-import { pageForLocalWorkflowStatus, pageForRepairStatus, repairStatusForLocalWorkflow } from "../shared/repairNavigation.js"
+import { pageForRepairStatus, repairStatusForLocalWorkflow, resumePageForLocalWorkflow } from "../shared/repairNavigation.js"
 import { USER_ROLES } from "../shared/userStore.js"
 import SupervisionInbox from "../components/SupervisionInbox.jsx"
 
 const COMPLETED_WORKFLOW_STATUSES = new Set(["REPAIR_COMPLETED_PENDING_SHIPMENT", "SHIPPED_PENDING_COMPLETION", "COMPLETED"])
-const WAITING_PART_STATUSES = new Set(["PART_APPLICATION_RECORDED"])
 
 function localDateKey(value) {
   const date = value ? new Date(value) : null
@@ -47,7 +46,12 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
   const isInformationClerk = currentUser?.role === USER_ROLES.INFORMATION_CLERK
   const nextPage = pageForRepairStatus(order?.status)
 
-  function restoreLocalOrder(workflow) {
+  function restoreLocalOrder(workflow, targetPage = resumePageForLocalWorkflow(workflow)) {
+    const restoredParts = workflow.repairCompletion?.usedParts?.length
+      ? workflow.repairCompletion.usedParts
+      : Array.isArray(workflow.partApplications)
+        ? workflow.partApplications
+        : []
     const restored = saveCurrentRepairOrder({
       id: `RMA-${workflow.rmaNo}`,
       crmOrderNo: workflow.rmaNo,
@@ -67,15 +71,20 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
       level3Fault: workflow.faultCategory || "",
       treatmentMode: workflow.treatmentMode || "",
       treatmentLabel: workflow.treatmentLabel || "",
+      resumeStep: targetPage,
       specialty: workflow.specialty || workflow.productLine || "",
       receiptRemark: workflow.remark || "",
       technician: workflow.technicianName || workflow.operatorName || "",
-      usedParts: workflow.repairCompletion?.usedParts || [],
-      parts: workflow.repairCompletion?.usedParts || [],
+      usedParts: restoredParts,
+      parts: restoredParts,
       attachments: workflow.repairCompletion?.attachments || [],
       photos: workflow.repairCompletion?.attachments || [],
       solution: workflow.repairCompletion?.repairMeasure || "",
-      status: repairStatusForLocalWorkflow(workflow.status),
+      status: targetPage === "repairCompletion"
+        ? REPAIR_STATUS.REPAIRING
+        : targetPage === "repairProcess"
+          ? REPAIR_STATUS.INSPECTION_COMPLETE
+          : repairStatusForLocalWorkflow(workflow.status),
       createdAt: workflow.createdAt || "",
       completedAt: workflow.completedAt || ""
     })
@@ -92,9 +101,10 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
         if (navigate) setPage(nextPage)
         return
       }
-      const restored = restoreLocalOrder(workflow)
+      const targetPage = resumePageForLocalWorkflow(workflow)
+      const restored = restoreLocalOrder(workflow, targetPage)
       setResumeError("")
-      if (navigate) setPage(pageForLocalWorkflowStatus(workflow.status) || pageForRepairStatus(restored.status))
+      if (navigate) setPage(targetPage || pageForRepairStatus(restored.status))
     } catch (error) {
       setResumeError(error.message)
       if (navigate) setPage(nextPage)
@@ -130,7 +140,7 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
   const roleName = isAdmin ? "管理员" : isWarehouse ? "库房" : isInformationClerk ? "信息员" : "维修师傅"
   const accountName = currentUser?.name || "未识别"
   const completedOrders = workflows.filter((item) => item.repairCompletion?.submittedAt || COMPLETED_WORKFLOW_STATUSES.has(item.status))
-  const waitingParts = workflows.filter((item) => !item.repairCompletion?.submittedAt && (WAITING_PART_STATUSES.has(item.status) || (item.partApplications?.length > 0 && !COMPLETED_WORKFLOW_STATUSES.has(item.status))))
+  const waitingParts = workflows.filter((item) => !item.repairCompletion?.submittedAt && resumePageForLocalWorkflow(item) === "partsApplication")
   const unfinished = workflows.filter((item) => item.receiptCompletedAt && !item.repairCompletion?.submittedAt && !COMPLETED_WORKFLOW_STATUSES.has(item.status) && !waitingParts.includes(item))
   const currentMonth = localDateKey(new Date()).slice(0, 7)
   const summarize = (rows) => ({ repaired: rows.filter((item) => !isAbandoned(item)).length, abandoned: rows.filter(isAbandoned).length, total: rows.length })
@@ -160,10 +170,10 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
   ]
 
   function openWorkflow(item) {
-    const restored = restoreLocalOrder(item)
+    const targetPage = resumePageForLocalWorkflow(item)
+    const restored = restoreLocalOrder(item, targetPage)
     if (COMPLETED_WORKFLOW_STATUSES.has(item.status)) { setPage("repairCompletion"); return }
-    if (waitingParts.includes(item) || item.status === "PART_APPLICATION_RECORDED") { setPage("partsApplication"); return }
-    setPage(pageForLocalWorkflowStatus(item.status) || pageForRepairStatus(restored.status))
+    setPage(targetPage || pageForRepairStatus(restored.status))
   }
 
   return <div className="page home-page">

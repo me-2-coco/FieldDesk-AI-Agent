@@ -2503,6 +2503,21 @@ function createApp(
     } catch (error) { next(error); }
   });
 
+  app.post("/api/repairs/resume-step", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      if (user.role !== USER_ROLES.TECHNICIAN) {
+        throw createApiError("REPAIR_RESUME_STEP_FORBIDDEN", "只有维修师傅可以更新工单操作位置", 403);
+      }
+      const data = await receiptStore.setResumeStep(
+        String(req.body?.rmaNo || "").trim(),
+        String(req.body?.resumeStep || "").trim(),
+        user
+      );
+      res.json({ success: true, data: { resumeStep: data.resumeStep } });
+    } catch (error) { next(error); }
+  });
+
   app.get("/api/repairs/history", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);

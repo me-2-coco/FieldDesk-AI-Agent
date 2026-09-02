@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import ScannerModal from "../components/ScannerModal.jsx"
 import SupervisionNoticeCard from "../components/SupervisionNoticeCard.jsx"
 import { ScanIcon } from "../components/AppIcons.jsx"
-import { applyLocalPart, confirmRepairParts, getRepairParts, searchPartsCatalog, updateRepairPart } from "../shared/crmService.js"
+import { applyLocalPart, confirmRepairParts, getRepairParts, saveRepairResumeStep, searchPartsCatalog, updateRepairPart } from "../shared/crmService.js"
 import {
   getCurrentRepairOrder,
   REPAIR_STATUS,
@@ -189,10 +189,23 @@ function PartsApplication({ setPage }) {
     }
   }
 
+  async function returnToPreviousStep() {
+    try {
+      setIsSaving(true)
+      setErrorMessage("")
+      await saveRepairResumeStep(repairOrder.crmOrderNo, backPage)
+      setPage(backPage)
+    } catch (error) {
+      setErrorMessage(error.message)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   return (
     <div className="page parts-application-page">
       <div className="top-bar">
-        <button className="arrow-back" onClick={() => setPage(backPage)}>
+        <button className="arrow-back" onClick={returnToPreviousStep} disabled={isSaving}>
           ←
         </button>
         <h1>申请配件</h1>

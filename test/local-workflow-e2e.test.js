@@ -142,4 +142,6 @@ test("frontend workflow lets technicians finish locally while shipping stays in 
   assert.match(home, /后台发货进度/);
   assert.match(home, /workflow\.technicianWarranty \|\| workflow\.warrantyType/);
   assert.match(home, /level3Fault: workflow\.faultCategory/);
+  assert.match(home, /resumePageForLocalWorkflow/);
+  assert.doesNotMatch(home, /partApplications\?\.length > 0/);
 });

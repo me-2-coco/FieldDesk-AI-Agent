@@ -423,6 +423,9 @@ function normalizeOrder(order) {
     treatmentLabel:
       order.treatmentLabel || "",
 
+    resumeStep:
+      order.resumeStep || "",
+
     specialty:
       order.specialty || "",
 

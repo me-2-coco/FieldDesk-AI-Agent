@@ -253,6 +253,7 @@ class JsonReceiptPreparationStore {
       const updated = {
         ...existing,
         status: "RECEIVED_PENDING_INSPECTION",
+        resumeStep: "repairDecision",
         receiptCompletedAt: existing.receiptCompletedAt || timestamp,
         operatorId: normalizeRequired(operator.userId),
         operatorName:
@@ -367,6 +368,7 @@ class JsonReceiptPreparationStore {
         treatmentLabel: labels[treatmentMode],
         skipsParts,
         status: skipsParts || hasSavedInspection ? "INSPECTION_COMPLETED_PENDING_REPAIR" : "RECEIVED_PENDING_INSPECTION",
+        resumeStep: skipsParts ? "repairCompletion" : "partsApplication",
         inspectionResult: normalizeRequired(input.detectionResult),
         detectionResult: normalizeRequired(input.detectionResult),
         technicianWarranty,
@@ -414,6 +416,7 @@ class JsonReceiptPreparationStore {
       const updated = {
         ...existing,
         status: "INSPECTION_COMPLETED_PENDING_REPAIR",
+        resumeStep: "repairProcess",
         inspectionResult,
         inspectionRemark: normalizeRequired(input.inspectionRemark),
         faultCategory: normalizeRequired(input.faultCategory),
@@ -507,6 +510,7 @@ class JsonReceiptPreparationStore {
       const updated = {
         ...existing,
         partApplications: [...(Array.isArray(existing.partApplications) ? existing.partApplications : []), application],
+        resumeStep: "partsApplication",
         updatedAt: timestamp,
         timeline: [
           ...(existing.timeline || []),
@@ -544,6 +548,7 @@ class JsonReceiptPreparationStore {
         partApplications: remove
           ? (existing.partApplications || []).filter((item) => item.id !== applicationId)
           : (existing.partApplications || []).map((item) => item.id === applicationId ? application : item),
+        resumeStep: "partsApplication",
         updatedAt: timestamp,
         timeline: [...(existing.timeline || []), timelineEvent("PART_APPLICATION_UPDATED", remove ? "已删除误选配件" : "已修改配件数量", operator, timestamp)],
       };
@@ -571,6 +576,7 @@ class JsonReceiptPreparationStore {
       const updated = {
         ...existing,
         status: inspectionComplete ? "REPAIR_COMPLETION_DRAFT" : existing.status,
+        resumeStep: inspectionComplete ? "repairCompletion" : "repairProcess",
         updatedAt: timestamp,
         timeline: [...(existing.timeline || []), timelineEvent("PARTS_CONFIRMED", "维修配件已确认，进入维修完工", operator, timestamp)],
       };
@@ -629,6 +635,7 @@ class JsonReceiptPreparationStore {
       const updated = {
         ...existing,
         status: submit ? "REPAIR_COMPLETED_PENDING_SHIPMENT" : "REPAIR_COMPLETION_DRAFT",
+        resumeStep: "repairCompletion",
         repairCompletion: {
           faultLevel1, faultLevel2, faultLevel3,
           responsibilityType,
@@ -787,6 +794,31 @@ class JsonReceiptPreparationStore {
       );
     }
     return [];
+  }
+
+  async setResumeStep(rmaNo, resumeStep, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const allowedSteps = new Set(["repairDecision", "partsApplication", "repairProcess", "repairCompletion"]);
+      if (!allowedSteps.has(resumeStep)) {
+        throw Object.assign(new Error("无效的工单恢复步骤"), { code: "REPAIR_RESUME_STEP_INVALID", status: 400 });
+      }
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing) {
+        throw Object.assign(new Error("未找到维修工单"), { code: "RECEIPT_PREPARATION_NOT_FOUND", status: 404 });
+      }
+      if (["REPAIR_COMPLETED_PENDING_SHIPMENT", "SHIPPED_PENDING_COMPLETION", "COMPLETED"].includes(existing.status)) {
+        throw Object.assign(new Error("已提交完工的工单不能修改恢复步骤"), { code: "REPAIR_RESUME_STEP_LOCKED", status: 409 });
+      }
+      if ((existing.technicianId || existing.operatorId) !== operator.userId) {
+        throw Object.assign(new Error("只能更新本人负责工单的恢复步骤"), { code: "REPAIR_RESUME_STEP_FORBIDDEN", status: 403 });
+      }
+      const updated = { ...existing, resumeStep, updatedAt: new Date().toISOString() };
+      await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
   }
 
   async submitReturnShipment(rmaNo, input = {}, operator = {}) {

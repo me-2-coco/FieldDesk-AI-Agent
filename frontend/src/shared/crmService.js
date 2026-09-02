@@ -145,6 +145,10 @@ export async function getLocalRepairOrders() {
   return get("/api/repairs/local-orders")
 }
 
+export async function saveRepairResumeStep(rmaNo, resumeStep) {
+  return request("/api/repairs/resume-step", { rmaNo, resumeStep })
+}
+
 export async function uploadReceiptAttachment(payload) {
   return request("/api/repairs/receipt/attachments", payload)
 }
