@@ -7248,6 +7248,15 @@ async function findMappedReceiptControl(page, options = {}) {
   const expectedRowIndex = Number(options.rowIndex) || 1;
 
   for (const scope of scopes.slice(0, 6)) {
+    await limited(
+      () =>
+        activateReceiptDetailTabs(
+          scope,
+          page,
+          options.logger || console
+        ),
+      { productTabActivated: false, rmaTabActivated: false }
+    );
     const headers = scope.getByText("产品序列号", { exact: true });
     const headerCount = await limited(
       async () => Math.min(await headers.count(), 10),
