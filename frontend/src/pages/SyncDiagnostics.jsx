@@ -103,22 +103,29 @@ function SyncDiagnostics({ setPage }) {
       await refresh()
     } catch (error) { setMessage(error.message) }
   }
+  const readyCount = nodes.filter((node) => ["READY", "CAPTURED"].includes(node.status)).length
+  const attentionCount = nodes.length - readyCount
 
   return <div className="page sync-diagnostics-page">
     <div className="top-bar">
       <button className="arrow-back" onClick={() => setPage("profile")}>←</button>
-      <h1>同步检查</h1>
+      <div><small>系统管理</small><h1>同步检查</h1></div>
     </div>
-    <div className="card">
-      <p>仅保存入口特征、路径模板和字段名称；禁止填写字段值、客户资料、凭据或完整 URL。</p>
+    <div className="backoffice-metric-grid diagnostic-metric-grid">
+      <div><span>同步节点</span><strong>{nodes.length}</strong></div>
+      <div><span>已就绪</span><strong>{readyCount}</strong></div>
+      <div><span>待处理</span><strong>{attentionCount}</strong></div>
+    </div>
+    <div className="card backoffice-intro-card diagnostic-intro-card">
+      <span className="backoffice-intro-icon">同</span><div><strong>只读结构检查</strong><p>仅保存入口特征、路径模板和字段名称，不记录客户资料、凭据或完整 URL。</p></div>
       <button type="button" onClick={captureAll}>一次保存五节点元数据</button>
     </div>
-    {nodes.map((node) => {
+    <div className="diagnostic-node-list compact-result-list">{nodes.map((node) => {
       const form = formFor(node.nodeKey)
-      return <div className="card" key={node.nodeKey}>
-        <h2>{node.label} <span>{STATUS_LABELS[node.status] || node.status}</span></h2>
-        <p>缺少配置：{node.missingFields.length ? node.missingFields.join("、") : "无"}</p>
-        <p>待确认真实规则：{node.unresolvedRules.join("、")}</p>
+      return <details className="card compact-record-card diagnostic-node-card" key={node.nodeKey}>
+        <summary><span className="compact-record-main"><small>同步节点</small><strong>{node.label}</strong><em>{node.missingFields.length ? `缺少 ${node.missingFields.length} 项配置` : "配置完整"}</em></span><span className={`record-status status-${String(node.status).toLowerCase()}`}>{STATUS_LABELS[node.status] || node.status}</span><b>⌄</b></summary>
+        <div className="diagnostic-rule-summary"><p><strong>缺少配置</strong>{node.missingFields.length ? node.missingFields.join("、") : "无"}</p><p><strong>待确认规则</strong>{node.unresolvedRules.join("、") || "无"}</p></div>
+        <div className="diagnostic-form-grid">
         <input value={form.entryFeatures} onChange={(event) => update(node.nodeKey, "entryFeatures", event.target.value)} placeholder="入口特征名称，逗号分隔" />
         <select value={form.httpMethod} onChange={(event) => update(node.nodeKey, "httpMethod", event.target.value)}>
           {["GET", "POST", "PUT", "PATCH", "DELETE"].map((method) => <option key={method}>{method}</option>)}
@@ -130,10 +137,10 @@ function SyncDiagnostics({ setPage }) {
         <input value={form.successCriteriaFieldNames} onChange={(event) => update(node.nodeKey, "successCriteriaFieldNames", event.target.value)} placeholder="成功判断字段名称" />
         <input value={form.idempotencyFieldNames} onChange={(event) => update(node.nodeKey, "idempotencyFieldNames", event.target.value)} placeholder="幂等查询字段名称" />
         <input value={form.enumStatusValues} onChange={(event) => update(node.nodeKey, "enumStatusValues", event.target.value)} placeholder="枚举/状态值（禁止录入业务数据）" />
-        <button type="button" onClick={() => capture(node.nodeKey)}>保存只读采集结果</button>
-      </div>
-    })}
-    {message && <p role="status">{message}</p>}
+        </div><button type="button" onClick={() => capture(node.nodeKey)}>保存该节点</button>
+      </details>
+    })}</div>
+    {message && <p className="inline-status" role="status">{message}</p>}
   </div>
 }
 

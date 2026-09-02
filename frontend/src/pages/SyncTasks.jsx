@@ -112,6 +112,9 @@ function SyncTasks({ setPage, onOpenOrder }) {
   }, [tasks, keyword, statusFilter])
 
   const visibleTasks = filteredTasks.slice(0, visibleLimit)
+  const actionableCount = tasks.filter((task) => ACTIONABLE_STATUSES.has(task.status)).length
+  const successCount = tasks.filter((task) => task.status === "SUCCESS").length
+  const processingCount = tasks.filter((task) => ["PENDING", "PROCESSING"].includes(task.status)).length
 
   async function retry(taskId) {
     try {
@@ -126,42 +129,43 @@ function SyncTasks({ setPage, onOpenOrder }) {
   return <div className="page sync-tasks-page">
     <div className="top-bar">
       <button className="arrow-back" onClick={() => setPage("profile")}>←</button>
-      <h1>瑞云同步</h1>
+      <div><small>系统管理</small><h1>瑞云同步</h1></div>
     </div>
-    <div className="card">
-      <p>本地业务不等待瑞云同步。当前安全开关关闭真实写入时使用 DRY_RUN 适配器。</p>
-      <p>页面每5秒自动刷新；状态变化会在本页提示，不会自动点击最终确认。</p>
-      <button type="button" onClick={() => refresh({ showLoading: true, announce: true })} disabled={loading}>立即刷新</button>
-      {lastRefreshedAt && <p>最近刷新：{lastRefreshedAt}</p>}
+    <div className="backoffice-metric-grid sync-metric-grid">
+      <div><span>待处理</span><strong>{actionableCount}</strong></div>
+      <div><span>执行中</span><strong>{processingCount}</strong></div>
+      <div><span>已完成</span><strong>{successCount}</strong></div>
     </div>
-    <div className="card">
-      <label htmlFor="sync-task-search">按寄修单号筛选</label>
+    <div className="card sync-control-card compact-search-card">
+      <div className="section-title-row"><div><small>任务筛选</small><h2>同步任务</h2></div><button type="button" className="mini-refresh-button" onClick={() => refresh({ showLoading: true, announce: true })} disabled={loading}>刷新</button></div>
       <input
         id="sync-task-search"
         value={keyword}
         onChange={(event) => setKeyword(event.target.value)}
         placeholder="输入完整或部分寄修单号"
       />
-      <label htmlFor="sync-status-filter">任务范围</label>
-      <select id="sync-status-filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-        <option value="ACTIONABLE">只看待处理</option>
-        <option value="ALL">全部历史任务</option>
-      </select>
-      <p>共找到 {filteredTasks.length} 个任务，当前显示 {Math.min(visibleTasks.length, filteredTasks.length)} 个。</p>
+      <div className="segmented-control" aria-label="任务范围">
+        <button type="button" className={statusFilter === "ACTIONABLE" ? "active" : ""} onClick={() => setStatusFilter("ACTIONABLE")}>只看待处理</button>
+        <button type="button" className={statusFilter === "ALL" ? "active" : ""} onClick={() => setStatusFilter("ALL")}>全部历史任务</button>
+      </div>
+      <p className="compact-result-count">按寄修单号筛选 · 共 {filteredTasks.length} 个任务{lastRefreshedAt ? ` · ${lastRefreshedAt} 更新` : ""}</p>
+      <p className="sync-safety-hint">系统只刷新任务状态，不会自动点击最终确认。</p>
     </div>
-    {statusNotice && <div className="card" role="status">
+    {statusNotice && <div className="inline-notice-card" role="status">
       <strong>同步状态更新</strong>
       <p>{statusNotice}</p>
-      <button type="button" className="secondary-btn" onClick={() => setStatusNotice("")}>知道了</button>
+      <button type="button" onClick={() => setStatusNotice("")}>×</button>
     </div>}
     {loading && <p>正在读取同步任务...</p>}
     {!loading && tasks.length === 0 && <p>暂无同步任务</p>}
     {!loading && tasks.length > 0 && filteredTasks.length === 0 && <p>当前筛选条件下没有同步任务</p>}
-    {visibleTasks.map((task) => <div className="card" key={task.id}>
-      <h2>{NODE_LABELS[task.nodeType] || task.nodeType}</h2>
-      <p>寄修单号：{task.rmaNo || "-"}</p>
-      <p>状态：{STATUS_LABELS[task.status] || task.status}</p>
-      <p>{STATUS_HINTS[task.status] || "请查看任务状态后决定下一步。"}</p>
+    <div className="compact-result-list sync-task-list">{visibleTasks.map((task) => <details className={`card compact-record-card sync-task-card status-${String(task.status || "").toLowerCase()}`} key={task.id}>
+      <summary><span className="compact-record-main"><small>{NODE_LABELS[task.nodeType] || task.nodeType}</small><strong>{task.rmaNo || "未关联寄修单"}</strong><em>{STATUS_HINTS[task.status] || "请查看任务状态后决定下一步。"}</em></span><span className="record-status">{STATUS_LABELS[task.status] || task.status}</span><b>⌄</b></summary>
+      <div className="compact-record-detail sync-task-detail">
+        <div><small>重试次数</small><strong>{task.retryCount}</strong></div>
+        <div><small>错误分类</small><strong>{task.errorCategory || "无"}</strong></div>
+        <div><small>创建时间</small><strong>{new Date(task.createdAt).toLocaleString()}</strong></div>
+      </div>
       {task.nodeType === "REPAIR_COMPLETED" && Array.isArray(task.completedSteps) && task.completedSteps.length > 0 && (
         <div className="sync-step-summary">
           <p>已完成步骤：</p>
@@ -173,10 +177,8 @@ function SyncTasks({ setPage, onOpenOrder }) {
       {task.nodeType === "REPAIR_COMPLETED" && Array.isArray(task.reviewSteps) && task.reviewSteps.length > 0 && (
         <p>需复核阶段：{task.reviewSteps.map((step) => REVIEW_STEP_LABELS[step] || step).join("、")}</p>
       )}
-      <p>重试次数：{task.retryCount}</p>
-      <p>错误分类：{task.errorCategory || "无"}</p>
-      <p>最后错误：{task.lastError || "无"}</p>
-      <p>创建时间：{new Date(task.createdAt).toLocaleString()}</p>
+      {task.lastError && <p className="compact-error-detail">最后错误：{task.lastError}</p>}
+      <div className="compact-action-row">
       {task.rmaNo && typeof onOpenOrder === "function" && (
         <button type="button" className="secondary-btn" onClick={() => onOpenOrder(task.rmaNo)}>
           打开对应工单
@@ -187,13 +189,14 @@ function SyncTasks({ setPage, onOpenOrder }) {
           {task.status === "READY_DRY_RUN" ? "重新核对并执行" : "人工重试"}
         </button>
       )}
-    </div>)}
+      </div>
+    </details>)}</div>
     {visibleTasks.length < filteredTasks.length && (
       <button type="button" className="secondary-btn" onClick={() => setVisibleLimit((current) => current + PAGE_SIZE)}>
         再显示 {Math.min(PAGE_SIZE, filteredTasks.length - visibleTasks.length)} 个
       </button>
     )}
-    {message && <p role="status">{message}</p>}
+    {message && <p className="inline-status" role="status">{message}</p>}
   </div>
 }
 
