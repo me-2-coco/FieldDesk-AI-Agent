@@ -1563,7 +1563,11 @@ function createApp(
           sn,
           detail.productType,
           requestedRemark,
-          { dryRun: false }
+          {
+            dryRun: false,
+            logisticsNo,
+            productLine: detail.productLine || detail.productType,
+          }
         );
         return { ...detail, sn, receipt };
       });
@@ -1726,7 +1730,12 @@ function createApp(
             prepared.sn,
             detail.productType || detail.productLine || prepared.productLine,
             prepared.remark || prepared.specialty,
-            { dryRun: false }
+            {
+              dryRun: false,
+              logisticsNo: prepared.logisticsNo,
+              productLine:
+                detail.productLine || detail.productType || prepared.productLine,
+            }
           );
           if (!receipt?.confirmed) {
             throw createApiError("RECLOUD_RECEIPT_NOT_CONFIRMED", "瑞云未确认签收，本地状态未改变", 502);

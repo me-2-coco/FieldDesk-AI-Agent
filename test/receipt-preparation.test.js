@@ -539,6 +539,8 @@ test("receipt-only live mode confirms Recloud before completing the local receip
       assert.equal(productType, "扫地机");
       assert.equal(remark, "扫地机");
       assert.equal(options.dryRun, false);
+      assert.equal(options.logisticsNo, "TEST-LOGISTICS-1001");
+      assert.equal(options.productLine, "扫地机");
       return { confirmed: true, dryRun: false, message: "签收完成" };
     },
   };

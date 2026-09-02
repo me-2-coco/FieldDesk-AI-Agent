@@ -7590,6 +7590,77 @@ async function findMappedReceiptControl(page, options = {}) {
                 });
                 if (fixedMatches.length > 0) matchedBy = "verticalOverlap";
               }
+              const interactiveSelector = [
+                "button",
+                "a",
+                "[role='button']",
+                "[tabindex]",
+                "[onclick]",
+                "span[title]",
+                "div[title]",
+                "span[aria-label]",
+                "div[aria-label]",
+                "span",
+                "div",
+              ].join(",");
+              const isExplicitReceiptControl = (element) => {
+                const style = getComputedStyle(element);
+                const disabled =
+                  element.hasAttribute("disabled") ||
+                  element.getAttribute("aria-disabled") === "true";
+                return (
+                  visible(element) &&
+                  !disabled &&
+                  style.pointerEvents !== "none" &&
+                  (["button", "a"].includes(element.tagName.toLowerCase()) ||
+                    element.getAttribute("role") === "button" ||
+                    element.hasAttribute("tabindex") ||
+                    element.hasAttribute("onclick") ||
+                    element.hasAttribute("title") ||
+                    element.hasAttribute("aria-label") ||
+                    style.cursor === "pointer") &&
+                  (text(element) === "签收" ||
+                    element.getAttribute("title") === "签收" ||
+                    element.getAttribute("aria-label") === "签收")
+                );
+              };
+              // Recloud may expose the same pinned row through nested row
+              // wrappers. Collapse them only when every wrapper leads to the
+              // same explicit action; distinct controls remain ambiguous.
+              if (fixedMatches.length > 1) {
+                const controls = [
+                  ...new Set(
+                    fixedMatches.flatMap((row) => [
+                      row.element,
+                      ...row.element.querySelectorAll(interactiveSelector),
+                    ])
+                  ),
+                ].filter(isExplicitReceiptControl);
+                const leafControls = controls.filter(
+                  (element) =>
+                    !controls.some(
+                      (other) =>
+                        other !== element && element.contains(other)
+                    )
+                );
+                if (leafControls.length === 1) {
+                  const control = leafControls[0];
+                  const owners = fixedMatches.filter(
+                    (row) =>
+                      row.element === control || row.element.contains(control)
+                  );
+                  owners.sort((left, right) => {
+                    const leftBox = left.element.getBoundingClientRect();
+                    const rightBox = right.element.getBoundingClientRect();
+                    return (
+                      leftBox.width * leftBox.height -
+                      rightBox.width * rightBox.height
+                    );
+                  });
+                  fixedMatches = owners.slice(0, 1);
+                  matchedBy = `${matchedBy || "verticalOverlap"}+uniqueControl`;
+                }
+              }
               if (fixedMatches.length !== 1) {
                 return {
                   status: "fixed_row_ambiguous",
@@ -7608,22 +7679,11 @@ async function findMappedReceiptControl(page, options = {}) {
               ]
                 .slice(0, 50)
                 .filter(visible);
-              const interactiveSelector = [
-                "button",
-                "a",
-                "[role='button']",
-                "[tabindex]",
-                "[onclick]",
-                "span[title]",
-                "div[title]",
-                "span[aria-label]",
-                "div[aria-label]",
-                "span",
-                "div",
-              ].join(",");
               const operationCells = cells.filter((cell) => {
-                const controls = [...cell.querySelectorAll(interactiveSelector)]
-                  .slice(0, 30);
+                const controls = [
+                  cell,
+                  ...cell.querySelectorAll(interactiveSelector),
+                ].slice(0, 30);
                 return controls.some(
                   (element) =>
                     text(element) === "签收" ||
@@ -7659,7 +7719,10 @@ async function findMappedReceiptControl(page, options = {}) {
               }
               const cell = smallestCells[0];
               const unique = [
-                ...new Set(cell.querySelectorAll(interactiveSelector)),
+                ...new Set([
+                  cell,
+                  ...cell.querySelectorAll(interactiveSelector),
+                ]),
               ]
                 .slice(0, 30)
                 .filter(visible);
@@ -7691,28 +7754,9 @@ async function findMappedReceiptControl(page, options = {}) {
                   },
                 };
               });
-              const explicitCandidates = unique.filter((element) => {
-                const style = getComputedStyle(element);
-                const disabled =
-                  element.hasAttribute("disabled") ||
-                  element.getAttribute("aria-disabled") === "true";
-                return (
-                  !disabled &&
-                  style.pointerEvents !== "none" &&
-                  (["button", "a"].includes(
-                    element.tagName.toLowerCase()
-                  ) ||
-                    element.getAttribute("role") === "button" ||
-                    element.hasAttribute("tabindex") ||
-                    element.hasAttribute("onclick") ||
-                    element.hasAttribute("title") ||
-                    element.hasAttribute("aria-label") ||
-                    style.cursor === "pointer") &&
-                  (text(element) === "签收" ||
-                    element.getAttribute("title") === "签收" ||
-                    element.getAttribute("aria-label") === "签收")
-                );
-              });
+              const explicitCandidates = unique.filter(
+                isExplicitReceiptControl
+              );
               const explicit = explicitCandidates.filter(
                 (element) =>
                   !explicitCandidates.some(
@@ -9736,14 +9780,27 @@ async function confirmSign(page, sn, productType, remark, options = {}) {
 
   const receiptRemark =
     normalizeText(remark) || normalizeText(productType) || "寄修机器签收";
-  const signButton = page.getByText("签收", { exact: true }).last();
-  await signButton.waitFor({ state: "visible" });
-  await signButton.click();
-
-  const dialog = page
-    .locator('.rt-dialog__wrapper:visible, [role="dialog"]:visible')
-    .last();
-  await dialog.waitFor({ state: "visible" });
+  const target = await findMappedReceiptControl(page, {
+    ...options,
+    logisticsNo: options.logisticsNo,
+    productLine: options.productLine || productType,
+    rowIndex: options.rowIndex || 1,
+  });
+  const baselineUrl = page.url();
+  const baselineScopes = await snapshotReceiptFormScopes(page);
+  await safelyClickReceiptEntry(target.entry, page, options);
+  const opened = await waitForReceiptForm(page, baselineUrl, {
+    ...options,
+    baselineScopes,
+  });
+  if (!opened) {
+    throw receiptInspectionError(
+      "RECLOUD_RECEIPT_FORM_NOT_OPENED",
+      "点击目标物流单的签收入口后未检测到签收表单",
+      ["receiptForm.dialog"]
+    );
+  }
+  const dialog = opened.root;
   await fillReceiptFields(dialog, serialNumber, receiptRemark);
 
   if (options.dryRun !== false) {

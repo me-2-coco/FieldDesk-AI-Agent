@@ -1889,6 +1889,8 @@ test("enabled receive API uses the verified query path and confirms exactly once
       assert.equal(productType, "洗地机");
       assert.equal(remark, "洗地机");
       assert.equal(options.dryRun, false);
+      assert.equal(options.logisticsNo, "SF-REAL-1");
+      assert.equal(options.productLine, "洗地机");
       return { success: true, confirmed: true, dryRun: false };
     },
   };
