@@ -2040,6 +2040,9 @@ function createApp(
       if (user.role !== USER_ROLES.TECHNICIAN) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有维修师傅可以申请配件", 403);
       const order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
       if (!order || !["RECEIVED_PENDING_INSPECTION", "INSPECTION_COMPLETED_PENDING_REPAIR", "REPAIR_COMPLETION_DRAFT"].includes(order.status)) throw createApiError("PART_APPLICATION_NOT_ALLOWED", "当前工单不能选择维修配件", 409);
+      if ((order.partApplications || []).some((item) => item.partCode === partCode)) {
+        throw createApiError("PART_ALREADY_APPLIED", "该配件已添加，请直接修改上方数量", 409);
+      }
       const projectCode = getSnProjectMatch(order.sn).projectCode;
       const productLine = order.specialty || order.productLine;
       const part = (await feishuPartsCatalog.search({ productLine, projectCode, keyword: partCode }))

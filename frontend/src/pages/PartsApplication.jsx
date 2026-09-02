@@ -82,6 +82,7 @@ function PartsApplication({ setPage }) {
   const selectedPart = parts.find(
     (part) => part.code === selectedCode
   )
+  const selectedPartAlreadyApplied = selectedParts.some((part) => part.partCode === selectedCode)
   const selectedPartsHaveKnownPrice = selectedParts.every((part) =>
     part.retailPrice !== null && part.retailPrice !== undefined && part.retailPrice !== "" &&
     Number.isFinite(Number(part.retailPrice)) && Number(part.retailPrice) >= 0
@@ -89,6 +90,7 @@ function PartsApplication({ setPage }) {
   const selectedPartsTotal = selectedPartsHaveKnownPrice
     ? selectedParts.reduce((sum, part) => sum + Number(part.retailPrice) * Number(part.quantity || 0), 0)
     : null
+  const selectedPartsCount = selectedParts.reduce((sum, part) => sum + Number(part.quantity || 0), 0)
   const priceText = (value) => Number.isFinite(Number(value)) && value !== null && value !== ""
     ? `¥${Number(value).toFixed(2)}`
     : "暂无价格"
@@ -96,6 +98,10 @@ function PartsApplication({ setPage }) {
   async function submitApplication() {
     if (!selectedPart) {
       setErrorMessage("请选择配件")
+      return
+    }
+    if (selectedPartAlreadyApplied) {
+      setErrorMessage("该配件已添加，请直接修改上方数量")
       return
     }
     try {
@@ -137,7 +143,7 @@ function PartsApplication({ setPage }) {
     }
   }
 
-  async function changeApplication(application, nextQuantity, remove = false) {
+  async function changeApplication(application, nextQuantity, remove = false, rollbackQuantity = null) {
     try {
       setIsSaving(true)
       setErrorMessage("")
@@ -151,6 +157,11 @@ function PartsApplication({ setPage }) {
       setMessage(result.message)
     } catch (error) {
       setErrorMessage(error.message)
+      if (rollbackQuantity !== null) {
+        setSelectedParts((current) => current.map((item) =>
+          item.id === application.id ? { ...item, quantity: rollbackQuantity } : item
+        ))
+      }
     } finally {
       setIsSaving(false)
     }
@@ -197,7 +208,7 @@ function PartsApplication({ setPage }) {
       </section>
 
       <section className="card selected-parts-card compact-selected-parts-card">
-        <div className="selected-parts-heading"><div><span>已选配件</span><h2>本工单配件</h2></div><strong>{selectedParts.length} 件</strong></div>
+        <div className="selected-parts-heading"><div><span>已选配件</span><h2>本工单配件</h2></div><strong>{selectedPartsCount} 件</strong></div>
         {!selectedParts.length && <p>尚未选择配件</p>}
         {selectedParts.map((part) => (
           <div className="selected-part-row" key={part.id}>
@@ -209,8 +220,19 @@ function PartsApplication({ setPage }) {
               aria-label={`${part.partName}数量`}
               type="number"
               min="1"
-              defaultValue={part.quantity}
-              onBlur={(event) => Number(event.target.value) !== part.quantity && changeApplication(part, event.target.value)}
+              value={part.quantity}
+              onFocus={(event) => { event.currentTarget.dataset.previousQuantity = String(part.quantity) }}
+              onChange={(event) => {
+                const nextQuantity = event.target.value
+                setSelectedParts((current) => current.map((item) =>
+                  item.id === part.id ? { ...item, quantity: nextQuantity } : item
+                ))
+              }}
+              onBlur={(event) => {
+                const previousQuantity = Number(event.currentTarget.dataset.previousQuantity || part.quantity)
+                const nextQuantity = Number(event.target.value)
+                if (nextQuantity !== previousQuantity) changeApplication(part, nextQuantity, false, previousQuantity)
+              }}
               disabled={isSaving}
             />
             <button type="button" className="secondary-btn" onClick={() => changeApplication(part, part.quantity, true)} disabled={isSaving}>删除</button>
@@ -243,22 +265,25 @@ function PartsApplication({ setPage }) {
         <div className="part-search-result">
           {isSearching && <p>正在查询厂家飞书配件表...</p>}
           {!isSearching && keyword.trim() && matches.length === 0 && <p>当前机型下未找到匹配配件</p>}
-          {matches.map((part) => (
-            <label className="part-search-item" key={part.code}>
+          {matches.map((part) => {
+            const alreadyApplied = selectedParts.some((item) => item.partCode === part.code)
+            return (
+            <label className={`part-search-item ${alreadyApplied ? "is-applied" : ""}`} key={part.code}>
               <input
                 type="radio"
                 name="part"
                 value={part.code}
                 checked={selectedCode === part.code}
                 onChange={() => setSelectedCode(part.code)}
+                disabled={alreadyApplied}
               />
               <span className="part-search-copy">
                 <strong>{part.name}</strong>
                 <small>{part.code}</small>
-                <span className="part-result-meta"><em>{part.repairLevel}</em><b>零售价 {priceText(part.retailPrice)}</b>{part.returnRequired && <strong className="part-return-required">旧件需返厂</strong>}</span>
+                <span className="part-result-meta">{alreadyApplied && <i>已添加</i>}<em>{part.repairLevel}</em><b>零售价 {priceText(part.retailPrice)}</b>{part.returnRequired && <strong className="part-return-required">旧件需返厂</strong>}</span>
               </span>
             </label>
-          ))}
+          )})}
         </div>
 
         <div className="part-apply-controls">
@@ -274,9 +299,9 @@ function PartsApplication({ setPage }) {
           <button
             className="primary-btn"
             onClick={submitApplication}
-            disabled={isSaving || !selectedPart}
+            disabled={isSaving || !selectedPart || selectedPartAlreadyApplied}
           >
-            {isSaving ? "正在保存..." : "添加到本工单"}
+            {isSaving ? "正在保存..." : selectedPartAlreadyApplied ? "该配件已添加，请在上方改数量" : "添加到本工单"}
           </button>
         </div>
 

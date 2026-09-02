@@ -468,6 +468,13 @@ class JsonReceiptPreparationStore {
         error.status = 400;
         throw error;
       }
+      const existingApplication = (existing.partApplications || []).find((item) => item.partCode === part.code);
+      if (existingApplication) {
+        const error = new Error("该配件已添加，请直接修改已申请数量");
+        error.code = "PART_ALREADY_APPLIED";
+        error.status = 409;
+        throw error;
+      }
       if (part.stock < 1 || requestedQuantity > part.stock) {
         const error = new Error("库存不足，无法申请");
         error.code = "PART_OUT_OF_STOCK";
@@ -479,16 +486,7 @@ class JsonReceiptPreparationStore {
       const normalizedRetailPrice = rawRetailPrice === null || rawRetailPrice === undefined || rawRetailPrice === ""
         ? null
         : Number(rawRetailPrice);
-      const existingApplication = (existing.partApplications || []).find((item) => item.partCode === part.code);
-      const application = existingApplication ? {
-        ...existingApplication,
-        partName: normalizeRequired(part.name),
-        quantity: existingApplication.quantity + requestedQuantity,
-        retailPrice: Number.isFinite(normalizedRetailPrice) && normalizedRetailPrice >= 0 ? normalizedRetailPrice : null,
-        repairLevel: normalizeRequired(part.repairLevel),
-        returnRequired: Boolean(part.returnRequired),
-        updatedAt: timestamp,
-      } : {
+      const application = {
         id: crypto.randomUUID(),
         partCode: normalizeRequired(part.code),
         partName: normalizeRequired(part.name),
@@ -507,9 +505,7 @@ class JsonReceiptPreparationStore {
       };
       const updated = {
         ...existing,
-        partApplications: existingApplication
-          ? (existing.partApplications || []).map((item) => item.id === application.id ? application : item)
-          : [...(Array.isArray(existing.partApplications) ? existing.partApplications : []), application],
+        partApplications: [...(Array.isArray(existing.partApplications) ? existing.partApplications : []), application],
         updatedAt: timestamp,
         timeline: [
           ...(existing.timeline || []),

@@ -407,27 +407,37 @@ test("part application is bound to the current order SN", async (t) => {
 
   const result = await store.applyPart(
     "JXTH900001001",
-    { code: "00100123", name: "主刷电机", stock: 10 },
+    { code: "00100123", name: "售后主刷电机", stock: 10, retailPrice: 29, repairLevel: "中修", returnRequired: true },
     2,
     USERS.sweep
   );
 
   assert.equal(result.application.sn, "TEST-SN-A1");
   assert.equal(result.application.quantity, 2);
-  assert.equal(result.application.retailPrice, null);
+  assert.equal(result.application.retailPrice, 29);
+  assert.equal(result.application.repairLevel, "中修");
+  assert.equal(result.application.returnRequired, true);
   assert.equal(result.order.partApplications.length, 1);
 
-  const refreshed = await store.applyPart(
+  await assert.rejects(
+    store.applyPart(
+      "JXTH900001001",
+      { code: "00100123", name: "售后主刷电机", stock: 10, retailPrice: 29, repairLevel: "中修", returnRequired: true },
+      1,
+      USERS.sweep
+    ),
+    { code: "PART_ALREADY_APPLIED" }
+  );
+
+  const updated = await store.updatePartApplication(
     "JXTH900001001",
-    { code: "00100123", name: "售后主刷电机", stock: 10, retailPrice: 29, repairLevel: "中修", returnRequired: true },
-    1,
+    result.application.id,
+    { quantity: 3 },
     USERS.sweep
   );
-  assert.equal(refreshed.application.quantity, 3);
-  assert.equal(refreshed.application.partName, "售后主刷电机");
-  assert.equal(refreshed.application.retailPrice, 29);
-  assert.equal(refreshed.application.repairLevel, "中修");
-  assert.equal(refreshed.application.returnRequired, true);
+  assert.equal(updated.order.partApplications.length, 1);
+  assert.equal(updated.order.partApplications[0].quantity, 3);
+  assert.equal(updated.order.partApplications[0].retailPrice, 29);
 });
 
 test("part application rejects zero stock", async (t) => {
@@ -831,5 +841,10 @@ test("parts page provides live Feishu catalog and SN-bound application", async (
   assert.match(source, /handlePartScan/);
   assert.match(source, /实时查询厂家飞书表/);
   assert.match(source, /申请数量/);
+  assert.match(source, /value=\{part\.quantity\}/);
+  assert.match(source, /selectedPartsCount/);
+  assert.match(source, /selectedPartAlreadyApplied/);
+  assert.match(source, /disabled=\{alreadyApplied\}/);
+  assert.match(source, /该配件已添加，请在上方改数量/);
   assert.match(source, /不写入瑞云/);
 });
