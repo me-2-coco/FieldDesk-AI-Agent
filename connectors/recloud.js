@@ -7355,6 +7355,7 @@ async function findMappedReceiptControl(page, options = {}) {
                   ariaRowIndex,
                   y,
                   top: Math.round(box.y * 10) / 10,
+                  width: Math.round(box.width * 10) / 10,
                   height: Math.round(box.height * 10) / 10,
                   logisticsMatched:
                     Boolean(input.logisticsNo) &&
@@ -7386,10 +7387,28 @@ async function findMappedReceiptControl(page, options = {}) {
               const logisticsRows = bestRows.filter(
                 (row) => row.logisticsMatched
               );
+              const widestWidth = Math.max(
+                0,
+                ...bestRows.map((row) => row.width)
+              );
+              const widestRows = bestRows.filter(
+                (row) => row.width === widestWidth
+              );
+              const secondWidth = Math.max(
+                0,
+                ...bestRows
+                  .filter((row) => row.width < widestWidth)
+                  .map((row) => row.width)
+              );
+              const uniqueFullRow =
+                widestRows.length === 1 &&
+                (bestRows.length === 1 || widestWidth > secondWidth * 1.5)
+                  ? widestRows
+                  : [];
               const targets = logisticsRows.length > 0
                 ? logisticsRows
-                : bestRows.length === 1
-                  ? bestRows
+                : uniqueFullRow.length === 1
+                  ? uniqueFullRow
                   : bestRows.filter((row) =>
                       row.ariaRowIndex
                         ? Number(row.ariaRowIndex) === input.rowIndex
