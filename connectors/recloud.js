@@ -7211,6 +7211,17 @@ async function diagnoseReceiptRendererConfig(page, options = {}) {
 }
 
 async function findMappedReceiptControl(page, options = {}) {
+  if (typeof page.setViewportSize === "function") {
+    const viewport =
+      typeof page.viewportSize === "function" ? page.viewportSize() : null;
+    if (!viewport || viewport.width < 1600) {
+      await page.setViewportSize({
+        width: 1920,
+        height: Math.max(viewport?.height || 1080, 900),
+      });
+      await page.waitForTimeout?.(500);
+    }
+  }
   const operationTimeout = Math.min(
     Number(options.operationTimeout) || 3000,
     3000
