@@ -7380,16 +7380,19 @@ async function findMappedReceiptControl(page, options = {}) {
                 0,
                 ...scored.map(({ score }) => score)
               );
-              const targets = scored
-                .filter(
-                  ({ row, score }) =>
-                    score > 0 &&
-                    score === bestScore &&
-                    (row.ariaRowIndex
-                      ? Number(row.ariaRowIndex) === input.rowIndex
-                      : row.logicalIndex === input.rowIndex)
-                )
+              const bestRows = scored
+                .filter(({ score }) => score > 0 && score === bestScore)
                 .map(({ row }) => row);
+              const logisticsRows = bestRows.filter(
+                (row) => row.logisticsMatched
+              );
+              const targets = logisticsRows.length > 0
+                ? logisticsRows
+                : bestRows.filter((row) =>
+                    row.ariaRowIndex
+                      ? Number(row.ariaRowIndex) === input.rowIndex
+                      : row.logicalIndex === input.rowIndex
+                  );
               if (targets.length !== 1) {
                 return {
                   status: "row_not_unique",
