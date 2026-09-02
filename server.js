@@ -1765,7 +1765,11 @@ function createApp(
       if (!rmaNo) throw createApiError("RECEIPT_PREPARATION_INVALID", "缺少必填字段：rmaNo", 400);
       const order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
       if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到本地签收准备记录", 404);
-      if (order.status !== "RECEIPT_PREPARED") throw createApiError("RECEIPT_ATTACHMENT_NOT_ALLOWED", "当前工单状态不能补充签收照片", 409);
+      const canAttachDuringLocalSimulation = order.status === "MODEL_AUTHORIZATION_REVIEW"
+        && order.modelAuthorization?.localWorkflowAllowed === true;
+      if (order.status !== "RECEIPT_PREPARED" && !canAttachDuringLocalSimulation) {
+        throw createApiError("RECEIPT_ATTACHMENT_NOT_ALLOWED", "当前工单状态不能补充签收照片", 409);
+      }
       const attachment = await receiptAttachmentStore.save(req.body || {});
       const updated = await receiptStore.addReceiptAttachment(rmaNo, attachment, currentUserProvider(req));
       res.json({ success: true, data: { attachment, attachments: updated.receiptAttachments } });

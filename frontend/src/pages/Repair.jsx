@@ -763,6 +763,12 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
             当前为演练模式，不会操作瑞云签收
           </p>
 
+          {errorMessage && (
+            <p className="error-text receipt-inline-error" role="alert">
+              {errorMessage}
+            </p>
+          )}
+
           <div className="receipt-actions">
             <button className="secondary-button" onClick={() => setReceiptStep("detail")}>
               返回工单

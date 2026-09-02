@@ -275,7 +275,9 @@ class JsonReceiptPreparationStore {
           code: "RECEIPT_PREPARATION_NOT_FOUND", status: 404,
         });
       }
-      if (existing.status !== "RECEIPT_PREPARED") {
+      const canAttachDuringLocalSimulation = existing.status === "MODEL_AUTHORIZATION_REVIEW"
+        && existing.modelAuthorization?.localWorkflowAllowed === true;
+      if (existing.status !== "RECEIPT_PREPARED" && !canAttachDuringLocalSimulation) {
         throw Object.assign(new Error("当前工单状态不能补充签收照片"), {
           code: "RECEIPT_ATTACHMENT_NOT_ALLOWED", status: 409,
         });

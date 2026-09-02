@@ -183,6 +183,19 @@ test("strict dry run may continue the local workflow when the current Recloud pr
   assert.equal(result.data.authorization.localWorkflowAllowed, true);
   assert.match(result.data.message, /可继续本地处理流程/);
 
+  const attachment = await post(
+    url,
+    "/api/repairs/receipt/attachments",
+    {
+      rmaNo: "JXTH900001001",
+      name: "receipt-second.jpg",
+      mimeType: "image/jpeg",
+      data: "data:image/jpeg;base64,VEVTVA==",
+    }
+  );
+  assert.equal(attachment.response.status, 200);
+  assert.equal(attachment.result.data.attachments.length, 2);
+
   const completed = await post(
     url,
     "/api/repairs/complete-local-receipt",
@@ -728,6 +741,7 @@ test("frontend enables SN step and shows the local-only success message", async 
   assert.match(source, /preparation\.authorization\?\.localWorkflowAllowed === true/);
   assert.match(source, /localWorkflow\.status !== "MODEL_AUTHORIZATION_REVIEW"/);
   assert.match(source, /上次演练停在项目号验证，可重新录入并继续本地流程/);
+  assert.match(source, /receipt-inline-error/);
   assert.doesNotMatch(source, /recloudProjectCode: repairDetail\.projectCode/);
   assert.match(source, /function startReceiptPreparation\(\)[\s\S]*?setSn\(""\)[\s\S]*?setReceiptStep\("form"\)/);
   assert.doesNotMatch(source, /setSn\(normalizeReceiptSn\(repairDetail\?\.productSerialNo/);
