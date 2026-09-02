@@ -119,12 +119,21 @@ test("correct current project never requires a product-code correction lookup", 
 
 test("missing Recloud current project stops instead of guessing a correction", () => {
   const result = resolveProjectModel([
-    { projectCode: "R2580X", model: "X50 Pro 履带上下水版", modelCode: "010201AA000656" },
+    { projectCode: "R2580X", model: "X50 Pro 履带上下水版", modelCode: "010201AA000656", repairFees: { 大修: 80, 中修: 70, 小修: 50 } },
   ], { sn: "R2580X5AMCN0146633" });
   assert.equal(result.status, "CURRENT_PROJECT_MISSING");
   assert.equal(result.canContinue, false);
   assert.equal(result.correctionLookupRequired, false);
   assert.equal(result.productModelCode, undefined);
+  assert.deepEqual(result.repairFees, { 大修: 80, 中修: 70, 小修: 50 });
+});
+
+test("missing Recloud project does not guess between conflicting repair fee schedules", () => {
+  const result = resolveProjectModel([
+    { projectCode: "W2336", model: "H30", modelCode: "011101AA000024", repairFees: { 大修: 60, 中修: 40, 小修: 20 } },
+    { projectCode: "W2336", model: "H30 other", modelCode: "011101AA000025", repairFees: { 大修: 80, 中修: 60, 小修: 30 } },
+  ], { sn: "W233603AMCN012032" });
+  assert.equal(result.repairFees, undefined);
 });
 
 test("R2580X example resolves the numeric model code used to correct Recloud", () => {

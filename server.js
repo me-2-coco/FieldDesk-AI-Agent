@@ -2021,6 +2021,20 @@ function createApp(
     }));
   }
 
+  async function repairFeesForOrder(order) {
+    const savedFees = order?.modelAuthorization?.repairFees || {};
+    if (Object.values(savedFees).some((value) => Number(value) > 0)) return savedFees;
+    try {
+      const authorization = await feishuModelCatalog.authorize({
+        sn: order?.sn,
+        currentProjectCode: order?.recloudProjectCode || "",
+      });
+      return authorization.repairFees || savedFees;
+    } catch {
+      return savedFees;
+    }
+  }
+
   app.post("/api/repairs/parts/apply", async (req, res, next) => {
     const rmaNo = String(req.body?.rmaNo || "").trim();
     const partCode = String(req.body?.partCode || "").trim();
@@ -2201,9 +2215,10 @@ function createApp(
       }));
       const usedParts = appliedParts.length ? appliedParts : await inventoryStore.usedPartsForOrder(order.rmaNo, order.sn);
       const { noPartsService } = getOutOfWarrantyFeePolicy(order);
+      const modelRepairFees = await repairFeesForOrder(order);
       const repairPricing = noPartsService
         ? { status: "NO_PARTS_SERVICE", canPrice: true, highestLevel: "无配件", fee: 0 }
-        : resolveOutOfWarrantyFee(order.modelAuthorization?.repairFees || {}, usedParts);
+        : resolveOutOfWarrantyFee(modelRepairFees, usedParts);
       const partsPricing = noPartsService
         ? { status: "READY", canPrice: true, partsFee: 0 }
         : resolvePartsFee(usedParts);
@@ -2243,6 +2258,7 @@ function createApp(
         isOutOfWarranty,
         requiresOutOfWarrantyFee,
       } = getOutOfWarrantyFeePolicy(order);
+      const modelRepairFees = await repairFeesForOrder(order);
       const logisticsChargeMode = isOutOfWarranty
         ? String(req.body?.logisticsChargeMode || "ROUND_TRIP").trim()
         : "NOT_CHARGED";
@@ -2258,7 +2274,7 @@ function createApp(
       }
       const repairPricing = noPartsService
         ? { status: "NO_PARTS_SERVICE", canPrice: true, highestLevel: "无配件", fee: 0 }
-        : resolveOutOfWarrantyFee(order.modelAuthorization?.repairFees || {}, usedParts);
+        : resolveOutOfWarrantyFee(modelRepairFees, usedParts);
       const partsPricing = noPartsService
         ? { status: "READY", canPrice: true, partsFee: 0 }
         : resolvePartsFee(usedParts);

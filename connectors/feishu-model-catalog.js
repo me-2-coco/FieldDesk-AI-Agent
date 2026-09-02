@@ -91,6 +91,9 @@ function resolveProjectModel(rows, input = {}) {
   const matches = rows.filter((row) => projectCodeMatches(row.projectCode, snProject.projectCode));
   const modelCodes = [...new Set(matches.map((row) => row.modelCode).filter(Boolean))];
   const numericModelCodes = modelCodes.filter((code) => /^\d/.test(code));
+  const repairFeeOptions = [...new Map(matches
+    .filter((row) => row.repairFees)
+    .map((row) => [JSON.stringify(row.repairFees), row.repairFees])).values()];
   if (matches.length === 0) {
     return {
       status: "TRANSFER_TO_HEADQUARTERS",
@@ -108,6 +111,7 @@ function resolveProjectModel(rows, input = {}) {
       canContinue: false,
       correctionLookupRequired: false,
       projectCode: snProject.projectCode,
+      ...(repairFeeOptions.length === 1 ? { repairFees: repairFeeOptions[0] } : {}),
       reason: "未读取到瑞云当前项目号，不能判断是否需要修改",
     };
   }
