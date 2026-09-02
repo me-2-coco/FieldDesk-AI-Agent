@@ -7254,9 +7254,63 @@ async function findMappedReceiptControl(page, options = {}) {
           scope,
           page,
           options.logger || console
-        ),
+      ),
       { productTabActivated: false, rmaTabActivated: false }
     );
+    await limited(() => prepareRmaDetailRegion(scope, page), null);
+    const fixedButtonLocator = scope.locator(
+      [
+        ".rtxpc-table__fixed-right button",
+        ".el-table__fixed-right button",
+        ".rtxpc-table__fixed-right [role='button']",
+        ".el-table__fixed-right [role='button']",
+      ].join(",")
+    );
+    if (typeof fixedButtonLocator?.filter === "function") {
+      const receiptButtons = fixedButtonLocator.filter({
+        hasText: /^\s*签收\s*$/,
+      });
+      const buttonCount = await limited(
+        async () => Math.min(await receiptButtons.count(), 20),
+        0
+      );
+      const actionableButtons = [];
+      for (let index = 0; index < buttonCount; index += 1) {
+        const candidate = receiptButtons.nth(index);
+        const visible = await limited(() => candidate.isVisible(), false);
+        const enabled = await limited(() => candidate.isEnabled(), false);
+        if (visible && enabled) actionableButtons.push(candidate);
+      }
+      if (actionableButtons.length === 1) {
+        return {
+          row: null,
+          entry: actionableButtons[0],
+          operationDiagnostics: [],
+          receiptLocator: {
+            targetRowCandidateCount: 1,
+            targetRowMatchedBy: ["uniqueFixedReceiptControl"],
+            fixedOperationRowMatched: true,
+            fixedRightContainerFound: true,
+            fixedRightRowCandidateCount: 1,
+            fixedRightRowMatched: true,
+            fixedRightRowMatchedBy: "uniqueFixedReceiptControl",
+            operationCellFound: true,
+            operationControlCandidateCount: 1,
+          },
+        };
+      }
+      if (actionableButtons.length > 1) {
+        throw receiptInspectionError(
+          "RECLOUD_RECEIPT_CONTROL_AMBIGUOUS",
+          "右侧固定操作列中存在多个可用签收按钮",
+          ["receiptForm.entry"],
+          {
+            fixedRightContainerFound: true,
+            operationControlCandidateCount: actionableButtons.length,
+          }
+        );
+      }
+    }
     const headers = scope.getByText("产品序列号", { exact: true });
     const headerCount = await limited(
       async () => Math.min(await headers.count(), 10),
