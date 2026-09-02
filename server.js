@@ -2663,6 +2663,29 @@ function createApp(
     } catch (error) { next(error); }
   });
 
+  app.get("/api/repairs/:rmaNo/attachments/:category/:attachmentId", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      const order = (await receiptStore.readAll()).find((item) => item.rmaNo === String(req.params.rmaNo || "").trim());
+      if (!order) throw createApiError("ATTACHMENT_NOT_FOUND", "附件不存在", 404);
+      const privileged = [USER_ROLES.ADMIN, USER_ROLES.INFORMATION_CLERK].includes(user.role);
+      if (!privileged && (order.technicianId || order.operatorId) !== user.userId) {
+        throw createApiError("REPAIR_ATTACHMENT_FORBIDDEN", "只能查看本人负责工单的附件", 403);
+      }
+      const category = String(req.params.category || "");
+      if (!["receipt", "repair"].includes(category)) throw createApiError("ATTACHMENT_NOT_FOUND", "附件不存在", 404);
+      const attachment = findAttachment(order, category, String(req.params.attachmentId || ""));
+      const source = attachmentSource(category);
+      if (!attachment || !source) throw createApiError("ATTACHMENT_NOT_FOUND", "附件不存在", 404);
+      const data = await source.read(order.rmaNo, attachment);
+      res.setHeader("Content-Type", attachment.mimeType || "application/octet-stream");
+      res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(attachment.name || "attachment")}`);
+      res.setHeader("Content-Length", data.length);
+      res.setHeader("Cache-Control", "private, max-age=300");
+      res.end(data);
+    } catch (error) { next(error); }
+  });
+
   app.post("/api/recloud-sync/tasks/retry", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);

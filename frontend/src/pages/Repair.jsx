@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import ScannerModal from "../components/ScannerModal"
 import PhotoCaptureModal from "../components/PhotoCaptureModal"
 import { CameraIcon, ScanIcon } from "../components/AppIcons.jsx"
+import AttachmentPreviewList from "../components/AttachmentPreviewList.jsx"
 import {
   completeLocalReceipt,
   getCurrentFieldDeskUser,
@@ -741,15 +742,11 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
               <label className="receipt-upload-button" htmlFor="receipt-album">▧ 从相册选择</label>
             </div>
             {receiptAttachments.length > 0 ? (
-              <div className="receipt-upload-list">
-                {receiptAttachments.map((item) => (
-                  <div key={item.id}>
-                    <span>{item.mimeType?.startsWith("video/") ? "视频" : "照片"}</span>
-                    <strong>{item.name}</strong>
-                    <button type="button" onClick={() => setReceiptAttachments((current) => current.filter((file) => file.id !== item.id))}>移除</button>
-                  </div>
-                ))}
-              </div>
+              <AttachmentPreviewList
+                attachments={receiptAttachments}
+                disabled={isSaving}
+                onRemove={(attachmentId) => setReceiptAttachments((current) => current.filter((file) => file.id !== attachmentId))}
+              />
             ) : <p className="receipt-upload-empty">到店签收时拍摄机器外观、包装及异常位置</p>}
           </section>
 

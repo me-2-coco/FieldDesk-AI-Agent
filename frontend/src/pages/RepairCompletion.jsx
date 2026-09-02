@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import SupervisionNoticeCard from "../components/SupervisionNoticeCard.jsx"
 import PhotoCaptureModal from "../components/PhotoCaptureModal.jsx"
 import { CameraIcon } from "../components/AppIcons.jsx"
+import AttachmentPreviewList from "../components/AttachmentPreviewList.jsx"
 import {
+  downloadRepairAttachment,
   getRepairCompletionContext,
   getRepairSyncOrderStatus,
   saveRepairCompletionDraft,
@@ -62,6 +64,13 @@ function fileToDataUrl(file) {
     reader.onerror = () => reject(new Error("附件读取失败"))
     reader.readAsDataURL(file)
   })
+}
+
+function persistedAttachment(attachment) {
+  const copy = { ...attachment }
+  delete copy.localPreviewFile
+  delete copy.file
+  return copy
 }
 
 function RepairCompletion({ setPage }) {
@@ -194,7 +203,8 @@ function RepairCompletion({ setPage }) {
   const payload = () => ({
     rmaNo: repairOrder.crmOrderNo,
     faultLevel1, faultLevel2, faultLevel3,
-    responsibilityType, detectionResult, speechTemplate, repairMeasure, attachments,
+    responsibilityType, detectionResult, speechTemplate, repairMeasure,
+    attachments: attachments.map(persistedAttachment),
     oneWayLogisticsFee: logisticsChargeMode === "WAIVED" ? "" : oneWayLogisticsFee,
     logisticsChargeMode
   })
@@ -236,12 +246,13 @@ function RepairCompletion({ setPage }) {
         if (!supportedMedia && !supportedReport) {
           throw new Error(isInspectionOnly ? "仅支持照片、视频和 PDF 检测报告" : "仅支持维修照片和视频")
         }
-        saved.push(await uploadRepairAttachment({
+        const attachment = await uploadRepairAttachment({
           rmaNo: repairOrder.crmOrderNo,
           name: file.name,
           mimeType: file.type,
           data: await fileToDataUrl(file)
-        }))
+        })
+        saved.push({ ...attachment, localPreviewFile: file })
       }
       setAttachments((current) => [...current, ...saved])
     } catch (error) {
@@ -264,6 +275,11 @@ function RepairCompletion({ setPage }) {
   function showPricingSummary() {
     pricingSummaryRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })
   }
+
+  const loadSavedAttachment = useCallback(
+    (attachment) => downloadRepairAttachment(repairOrder.crmOrderNo, "repair", attachment),
+    [repairOrder.crmOrderNo]
+  )
 
   async function leaveCompletion() {
     if (completedDetail) {
@@ -439,7 +455,12 @@ function RepairCompletion({ setPage }) {
             <button type="button" className="receipt-upload-button camera-button" onClick={() => setPhotoCameraOpen(true)} disabled={busy}><CameraIcon size={18} />拍照</button>
             <label className="receipt-upload-button" htmlFor="repair-attachments">▧ 从相册选择</label>
           </div>}
-          {attachments.length > 0 ? <div className="receipt-upload-list">{attachments.map((item) => <div key={item.id}><span>{item.mimeType === "application/pdf" ? "报告" : item.mimeType?.startsWith("video/") ? "视频" : "照片"}</span><strong>{item.name}</strong>{!completedDetail && <button type="button" onClick={() => removeAttachment(item.id)} disabled={busy} aria-label={`移除${item.name}`}>移除</button>}</div>)}</div> : <p className="receipt-upload-empty">{isInspectionOnly ? "暂无检测报告或附件" : "暂无维修照片/视频"}</p>}
+          {attachments.length > 0 ? <AttachmentPreviewList
+            attachments={attachments}
+            disabled={busy}
+            loadAttachment={loadSavedAttachment}
+            onRemove={completedDetail ? null : removeAttachment}
+          /> : <p className="receipt-upload-empty">{isInspectionOnly ? "暂无检测报告或附件" : "暂无维修照片/视频"}</p>}
         </section>
 
         {errorMessage && !/^缺少必填字段/.test(errorMessage) && <p className="error-message">{errorMessage}</p>}

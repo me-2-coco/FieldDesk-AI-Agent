@@ -325,6 +325,13 @@ export async function downloadInformationAttachment(rmaNo, attachment) {
   )
 }
 
+export async function downloadRepairAttachment(rmaNo, category, attachment) {
+  return downloadFile(
+    `/api/repairs/${encodeURIComponent(rmaNo)}/attachments/${encodeURIComponent(category)}/${encodeURIComponent(attachment.id)}`,
+    attachment.name || "attachment"
+  )
+}
+
 export async function retryRecloudSyncTask(taskId) {
   return request("/api/recloud-sync/tasks/retry", { taskId })
 }

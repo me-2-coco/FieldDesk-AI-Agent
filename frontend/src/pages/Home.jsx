@@ -80,8 +80,10 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
       attachments: workflow.repairCompletion?.attachments || [],
       photos: workflow.repairCompletion?.attachments || [],
       solution: workflow.repairCompletion?.repairMeasure || "",
-      status: targetPage === "repairCompletion"
-        ? REPAIR_STATUS.REPAIRING
+      status: COMPLETED_WORKFLOW_STATUSES.has(workflow.status)
+        ? repairStatusForLocalWorkflow(workflow.status)
+        : targetPage === "repairCompletion"
+          ? REPAIR_STATUS.REPAIRING
         : targetPage === "repairProcess"
           ? REPAIR_STATUS.INSPECTION_COMPLETE
           : repairStatusForLocalWorkflow(workflow.status),

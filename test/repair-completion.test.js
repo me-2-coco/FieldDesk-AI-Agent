@@ -219,6 +219,8 @@ test("local attachment store saves media outside tracked data", async (t) => {
 
 test("frontend completion page reuses confirmed fault and includes warranty, media, draft and submit", async () => {
   const source = await fs.readFile(path.join(__dirname, "../frontend/src/pages/RepairCompletion.jsx"), "utf8");
+  const receiptSource = await fs.readFile(path.join(__dirname, "../frontend/src/pages/Repair.jsx"), "utf8");
+  const previewSource = await fs.readFile(path.join(__dirname, "../frontend/src/components/AttachmentPreviewList.jsx"), "utf8");
   const partsSource = await fs.readFile(path.join(__dirname, "../frontend/src/pages/PartsApplication.jsx"), "utf8");
   const measureSource = await fs.readFile(path.join(__dirname, "../frontend/src/shared/repairMeasure.js"), "utf8");
   assert.match(source, /已确认三级故障/);
@@ -231,6 +233,12 @@ test("frontend completion page reuses confirmed fault and includes warranty, med
   assert.match(source, /机器正常使用，客诉故障未复现，清理，测试OK寄回/);
   assert.match(measureSource, /充电母端子组件已打胶/);
   assert.match(source, /维修照片\/视频/);
+  assert.match(source, /AttachmentPreviewList/);
+  assert.match(receiptSource, /AttachmentPreviewList/);
+  assert.match(previewSource, /<img/);
+  assert.match(previewSource, /<video[^>]+controls/);
+  assert.match(previewSource, /点击放大/);
+  assert.match(previewSource, /aria-label="关闭图片预览"/);
   assert.match(source, /保存草稿/);
   assert.match(source, /提交完工/);
   assert.match(source, /canSubmitCompletion/);
@@ -245,11 +253,19 @@ test("frontend completion page reuses confirmed fault and includes warranty, med
   assert.doesNotMatch(source, /recloud|瑞云.*fetch/i);
   const serverSource = await fs.readFile(path.join(__dirname, "../server.js"), "utf8");
   assert.match(serverSource, /\/api\/repairs\/completion\/attachments/);
+  assert.ok(serverSource.includes('/api/repairs/:rmaNo/attachments/:category/:attachmentId'));
+  assert.match(serverSource, /Content-Disposition", `inline;/);
   assert.match(serverSource, /attachmentStore\.save/);
   assert.match(serverSource, /requiresOutOfWarrantyFee/);
   assert.match(serverSource, /!logisticsFeeIsWaived/);
   assert.match(serverSource, /hasSavedInspection/);
   assert.match(serverSource, /\/api\/repairs\/resume-step/);
+});
+
+test("completed orders reopen as read-only completion details", async () => {
+  const homeSource = await fs.readFile(path.join(__dirname, "../frontend/src/pages/Home.jsx"), "utf8");
+  assert.match(homeSource, /COMPLETED_WORKFLOW_STATUSES\.has\(workflow\.status\)/);
+  assert.match(homeSource, /repairStatusForLocalWorkflow\(workflow\.status\)/);
 });
 
 test("frontend exposes five treatment choices including headquarters transfer", async () => {
