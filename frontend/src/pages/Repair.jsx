@@ -37,7 +37,7 @@ function MachineRepairHistory({ history }) {
     <div className="machine-history-heading">
       <div>
         {history.isRepeatRepair && <strong>重复维修</strong>}
-        <span>{history.isRepeatRepair ? "同一电话或同一 SN 一个月内再次送修" : "该机器存在历史维修记录"}</span>
+        <span>{history.isRepeatRepair ? "同一电话且同一 SN 一个月内再次送修" : "该机器存在历史维修记录"}</span>
       </div>
       <b>{history.records.length} 次</b>
     </div>

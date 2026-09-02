@@ -68,26 +68,30 @@ test("repeat repair requires the same SN within one natural month and still retu
   assert.equal(expired.records.length, 2);
 });
 
-test("repeat repair also recognizes the same phone before either order is completed", () => {
+test("repeat repair requires a known SN and uses the phone to disambiguate machines", () => {
   const records = [
-    { rmaNo: "JXTH202608281001", phoneMasked: "138****3666", sn: "SN-OLDER", sourceCreatedAt: "2026-08-28T08:00:00.000Z" },
-    { rmaNo: "JXTH202608311002", phoneMasked: "138****3666", sn: "SN-NEWER", sourceCreatedAt: "2026-08-31T08:00:00.000Z" },
+    { rmaNo: "JXTH202608281001", phoneMasked: "138****3666", sn: "SN-SAME", sourceCreatedAt: "2026-08-28T08:00:00.000Z" },
+    { rmaNo: "JXTH202608291001", phoneMasked: "139****9999", sn: "SN-SAME", sourceCreatedAt: "2026-08-29T08:00:00.000Z" },
+    { rmaNo: "JXTH202608301001", phoneMasked: "138****3666", sn: "SN-OTHER", sourceCreatedAt: "2026-08-30T08:00:00.000Z" },
+    { rmaNo: "JXTH202608311002", phoneMasked: "138****3666", sn: "SN-SAME", sourceCreatedAt: "2026-08-31T08:00:00.000Z" },
   ];
 
-  const older = findMachineRepairHistory(records, {
+  const missingSn = findMachineRepairHistory(records, {
     phone: "13882033666",
-    currentRmaNo: "JXTH202608281001",
+    currentRmaNo: "JXTH202608311002",
     now: new Date("2026-09-02T00:00:00.000Z"),
   });
   const newer = findMachineRepairHistory(records, {
+    sn: "SN-SAME",
     phone: "13882033666",
     currentRmaNo: "JXTH202608311002",
     now: new Date("2026-09-02T00:00:00.000Z"),
   });
 
-  assert.equal(older.isRepeatRepair, false);
+  assert.equal(missingSn.isRepeatRepair, false);
+  assert.equal(missingSn.records.length, 0);
   assert.equal(newer.isRepeatRepair, true);
-  assert.equal(older.records.length, 0);
+  assert.equal(newer.records.length, 1);
   assert.equal(newer.records[0].rmaNo, "JXTH202608281001");
   assert.equal(newer.previousTechnicianName, "");
 });
@@ -118,4 +122,5 @@ test("repair query shows a red repeat-repair label beside multiple results", asy
   assert.match(repair, /rma-match-product-line/);
   assert.match(repair, /item\.productLine \|\| "产品线待确认"/);
   assert.match(repair, /item\.previousTechnicianName \|\| "待分配"/);
+  assert.match(styles, /\.machine-history-list\{[^}]*max-height:440px[^}]*overflow-y:auto/);
 });

@@ -105,16 +105,21 @@ function isWithinOneCalendarMonth(left, right) {
 function findMachineRepairHistory(records, { sn, phone, currentRmaNo = "", now = new Date() } = {}) {
   const normalizedSn = String(sn || "").trim().toUpperCase();
   const normalizedPhone = String(phone || "").trim();
-  if (!normalizedSn && !normalizedPhone) return { isRepeatRepair: false, previousTechnicianName: "", records: [] };
+  // A phone number can belong to several machines. Do not label an order as a
+  // repeat repair until the machine SN is known; otherwise a phone lookup can
+  // incorrectly pull every repair made by the same customer (or by stale
+  // cached phone data) into the machine history.
+  if (!normalizedSn) return { isRepeatRepair: false, previousTechnicianName: "", records: [] };
   const allRecords = Array.isArray(records) ? records : [];
   const currentRecord = allRecords.find((record) => String(record.rmaNo || "").trim() === String(currentRmaNo || "").trim());
   const referenceValue = repairRecordTime(currentRecord || {}) || rmaCreatedAt(currentRmaNo) || now;
   const referenceTime = referenceValue instanceof Date ? referenceValue.getTime() : new Date(referenceValue).getTime();
   const history = allRecords
-    .filter((record) => (
-      Boolean(normalizedSn && String(record.sn || "").trim().toUpperCase() === normalizedSn)
-      || Boolean(normalizedPhone && phoneMatches(record.phoneMasked || record.phone, normalizedPhone))
-    ))
+    .filter((record) => {
+      const sameSn = String(record.sn || "").trim().toUpperCase() === normalizedSn;
+      if (!sameSn) return false;
+      return !normalizedPhone || phoneMatches(record.phoneMasked || record.phone, normalizedPhone);
+    })
     .filter((record) => String(record.rmaNo || "").trim() !== String(currentRmaNo || "").trim())
     .filter((record) => repairRecordTime(record))
     .map(safeHistoryRecord)

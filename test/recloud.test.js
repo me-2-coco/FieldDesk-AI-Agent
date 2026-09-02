@@ -1758,7 +1758,7 @@ test("phone query matches a masked pending-receipt cache without opening Recloud
   assert.equal(result.data.cached, true);
 });
 
-test("phone query marks nearby matching orders as repeat repairs and returns product lines", async (t) => {
+test("phone query does not mark different machines as repeat repairs and returns product lines", async (t) => {
   const connector = {
     async openRecloud() {
       assert.fail("multiple complete local matches must not open Recloud");
@@ -1791,7 +1791,7 @@ test("phone query marks nearby matching orders as repeat repairs and returns pro
   assert.deepEqual(result.data.matches.map((item) => item.productLine), ["扫地机", "洗地机"]);
   assert.deepEqual(Object.fromEntries(result.data.matches.map((item) => [item.rmaNo, item.isRepeatRepair])), {
     JXTH202608281001: false,
-    JXTH202608311002: true,
+    JXTH202608311002: false,
   });
 });
 
