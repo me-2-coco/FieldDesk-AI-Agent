@@ -7605,11 +7605,14 @@ async function findMappedReceiptControl(page, options = {}) {
               ].join(",");
               const isExplicitReceiptControl = (element) => {
                 const style = getComputedStyle(element);
+                const box = element.getBoundingClientRect();
                 const disabled =
                   element.hasAttribute("disabled") ||
                   element.getAttribute("aria-disabled") === "true";
                 return (
                   visible(element) &&
+                  box.right > 0 &&
+                  box.left < window.innerWidth &&
                   !disabled &&
                   style.pointerEvents !== "none" &&
                   (["button", "a"].includes(element.tagName.toLowerCase()) ||
