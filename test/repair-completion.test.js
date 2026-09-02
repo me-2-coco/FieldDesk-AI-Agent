@@ -41,6 +41,9 @@ test("完工页按处理方式显示质保标签，并使用紧凑收费卡片",
   assert.doesNotMatch(source, /"保内弃修"/);
   assert.match(source, /"保外调试"/);
   assert.match(source, /compact-pricing-summary/);
+  assert.match(source, /保外费用明细/);
+  assert.match(source, /价格资料不完整/);
+  assert.match(source, /仍可先填写运费/);
   assert.match(source, /查看费用备注/);
 });
 
@@ -190,7 +193,7 @@ test("frontend completion page reuses confirmed fault and includes warranty, med
   assert.match(source, /保外费用待核对/);
   assert.match(source, /请填写单程物流费/);
   assert.match(source, /保外调试费用选填/);
-  assert.match(partsSource, /待核价（存在未配置零售价）/);
+  assert.match(partsSource, /完整费用在维修完工页核对/);
   assert.match(source, /requiresOutOfWarrantyFee/);
   assert.match(source, /disabled=\{busy \|\| !canSubmitCompletion\}/);
   assert.doesNotMatch(source, /recloud|瑞云.*fetch/i);
@@ -200,14 +203,15 @@ test("frontend completion page reuses confirmed fault and includes warranty, med
   assert.match(serverSource, /requiresOutOfWarrantyFee/);
 });
 
-test("frontend exposes four treatment choices and skips parts for three modes", async () => {
+test("frontend exposes five treatment choices including headquarters transfer", async () => {
   const decisionSource = await fs.readFile(path.join(__dirname, "../frontend/src/pages/RepairDecision.jsx"), "utf8");
   const completionSource = await fs.readFile(path.join(__dirname, "../frontend/src/pages/RepairCompletion.jsx"), "utf8");
-  for (const mode of ["REPAIR", "ABANDONED", "INSPECTION_ONLY", "DEBUGGING"]) {
+  for (const mode of ["REPAIR", "ABANDONED", "INSPECTION_ONLY", "DEBUGGING", "TRANSFER_TO_HEADQUARTERS"]) {
     assert.match(decisionSource, new RegExp(mode));
   }
   assert.match(decisionSource, /partsApplication/);
-  assert.match(decisionSource, /setPage\(result\.nextStep\)/);
+  assert.match(decisionSource, /transferToHeadquarters/);
+  assert.match(decisionSource, /5 选 1/);
   const serverSource = await fs.readFile(path.join(__dirname, "../server.js"), "utf8");
   assert.match(serverSource, /ABANDONED: \{ label: "弃修", detectionResult: "弃修", nextStep: "repairCompletion" \}/);
   assert.match(completionSource, /application\/pdf/);

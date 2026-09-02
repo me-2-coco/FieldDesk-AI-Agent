@@ -21,7 +21,6 @@ function PartsApplication({ setPage }) {
   const [parts, setParts] = useState([])
   const [isSearching, setIsSearching] = useState(false)
   const [selectedParts, setSelectedParts] = useState([])
-  const [pricing, setPricing] = useState(null)
 
   useEffect(() => {
     let active = true
@@ -29,7 +28,6 @@ function PartsApplication({ setPage }) {
       .then((result) => {
         if (!active) return
         setSelectedParts(result.items || [])
-        setPricing(result.pricing || null)
       })
       .catch((error) => active && setErrorMessage(error.message))
     return () => { active = false }
@@ -87,7 +85,6 @@ function PartsApplication({ setPage }) {
         quantity: Number(quantity)
       })
       const application = result.application
-      setPricing(result.pricing || null)
       setSelectedParts((current) => {
         const exists = current.some((item) => item.id === application.id)
         return exists ? current.map((item) => item.id === application.id ? application : item) : [...current, application]
@@ -129,7 +126,6 @@ function PartsApplication({ setPage }) {
         remove
       })
       setSelectedParts(result.order?.partApplications || [])
-      setPricing(result.pricing || null)
       setMessage(result.message)
     } catch (error) {
       setErrorMessage(error.message)
@@ -178,8 +174,8 @@ function PartsApplication({ setPage }) {
         <div className="parts-order-fault"><span>报修描述</span><p>{repairOrder.originalFault || "未提供"}</p></div>
       </section>
 
-      <section className="card selected-parts-card">
-        <h2>本工单已选配件</h2>
+      <section className="card selected-parts-card compact-selected-parts-card">
+        <div className="selected-parts-heading"><div><span>已选配件</span><h2>本工单配件</h2></div><strong>{selectedParts.length} 件</strong></div>
         {!selectedParts.length && <p>尚未选择配件</p>}
         {selectedParts.map((part) => (
           <div className="selected-part-row" key={part.id}>
@@ -198,17 +194,7 @@ function PartsApplication({ setPage }) {
             <button type="button" className="secondary-btn" onClick={() => changeApplication(part, part.quantity, true)} disabled={isSaving}>删除</button>
           </div>
         ))}
-        {!!selectedParts.length && (
-          <p>配件金额合计：{selectedPartsTotal === null ? "待核价（存在未配置零售价）" : `¥${selectedPartsTotal.toFixed(2)}`}</p>
-        )}
-        {pricing?.warrantyStatus === "保外" && (
-          <div className="pricing-preview" role="status">
-            <p>维修等级：{pricing.highestLevel || "等待配件维修等级"}</p>
-            <p>维修费：¥{pricing.repairFee || 0}</p>
-            <p>配件费：¥{pricing.partsFee || 0}</p>
-            <strong>当前已知费用：¥{pricing.knownTotal || 0}</strong>
-          </div>
-        )}
+        {!!selectedParts.length && <div className="selected-parts-total"><span>配件小计</span><strong>{selectedPartsTotal === null ? "待核价" : `¥${selectedPartsTotal.toFixed(2)}`}</strong><small>完整费用在维修完工页核对</small></div>}
       </section>
 
       <section className="card parts-search-card">

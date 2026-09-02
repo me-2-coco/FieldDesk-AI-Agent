@@ -9,6 +9,14 @@ function retailPrice(value) {
   return Number.isFinite(amount) ? amount : null;
 }
 
+function columnIndex(row = [], aliases = []) {
+  const normalizedAliases = aliases.map((item) => comparable(item));
+  return row.findIndex((value) => {
+    const header = comparable(value).replace(/[（(].*?[）)]/g, "");
+    return normalizedAliases.some((alias) => header === alias || header.startsWith(alias));
+  });
+}
+
 function parsePartRows(values = []) {
   const parts = [];
   let columns = null;
@@ -19,7 +27,7 @@ function parsePartRows(values = []) {
       columns = {
         code: normalized.indexOf("物料编号"),
         name: normalized.indexOf("售后配件名称"),
-        price: normalized.indexOf("零售价"),
+        price: columnIndex(normalized, ["零售价", "零售价格", "建议零售价", "最终零售价"]),
         repairLevel: normalized.indexOf("维修等级"),
         returnRequired: normalized.indexOf("旧件返厂"),
         projectCode: normalized.indexOf("适用机型"),
@@ -75,7 +83,7 @@ function parseSweepPartRows(values = [], sheet = {}) {
     if (normalized.includes("物料编号") && nameIndex >= 0) {
       columns = {
         code: normalized.indexOf("物料编号"), name: nameIndex,
-        repairLevel: normalized.indexOf("维修等级"), price: normalized.indexOf("零售价"),
+        repairLevel: normalized.indexOf("维修等级"), price: columnIndex(normalized, ["零售价", "零售价格", "建议零售价", "最终零售价"]),
         returnRequired: normalized.indexOf("旧件返厂"),
       };
       continue;
@@ -210,4 +218,4 @@ class FeishuPartsCatalog {
   }
 }
 
-module.exports = { FeishuPartsCatalog, parsePartRows, parseSweepPartRows, projectCodesFromTitle, partSupportsProject, retailPrice };
+module.exports = { FeishuPartsCatalog, parsePartRows, parseSweepPartRows, projectCodesFromTitle, partSupportsProject, retailPrice, columnIndex };

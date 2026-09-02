@@ -1,13 +1,14 @@
 import { useState } from "react"
 import SupervisionNoticeCard from "../components/SupervisionNoticeCard.jsx"
-import { saveTreatmentDecision } from "../shared/crmService.js"
+import { saveTreatmentDecision, transferToHeadquarters } from "../shared/crmService.js"
 import { getCurrentRepairOrder, REPAIR_STATUS, updateRepairOrder } from "../shared/repairOrderStore.js"
 
 const OPTIONS = [
   { value: "REPAIR", title: "维修", badge: "需配件", description: "需要更换配件，下一步申请配件。", next: "申请配件" },
   { value: "ABANDONED", title: "弃修", badge: "免配件", description: "用户不维修，直接进入资料上传。", next: "上传资料" },
-  { value: "INSPECTION_ONLY", title: "只检测", badge: "检测报告", description: "只出检测报告，不申请配件。", next: "上传报告" },
+  { value: "INSPECTION_ONLY", title: "只检测不维修", badge: "检测报告", description: "只出检测报告，不申请配件。", next: "上传报告" },
   { value: "DEBUGGING", title: "调试", badge: "免配件", description: "无硬件故障，完成调试后上传资料。", next: "上传资料" },
+  { value: "TRANSFER_TO_HEADQUARTERS", title: "转寄总部", badge: "转总部", description: "网点不继续处理，登记后转寄总部。", next: "结束网点流程" },
 ]
 
 function RepairDecision({ setPage }) {
@@ -21,16 +22,18 @@ function RepairDecision({ setPage }) {
     try {
       setBusy(true)
       setErrorMessage("")
-      const result = await saveTreatmentDecision(repairOrder.crmOrderNo, selected)
+      const result = selected === "TRANSFER_TO_HEADQUARTERS"
+        ? await transferToHeadquarters(repairOrder.crmOrderNo)
+        : await saveTreatmentDecision(repairOrder.crmOrderNo, selected)
       const updated = updateRepairOrder({
-        treatmentMode: result.treatmentMode,
-        treatmentLabel: result.treatmentLabel,
+        treatmentMode: result.treatmentMode || selected,
+        treatmentLabel: result.treatmentLabel || OPTIONS.find((item) => item.value === selected)?.title,
         inspectionResult: result.detectionResult,
         warrantyType: result.technicianWarranty || repairOrder.warrantyType,
         status: result.nextStep === "partsApplication" ? REPAIR_STATUS.WAIT_INSPECTION : REPAIR_STATUS.INSPECTION_COMPLETE,
       })
       setRepairOrder(updated)
-      setPage(result.nextStep)
+      setPage(selected === "TRANSFER_TO_HEADQUARTERS" ? "home" : result.nextStep)
     } catch (error) {
       setErrorMessage(error.message)
     } finally {
@@ -59,7 +62,7 @@ function RepairDecision({ setPage }) {
     <section className="card treatment-choice-card">
       <div className="treatment-choice-heading">
         <div><span>处理方案</span><h2>请选择本单处理方式</h2></div>
-        <strong>4 选 1</strong>
+        <strong>5 选 1</strong>
       </div>
       <p className="treatment-choice-tip">选择后，系统会自动进入对应的下一步。</p>
       <div className="treatment-option-list">

@@ -1637,7 +1637,7 @@ function createApp(
     if (!rmaNo) return res.status(400).json({ success: false, message: "缺少必填字段：rmaNo" });
     try {
       const data = await receiptStore.transferToHeadquarters(rmaNo, currentUserProvider(req));
-      return res.json({ success: true, data: { ...data, message: "已登记转寄总部，流程结束；未执行瑞云签收", recloudSynced: false } });
+      return res.json({ success: true, data: { ...data, message: "已登记转寄总部，网点处理流程结束", recloudSynced: false } });
     } catch (error) {
       return next(error);
     }
@@ -1999,6 +1999,28 @@ function createApp(
     }
   });
 
+  async function hydratePartApplications(order) {
+    const applications = Array.isArray(order?.partApplications) ? order.partApplications : [];
+    const projectCode = getSnProjectMatch(order?.sn).projectCode;
+    const productLine = order?.specialty || order?.productLine;
+    return Promise.all(applications.map(async (application) => {
+      if (application.retailPrice !== null && application.retailPrice !== undefined && application.retailPrice !== "") return application;
+      try {
+        const matches = await feishuPartsCatalog.search({ productLine, projectCode, keyword: application.partCode });
+        const latest = matches.find((item) => item.code === application.partCode);
+        return latest ? {
+          ...application,
+          partName: latest.name || application.partName,
+          retailPrice: latest.retailPrice,
+          repairLevel: latest.repairLevel || application.repairLevel,
+          returnRequired: Boolean(latest.returnRequired),
+        } : application;
+      } catch {
+        return application;
+      }
+    }));
+  }
+
   app.post("/api/repairs/parts/apply", async (req, res, next) => {
     const rmaNo = String(req.body?.rmaNo || "").trim();
     const partCode = String(req.body?.partCode || "").trim();
@@ -2057,7 +2079,7 @@ function createApp(
       const rmaNo = String(req.query.rmaNo || "").trim();
       const order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
       if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到当前工单", 404);
-      const items = order.partApplications || [];
+      const items = await hydratePartApplications(order);
       const pricing = buildPricingPreview({
         modelRepairFees: order.modelAuthorization?.repairFees || {},
         usedParts: items,
@@ -2172,7 +2194,7 @@ function createApp(
       if (!["INSPECTION_COMPLETED_PENDING_REPAIR", "REPAIR_COMPLETION_DRAFT"].includes(order.status)) {
         throw createApiError("REPAIR_COMPLETION_NOT_ALLOWED", "仅已完成检测的工单可以进入维修完工", 409);
       }
-      const appliedParts = (order.partApplications || []).map((part) => ({
+      const appliedParts = (await hydratePartApplications(order)).map((part) => ({
         partCode: part.partCode, partName: part.partName, quantity: part.quantity,
         repairLevel: part.repairLevel, retailPrice: part.retailPrice,
         returnRequired: Boolean(part.returnRequired),
@@ -2210,7 +2232,7 @@ function createApp(
       const rmaNo = String(req.body?.rmaNo || "").trim();
       const order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
       if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到待维修工单", 404);
-      const appliedParts = (order.partApplications || []).map((part) => ({
+      const appliedParts = (await hydratePartApplications(order)).map((part) => ({
         partCode: part.partCode, partName: part.partName, quantity: part.quantity,
         repairLevel: part.repairLevel, retailPrice: part.retailPrice,
         returnRequired: Boolean(part.returnRequired),

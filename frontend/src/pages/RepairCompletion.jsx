@@ -306,17 +306,17 @@ function RepairCompletion({ setPage }) {
             保外弃修：不申请配件，上传照片/视频后按弃修流程寄回
           </p>
         ) : isOutOfWarranty ? (
-          pricing?.canPrice ? (
-            <div className={`pricing-summary compact-pricing-summary ${isDebugging ? "debugging-pricing-summary" : ""}`}>
+            <div className={`pricing-summary compact-pricing-summary ${isDebugging ? "debugging-pricing-summary" : ""} ${!pricing?.canPrice ? "pricing-needs-review" : ""}`}>
               <div className="pricing-summary-head">
-                <div><span>保外费用</span><strong>{isDebugging ? "调试费用（选填）" : "维修费用（必填）"}</strong></div>
-                <b>合计 ¥{(Number(pricing.subtotal || 0) + displayedLogisticsFee).toFixed(2)}</b>
+                <div><span>保外费用明细</span><strong>{isDebugging ? "调试费用（选填）" : "完工前请核对"}</strong></div>
+                <b>{pricing?.canPrice ? `合计 ¥${(Number(pricing.subtotal || 0) + displayedLogisticsFee).toFixed(2)}` : "合计待核价"}</b>
               </div>
-              {!isDebugging && <div className="pricing-stat-grid">
-                <div><span>维修等级</span><strong>{pricing.highestLevel}</strong></div>
-                <div><span>配件费</span><strong>¥{pricing.partsFee}</strong></div>
-                <div><span>维修费</span><strong>¥{pricing.fee}</strong></div>
+              {!isDebugging && <div className="pricing-stat-grid fee-detail-grid">
+                <div><span>维修等级</span><strong>{pricing?.highestLevel || "待确认"}</strong></div>
+                <div><span>配件费</span><strong>{pricing?.partsFee === null || pricing?.partsFee === undefined ? "待核价" : `¥${pricing.partsFee}`}</strong></div>
+                <div><span>维修费</span><strong>{pricing?.fee === null || pricing?.fee === undefined ? "待核价" : `¥${pricing.fee}`}</strong></div>
               </div>}
+              {!pricing?.canPrice && <div className="pricing-review-alert" role="alert"><strong>价格资料不完整</strong><span>仍可先填写运费；配件零售价或机型维修费补齐后即可提交。</span></div>}
               <div className="pricing-fee-field">
                 <label htmlFor="one-way-logistics-fee"><span>单程物流费</span><em>{requiresOutOfWarrantyFee ? "必填" : "选填"}</em></label>
                 <input id="one-way-logistics-fee" type="number" min="0" step="0.01" value={oneWayLogisticsFee} onChange={(event) => setOneWayLogisticsFee(event.target.value)} placeholder={requiresOutOfWarrantyFee ? "请填写单程快递费" : "可按实际情况填写，不填也能提交"} required={requiresOutOfWarrantyFee} disabled={completedDetail} />
@@ -334,16 +334,15 @@ function RepairCompletion({ setPage }) {
                 <span>{logisticsMode.label}<strong>¥{displayedLogisticsFee.toFixed(2)}</strong></span>
                 <span>计费方式<strong>{logisticsMode.multiplier > 0 ? `单程 × ${logisticsMode.multiplier}` : "全免"}</strong></span>
               </div>
-              <details className="pricing-remarks">
+              {pricing?.canPrice && <details className="pricing-remarks">
                 <summary>查看费用备注</summary>
                 <p>一级备注：{primaryRemark}</p>
                 <p>二级备注：{secondaryRemark}</p>
-              </details>
+              </details>}
               <p className="field-hint">{isDebugging
                 ? "保外调试费用选填，师傅可根据实际情况填写；不填也可直接提交。"
                 : "正常保外维修必须填写单程物流费；可按实际政策选择往返、单边或全免，后台会重新核算。"}</p>
             </div>
-          ) : <p className="error-message">保外价格暂时无法自动核对，请转人工确认</p>
         ) : <p className="success-text">保内工单：不向客户收取配件费和维修费</p>}
       </section>
 

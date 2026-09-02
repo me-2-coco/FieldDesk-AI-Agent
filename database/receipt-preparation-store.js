@@ -196,8 +196,12 @@ class JsonReceiptPreparationStore {
         error.status = 404;
         throw error;
       }
-      if (existing.modelAuthorization?.repairability !== "UNSUPPORTED") {
-        const error = new Error("仅未下放机型可以转寄总部");
+      const signedWorkflowStatuses = new Set([
+        "RECEIVED_PENDING_INSPECTION", "INSPECTION_IN_PROGRESS",
+        "INSPECTION_COMPLETED_PENDING_REPAIR", "REPAIR_COMPLETION_DRAFT",
+      ]);
+      if (existing.modelAuthorization?.repairability !== "UNSUPPORTED" && !signedWorkflowStatuses.has(existing.status)) {
+        const error = new Error("当前工单不能转寄总部");
         error.code = "TRANSFER_NOT_ALLOWED";
         error.status = 409;
         throw error;
@@ -206,6 +210,9 @@ class JsonReceiptPreparationStore {
       const updated = {
         ...existing,
         status: "TRANSFERRED_TO_HEADQUARTERS",
+        treatmentMode: "TRANSFER_TO_HEADQUARTERS",
+        treatmentLabel: "转寄总部",
+        skipsParts: true,
         transferredToHeadquartersAt: timestamp,
         updatedAt: timestamp,
         timeline: [...(existing.timeline || []), timelineEvent("TRANSFERRED_TO_HEADQUARTERS", "已登记转寄总部，流程结束", operator, timestamp)],

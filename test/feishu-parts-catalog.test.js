@@ -8,6 +8,24 @@ test("零售价兼容飞书货币符号和千位分隔格式", () => {
   assert.equal(retailPrice(""), null);
 });
 
+test("零售价列兼容带单位和零售价格别名", () => {
+  const withUnit = parseSweepPartRows([
+    ["物料编号", "物料名称", "维修等级", "零售价（元）"],
+    ["20020100007740", "售后软管下刮条组件", "中修", "¥39.00"],
+  ], { title: "H30 Ultra（W2306）", productLine: "洗地机" });
+  const alias = parseSweepPartRows([
+    ["物料编号", "物料名称", "维修等级", "零售价格"],
+    ["20020100007742", "售后刮条弹簧", "小修", 12],
+  ], { title: "H30 Ultra（W2306）", productLine: "洗地机" });
+  const finalPrice = parseSweepPartRows([
+    ["物料编号", "物料名称", "维修等级", "最终零售价"],
+    ["20020100007717", "售后喷水器组件", "中修", 17],
+  ], { title: "H30 Ultra（W2306）", productLine: "洗地机" });
+  assert.equal(withUnit[0].retailPrice, 39);
+  assert.equal(alias[0].retailPrice, 12);
+  assert.equal(finalPrice[0].retailPrice, 17);
+});
+
 test("解析飞书售后配件表并保留收费规则", () => {
   const rows = [
     ["序号", "物料编号", "售后配件名称", "配置", "单位", "零售价", "维修等级", "可否补损", "旧件返厂", "适用机型", "备件图片"],

@@ -318,6 +318,18 @@ test("unsupported model is recorded for headquarters transfer and cannot enter i
   assert.equal(transferred.receiptCompletedAt, undefined);
 });
 
+test("signed local order may be manually transferred to headquarters", async (t) => {
+  const store = await createTestStore(t);
+  const prepared = await store.prepare(validPayload({ rmaNo: "JXTH-MANUAL-TRANSFER-1" }));
+  await store.markModelAuthorization(prepared.rmaNo, { repairability: "SUPPORTED", status: "MATCHED" }, USERS.sweep);
+  await store.addReceiptAttachment(prepared.rmaNo, { id: "PHOTO-MANUAL", name: "receipt.jpg", mimeType: "image/jpeg" }, USERS.sweep);
+  await store.completeReceipt(prepared.rmaNo, USERS.sweep);
+  const transferred = await store.transferToHeadquarters(prepared.rmaNo, USERS.sweep);
+  assert.equal(transferred.status, "TRANSFERRED_TO_HEADQUARTERS");
+  assert.equal(transferred.treatmentMode, "TRANSFER_TO_HEADQUARTERS");
+  assert.equal(transferred.treatmentLabel, "转寄总部");
+});
+
 test("inspection model match uses saved SN and product line without writing Recloud", async (t) => {
   const store = await createTestStore(t);
   await store.prepare(validPayload());
