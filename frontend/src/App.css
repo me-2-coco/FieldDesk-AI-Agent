@@ -2408,13 +2408,15 @@ button:active:not(:disabled) {
 
   background:white;
 
-  border:none;
+  border:1px solid rgba(255,255,255,.55);
 
   border-radius:8px;
 
-  padding:8px 16px;
+  padding:8px 13px;
 
 }
+
+.scanner-header .scanner-close{display:inline-flex;flex:0 0 auto;align-items:center;justify-content:center;gap:6px;width:auto;min-width:106px;min-height:40px;margin:0;color:#111;background:#fff;border-radius:10px;box-shadow:0 4px 14px rgba(0,0,0,.25);font-size:14px;font-weight:800;line-height:1}.scanner-header .scanner-close span{font-size:17px;line-height:1}
 
 
 
@@ -2444,9 +2446,10 @@ button:active:not(:disabled) {
 
 
 
+.scanner-footer{position:fixed;right:0;bottom:0;left:0;z-index:3;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;min-height:86px;padding:12px 16px;background:rgba(17,17,17,.94);box-shadow:0 -5px 18px rgba(0,0,0,.22)}
 .scanner-tip{
 
-  height:80px;
+  min-height:0;
 
   color:white;
 
@@ -2459,6 +2462,9 @@ button:active:not(:disabled) {
   font-size:16px;
 
 }
+.scanner-footer-close{display:inline-flex!important;align-items:center!important;justify-content:center!important;width:auto!important;min-width:126px!important;min-height:48px!important;margin:0!important;padding:10px 18px!important;color:#fff!important;background:#d92d20!important;border:1px solid #ff8178!important;border-radius:12px!important;box-shadow:0 5px 16px rgba(217,45,32,.3)!important;font-size:15px!important;font-weight:850!important;white-space:nowrap!important}
+
+@media (max-width:520px){.scanner-header{height:56px;padding:0 12px;font-size:16px}.scanner-header .scanner-close{min-width:98px;min-height:38px;padding:7px 10px;font-size:13px}.scanner-footer{grid-template-columns:1fr;gap:8px;padding:10px 12px}.scanner-tip{font-size:13px;text-align:center}.scanner-footer-close{width:100%!important;min-height:46px!important}}
 .scan-icon-btn{
 
 width:50px;

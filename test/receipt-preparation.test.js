@@ -724,6 +724,27 @@ test("SN scan normalization uppercases without auto-submitting", async () => {
   );
 });
 
+test("all five scanner entry points share a visible close action", async () => {
+  const scannerSource = await fs.readFile(
+    path.join(__dirname, "../frontend/src/components/ScannerModal.jsx"),
+    "utf8"
+  );
+  const scannerPages = await Promise.all([
+    "Repair.jsx",
+    "PartsApplication.jsx",
+    "RepairHistoryLookup.jsx",
+    "Records.jsx",
+  ].map((file) => fs.readFile(path.join(__dirname, `../frontend/src/pages/${file}`), "utf8")));
+  const modalCount = scannerPages.reduce((count, source) => count + (source.match(/<ScannerModal/g) || []).length, 0);
+  assert.equal(modalCount, 4);
+  assert.match(scannerPages[0], /setScannerMode\("logistics"\)/);
+  assert.match(scannerPages[0], /setScannerMode\("sn"\)/);
+  assert.match(scannerSource, /aria-label="关闭扫码"/);
+  assert.match(scannerSource, /className="scanner-footer-close"/);
+  assert.match(scannerSource, /event\.key === "Escape"/);
+  assert.match(scannerSource, /await scanner\.stop\(\)\.catch/);
+});
+
 test("frontend specialty gate accepts the signed-in lowercase technician role", async () => {
   const helpers = await import(
     "../frontend/src/shared/receiptPreparation.js"
