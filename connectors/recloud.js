@@ -7269,6 +7269,69 @@ async function findMappedReceiptControl(page, options = {}) {
       { productTabActivated: false, rmaTabActivated: false }
     );
     await limited(() => prepareRmaDetailRegion(scope, page), null);
+    const directButtons = scope.locator("button");
+    if (typeof directButtons?.evaluateAll === "function") {
+      const buttonSnapshots = await limited(
+        () =>
+          directButtons.evaluateAll((buttons) =>
+            buttons.slice(0, 300).map((button, index) => {
+              const rect = button.getBoundingClientRect();
+              return {
+                index,
+                text: String(button.innerText || button.textContent || "")
+                  .replace(/\s+/g, " ")
+                  .trim(),
+                disabled: Boolean(button.disabled),
+                x: rect.x,
+                y: rect.y,
+                width: rect.width,
+                height: rect.height,
+              };
+            })
+          ),
+        []
+      );
+      const receiptButtons = buttonSnapshots.filter(
+        (button) =>
+          button.text === "签收" &&
+          !button.disabled &&
+          button.width > 0 &&
+          button.height > 0
+      );
+      if (receiptButtons.length > 0) {
+        const minimumX = Math.min(...receiptButtons.map((button) => button.x));
+        const leftmost = receiptButtons.filter(
+          (button) => Math.abs(button.x - minimumX) <= 2
+        );
+        const separatedFromClones = receiptButtons.every(
+          (button) =>
+            Math.abs(button.x - minimumX) <= 2 || button.x - minimumX > 100
+        );
+        if (leftmost.length === 1 && separatedFromClones) {
+          const entry = directButtons.nth(leftmost[0].index);
+          const visible = await limited(() => entry.isVisible(), false);
+          const enabled = await limited(() => entry.isEnabled(), false);
+          if (visible && enabled) {
+            return {
+              row: null,
+              entry,
+              operationDiagnostics: [],
+              receiptLocator: {
+                targetRowCandidateCount: 1,
+                targetRowMatchedBy: ["uniqueLeftmostButtonSnapshot"],
+                fixedOperationRowMatched: true,
+                fixedRightContainerFound: true,
+                fixedRightRowCandidateCount: 1,
+                fixedRightRowMatched: true,
+                fixedRightRowMatchedBy: "uniqueLeftmostButtonSnapshot",
+                operationCellFound: true,
+                operationControlCandidateCount: 1,
+              },
+            };
+          }
+        }
+      }
+    }
     const fixedButtonLocator = scope.locator(
       [
         ".rtxpc-table__fixed-right button",
