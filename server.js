@@ -2256,10 +2256,11 @@ function createApp(
         ? String(req.body?.logisticsChargeMode || "ROUND_TRIP").trim()
         : "NOT_CHARGED";
       const rawOneWayLogisticsFee = req.body?.oneWayLogisticsFee;
-      if (submit && requiresOutOfWarrantyFee && (rawOneWayLogisticsFee === "" || rawOneWayLogisticsFee === null || rawOneWayLogisticsFee === undefined)) {
+      const logisticsFeeIsWaived = logisticsChargeMode === "WAIVED";
+      if (submit && requiresOutOfWarrantyFee && !logisticsFeeIsWaived && (rawOneWayLogisticsFee === "" || rawOneWayLogisticsFee === null || rawOneWayLogisticsFee === undefined)) {
         throw createApiError("LOGISTICS_FEE_REQUIRED", "保外工单必须填写单程物流费", 400);
       }
-      const oneWayLogisticsFee = isOutOfWarranty && rawOneWayLogisticsFee !== "" && rawOneWayLogisticsFee !== null && rawOneWayLogisticsFee !== undefined
+      const oneWayLogisticsFee = isOutOfWarranty && !logisticsFeeIsWaived && rawOneWayLogisticsFee !== "" && rawOneWayLogisticsFee !== null && rawOneWayLogisticsFee !== undefined
         ? Number(rawOneWayLogisticsFee)
         : 0;
       if (!Number.isFinite(oneWayLogisticsFee) || oneWayLogisticsFee < 0) {

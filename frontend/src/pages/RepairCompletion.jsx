@@ -120,14 +120,15 @@ function RepairCompletion({ setPage }) {
           setFaultLevel3(draft.faultLevel3 || "")
         }
         const selectedTemplate = treatmentPreset?.speechTemplate || (templates.includes(draft.speechTemplate) ? draft.speechTemplate : templates[0])
+        const draftLogisticsMode = draft.logisticsChargeMode || draft.pricing?.logisticsChargeMode || "ROUND_TRIP"
         const draftLogisticsFee = draft.oneWayLogisticsFee === undefined ? "" : String(draft.oneWayLogisticsFee)
         setSpeechTemplate(selectedTemplate)
         setRepairMeasure(treatmentPreset
           ? buildRepairMeasure(selectedTemplate, contextParts, repairOrder.originalFault, confirmedFault.at(-1))
           : draft.repairMeasure || buildRepairMeasure(selectedTemplate, contextParts, repairOrder.originalFault, confirmedFault.at(-1)))
         setAttachments(draft.attachments || [])
-        setOneWayLogisticsFee(draftLogisticsFee)
-        setLogisticsChargeMode(draft.logisticsChargeMode || draft.pricing?.logisticsChargeMode || "ROUND_TRIP")
+        setOneWayLogisticsFee(draftLogisticsMode === "WAIVED" ? "" : draftLogisticsFee)
+        setLogisticsChargeMode(draftLogisticsMode)
       }
       if (!draft) {
         setSpeechTemplate(presetTemplate)
@@ -151,6 +152,7 @@ function RepairCompletion({ setPage }) {
   const logisticsMode = LOGISTICS_MODES.find((item) => item.value === logisticsChargeMode) || LOGISTICS_MODES[0]
   const isOutOfWarranty = !isInspectionOnly && !isAbandoned && responsibilityType === "保外维修"
   const requiresOutOfWarrantyFee = isOutOfWarranty && !isDebugging
+  const requiresLogisticsFee = requiresOutOfWarrantyFee && logisticsChargeMode !== "WAIVED"
   const responsibilityBadgeLabel = isInspectionOnly
     ? treatmentPreset?.badgeLabel
     : isAbandoned
@@ -166,7 +168,7 @@ function RepairCompletion({ setPage }) {
   const hasRequiredAttachment = isInspectionOnly ? hasInspectionReport && hasInspectionMedia : attachments.length > 0
   const canSubmitCompletion = hasRequiredAttachment && (
     !isOutOfWarranty
-    || (pricing?.canPrice && (requiresOutOfWarrantyFee ? hasValidOutOfWarrantyFee : hasValidOptionalOutOfWarrantyFee))
+    || (pricing?.canPrice && (requiresLogisticsFee ? hasValidOutOfWarrantyFee : logisticsChargeMode === "WAIVED" || hasValidOptionalOutOfWarrantyFee))
   )
   const submitButtonLabel = !hasRequiredAttachment
     ? isInspectionOnly
@@ -174,7 +176,7 @@ function RepairCompletion({ setPage }) {
       : "请先上传维修照片/视频"
     : isOutOfWarranty && !pricing?.canPrice
       ? "保外费用待核对"
-      : requiresOutOfWarrantyFee && !hasValidOutOfWarrantyFee
+      : requiresLogisticsFee && !hasValidOutOfWarrantyFee
         ? "请填写单程物流费"
         : isOutOfWarranty && !hasValidOptionalOutOfWarrantyFee
           ? "单程物流费格式不正确"
@@ -189,7 +191,8 @@ function RepairCompletion({ setPage }) {
     rmaNo: repairOrder.crmOrderNo,
     faultLevel1, faultLevel2, faultLevel3,
     responsibilityType, detectionResult, speechTemplate, repairMeasure, attachments,
-    oneWayLogisticsFee, logisticsChargeMode
+    oneWayLogisticsFee: logisticsChargeMode === "WAIVED" ? "" : oneWayLogisticsFee,
+    logisticsChargeMode
   })
 
   async function save(submit) {
@@ -322,15 +325,19 @@ function RepairCompletion({ setPage }) {
                 <div><span>维修费</span><strong>{pricing?.fee === null || pricing?.fee === undefined ? "待核价" : `¥${pricing.fee}`}</strong></div>
               </div>}
               {!pricing?.canPrice && <div className="pricing-review-alert" role="alert"><strong>价格资料不完整</strong><span>仍可先填写运费；配件零售价或机型维修费补齐后即可提交。</span></div>}
-              <div className="pricing-fee-field">
+              {logisticsChargeMode !== "WAIVED" && <div className="pricing-fee-field">
                 <label htmlFor="one-way-logistics-fee"><span>单程物流费</span><em>{requiresOutOfWarrantyFee ? "必填" : "选填"}</em></label>
                 <input id="one-way-logistics-fee" type="number" min="0" step="0.01" value={oneWayLogisticsFee} onChange={(event) => setOneWayLogisticsFee(event.target.value)} placeholder={requiresOutOfWarrantyFee ? "请填写单程快递费" : "可按实际情况填写，不填也能提交"} required={requiresOutOfWarrantyFee} disabled={completedDetail} />
-              </div>
+              </div>}
               <fieldset className="logistics-mode-options">
                 <legend>向客户收取的运费</legend>
                 {LOGISTICS_MODES.map((item) => (
                   <label key={item.value}>
-                    <input type="radio" name="logistics-charge-mode" value={item.value} checked={logisticsChargeMode === item.value} onChange={(event) => setLogisticsChargeMode(event.target.value)} disabled={completedDetail} />
+                    <input type="radio" name="logistics-charge-mode" value={item.value} checked={logisticsChargeMode === item.value} onChange={(event) => {
+                      const nextMode = event.target.value
+                      setLogisticsChargeMode(nextMode)
+                      if (nextMode === "WAIVED") setOneWayLogisticsFee("")
+                    }} disabled={completedDetail} />
                     {item.label}
                   </label>
                 ))}
@@ -346,7 +353,7 @@ function RepairCompletion({ setPage }) {
               </details>}
               <p className="field-hint">{isDebugging
                 ? "保外调试费用选填，师傅可根据实际情况填写；不填也可直接提交。"
-                : "正常保外维修必须填写单程物流费；可按实际政策选择往返、单边或全免，后台会重新核算。"}</p>
+                : "收取往返或单边运费时必须填写单程物流费；选择全免后无需填写，后台会重新核算。"}</p>
             </div>
         ) : <p className="success-text">保内工单：不向客户收取配件费和维修费</p>}
       </section>
