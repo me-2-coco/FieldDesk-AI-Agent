@@ -44,6 +44,8 @@ test("完工页按处理方式显示质保标签，并使用紧凑收费卡片",
   assert.match(source, /保外费用明细/);
   assert.match(source, /价格资料不完整/);
   assert.match(source, /仍可先填写运费/);
+  assert.match(source, /查看费用明细/);
+  assert.match(source, /scrollIntoView/);
   assert.match(source, /查看费用备注/);
 });
 

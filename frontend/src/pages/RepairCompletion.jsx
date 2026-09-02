@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import SupervisionNoticeCard from "../components/SupervisionNoticeCard.jsx"
 import PhotoCaptureModal from "../components/PhotoCaptureModal.jsx"
 import { CameraIcon } from "../components/AppIcons.jsx"
@@ -89,6 +89,7 @@ function RepairCompletion({ setPage }) {
   const [errorMessage, setErrorMessage] = useState("")
   const [busy, setBusy] = useState(false)
   const [syncStatus, setSyncStatus] = useState(null)
+  const pricingSummaryRef = useRef(null)
 
   useEffect(() => {
     let active = true
@@ -253,6 +254,10 @@ function RepairCompletion({ setPage }) {
     setMessage("已移除附件，保存草稿或提交完工后生效")
   }
 
+  function showPricingSummary() {
+    pricingSummaryRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })
+  }
+
   return (
     <div className="page repair-completion-page">
       <div className="top-bar">
@@ -306,7 +311,7 @@ function RepairCompletion({ setPage }) {
             保外弃修：不申请配件，上传照片/视频后按弃修流程寄回
           </p>
         ) : isOutOfWarranty ? (
-            <div className={`pricing-summary compact-pricing-summary ${isDebugging ? "debugging-pricing-summary" : ""} ${!pricing?.canPrice ? "pricing-needs-review" : ""}`}>
+            <div ref={pricingSummaryRef} className={`pricing-summary compact-pricing-summary ${isDebugging ? "debugging-pricing-summary" : ""} ${!pricing?.canPrice ? "pricing-needs-review" : ""}`}>
               <div className="pricing-summary-head">
                 <div><span>保外费用明细</span><strong>{isDebugging ? "调试费用（选填）" : "完工前请核对"}</strong></div>
                 <b>{pricing?.canPrice ? `合计 ¥${(Number(pricing.subtotal || 0) + displayedLogisticsFee).toFixed(2)}` : "合计待核价"}</b>
@@ -381,7 +386,9 @@ function RepairCompletion({ setPage }) {
         {message && <p role="status">{message}</p>}
         {!completedDetail && <div className="completion-actions">
           <button className="secondary-btn" disabled={busy} onClick={() => save(false)}>保存草稿</button>
-          <button className="primary-btn" disabled={busy || !canSubmitCompletion} onClick={() => save(true)}>{submitButtonLabel}</button>
+          {isOutOfWarranty && !pricing?.canPrice
+            ? <button type="button" className="fee-review-jump" disabled={busy} onClick={showPricingSummary}>查看费用明细</button>
+            : <button className="primary-btn" disabled={busy || !canSubmitCompletion} onClick={() => save(true)}>{submitButtonLabel}</button>}
         </div>}
         {completedDetail ? <button className="secondary-btn" onClick={() => setPage("home")}>返回首页</button> : <p className="dry-run-notice">仅保存 FieldDesk 本地数据，不连接或修改瑞云。</p>}
       </div>
