@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { FeishuModelCatalog, parseModelRows, resolveModel, resolveProjectModel, getSnProjectMatch } = require("../connectors/feishu-model-catalog");
+const { FeishuModelCatalog, parseModelRows, resolveModel, resolveProjectModel, resolveLocalSnAuthorization, getSnProjectMatch } = require("../connectors/feishu-model-catalog");
 
 test("parses a Feishu model sheet by header names instead of fixed columns", () => {
   const rows = parseModelRows([
@@ -44,6 +44,24 @@ test("SN project matching keeps a letter sixth character", () => {
 
 test("SN project matching keeps a non-zero numeric sixth character", () => {
   assert.deepEqual(getSnProjectMatch("W22118123456"), { projectCode: "W22118", comparisonLength: 6 });
+});
+
+test("local receipt authorizes a dispatched model from SN without a Recloud project number", () => {
+  const result = resolveLocalSnAuthorization([
+    { projectCode: "W2336", model: "H30", modelCode: "011101AA000024", repairFees: { 大修: 60, 中修: 40, 小修: 20 } },
+  ], { sn: "W233603AMCN0120329" });
+  assert.equal(result.status, "SN_AUTHORIZED");
+  assert.equal(result.repairability, "SUPPORTED");
+  assert.equal(result.canContinue, true);
+  assert.equal(result.projectCode, "W2336");
+  assert.deepEqual(result.repairFees, { 大修: 60, 中修: 40, 小修: 20 });
+});
+
+test("local receipt transfers an SN that is not in the dispatched model sheet", () => {
+  const result = resolveLocalSnAuthorization([], { sn: "W99990123456" });
+  assert.equal(result.status, "TRANSFER_TO_HEADQUARTERS");
+  assert.equal(result.repairability, "UNSUPPORTED");
+  assert.equal(result.canContinue, false);
 });
 
 test("matching Recloud project number skips model correction", () => {

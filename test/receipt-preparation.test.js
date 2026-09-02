@@ -114,7 +114,7 @@ test("receipt preparation rejects an empty SN", async (t) => {
   assert.equal(result.message, "SN 不能为空");
 });
 
-test("receipt preparation passes the Recloud current project into SN authorization", async (t) => {
+test("receipt preparation authorizes the local workflow from SN without checking the Recloud project", async (t) => {
   const store = await createTestStore(t);
   let authorizationInput = null;
   const url = await startServer(
@@ -124,12 +124,11 @@ test("receipt preparation passes the Recloud current project into SN authorizati
     USERS.sweep,
     {
       feishuModelCatalog: {
-        authorize: async (input) => {
+        authorizeLocal: async (input) => {
           authorizationInput = input;
           return {
             repairability: "SUPPORTED",
-            status: "CHANGE_REQUIRED",
-            currentProjectCode: input.currentProjectCode,
+            status: "SN_AUTHORIZED",
             projectCode: "R2580X",
             productModelCode: "010201AA000656",
           };
@@ -147,15 +146,12 @@ test("receipt preparation passes the Recloud current project into SN authorizati
   );
 
   assert.equal(response.status, 200);
-  assert.deepEqual(authorizationInput, {
-    sn: "R2580X5AMCN0146633",
-    currentProjectCode: "R25808",
-  });
+  assert.deepEqual(authorizationInput, { sn: "R2580X5AMCN0146633" });
   assert.equal(result.data.recloudProjectCode, "R25808");
   assert.equal(result.data.authorization.productModelCode, "010201AA000656");
 });
 
-test("strict dry run may continue the local workflow when the current Recloud project is unavailable", async (t) => {
+test("SN-authorized receipt can continue the local workflow without a current Recloud project", async (t) => {
   const store = await createTestStore(t);
   const url = await startServer(
     t,
@@ -164,11 +160,11 @@ test("strict dry run may continue the local workflow when the current Recloud pr
     USERS.wash,
     {
       feishuModelCatalog: {
-        authorize: async () => ({
-          status: "CURRENT_PROJECT_MISSING",
-          repairability: "REVIEW_REQUIRED",
-          canContinue: false,
-          reason: "未读取到瑞云当前项目号，不能判断是否需要修改",
+        authorizeLocal: async () => ({
+          status: "SN_AUTHORIZED",
+          repairability: "SUPPORTED",
+          canContinue: true,
+          projectCode: "W2336",
         }),
       },
     }
@@ -180,8 +176,8 @@ test("strict dry run may continue the local workflow when the current Recloud pr
   );
 
   assert.equal(response.status, 200);
-  assert.equal(result.data.authorization.localWorkflowAllowed, true);
-  assert.match(result.data.message, /可继续本地处理流程/);
+  assert.equal(result.data.authorization.status, "SN_AUTHORIZED");
+  assert.match(result.data.message, /SN 已匹配下放机型/);
 
   const attachment = await post(
     url,
@@ -649,7 +645,7 @@ test("prepare API ignores forged remark and specialties from frontend", async (t
   assert.equal(result.data.remark, "洗地机");
   assert.equal(result.data.specialty, "洗地机");
   assert.equal(result.data.status, "RECEIPT_PREPARED");
-  assert.equal(result.data.message, "下放机型，可以维修");
+  assert.equal(result.data.message, "SN 已匹配下放机型，可以维修");
   assert.equal(result.data.recloudSynced, false);
   assert.equal(result.data.operatorId, "TEST-WASH");
   assert.equal(result.data.operatorName, "测试洗地机师傅");
@@ -758,10 +754,10 @@ test("frontend enables SN step and shows the local-only success message", async 
   assert.match(source, /mode=\{scannerMode\}/);
   assert.match(source, /重新扫码/);
   assert.match(source, /placeholder="请输入、扫描枪输入或使用摄像头扫描"/);
-  assert.match(source, /currentProjectCode: repairDetail\.projectCode \|\| ""/);
-  assert.match(source, /preparation\.authorization\?\.localWorkflowAllowed === true/);
+  assert.doesNotMatch(source, /currentProjectCode: repairDetail\.projectCode \|\| ""/);
+  assert.doesNotMatch(source, /preparation\.authorization\?\.localWorkflowAllowed === true/);
   assert.match(source, /localWorkflow\.status !== "MODEL_AUTHORIZATION_REVIEW"/);
-  assert.match(source, /上次演练停在项目号验证，可重新录入并继续本地流程/);
+  assert.match(source, /上次流程停在机型校验，请重新录入 SN/);
   assert.match(source, /receipt-inline-error/);
   assert.doesNotMatch(source, /recloudProjectCode: repairDetail\.projectCode/);
   assert.match(source, /function startReceiptPreparation\(\)[\s\S]*?setSn\(""\)[\s\S]*?setReceiptStep\("form"\)/);

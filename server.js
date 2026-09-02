@@ -1586,19 +1586,11 @@ function createApp(
         operatorId: currentUser.userId,
         operatorName: currentUser.displayName,
       });
-      const rawAuthorization = typeof feishuModelCatalog.authorize === "function"
-        ? await feishuModelCatalog.authorize({ sn, currentProjectCode })
+      const authorization = typeof feishuModelCatalog.authorizeLocal === "function"
+        ? await feishuModelCatalog.authorizeLocal({ sn })
+        : typeof feishuModelCatalog.authorize === "function"
+          ? await feishuModelCatalog.authorize({ sn })
         : await feishuModelCatalog.match({ sn, productLine: productLine || specialty });
-      const localWorkflowAllowed = isDryRun(runtimeEnv)
-        && !isRecloudWriteEnabled(runtimeEnv)
-        && rawAuthorization.status === "CURRENT_PROJECT_MISSING";
-      const authorization = localWorkflowAllowed
-        ? {
-            ...rawAuthorization,
-            localWorkflowAllowed: true,
-            localWorkflowNotice: "演练模式：瑞云当前项目号待验证，可继续本地处理流程",
-          }
-        : rawAuthorization;
       const authorizedData = await receiptStore.markModelAuthorization(
         rmaNo,
         authorization,
@@ -1617,10 +1609,8 @@ function createApp(
             warrantyStatus: "",
           }),
           message: supported
-            ? "下放机型，可以维修"
-            : localWorkflowAllowed
-              ? authorization.localWorkflowNotice
-              : unsupported
+            ? "SN 已匹配下放机型，可以维修"
+            : unsupported
                 ? "未下放机型，需转寄总部"
                 : "机型数据异常，已停止并等待人工确认",
           dryRun: true,

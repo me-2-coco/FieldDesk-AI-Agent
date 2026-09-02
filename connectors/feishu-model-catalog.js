@@ -148,6 +148,50 @@ function resolveProjectModel(rows, input = {}) {
   };
 }
 
+function resolveLocalSnAuthorization(rows, input = {}) {
+  const snProject = getSnProjectMatch(input.sn);
+  if (!snProject.projectCode) {
+    return {
+      status: "INVALID_SN",
+      repairability: "REVIEW_REQUIRED",
+      canContinue: false,
+      correctionLookupRequired: false,
+      reason: "SN 格式无效，无法识别项目编码",
+    };
+  }
+  const matches = rows.filter((row) => projectCodeMatches(row.projectCode, snProject.projectCode));
+  if (matches.length === 0) {
+    return {
+      status: "TRANSFER_TO_HEADQUARTERS",
+      repairability: "UNSUPPORTED",
+      canContinue: false,
+      correctionLookupRequired: false,
+      projectCode: snProject.projectCode,
+      reason: "该 SN 对应机型未下放网点，需转寄总部",
+    };
+  }
+
+  const numericModelCodes = [...new Set(matches
+    .map((row) => row.modelCode)
+    .filter((code) => /^\d/.test(code)))];
+  const repairFeeOptions = [...new Map(matches
+    .filter((row) => row.repairFees)
+    .map((row) => [JSON.stringify(row.repairFees), row.repairFees])).values()];
+  const selectedCode = numericModelCodes.length === 1 ? numericModelCodes[0] : "";
+  const selectedRow = matches.find((row) => row.modelCode === selectedCode) || matches[0];
+
+  return {
+    status: "SN_AUTHORIZED",
+    repairability: "SUPPORTED",
+    canContinue: true,
+    correctionLookupRequired: false,
+    projectCode: snProject.projectCode,
+    productModelCode: selectedCode,
+    model: selectedRow?.model || "",
+    ...(repairFeeOptions.length === 1 ? { repairFees: repairFeeOptions[0] } : {}),
+  };
+}
+
 function snMatchesRule(sn, rule) {
   if (!rule) return true;
   const normalizedSn = comparable(sn);
@@ -237,6 +281,10 @@ class FeishuModelCatalog {
   async authorize(input) {
     return resolveProjectModel(await this.readRows(), input);
   }
+
+  async authorizeLocal(input) {
+    return resolveLocalSnAuthorization(await this.readRows(), input);
+  }
 }
 
-module.exports = { FeishuModelCatalog, parseModelRows, resolveModel, resolveProjectModel, getSnProjectMatch, projectCodeMatches, snMatchesRule };
+module.exports = { FeishuModelCatalog, parseModelRows, resolveModel, resolveProjectModel, resolveLocalSnAuthorization, getSnProjectMatch, projectCodeMatches, snMatchesRule };
