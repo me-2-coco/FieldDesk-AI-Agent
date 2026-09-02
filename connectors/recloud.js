@@ -7372,6 +7372,61 @@ async function findMappedReceiptControl(page, options = {}) {
         }
       }
     }
+    const exactReceiptTexts = scope.getByText("签收", { exact: true });
+    const exactReceiptTextCount = await limited(
+      async () => Math.min(await exactReceiptTexts.count(), 30),
+      0
+    );
+    const positionedTextButtons = [];
+    const seenButtonBoxes = new Set();
+    for (let index = 0; index < exactReceiptTextCount; index += 1) {
+      const receiptText = exactReceiptTexts.nth(index);
+      const candidate = receiptText
+        .locator("xpath=ancestor-or-self::button[1]")
+        .first();
+      const visible = await limited(() => candidate.isVisible(), false);
+      const enabled = await limited(() => candidate.isEnabled(), false);
+      const box = await limited(() => candidate.boundingBox(), null);
+      if (!visible || !enabled || !box || box.width <= 0 || box.height <= 0) {
+        continue;
+      }
+      const boxKey = [box.x, box.y, box.width, box.height]
+        .map((value) => Math.round(value))
+        .join(":");
+      if (seenButtonBoxes.has(boxKey)) continue;
+      seenButtonBoxes.add(boxKey);
+      positionedTextButtons.push({ candidate, box });
+    }
+    if (positionedTextButtons.length > 0) {
+      const minimumX = Math.min(
+        ...positionedTextButtons.map(({ box }) => box.x)
+      );
+      const leftmost = positionedTextButtons.filter(
+        ({ box }) => Math.abs(box.x - minimumX) <= 2
+      );
+      const separatedFromClones = positionedTextButtons.every(
+        ({ box }) =>
+          Math.abs(box.x - minimumX) <= 2 || box.x - minimumX > 100
+      );
+      if (leftmost.length === 1 && separatedFromClones) {
+        return {
+          row: null,
+          entry: leftmost[0].candidate,
+          operationDiagnostics: [],
+          receiptLocator: {
+            targetRowCandidateCount: 1,
+            targetRowMatchedBy: ["uniqueLeftmostReceiptTextButton"],
+            fixedOperationRowMatched: true,
+            fixedRightContainerFound: true,
+            fixedRightRowCandidateCount: 1,
+            fixedRightRowMatched: true,
+            fixedRightRowMatchedBy: "uniqueLeftmostReceiptTextButton",
+            operationCellFound: true,
+            operationControlCandidateCount: 1,
+          },
+        };
+      }
+    }
     const headers = scope.getByText("产品序列号", { exact: true });
     const headerCount = await limited(
       async () => Math.min(await headers.count(), 10),
