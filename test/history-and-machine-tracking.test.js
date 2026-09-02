@@ -21,7 +21,7 @@ test("history is read-only and machine tracking is restricted to information cle
   assert.match(home, /isInformationClerk \? "信息员"/);
 });
 
-test("repeat repair requires the same SN within 30 days and still returns older history", () => {
+test("repeat repair requires the same SN within one natural month and still returns older history", () => {
   const records = [
     {
       rmaNo: "JXTH-RECENT",
@@ -59,4 +59,54 @@ test("repeat repair requires the same SN within 30 days and still returns older 
   assert.equal(expired.isRepeatRepair, false);
   assert.equal(expired.previousTechnicianName, "李师傅");
   assert.equal(expired.records.length, 2);
+});
+
+test("repeat repair also recognizes the same phone before either order is completed", () => {
+  const records = [
+    { rmaNo: "JXTH202608281001", phoneMasked: "138****3666", sn: "SN-OLDER", sourceCreatedAt: "2026-08-28T08:00:00.000Z" },
+    { rmaNo: "JXTH202608311002", phoneMasked: "138****3666", sn: "SN-NEWER", sourceCreatedAt: "2026-08-31T08:00:00.000Z" },
+  ];
+
+  const older = findMachineRepairHistory(records, {
+    phone: "13882033666",
+    currentRmaNo: "JXTH202608281001",
+    now: new Date("2026-09-02T00:00:00.000Z"),
+  });
+  const newer = findMachineRepairHistory(records, {
+    phone: "13882033666",
+    currentRmaNo: "JXTH202608311002",
+    now: new Date("2026-09-02T00:00:00.000Z"),
+  });
+
+  assert.equal(older.isRepeatRepair, true);
+  assert.equal(newer.isRepeatRepair, true);
+  assert.equal(older.records[0].rmaNo, "JXTH202608311002");
+  assert.equal(newer.records[0].rmaNo, "JXTH202608281001");
+});
+
+test("repeat repair uses one natural calendar month instead of a fixed day count", () => {
+  const records = [
+    { rmaNo: "JXTH202601311001", sn: "SN-CALENDAR-MONTH", sourceCreatedAt: "2026-01-31T08:00:00+08:00" },
+    { rmaNo: "JXTH202602281002", sn: "SN-CALENDAR-MONTH", sourceCreatedAt: "2026-02-28T08:00:00+08:00" },
+  ];
+  assert.equal(findMachineRepairHistory(records, {
+    sn: "SN-CALENDAR-MONTH",
+    currentRmaNo: "JXTH202601311001",
+  }).isRepeatRepair, true);
+
+  records[1] = { rmaNo: "JXTH202603011002", sn: "SN-CALENDAR-MONTH", sourceCreatedAt: "2026-03-01T08:00:00+08:00" };
+  assert.equal(findMachineRepairHistory(records, {
+    sn: "SN-CALENDAR-MONTH",
+    currentRmaNo: "JXTH202601311001",
+  }).isRepeatRepair, false);
+});
+
+test("repair query shows a red repeat-repair label beside multiple results", async () => {
+  const repair = await source("frontend/src/pages/Repair.jsx");
+  const styles = await source("frontend/src/App.css");
+  assert.match(repair, /rma-repeat-label">重复维修/);
+  assert.match(repair, /searchMatches\.some\(\(item\) => item\.isRepeatRepair\)/);
+  assert.match(styles, /\.rma-repeat-label\{[^}]*color:#d1242f/);
+  assert.match(repair, /rma-match-product-line/);
+  assert.match(repair, /item\.productLine \|\| "产品线待确认"/);
 });

@@ -529,9 +529,11 @@ function createApp(
       const phoneQuery = /^1[3-9]\d{9}$/.test(queryValue);
       const snQuery = !phoneQuery && !/^JXTH/i.test(queryValue) && !/^SF/i.test(queryValue)
         && /^[A-Z0-9]{12,}$/i.test(queryValue);
+      let knownRepairOrders = allReceiptOrders;
       const withMachineHistory = (detail) => {
-        const machineHistory = findMachineRepairHistory(allReceiptOrders, {
+        const machineHistory = findMachineRepairHistory(knownRepairOrders, {
           sn: detail?.productSerialNo || detail?.sn || "",
+          phone: detail?.customer?.phoneMasked || detail?.phoneMasked || detail?.phone || "",
           currentRmaNo: detail?.rmaNo || "",
         });
         return {
@@ -552,6 +554,9 @@ function createApp(
       const pendingOrders = pendingReceiptStore ? await pendingReceiptStore.readAll() : [];
       const queryCacheOrders = rmaQueryCacheStore ? await rmaQueryCacheStore.readAll() : [];
       const cachedOrders = [...pendingOrders, ...queryCacheOrders];
+      knownRepairOrders = [...new Map(
+        [...cachedOrders, ...allReceiptOrders].map((order) => [order.rmaNo, order])
+      ).values()];
       const pendingMatches = cachedOrders.filter((order) =>
         [order.rmaNo, order.logisticsNo, order.sn].some(
           (value) => String(value || '').trim().toUpperCase() === normalizedQuery
@@ -719,9 +724,22 @@ function createApp(
           ? { ...data, matches: data.matches.map(withQueriedPhone) }
           : withQueriedPhone(data);
       }
-      data = Array.isArray(data?.matches)
-        ? { ...data, matches: data.matches.map(withMachineHistory) }
-        : withMachineHistory(data);
+      if (Array.isArray(data?.matches)) {
+        const liveRows = data.matches.map((detail) => ({
+          rmaNo: detail?.rmaNo || "",
+          sn: detail?.productSerialNo || detail?.sn || "",
+          phoneMasked: detail?.customer?.phoneMasked || detail?.phoneMasked || "",
+          productLine: detail?.productLine || "",
+          reportedFault: detail?.reportedFault || "",
+          sourceCreatedAt: detail?.sourceCreatedAt || detail?.createdAt || "",
+        }));
+        knownRepairOrders = [...new Map(
+          [...knownRepairOrders, ...liveRows].filter((order) => order.rmaNo).map((order) => [order.rmaNo, order])
+        ).values()];
+        data = { ...data, matches: data.matches.map(withMachineHistory) };
+      } else {
+        data = withMachineHistory(data);
+      }
       const liveQueryStore = rmaQueryCacheStore || pendingReceiptStore;
       if (liveQueryStore) {
         const cacheOne = async (detail) => {

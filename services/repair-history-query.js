@@ -29,8 +29,26 @@ function safeHistoryRecord(record) {
       quantity: Number(part.quantity) || 1,
     })),
     technicianName: record.technicianName || completion.operatorName || record.operatorName || "未记录",
-    completedAt: completion.submittedAt || record.completedAt || record.updatedAt || "",
+    completedAt: repairRecordTime(record),
   };
+}
+
+function rmaCreatedAt(rmaNo) {
+  const match = String(rmaNo || "").trim().match(/^JXTH(\d{4})(\d{2})(\d{2})/i);
+  if (!match) return "";
+  const value = new Date(`${match[1]}-${match[2]}-${match[3]}T00:00:00+08:00`);
+  return Number.isNaN(value.getTime()) ? "" : value.toISOString();
+}
+
+function repairRecordTime(record) {
+  return record.repairCompletion?.submittedAt
+    || record.completedAt
+    || record.receiptCompletedAt
+    || record.sourceCreatedAt
+    || rmaCreatedAt(record.rmaNo)
+    || record.createdAt
+    || record.updatedAt
+    || "";
 }
 
 function queryRepairHistory(records, keyword) {
@@ -52,25 +70,60 @@ function queryRepairHistoryByPhone(records, phone) {
   return queryRepairHistory(records, phone);
 }
 
-const REPEAT_REPAIR_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+function shanghaiCalendarDay(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date).reduce((result, part) => {
+    if (["year", "month", "day"].includes(part.type)) result[part.type] = Number(part.value);
+    return result;
+  }, {});
+  return parts.year && parts.month && parts.day ? parts : null;
+}
 
-function findMachineRepairHistory(records, { sn, currentRmaNo = "", now = new Date() } = {}) {
+function isWithinOneCalendarMonth(left, right) {
+  const leftDay = shanghaiCalendarDay(left);
+  const rightDay = shanghaiCalendarDay(right);
+  if (!leftDay || !rightDay) return false;
+  const leftValue = Date.UTC(leftDay.year, leftDay.month - 1, leftDay.day);
+  const rightValue = Date.UTC(rightDay.year, rightDay.month - 1, rightDay.day);
+  const earlier = leftValue <= rightValue ? leftDay : rightDay;
+  const laterValue = leftValue <= rightValue ? rightValue : leftValue;
+  const targetMonthIndex = earlier.month;
+  const targetYear = earlier.year + Math.floor(targetMonthIndex / 12);
+  const targetMonth = targetMonthIndex % 12;
+  const lastTargetDay = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
+  const anniversary = Date.UTC(targetYear, targetMonth, Math.min(earlier.day, lastTargetDay));
+  return laterValue <= anniversary;
+}
+
+function findMachineRepairHistory(records, { sn, phone, currentRmaNo = "", now = new Date() } = {}) {
   const normalizedSn = String(sn || "").trim().toUpperCase();
-  if (!normalizedSn) return { isRepeatRepair: false, previousTechnicianName: "", records: [] };
-  const nowTime = now instanceof Date ? now.getTime() : new Date(now).getTime();
-  const history = (Array.isArray(records) ? records : [])
-    .filter((record) => String(record.sn || "").trim().toUpperCase() === normalizedSn)
+  const normalizedPhone = String(phone || "").trim();
+  if (!normalizedSn && !normalizedPhone) return { isRepeatRepair: false, previousTechnicianName: "", records: [] };
+  const allRecords = Array.isArray(records) ? records : [];
+  const currentRecord = allRecords.find((record) => String(record.rmaNo || "").trim() === String(currentRmaNo || "").trim());
+  const referenceValue = repairRecordTime(currentRecord || {}) || rmaCreatedAt(currentRmaNo) || now;
+  const referenceTime = referenceValue instanceof Date ? referenceValue.getTime() : new Date(referenceValue).getTime();
+  const history = allRecords
+    .filter((record) => (
+      Boolean(normalizedSn && String(record.sn || "").trim().toUpperCase() === normalizedSn)
+      || Boolean(normalizedPhone && phoneMatches(record.phoneMasked || record.phone, normalizedPhone))
+    ))
     .filter((record) => String(record.rmaNo || "").trim() !== String(currentRmaNo || "").trim())
-    .filter((record) => record.repairCompletion?.submittedAt)
+    .filter((record) => repairRecordTime(record))
     .map(safeHistoryRecord)
     .sort((left, right) => String(right.completedAt).localeCompare(String(left.completedAt)));
   const latest = history[0] || null;
-  const latestTime = latest ? new Date(latest.completedAt).getTime() : NaN;
-  const ageMs = Number.isFinite(nowTime) && Number.isFinite(latestTime) ? nowTime - latestTime : Infinity;
+  const repeatRecord = history.find((record) => isWithinOneCalendarMonth(referenceTime, record.completedAt)) || null;
   return {
-    isRepeatRepair: Boolean(latest && ageMs >= 0 && ageMs <= REPEAT_REPAIR_WINDOW_MS),
-    previousTechnicianName: latest?.technicianName || "",
-    previousCompletedAt: latest?.completedAt || "",
+    isRepeatRepair: Boolean(repeatRecord),
+    previousTechnicianName: (repeatRecord || latest)?.technicianName || "",
+    previousCompletedAt: (repeatRecord || latest)?.completedAt || "",
     records: history,
   };
 }

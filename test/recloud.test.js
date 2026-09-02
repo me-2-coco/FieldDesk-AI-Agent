@@ -1758,6 +1758,40 @@ test("phone query matches a masked pending-receipt cache without opening Recloud
   assert.equal(result.data.cached, true);
 });
 
+test("phone query marks nearby matching orders as repeat repairs and returns product lines", async (t) => {
+  const connector = {
+    async openRecloud() {
+      assert.fail("multiple complete local matches must not open Recloud");
+    },
+  };
+  const receiptStore = {
+    async readAll() { return []; },
+    async listOrdersForUser() { return []; },
+  };
+  const pendingReceiptStore = {
+    async readAll() {
+      return [
+        { rmaNo: "JXTH202608281001", logisticsNo: "SF-OLDER", phone: "138****3666", productLine: "扫地机", productModel: "X50 Pro", source: "RECLOUD_PENDING_RECEIPT" },
+        { rmaNo: "JXTH202608311002", logisticsNo: "SF-NEWER", phone: "138****3666", productLine: "洗地机", productModel: "H20", source: "RECLOUD_PENDING_RECEIPT" },
+      ];
+    },
+  };
+  const server = createApp(connector, receiptStore, { pendingReceiptStore }).listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  t.after(() => server.close());
+
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/crm/repairs/query`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ queryValue: "13882033666" }),
+  });
+  const result = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(result.data.matches.map((item) => item.productLine), ["扫地机", "洗地机"]);
+  assert.deepEqual(result.data.matches.map((item) => item.isRepeatRepair), [true, true]);
+});
+
 test("phone query trusts a matching masked live-query cache and returns the complete queried phone", async (t) => {
   const connector = {
     async openRecloud() {

@@ -36,7 +36,7 @@ function MachineRepairHistory({ history }) {
     <div className="machine-history-heading">
       <div>
         {history.isRepeatRepair && <strong>重复维修</strong>}
-        <span>{history.isRepeatRepair ? "同一 SN 一个月内再次送修" : "该机器存在历史维修记录"}</span>
+        <span>{history.isRepeatRepair ? "同一电话或同一 SN 一个月内再次送修" : "该机器存在历史维修记录"}</span>
       </div>
       <b>{history.records.length} 次</b>
     </div>
@@ -486,12 +486,12 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
       {searchMatches.length > 0 && <div className="card rma-match-card">
         <div className="rma-match-heading">
           <div>
-            <span>查询结果</span>
+            <span>查询结果{searchMatches.some((item) => item.isRepeatRepair) && <b className="rma-repeat-label">重复维修</b>}</span>
             <h2>选择对应工单</h2>
           </div>
           <strong>{searchMatches.length} 个</strong>
         </div>
-        <p className="rma-match-tip">同一联系方式关联了多个工单，请根据机器和物流信息选择。</p>
+        <p className="rma-match-tip">同一联系方式关联了多个工单，请根据产品线、机型和物流信息选择。</p>
         <div className="rma-match-list">
           {searchMatches.map((item) => {
             const [productName = "机型待确认", orderStatus = "待处理"] = String(item.summary || "").split("｜")
@@ -505,10 +505,11 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
                   <small>寄修单号</small>
                   <strong>{item.rmaNo}</strong>
                 </span>
+                <em className="rma-match-product-line">{item.productLine || "产品线待确认"}</em>
                 <b aria-hidden="true">›</b>
               </span>
               <span className="rma-match-product">{productName || "机型待确认"}</span>
-              {item.isRepeatRepair && <span className="rma-repeat-badge">重复维修 · 上次师傅：{item.previousTechnicianName || "未记录"}</span>}
+              {item.isRepeatRepair && <span className="rma-repeat-badge">重复维修{item.previousTechnicianName ? ` · 上次师傅：${item.previousTechnicianName}` : ""}</span>}
               <span className="rma-match-meta">
                 <span><small>物流单号</small><strong>{item.logisticsNo || "送修"}</strong></span>
                 <span><small>联系电话</small><strong>{item.phoneMasked || "未显示"}</strong></span>
