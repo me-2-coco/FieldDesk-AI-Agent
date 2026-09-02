@@ -7388,11 +7388,13 @@ async function findMappedReceiptControl(page, options = {}) {
               );
               const targets = logisticsRows.length > 0
                 ? logisticsRows
-                : bestRows.filter((row) =>
-                    row.ariaRowIndex
-                      ? Number(row.ariaRowIndex) === input.rowIndex
-                      : row.logicalIndex === input.rowIndex
-                  );
+                : bestRows.length === 1
+                  ? bestRows
+                  : bestRows.filter((row) =>
+                      row.ariaRowIndex
+                        ? Number(row.ariaRowIndex) === input.rowIndex
+                        : row.logicalIndex === input.rowIndex
+                    );
               if (targets.length !== 1) {
                 return {
                   status: "row_not_unique",
@@ -7850,6 +7852,9 @@ async function findMappedReceiptControl(page, options = {}) {
           "无法唯一映射目标主表行对应的右侧固定列行",
           ["receiptForm.fixedRightRow"],
           {
+            mappingStatus: mapping?.status || "unknown",
+            targetRowCandidateCount:
+              mapping?.targetRowCandidateCount ?? 0,
             fixedRightContainerFound:
               mapping.fixedRightContainerFound ?? true,
             fixedRightRowCandidateCount:
