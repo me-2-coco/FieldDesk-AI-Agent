@@ -270,6 +270,7 @@ export function canAccessPage(
   "syncTasks",
   "syncDiagnostics",
   "accountManagement",
+  "adminRepairRecovery",
   "machineTracking",
   "repairReports",
   "exceptionCenter",

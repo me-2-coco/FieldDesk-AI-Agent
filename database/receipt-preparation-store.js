@@ -821,6 +821,82 @@ class JsonReceiptPreparationStore {
     return operation;
   }
 
+  async reopenTreatmentDecision(rmaNo, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      if (normalizeRequired(operator.role).toUpperCase() !== "ADMIN") {
+        throw Object.assign(new Error("只有管理员可以恢复工单处理方式"), {
+          code: "TREATMENT_REOPEN_ADMIN_REQUIRED", status: 403,
+        });
+      }
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing) {
+        throw Object.assign(new Error("未找到需要恢复的维修工单"), {
+          code: "RECEIPT_PREPARATION_NOT_FOUND", status: 404,
+        });
+      }
+      if (!existing.receiptCompletedAt) {
+        throw Object.assign(new Error("工单尚未完成签收，不能恢复处理方式"), {
+          code: "TREATMENT_REOPEN_RECEIPT_REQUIRED", status: 409,
+        });
+      }
+      if (["SHIPPED_PENDING_COMPLETION", "COMPLETED"].includes(existing.status) || existing.returnShipment?.shippedAt) {
+        throw Object.assign(new Error("机器已经返件发货或工单已经完结，不能恢复处理方式"), {
+          code: "TREATMENT_REOPEN_SHIPPED", status: 409,
+        });
+      }
+      if (!existing.treatmentMode && !existing.repairCompletion) {
+        throw Object.assign(new Error("工单已经处于处理方式选择步骤"), {
+          code: "TREATMENT_REOPEN_DUPLICATE", status: 409,
+        });
+      }
+      const timestamp = new Date().toISOString();
+      const recoveryRecord = {
+        reopenedAt: timestamp,
+        reopenedById: normalizeRequired(operator.userId),
+        reopenedByName: normalizeRequired(operator.displayName) || "系统管理员",
+        previousStatus: existing.status,
+        previousTreatmentMode: existing.treatmentMode || "",
+        previousTreatmentLabel: existing.treatmentLabel || "",
+        previousRepairCompletion: existing.repairCompletion || null,
+      };
+      const updated = {
+        ...existing,
+        status: "RECEIVED_PENDING_INSPECTION",
+        resumeStep: "repairDecision",
+        treatmentMode: "",
+        treatmentLabel: "",
+        skipsParts: false,
+        treatmentDecidedAt: null,
+        transferredToHeadquartersAt: null,
+        inspectionResult: "",
+        inspectionRemark: "",
+        faultCategory: "",
+        technicianWarranty: "",
+        warrantyDecision: null,
+        detectionResult: "",
+        inspectionUpdatedAt: null,
+        customerReasonConsistent: "",
+        inspectionAbnormal: "",
+        productFunctionDecision: "",
+        originalConsumables: "",
+        consumableName: "",
+        dismantled: "",
+        repairCompletion: null,
+        treatmentReopenHistory: [...(existing.treatmentReopenHistory || []), recoveryRecord],
+        updatedAt: timestamp,
+        timeline: [
+          ...(existing.timeline || []),
+          timelineEvent("TREATMENT_REOPENED", "管理员恢复到处理方式选择", operator, timestamp),
+        ],
+      };
+      await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
   async submitReturnShipment(rmaNo, input = {}, operator = {}) {
     const operation = this.writeQueue.then(async () => {
       const records = await this.readAll();

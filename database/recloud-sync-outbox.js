@@ -11,6 +11,7 @@ const TASK_STATUS = Object.freeze({
   MANUAL_REVIEW: "MANUAL_REVIEW",
   READY_DRY_RUN: "READY_DRY_RUN",
   AWAITING_FINAL_CONFIRM: "AWAITING_FINAL_CONFIRM",
+  CANCELLED: "CANCELLED",
 });
 const TASK_TRANSITIONS = Object.freeze({
   PENDING: [TASK_STATUS.PROCESSING],
@@ -20,6 +21,7 @@ const TASK_TRANSITIONS = Object.freeze({
   READY_DRY_RUN: [TASK_STATUS.PENDING, TASK_STATUS.PROCESSING],
   AWAITING_FINAL_CONFIRM: [TASK_STATUS.SUCCESS, TASK_STATUS.MANUAL_REVIEW],
   SUCCESS: [],
+  CANCELLED: [],
 });
 
 class JsonRecloudSyncOutbox {
@@ -111,6 +113,34 @@ class JsonRecloudSyncOutbox {
 
   async get(taskId) {
     return (await this.readAll()).find((item) => item.id === taskId) || null;
+  }
+
+  cancelForOrder(rmaNo, nodeTypes = [], { allowApplied = false } = {}) {
+    return this.run((tasks) => {
+      const wantedNodes = new Set(nodeTypes);
+      const matches = tasks.filter((task) => task.rmaNo === rmaNo && wantedNodes.has(task.nodeType));
+      const irreversible = matches.find((task) =>
+        task.nodeType === "REPAIR_COMPLETED"
+        && [TASK_STATUS.PROCESSING, TASK_STATUS.AWAITING_FINAL_CONFIRM, TASK_STATUS.SUCCESS].includes(task.status)
+        && !allowApplied
+      );
+      if (irreversible) {
+        throw Object.assign(new Error("该工单的瑞云完工同步已经执行，不能直接恢复处理方式"), {
+          code: "TREATMENT_REOPEN_SYNC_APPLIED", status: 409,
+        });
+      }
+      const timestamp = new Date().toISOString();
+      for (const task of matches) {
+        if (task.status === TASK_STATUS.CANCELLED) continue;
+        Object.assign(task, {
+          status: TASK_STATUS.CANCELLED,
+          lastError: "",
+          errorCategory: "ORDER_REOPENED",
+          updatedAt: timestamp,
+        });
+      }
+      return matches;
+    });
   }
 }
 

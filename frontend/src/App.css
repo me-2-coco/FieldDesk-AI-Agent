@@ -2,6 +2,24 @@
   box-sizing: border-box;
 }
 
+.admin-recovery-intro strong { color: #1758ba; font-size: 18px; }
+.admin-recovery-intro p { margin-bottom: 0; color: #65758b; line-height: 1.65; }
+.admin-recovery-search label { display: block; margin-bottom: 8px; font-weight: 700; }
+.admin-recovery-search input { margin: 0; }
+.admin-recovery-message { margin: 12px 0; padding: 12px 14px; border-radius: 12px; color: #1758ba; background: #edf5ff; }
+.admin-recovery-list { display: grid; gap: 14px; }
+.admin-recovery-order { margin: 0; }
+.admin-recovery-order-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.admin-recovery-order-head small, .admin-recovery-meta small { display: block; color: #8997aa; }
+.admin-recovery-order-head h2 { margin: 4px 0 0; font-size: 19px; }
+.admin-recovery-order-head > span { flex: 0 0 auto; padding: 7px 10px; border-radius: 999px; font-size: 13px; font-weight: 700; }
+.admin-recovery-order-head > span.recoverable { color: #1768d2; background: #edf5ff; }
+.admin-recovery-order-head > span.locked { color: #8993a1; background: #f0f2f5; }
+.admin-recovery-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0; padding: 14px; border-radius: 12px; background: #f7f9fc; }
+.admin-recovery-meta strong { display: block; margin-top: 4px; color: #25364d; overflow-wrap: anywhere; }
+.admin-recovery-order button { margin: 0; }
+.admin-recovery-empty { margin: 0; text-align: center; color: #8997aa; }
+
 html {
   background: #f5f6f8;
   color-scheme: light;

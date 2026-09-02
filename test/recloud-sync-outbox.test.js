@@ -81,6 +81,33 @@ test("outbox stores required safe fields and enforces idempotency", async (t) =>
   assert.deepEqual(first.payload, buildNodePayload(ORDER, "RECEIPT"));
 });
 
+test("reopened orders cancel stale sync tasks and can enqueue a new local completion record", async (t) => {
+  const outbox = await outboxFixture(t);
+  const service = new RecloudSyncService(outbox, new DryRunRecloudAdapter(), { scheduler: () => {} });
+  const oldInspection = await service.enqueueOrderNode(ORDER, "INSPECTION_COMPLETED", "INSPECTION-OLD");
+  const oldRepair = await service.enqueueOrderNode(ORDER, "REPAIR_COMPLETED", "REPAIR-OLD");
+  const cancelled = await service.cancelOrderNodes(ORDER.rmaNo, ["INSPECTION_COMPLETED", "REPAIR_COMPLETED"], { allowApplied: true });
+  assert.equal(cancelled.length, 2);
+  assert.equal((await outbox.get(oldInspection.id)).status, TASK_STATUS.CANCELLED);
+  assert.equal((await outbox.get(oldRepair.id)).status, TASK_STATUS.CANCELLED);
+
+  const newRepair = await service.enqueueOrderNode(ORDER, "REPAIR_COMPLETED", "REPAIR-NEW");
+  assert.notEqual(newRepair.id, oldRepair.id);
+  assert.equal(newRepair.status, TASK_STATUS.PENDING);
+});
+
+test("production recovery refuses to cancel a repair sync that may already be applied", async (t) => {
+  const outbox = await outboxFixture(t);
+  const service = new RecloudSyncService(outbox, new DryRunRecloudAdapter(), { scheduler: () => {} });
+  const task = await service.enqueueOrderNode(ORDER, "REPAIR_COMPLETED", "REPAIR-APPLIED");
+  await outbox.transition(task.id, TASK_STATUS.PROCESSING);
+  await outbox.transition(task.id, TASK_STATUS.SUCCESS);
+  await assert.rejects(
+    service.cancelOrderNodes(ORDER.rmaNo, ["REPAIR_COMPLETED"]),
+    { code: "TREATMENT_REOPEN_SYNC_APPLIED" }
+  );
+});
+
 test("dry-run adapter processes every business node without real Recloud", async (t) => {
   const outbox = await outboxFixture(t);
   const adapter = new DryRunRecloudAdapter();

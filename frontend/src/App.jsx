@@ -20,6 +20,7 @@ import Profile from "./pages/Profile.jsx"
 import SyncTasks from "./pages/SyncTasks.jsx"
 import SyncDiagnostics from "./pages/SyncDiagnostics.jsx"
 import AccountManagement from "./pages/AccountManagement.jsx"
+import AdminRepairRecovery from "./pages/AdminRepairRecovery.jsx"
 
 import BottomNav from "./components/BottomNav.jsx"
 
@@ -391,6 +392,10 @@ function App() {
 
         {page === "repairCompletion" && (
           <RepairCompletion setPage={setPage} />
+        )}
+
+        {page === "adminRepairRecovery" && (
+          <AdminRepairRecovery setPage={setPage} />
         )}
 
         {page === "returnShipping" && (

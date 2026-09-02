@@ -42,7 +42,7 @@ class RecloudSyncService {
       sn: order.sn,
       nodeType,
       localBusinessRecordId,
-      idempotencyKey: `${nodeType}:${order.id || order.rmaNo}`,
+      idempotencyKey: `${nodeType}:${order.id || order.rmaNo}:${String(localBusinessRecordId || "").trim()}`,
       mappingVersion: MAPPING_VERSION,
       payload: buildNodePayload(order, nodeType),
     });
@@ -117,6 +117,10 @@ class RecloudSyncService {
     const pending = await this.outbox.transition(taskId, TASK_STATUS.PENDING, { lastError: "", errorCategory: "" });
     this.scheduler(() => this.processTask(taskId).catch(() => {}));
     return pending;
+  }
+
+  cancelOrderNodes(rmaNo, nodeTypes, options = {}) {
+    return this.outbox.cancelForOrder(rmaNo, nodeTypes, options);
   }
 }
 

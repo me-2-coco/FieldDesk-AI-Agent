@@ -16,7 +16,8 @@ const STATUS_LABELS = {
   FAILED: "执行失败",
   MANUAL_REVIEW: "需要人工复核",
   READY_DRY_RUN: "演练检查通过",
-  AWAITING_FINAL_CONFIRM: "等待最终确认"
+  AWAITING_FINAL_CONFIRM: "等待最终确认",
+  CANCELLED: "工单恢复后已撤销"
 }
 
 const STATUS_HINTS = {
@@ -26,7 +27,8 @@ const STATUS_HINTS = {
   FAILED: "本次执行失败；可由管理员重新执行。",
   MANUAL_REVIEW: "检测到远端数据冲突，需要管理员核对后再继续。",
   READY_DRY_RUN: "页面结构和业务资料已通过演练，尚未写入瑞云。",
-  AWAITING_FINAL_CONFIRM: "配件、维修字段和附件均已复核，最终确认仍未点击。"
+  AWAITING_FINAL_CONFIRM: "配件、维修字段和附件均已复核，最终确认仍未点击。",
+  CANCELLED: "管理员恢复了工单处理方式，本次旧同步任务已停止。"
 }
 
 const REPAIR_STEP_LABELS = {

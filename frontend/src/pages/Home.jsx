@@ -165,6 +165,7 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
     { page: "exceptionCenter", title: "问题工单", description: "集中处理业务异常" },
     { page: "returnShipping", title: "发货进度", description: "查看待发货和待完结" }
   ] : [
+    { page: "adminRepairRecovery", title: "工单恢复", description: "恢复到处理方式选择" },
     { page: "syncTasks", title: "瑞云同步", description: "查看任务与失败重试" },
     { page: "syncDiagnostics", title: "同步检查", description: "检查系统连接状态" },
     { page: "accountManagement", title: "账号管理", description: "维护角色和权限" },

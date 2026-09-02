@@ -149,6 +149,10 @@ export async function saveRepairResumeStep(rmaNo, resumeStep) {
   return request("/api/repairs/resume-step", { rmaNo, resumeStep })
 }
 
+export async function reopenRepairTreatment(rmaNo) {
+  return request("/api/repairs/admin/reopen-treatment", { rmaNo })
+}
+
 export async function uploadReceiptAttachment(payload) {
   return request("/api/repairs/receipt/attachments", payload)
 }

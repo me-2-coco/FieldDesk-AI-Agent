@@ -12,6 +12,9 @@ const USER = {
   userId: "TECH-REPAIR-1", displayName: "本地测试师傅",
   role: "TECHNICIAN", repairSpecialties: ["扫地机"],
 };
+const ADMIN = {
+  userId: "ADMIN-REPAIR-1", displayName: "测试管理员", role: "ADMIN",
+};
 
 test("调试按 SN 质保结果显示费用，但只有正常保外维修必填", () => {
   assert.deepEqual(getOutOfWarrantyFeePolicy({ treatmentMode: "DEBUGGING", technicianWarranty: "保内" }), {
@@ -134,6 +137,65 @@ test("completion validates required fields and moves to pending shipment", async
   assert.equal(completed.status, "REPAIR_COMPLETED_PENDING_SHIPMENT");
   assert.equal(completed.repairCompletion.faultLevel3, "不出水");
   assert.equal(completed.repairCompletion.operatorId, USER.userId);
+});
+
+test("admin can restore a treated order to decision while preserving receipt ownership and history", async (t) => {
+  const { receiptStore } = await fixture(t);
+  await receiptStore.saveTreatmentDecision("TEST-RMA", {
+    treatmentMode: "ABANDONED",
+    detectionResult: "弃修",
+    technicianWarranty: "保外",
+  }, USER);
+  await receiptStore.saveRepairCompletion("TEST-RMA", {
+    responsibilityType: "保外维修",
+    detectionResult: "弃修",
+    speechTemplate: "客户弃修",
+    repairMeasure: "用户原先决定弃修",
+    attachments: [{ id: "ABANDONED-PHOTO", name: "abandoned.jpg", mimeType: "image/jpeg" }],
+  }, USER, true);
+
+  await assert.rejects(
+    receiptStore.reopenTreatmentDecision("TEST-RMA", USER),
+    { code: "TREATMENT_REOPEN_ADMIN_REQUIRED" }
+  );
+  const before = (await receiptStore.readAll())[0];
+  const reopened = await receiptStore.reopenTreatmentDecision("TEST-RMA", ADMIN);
+  assert.equal(reopened.status, "RECEIVED_PENDING_INSPECTION");
+  assert.equal(reopened.resumeStep, "repairDecision");
+  assert.equal(reopened.treatmentMode, "");
+  assert.equal(reopened.repairCompletion, null);
+  assert.equal(reopened.technicianId, before.technicianId);
+  assert.equal(reopened.receiptCompletedAt, before.receiptCompletedAt);
+  assert.deepEqual(reopened.receiptAttachments, before.receiptAttachments);
+  assert.equal(reopened.treatmentReopenHistory.length, 1);
+  assert.equal(reopened.treatmentReopenHistory[0].previousTreatmentMode, "ABANDONED");
+  assert.equal(reopened.treatmentReopenHistory[0].previousRepairCompletion.repairMeasure, "用户原先决定弃修");
+  assert.equal(reopened.timeline.at(-1).type, "TREATMENT_REOPENED");
+});
+
+test("admin cannot restore an order after return shipment", async (t) => {
+  const { receiptStore } = await fixture(t);
+  await receiptStore.saveTreatmentDecision("TEST-RMA", {
+    treatmentMode: "DEBUGGING",
+    detectionResult: "调试",
+    technicianWarranty: "保外",
+  }, USER);
+  await receiptStore.saveRepairCompletion("TEST-RMA", {
+    responsibilityType: "保外调试",
+    detectionResult: "调试完成",
+    speechTemplate: "调试完成",
+    repairMeasure: "完成调试并寄回",
+    attachments: [{ id: "DEBUG-PHOTO", name: "debug.jpg", mimeType: "image/jpeg" }],
+  }, USER, true);
+  await receiptStore.submitReturnShipment("TEST-RMA", {
+    logisticsCompany: "顺丰",
+    trackingNo: "SF1234567890",
+    attachments: [{ id: "SHIP-PHOTO", name: "shipping.jpg", mimeType: "image/jpeg" }],
+  }, ADMIN);
+  await assert.rejects(
+    receiptStore.reopenTreatmentDecision("TEST-RMA", ADMIN),
+    { code: "TREATMENT_REOPEN_SHIPPED" }
+  );
 });
 
 test("treatment decision routes repair to parts and no-parts modes to completion", async (t) => {

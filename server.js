@@ -2541,6 +2541,43 @@ function createApp(
     } catch (error) { next(error); }
   });
 
+  app.post("/api/repairs/admin/reopen-treatment", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      if (user.role !== USER_ROLES.ADMIN) {
+        throw createApiError("TREATMENT_REOPEN_FORBIDDEN", "只有管理员可以恢复工单处理方式", 403);
+      }
+      const rmaNo = String(req.body?.rmaNo || "").trim();
+      if (!rmaNo) throw createApiError("RMA_NO_REQUIRED", "缺少寄修单号", 400);
+
+      const existing = (await receiptStore.readAll()).find((order) => order.rmaNo === rmaNo);
+      if (!existing) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到需要恢复的维修工单", 404);
+      if (!existing.receiptCompletedAt) {
+        throw createApiError("TREATMENT_REOPEN_RECEIPT_REQUIRED", "工单尚未完成签收，不能恢复处理方式", 409);
+      }
+      if (["SHIPPED_PENDING_COMPLETION", "COMPLETED"].includes(existing.status) || existing.returnShipment?.shippedAt) {
+        throw createApiError("TREATMENT_REOPEN_SHIPPED", "机器已经返件发货或工单已经完结，不能恢复处理方式", 409);
+      }
+      if (!existing.treatmentMode && !existing.repairCompletion) {
+        throw createApiError("TREATMENT_REOPEN_DUPLICATE", "工单已经处于处理方式选择步骤", 409);
+      }
+
+      await syncService.cancelOrderNodes(
+        rmaNo,
+        ["INSPECTION_COMPLETED", "REPAIR_COMPLETED"],
+        { allowApplied: isDryRun(runtimeEnv) }
+      );
+      const data = await receiptStore.reopenTreatmentDecision(rmaNo, user);
+      res.json({
+        success: true,
+        data: {
+          ...data,
+          message: "已恢复到处理方式选择，原维修师傅可继续处理",
+        },
+      });
+    } catch (error) { next(error); }
+  });
+
   app.get("/api/repairs/history", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
@@ -2735,6 +2772,30 @@ function createApp(
       RECEIPT_PREPARATION_NOT_FOUND: {
         status: 404,
         message: "未找到待签收准备记录",
+      },
+      TREATMENT_REOPEN_FORBIDDEN: {
+        status: 403,
+        message: error.message,
+      },
+      TREATMENT_REOPEN_ADMIN_REQUIRED: {
+        status: 403,
+        message: error.message,
+      },
+      TREATMENT_REOPEN_RECEIPT_REQUIRED: {
+        status: 409,
+        message: error.message,
+      },
+      TREATMENT_REOPEN_SHIPPED: {
+        status: 409,
+        message: error.message,
+      },
+      TREATMENT_REOPEN_DUPLICATE: {
+        status: 409,
+        message: error.message,
+      },
+      TREATMENT_REOPEN_SYNC_APPLIED: {
+        status: 409,
+        message: error.message,
       },
       REPAIR_SPECIALTY_NOT_CONFIGURED: {
         status: 403,
