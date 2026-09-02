@@ -22,6 +22,19 @@ test("sync exceptions expose safe status messages without raw failures", () => {
   assert.doesNotMatch(JSON.stringify(item), /secret remote body|lastError/);
 });
 
+test("unknown Recloud receipt result is exposed for manual reconciliation", () => {
+  const [item] = detectOrderExceptions({
+    rmaNo: "RMA-RECEIPT-UNKNOWN",
+    logisticsNo: "SF-RECEIPT-UNKNOWN",
+    status: "RECEIPT_PREPARED",
+    recloudReceiptSyncStatus: "RESULT_UNKNOWN",
+    updatedAt: new Date().toISOString(),
+  });
+  assert.equal(item.type, "RECLOUD_RECEIPT_RESULT_UNKNOWN");
+  assert.equal(item.severity, "HIGH");
+  assert.match(item.message, /人工核对/);
+});
+
 async function start(t, user) {
   const receiptStore = { readAll: async () => [{ rmaNo: "R1", logisticsNo: "SF1", status: "RECEIVED_PENDING_INSPECTION", receiptCompletedAt: "2026-08-20T00:00:00Z", updatedAt: "2026-08-20T00:00:00Z" }] };
   const fileStore = { read: async () => Buffer.from("ok") };

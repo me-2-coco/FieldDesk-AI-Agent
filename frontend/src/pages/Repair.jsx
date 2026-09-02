@@ -5,6 +5,7 @@ import { CameraIcon, ScanIcon } from "../components/AppIcons.jsx"
 import AttachmentPreviewList from "../components/AttachmentPreviewList.jsx"
 import {
   completeLocalReceipt,
+  downloadRepairAttachment,
   getCurrentFieldDeskUser,
   getLocalRepairOrders,
   getRepeatRepairBySn,
@@ -133,6 +134,23 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
         String(item.rmaNo || "").trim() === String(result.rmaNo || "").trim()
       )
       if (!localOrder?.sn) return false
+      if (localOrder.status === "RECEIPT_PREPARED") {
+        setRepairDetail({ ...result, localWorkflow: localOrder })
+        setSn(localOrder.sn)
+        setSpecialty(localOrder.specialty || localOrder.productLine || result.productLine || "")
+        setReceiptAttachments((localOrder.receiptAttachments || []).map((attachment) => ({
+          ...attachment,
+          uploaded: true
+        })))
+        setReceiptStep(localOrder.recloudReceiptSyncStatus === "RESULT_UNKNOWN" ? "detail" : "form")
+        setErrorMessage(localOrder.recloudReceiptSyncStatus === "RESULT_UNKNOWN"
+          ? "瑞云签收结果未知，已禁止重复提交，请联系管理员核对"
+          : "")
+        setReceiptMessage(localOrder.recloudReceiptSyncStatus === "FAILED"
+          ? "上次瑞云签收失败，资料已保留，可以重新提交"
+          : "已恢复到签收确认步骤，SN 和已上传照片均已保留")
+        return true
+      }
       const targetPage = resumePageForLocalWorkflow(localOrder)
       if (!targetPage) {
         setRepairDetail({ ...result, localWorkflow: localOrder })
@@ -361,6 +379,7 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
         return
       }
       for (const attachment of receiptAttachments) {
+        if (attachment.uploaded) continue
         await uploadReceiptAttachment({
           rmaNo: repairDetail.rmaNo,
           name: attachment.name,
@@ -752,6 +771,7 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
             {receiptAttachments.length > 0 ? (
               <AttachmentPreviewList
                 attachments={receiptAttachments}
+                loadAttachment={(attachment) => downloadRepairAttachment(repairDetail.rmaNo, "receipt", attachment)}
                 disabled={isSaving}
                 onRemove={(attachmentId) => setReceiptAttachments((current) => current.filter((file) => file.id !== attachmentId))}
               />

@@ -84,6 +84,12 @@ function createReceiptPreparation(input, existing = null, now = new Date()) {
     technicianId: existing?.technicianId || normalizeRequired(input.operatorId),
     technicianName: existing?.technicianName || normalizeRequired(input.operatorName) || "本地测试用户",
     receiptAttachments: existing?.receiptAttachments || [],
+    recloudReceiptSyncStatus: existing?.recloudReceiptSyncStatus || "NOT_STARTED",
+    recloudReceiptAttemptId: existing?.recloudReceiptAttemptId || "",
+    recloudReceiptAttemptedAt: existing?.recloudReceiptAttemptedAt || "",
+    recloudReceiptConfirmedAt: existing?.recloudReceiptConfirmedAt || "",
+    recloudReceiptResult: existing?.recloudReceiptResult || null,
+    recloudReceiptLastError: existing?.recloudReceiptLastError || null,
     timeline: existing?.timeline || [
       timelineEvent("CRM_QUERIED", "物流单查询完成", { userId: input.operatorId, displayName: input.operatorName }, timestamp),
       timelineEvent("RECEIPT_PREPARED", "签收资料已准备", { userId: input.operatorId, displayName: input.operatorName }, timestamp),
@@ -122,6 +128,7 @@ class JsonReceiptPreparationStore {
       const existing = records.find(
         (record) => record.rmaNo === normalizedInput.rmaNo
       );
+      if (existing?.recloudReceiptConfirmedAt) return existing;
       const conflict = records.find(
         (record) =>
           record.rmaNo !== normalizedInput.rmaNo &&
@@ -295,6 +302,7 @@ class JsonReceiptPreparationStore {
       const operator = input.operator || {};
       const updated = {
         ...existing,
+        recloudReceiptSyncStatus: "CONFIRMED",
         recloudReceiptConfirmedAt: timestamp,
         recloudReceiptResult: {
           confirmed: true,
@@ -305,6 +313,74 @@ class JsonReceiptPreparationStore {
           ...(existing.timeline || []),
           timelineEvent("RECLOUD_RECEIPT_CONFIRMED", "瑞云签收完成", operator, timestamp),
         ],
+      };
+      await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
+  async markRecloudReceiptSyncing(rmaNo, input = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing) {
+        throw Object.assign(new Error("未找到本地签收准备记录"), {
+          code: "RECEIPT_PREPARATION_NOT_FOUND", status: 404,
+        });
+      }
+      if (existing.recloudReceiptConfirmedAt) return existing;
+      if (existing.recloudReceiptSyncStatus === "RESULT_UNKNOWN") {
+        throw Object.assign(new Error("瑞云签收结果待人工核对，禁止重复提交"), {
+          code: "RECLOUD_RECEIPT_RECONCILIATION_REQUIRED", status: 409,
+        });
+      }
+      const timestamp = new Date().toISOString();
+      const updated = {
+        ...existing,
+        recloudReceiptSyncStatus: "SYNCING",
+        recloudReceiptAttemptId: normalizeRequired(input.attemptId) || crypto.randomUUID(),
+        recloudReceiptAttemptedAt: timestamp,
+        recloudReceiptLastError: null,
+        updatedAt: timestamp,
+      };
+      await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
+  async markRecloudReceiptFailed(rmaNo, input = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing || existing.recloudReceiptConfirmedAt) return existing;
+      const timestamp = new Date().toISOString();
+      const resultUnknown = input.resultUnknown === true;
+      const updated = {
+        ...existing,
+        recloudReceiptSyncStatus: resultUnknown ? "RESULT_UNKNOWN" : "FAILED",
+        recloudReceiptLastError: {
+          code: normalizeRequired(input.code) || "RECLOUD_RECEIPT_FAILED",
+          message: resultUnknown
+            ? "瑞云签收请求结果未知，需要管理员人工核对"
+            : "瑞云签收失败，可以安全重试",
+          at: timestamp,
+        },
+        updatedAt: timestamp,
+        timeline: resultUnknown
+          ? [
+              ...(existing.timeline || []),
+              timelineEvent(
+                "RECLOUD_RECEIPT_RESULT_UNKNOWN",
+                "瑞云签收结果待人工核对",
+                input.operator || {},
+                timestamp
+              ),
+            ]
+          : existing.timeline || [],
       };
       await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
       return updated;

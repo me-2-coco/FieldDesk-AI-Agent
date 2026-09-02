@@ -31,6 +31,14 @@ function detectOrderExceptions(order, options = {}) {
   const stalledAfterMs = Number(options.stalledAfterMs || 24 * 60 * 60 * 1000);
   const missingAttachmentIds = new Set(options.missingAttachmentIds || []);
   const exceptions = [];
+  if (order.recloudReceiptSyncStatus === "RESULT_UNKNOWN") {
+    exceptions.push(baseException(
+      order,
+      "RECLOUD_RECEIPT_RESULT_UNKNOWN",
+      "HIGH",
+      "瑞云签收确认已触发但结果未知，请人工核对后再继续"
+    ));
+  }
   const signed = Boolean(order.receiptCompletedAt) || !["RECEIPT_PREPARED", "TRANSFER_TO_HEADQUARTERS_PENDING"].includes(order.status);
   if (signed && !(order.technicianId || order.operatorId)) {
     exceptions.push(baseException(order, "UNASSIGNED_TECHNICIAN", "HIGH", "机器已签收但尚未分配负责师傅"));

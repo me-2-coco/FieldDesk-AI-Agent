@@ -1719,36 +1719,51 @@ function createApp(
       validateReceiptCompletion(prepared);
       let recloudSynced = Boolean(prepared.recloudReceiptConfirmedAt);
       if (isRecloudReceiptWriteEnabled(runtimeEnv) && !recloudSynced) {
-        const liveResult = await withRecloud(connector, async (page) => {
-          const detail = await connector.queryRmaByLogisticsNo(
-            page,
-            prepared.logisticsNo,
-            { preserveDetailPage: true }
-          );
-          if (detail.rmaNo && detail.rmaNo !== prepared.rmaNo) {
-            throw createApiError(
-              "RECLOUD_RECEIPT_ORDER_MISMATCH",
-              "瑞云查询结果与当前寄修单不一致，已停止签收",
-              409
-            );
-          }
-          const receipt = await connector.confirmSign(
-            page,
-            prepared.sn,
-            detail.productType || detail.productLine || prepared.productLine,
-            prepared.remark || prepared.specialty,
-            {
-              dryRun: false,
-              logisticsNo: prepared.logisticsNo,
-              productLine:
-                detail.productLine || detail.productType || prepared.productLine,
-            }
-          );
-          if (!receipt?.confirmed) {
-            throw createApiError("RECLOUD_RECEIPT_NOT_CONFIRMED", "瑞云未确认签收，本地状态未改变", 502);
-          }
-          return { detail, receipt };
+        await receiptStore.markRecloudReceiptSyncing(rmaNo, {
+          attemptId: String(req.headers["idempotency-key"] || "").trim(),
+          operator: currentUser,
         });
+        let liveResult;
+        try {
+          liveResult = await withRecloud(connector, async (page) => {
+            const detail = await connector.queryRmaByLogisticsNo(
+              page,
+              prepared.logisticsNo,
+              { preserveDetailPage: true }
+            );
+            if (detail.rmaNo && detail.rmaNo !== prepared.rmaNo) {
+              throw createApiError(
+                "RECLOUD_RECEIPT_ORDER_MISMATCH",
+                "瑞云查询结果与当前寄修单不一致，已停止签收",
+                409
+              );
+            }
+            const receipt = await connector.confirmSign(
+              page,
+              prepared.sn,
+              detail.productType || detail.productLine || prepared.productLine,
+              prepared.remark || prepared.specialty,
+              {
+                dryRun: false,
+                logisticsNo: prepared.logisticsNo,
+                productLine:
+                  detail.productLine || detail.productType || prepared.productLine,
+              }
+            );
+            if (!receipt?.confirmed) {
+              throw createApiError("RECLOUD_RECEIPT_NOT_CONFIRMED", "瑞云未确认签收，本地状态未改变", 502);
+            }
+            return { detail, receipt };
+          });
+        } catch (error) {
+          await receiptStore.markRecloudReceiptFailed(rmaNo, {
+            code: error.code,
+            resultUnknown: error.resultUnknown === true
+              || error.code === "RECLOUD_RECEIPT_RESULT_UNKNOWN",
+            operator: currentUser,
+          });
+          throw error;
+        }
         await receiptStore.markRecloudReceiptConfirmed(rmaNo, {
           receipt: liveResult.receipt,
           operator: currentUser,
@@ -1773,6 +1788,9 @@ function createApp(
             ? "瑞云签收完成，请选择维修、弃修、只检测不维修或调试"
             : "演示签收完成，请选择维修、弃修、只检测不维修或调试",
           recloudSynced,
+          recloudReceiptSyncStatus: recloudSynced
+            ? "CONFIRMED"
+            : data.recloudReceiptSyncStatus || "LOCAL_ONLY",
         },
       });
     } catch (error) {
@@ -2886,6 +2904,14 @@ function createApp(
       RECEIPT_SN_LOOKS_LIKE_LOGISTICS: {
         status: 400,
         message: error.message,
+      },
+      RECLOUD_RECEIPT_RESULT_UNKNOWN: {
+        status: 409,
+        message: "瑞云确认已触发但结果未能核实，禁止重复签收，请管理员人工核对",
+      },
+      RECLOUD_RECEIPT_RECONCILIATION_REQUIRED: {
+        status: 409,
+        message: "瑞云签收结果待人工核对，禁止重复提交",
       },
       RECLOUD_RECEIPT_ACTION_NOT_FOUND: {
         status: 502,

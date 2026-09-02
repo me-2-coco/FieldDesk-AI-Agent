@@ -10216,12 +10216,23 @@ async function confirmSign(page, sn, productType, remark, options = {}) {
     .or(dialog.getByText(/^(确认|确定)$/, { exact: true }))
     .last();
   await confirmButton.waitFor({ state: "visible" });
-  await confirmButton.click();
-
-  await Promise.race([
-    dialog.waitFor({ state: "hidden" }),
-    page.getByText(/签收成功/).waitFor({ state: "visible" }),
-  ]);
+  let confirmationAttempted = false;
+  try {
+    confirmationAttempted = true;
+    await confirmButton.click();
+    await Promise.race([
+      dialog.waitFor({ state: "hidden" }),
+      page.getByText(/签收成功/).waitFor({ state: "visible" }),
+    ]);
+  } catch (error) {
+    if (confirmationAttempted) {
+      error.code = "RECLOUD_RECEIPT_RESULT_UNKNOWN";
+      error.status = 409;
+      error.resultUnknown = true;
+      error.message = "瑞云确认已触发但结果未能核实，禁止重复签收，请管理员人工核对";
+    }
+    throw error;
+  }
 
   return {
     success: true,

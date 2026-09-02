@@ -9,6 +9,7 @@ const TYPE_NAMES = {
   PARTS_MISMATCH: "配件记录不一致",
   ATTACHMENT_FILE_MISSING: "附件文件异常",
   SHIPPED_NOT_COMPLETED: "已发货未完结",
+  RECLOUD_RECEIPT_RESULT_UNKNOWN: "签收结果待核对",
   SYNC_ATTENTION_REQUIRED: "同步待处理"
 }
 

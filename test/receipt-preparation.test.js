@@ -562,6 +562,8 @@ test("receipt-only live mode confirms Recloud before completing the local receip
 
   const saved = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
   assert.equal(saved.status, "RECEIVED_PENDING_INSPECTION");
+  assert.equal(saved.recloudReceiptSyncStatus, "CONFIRMED");
+  assert.ok(saved.recloudReceiptAttemptedAt);
   assert.ok(saved.recloudReceiptConfirmedAt);
 
   const retried = await post(url, "/api/repairs/complete-local-receipt", { rmaNo: "JXTH900001001" });
@@ -597,7 +599,50 @@ test("a failed Recloud receipt leaves the local order prepared", async (t) => {
   assert.equal(completed.response.status, 504);
   const saved = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
   assert.equal(saved.status, "RECEIPT_PREPARED");
+  assert.equal(saved.recloudReceiptSyncStatus, "FAILED");
   assert.equal(saved.receiptCompletedAt, undefined);
+});
+
+test("an unknown Recloud confirmation result blocks automatic retry and enters reconciliation", async (t) => {
+  const store = await createTestStore(t);
+  await store.prepare({
+    ...validPayload(),
+    operatorId: USERS.sweep.userId,
+    operatorName: USERS.sweep.displayName,
+  });
+  let confirmCount = 0;
+  const connector = {
+    openRecloud: async () => ({ loginRequired: false, page: {} }),
+    queryRmaByLogisticsNo: async () => ({ rmaNo: "JXTH900001001", productLine: "扫地机" }),
+    confirmSign: async () => {
+      confirmCount += 1;
+      throw Object.assign(new Error("确认后连接中断"), {
+        code: "RECLOUD_RECEIPT_RESULT_UNKNOWN",
+        status: 409,
+        resultUnknown: true,
+      });
+    },
+  };
+  const url = await startServer(t, connector, store, USERS.sweep, {
+    env: {
+      ...process.env,
+      DRY_RUN: "true",
+      RECLOUD_WRITE_ENABLED: "false",
+      RECLOUD_RECEIPT_WRITE_ENABLED: "true",
+    },
+  });
+
+  const first = await post(url, "/api/repairs/complete-local-receipt", { rmaNo: "JXTH900001001" });
+  assert.equal(first.response.status, 409);
+  const saved = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
+  assert.equal(saved.status, "RECEIPT_PREPARED");
+  assert.equal(saved.recloudReceiptSyncStatus, "RESULT_UNKNOWN");
+  assert.equal(saved.timeline.at(-1).type, "RECLOUD_RECEIPT_RESULT_UNKNOWN");
+
+  const retried = await post(url, "/api/repairs/complete-local-receipt", { rmaNo: "JXTH900001001" });
+  assert.equal(retried.response.status, 409);
+  assert.equal(retried.result.code, "RECLOUD_RECEIPT_RECONCILIATION_REQUIRED");
+  assert.equal(confirmCount, 1);
 });
 
 test("sweep and wash accounts generate their authorized remarks", () => {
@@ -858,7 +903,7 @@ test("frontend specialty gate accepts the signed-in lowercase technician role", 
   );
 });
 
-test("frontend enables SN step and shows the local-only success message", async () => {
+test("frontend enables SN step, restores receipt progress and submits idempotently", async () => {
   const source = await fs.readFile(
     path.join(__dirname, "../frontend/src/pages/Repair.jsx"),
     "utf8"
@@ -875,6 +920,14 @@ test("frontend enables SN step and shows the local-only success message", async 
   assert.match(source, /localWorkflow\.status !== "MODEL_AUTHORIZATION_REVIEW"/);
   assert.match(source, /上次流程停在机型校验，请重新录入 SN/);
   assert.match(source, /receipt-inline-error/);
+  assert.match(source, /recloudReceiptSyncStatus === "RESULT_UNKNOWN"/);
+  assert.match(source, /attachment\.uploaded/);
+  const crmService = await fs.readFile(
+    path.join(__dirname, "../frontend/src/shared/crmService.js"),
+    "utf8"
+  );
+  assert.match(crmService, /"Idempotency-Key"/);
+  assert.match(crmService, /receipt-confirm:/);
   assert.doesNotMatch(source, /recloudProjectCode: repairDetail\.projectCode/);
   assert.match(source, /function startReceiptPreparation\(\)[\s\S]*?setSn\(""\)[\s\S]*?setReceiptStep\("form"\)/);
   assert.doesNotMatch(source, /setSn\(normalizeReceiptSn\(repairDetail\?\.productSerialNo/);

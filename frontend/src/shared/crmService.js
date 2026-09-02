@@ -35,14 +35,17 @@ function apiHeaders() {
   }
 }
 
-async function request(path, body, { timeoutMs = 0 } = {}) {
+async function request(path, body, { timeoutMs = 0, idempotencyKey = "" } = {}) {
   let response
   const controller = timeoutMs > 0 ? new AbortController() : null
   const timer = controller ? window.setTimeout(() => controller.abort(), timeoutMs) : null
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       method: "POST",
-      headers: apiHeaders(),
+      headers: {
+        ...apiHeaders(),
+        ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {})
+      },
       body: JSON.stringify(body),
       ...(controller ? { signal: controller.signal } : {})
     })
@@ -141,7 +144,12 @@ export async function cancelReceiptPreparation(rmaNo) {
 }
 
 export async function completeLocalReceipt(rmaNo) {
-  return request("/api/repairs/complete-local-receipt", { rmaNo })
+  const normalizedRmaNo = String(rmaNo || "").trim()
+  return request(
+    "/api/repairs/complete-local-receipt",
+    { rmaNo: normalizedRmaNo },
+    { idempotencyKey: `receipt-confirm:${normalizedRmaNo}` }
+  )
 }
 
 export async function saveTreatmentDecision(rmaNo, treatmentMode) {

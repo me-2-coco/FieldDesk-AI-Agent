@@ -68,7 +68,7 @@ function AttachmentPreviewList({ attachments, loadAttachment, onRemove, disabled
 
   return <>
     <div className="attachment-preview-list">
-      {attachments.map((attachment) => <AttachmentPreviewItem key={attachment.id} attachment={attachment} loadAttachment={loadAttachment} onRemove={onRemove} disabled={disabled} onPreview={setPreview} />)}
+      {attachments.map((attachment) => <AttachmentPreviewItem key={attachment.id} attachment={attachment} loadAttachment={loadAttachment} onRemove={attachment.uploaded ? null : onRemove} disabled={disabled} onPreview={setPreview} />)}
     </div>
     {preview && <div className="attachment-lightbox" role="dialog" aria-modal="true" aria-label={`查看${preview.name}`} onClick={() => setPreview(null)}>
       <div className="attachment-lightbox-content" onClick={(event) => event.stopPropagation()}>
