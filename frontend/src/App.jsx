@@ -307,7 +307,7 @@ function App() {
 
   return (
 
-    <div className="app">
+    <div className={`app role-${String(currentUser?.role || "guest").trim().toLowerCase()}`}>
 
 
       <main className="app-content">

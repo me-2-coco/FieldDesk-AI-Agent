@@ -7,6 +7,7 @@ import {
   setCurrentUser,
   USER_ROLES
 } from "../shared/userStore.js"
+import { AppIcon } from "../components/AppIcons.jsx"
 
 
 function Profile({
@@ -28,19 +29,19 @@ function Profile({
   const isInformationClerk = currentUser.role === USER_ROLES.INFORMATION_CLERK
   const isAdmin = currentUser.role === USER_ROLES.ADMIN
   const personalActions = isTechnician ? [
-    { page: "records", title: "维修记录", description: "查看个人历史工单" },
-    { page: "inventory", title: "个人库存", description: "查看配件和库存流水" }
+    { page: "records", title: "维修记录", description: "查看个人历史工单", icon: "records" },
+    { page: "inventory", title: "个人库存", description: "查看配件和库存流水", icon: "inventory" }
   ] : isWarehouse ? [
-    { page: "inventory", title: "库存记录", description: "查看总库和师傅库存" },
-    { page: "warehouse", title: "库房记录", description: "查看退件确认进度" }
+    { page: "inventory", title: "库存记录", description: "查看总库和师傅库存", icon: "inventory" },
+    { page: "warehouse", title: "库房记录", description: "查看退件确认进度", icon: "warehouse" }
   ] : isInformationClerk ? [
-    { page: "repairReports", title: "维修档案", description: "查看维修措施和附件" },
-    { page: "machineTracking", title: "机器去向", description: "查询机器当前状态" },
-    { page: "exceptionCenter", title: "问题记录", description: "查看待处理异常" }
+    { page: "repairReports", title: "维修档案", description: "查看维修措施和附件", icon: "archive" },
+    { page: "machineTracking", title: "机器去向", description: "查询机器当前状态", icon: "tracking" },
+    { page: "exceptionCenter", title: "问题记录", description: "查看待处理异常", icon: "alert" }
   ] : [
-    { page: "records", title: "全部工单", description: "查询历史业务记录" },
-    { page: "inventory", title: "库存总览", description: "查看全局库存情况" },
-    { page: "exceptionCenter", title: "异常中心", description: "查看全局问题工单" }
+    { page: "records", title: "全部工单", description: "查询历史业务记录", icon: "records" },
+    { page: "inventory", title: "库存总览", description: "查看全局库存情况", icon: "inventory" },
+    { page: "exceptionCenter", title: "异常中心", description: "查看全局问题工单", icon: "alert" }
   ]
 
 
@@ -117,7 +118,7 @@ function Profile({
         <div className="profile-action-list">
           {personalActions.map((action) => (
             <button type="button" key={action.page} onClick={() => setPage(action.page)}>
-              <span className="profile-action-icon">{action.title.slice(0, 1)}</span>
+              <span className="profile-action-icon"><AppIcon name={action.icon} size={19} /></span>
               <span><strong>{action.title}</strong><small>{action.description}</small></span>
               <b>›</b>
             </button>
@@ -133,20 +134,20 @@ function Profile({
           </div>
           <p className="profile-section-description">查看本地业务节点的瑞云同步记录和失败重试。</p>
           <div className="profile-management-grid">
-            <button type="button" onClick={() => setPage("syncTasks")}><strong>瑞云同步</strong><span>查看任务 ›</span></button>
-            <button type="button" onClick={() => setPage("syncDiagnostics")}><strong>同步检查</strong><span>运行诊断 ›</span></button>
-            <button type="button" onClick={() => setPage("accountManagement")}><strong>账号管理</strong><span>权限设置 ›</span></button>
+            <button type="button" onClick={() => setPage("syncTasks")}><AppIcon name="sync" size={20} /><strong>瑞云同步</strong><span>查看任务</span></button>
+            <button type="button" onClick={() => setPage("syncDiagnostics")}><AppIcon name="diagnostic" size={20} /><strong>同步检查</strong><span>运行诊断</span></button>
+            <button type="button" onClick={() => setPage("accountManagement")}><AppIcon name="accounts" size={20} /><strong>账号管理</strong><span>权限设置</span></button>
           </div>
         </div>
       )}
 
 
-      {isAdmin && <div className="card profile-section-card">
+      {isAdmin && <details className="card profile-section-card profile-account-details">
 
-        <div className="profile-section-heading">
+        <summary className="profile-section-heading">
           <div><span>账号管理</span><h2>切换测试账号</h2></div>
-          <small>{users.length} 个账号</small>
-        </div>
+          <small>{users.length} 个账号 · 展开</small>
+        </summary>
 
         <p className="profile-section-description">
           当前阶段用于测试不同角色的菜单和权限。
@@ -182,7 +183,7 @@ function Profile({
 
         ))}
 
-      </div>}
+      </details>}
 
       <div className="card profile-section-card profile-settings-card">
         <div className="profile-section-heading">

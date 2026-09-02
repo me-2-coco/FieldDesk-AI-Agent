@@ -4,8 +4,10 @@ import { findRepairOrderByCrmOrderNo, getCurrentRepairOrder, REPAIR_STATUS, save
 import { pageForRepairStatus, repairStatusForLocalWorkflow, resumePageForLocalWorkflow } from "../shared/repairNavigation.js"
 import { USER_ROLES } from "../shared/userStore.js"
 import SupervisionInbox from "../components/SupervisionInbox.jsx"
+import { AppIcon } from "../components/AppIcons.jsx"
 
 const COMPLETED_WORKFLOW_STATUSES = new Set(["REPAIR_COMPLETED_PENDING_SHIPMENT", "SHIPPED_PENDING_COMPLETION", "COMPLETED"])
+const WAITING_PART_STATUSES = new Set(["PARTS_REQUESTED", "WAITING_PARTS", "WAITING_PART"])
 
 function localDateKey(value) {
   const date = value ? new Date(value) : null
@@ -153,24 +155,74 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
   }))
   const detailOrders = detailStatus === "unfinished" ? unfinished : detailStatus === "waiting" ? waitingParts : detailStatus === "completed" ? completedOrders : []
   const quickActions = isTechnician ? [
-    { page: "repair", title: "扫码签收", description: "查询物流并开始寄修" },
-    { page: "records", title: "工单查询", description: "查找历史工单" },
-    { page: "inventory", title: "个人库存", description: "查看配件和流水" }
-  ] : isWarehouse ? [
-    { page: "warehouse", title: "退件确认", description: "处理师傅退回配件" },
-    { page: "inventory", title: "库存管理", description: "查看总库与师傅库存" }
+    { page: "repair", title: "扫码签收", description: "查询物流并开始寄修", icon: "work" },
+    { page: "records", title: "工单查询", description: "查找历史工单", icon: "records" },
+    { page: "inventory", title: "个人库存", description: "查看配件和流水", icon: "inventory" }
+  ] : []
+  const workspaceGroups = isWarehouse ? [
+    {
+      title: "库房作业",
+      description: "入库、发放与退件集中处理",
+      actions: [
+        { page: "warehouse", title: "退件与出入库", description: "确认退件、配件入库和发放", icon: "warehouse" },
+        { page: "inventory", title: "库存总览", description: "查看总库、师傅库存与流水", icon: "inventory" }
+      ]
+    }
   ] : isInformationClerk ? [
-    { page: "machineTracking", title: "机器去向", description: "按工单查询当前位置" },
-    { page: "repairReports", title: "维修档案", description: "查看措施和照片视频" },
-    { page: "exceptionCenter", title: "问题工单", description: "集中处理业务异常" },
-    { page: "returnShipping", title: "发货进度", description: "查看待发货和待完结" }
-  ] : [
-    { page: "adminRepairRecovery", title: "工单恢复", description: "恢复到处理方式选择" },
-    { page: "syncTasks", title: "瑞云同步", description: "查看任务与失败重试" },
-    { page: "syncDiagnostics", title: "同步检查", description: "检查系统连接状态" },
-    { page: "accountManagement", title: "账号管理", description: "维护角色和权限" },
-    { page: "exceptionCenter", title: "问题工单", description: "查看全局业务异常" }
-  ]
+    {
+      title: "发货与异常",
+      description: "优先处理需要跟进的工单",
+      actions: [
+        { page: "returnShipping", title: "后台发货进度", description: backgroundShippingCount ? `${backgroundShippingCount} 单待查看` : "查看待发货和待完结", icon: "shipping" },
+        { page: "exceptionCenter", title: "问题工单", description: "集中处理业务异常", icon: "alert" }
+      ]
+    },
+    {
+      title: "查询与档案",
+      description: "机器状态、维修资料统一查询",
+      actions: [
+        { page: "machineTracking", title: "机器去向", description: "查询机器当前位置", icon: "tracking" },
+        { page: "repairReports", title: "维修档案", description: "查看措施、费用和附件", icon: "archive" },
+        { page: "records", title: "历史工单", description: "按条件检索业务记录", icon: "history" }
+      ]
+    }
+  ] : isAdmin ? [
+    {
+      title: "工单运营",
+      description: "处理异常并管理工单状态",
+      actions: [
+        { page: "adminRepairRecovery", title: "工单恢复", description: "恢复到处理方式选择", icon: "recovery" },
+        { page: "exceptionCenter", title: "问题工单", description: "查看全局业务异常", icon: "alert" },
+        { page: "records", title: "全部工单", description: "查询历史业务记录", icon: "records" }
+      ]
+    },
+    {
+      title: "查询与流转",
+      description: "掌握机器、档案与发货进度",
+      actions: [
+        { page: "machineTracking", title: "机器去向", description: "查询机器当前位置", icon: "tracking" },
+        { page: "repairReports", title: "维修档案", description: "查看维修资料和附件", icon: "archive" },
+        { page: "returnShipping", title: "后台发货进度", description: backgroundShippingCount ? `${backgroundShippingCount} 单待查看` : "查看返件流转", icon: "shipping" }
+      ]
+    },
+    {
+      title: "库存与库房",
+      description: "总库、师傅库存和退件管理",
+      actions: [
+        { page: "inventory", title: "库存总览", description: "查看全局库存和流水", icon: "inventory" },
+        { page: "warehouse", title: "库房作业", description: "入库、发放与退件确认", icon: "warehouse" }
+      ]
+    },
+    {
+      title: "系统管理",
+      description: "账号权限与瑞云连接维护",
+      actions: [
+        { page: "syncTasks", title: "瑞云同步", description: "任务、失败与人工复核", icon: "sync" },
+        { page: "syncDiagnostics", title: "同步检查", description: "检查系统连接状态", icon: "diagnostic" },
+        { page: "accountManagement", title: "账号管理", description: "维护角色和权限", icon: "accounts" }
+      ]
+    }
+  ] : []
 
   function openWorkflow(item) {
     const targetPage = resumePageForLocalWorkflow(item)
@@ -197,23 +249,40 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
       </div>}
     </div>
 
-    <div className="card home-quick-card">
+    {isTechnician && <div className="card home-quick-card">
       <div className="home-section-heading">
         <div><span>{roleName}工作台</span><h2>快捷操作</h2></div>
         <small>{quickActions.length} 个入口</small>
       </div>
       <div className="home-quick-grid">
         {quickActions.map((action) => <button type="button" key={action.page} onClick={() => setPage(action.page)}>
-          <span className="home-quick-icon">{action.title.slice(0, 1)}</span>
+          <span className="home-quick-icon"><AppIcon name={action.icon} size={19} /></span>
           <span className="home-quick-copy"><strong>{action.title}</strong><small>{action.description}</small></span>
           <b>›</b>
         </button>)}
       </div>
-    </div>
+    </div>}
 
-    {(isTechnician || isAdmin) && <SupervisionInbox openKey={supervisionOpenKey} targetRmaNo={supervisionTargetRmaNo} />}
+    {!isTechnician && <div className="home-workspace-groups">
+      <div className="home-workspace-heading">
+        <div><span>{roleName}工作台</span><h2>全部功能</h2></div>
+        <small>{workspaceGroups.reduce((count, group) => count + group.actions.length, 0)} 项</small>
+      </div>
+      {workspaceGroups.map((group) => <section className="card home-workspace-card" key={group.title}>
+        <div className="home-workspace-group-heading"><div><h3>{group.title}</h3><p>{group.description}</p></div><span>{group.actions.length}</span></div>
+        <div className="home-workspace-list">
+          {group.actions.map((action) => <button type="button" key={action.page} onClick={() => setPage(action.page)}>
+            <span className="home-workspace-icon"><AppIcon name={action.icon} size={20} /></span>
+            <span className="home-workspace-copy"><strong>{action.title}</strong><small>{action.description}</small></span>
+            <b>›</b>
+          </button>)}
+        </div>
+      </section>)}
+    </div>}
 
-    {(isTechnician || isAdmin) && <div className="card">
+    {isTechnician && <SupervisionInbox openKey={supervisionOpenKey} targetRmaNo={supervisionTargetRmaNo} />}
+
+    {isTechnician && <div className="card">
       <div className="home-section-heading"><div><span>实时工作量</span><h2>维修执行</h2></div><small>共 {workflows.length} 台</small></div>
       <div className="home-workload-grid">
         <button type="button" className={`workload-unfinished ${detailStatus === "unfinished" ? "active" : ""}`} onClick={() => setDetailStatus(detailStatus === "unfinished" ? "" : "unfinished")}><span>未完成维修</span><strong>{unfinished.length}</strong><small>台</small></button>
@@ -252,26 +321,6 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
         </div>
         <div className="home-filter-result"><span>{statStartDate || "不限"} 至 {statEndDate || "不限"}</span><strong>{selectedSummary.total} 台</strong><small>完成 {selectedSummary.repaired} · 弃修 {selectedSummary.abandoned}</small></div>
       </div>
-    </div>}
-
-    {(isWarehouse || isAdmin) && <div className="card">
-      <h2>库房</h2>
-      <button className="primary-btn" onClick={() => setPage("warehouse")}>库房退还确认</button>
-      <button className="primary-btn" onClick={() => setPage("inventory")}>查看总库与师傅库存</button>
-    </div>}
-
-    {isAdmin && <div className="card">
-      <h2>管理</h2>
-      <button className="primary-btn" onClick={() => setPage("profile")}>账号、同步与系统管理</button>
-    </div>}
-
-    {(isInformationClerk || isAdmin) && <div className="card">
-      <h2>工单查询</h2>
-      <button className="primary-btn" onClick={() => setPage("returnShipping")}>后台发货进度{backgroundShippingCount ? `（${backgroundShippingCount}）` : ""}</button>
-      <button className="primary-btn" onClick={() => setPage("machineTracking")}>查询机器去向</button>
-      <button className="primary-btn" onClick={() => setPage("repairReports")}>查看维修档案和照片视频</button>
-      <button className="primary-btn" onClick={() => setPage("exceptionCenter")}>查看问题工单</button>
-      <button className="secondary-btn" onClick={() => setPage("records")}>查询历史工单</button>
     </div>}
 
     <p className="dry-run-notice">当前保持演练模式，本地业务操作不会写入瑞云。</p>

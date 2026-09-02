@@ -295,88 +295,38 @@ export function getNavigationItems(
   const navigationByRole = {
 
     technician: [
-      {
-        page: "home",
-        label: "首页"
-      },
-      {
-        page: "repair",
-        label: "工单"
-      },
-      {
-        page: "records",
-        label: "历史"
-      },
-      {
-        page: "inventory",
-        label: "库存"
-      },
-      {
-        page: "profile",
-        label: "我的"
-      }
+      { page: "home", label: "首页", icon: "home" },
+      { page: "repair", label: "工单", icon: "work" },
+      { page: "inventory", label: "库存", icon: "inventory" },
+      { page: "profile", label: "我的", icon: "profile" }
     ],
 
     warehouse: [
-      {
-        page: "home",
-        label: "首页"
-      },
-      {
-        page: "inventory",
-        label: "库存"
-      },
-      {
-        page: "warehouse",
-        label: "库房"
-      },
-      {
-        page: "profile",
-        label: "我的"
-      }
+      { page: "home", label: "首页", icon: "home" },
+      { page: "warehouse", label: "退件", icon: "warehouse" },
+      { page: "inventory", label: "库存", icon: "inventory" },
+      { page: "profile", label: "我的", icon: "profile" }
     ],
 
     information_clerk: [
-      { page: "home", label: "首页" },
-      { page: "machineTracking", label: "去向" },
-      { page: "repairReports", label: "档案" },
-      { page: "exceptionCenter", label: "问题" },
-      { page: "records", label: "历史" },
-      { page: "profile", label: "我的" }
+      { page: "home", label: "首页", icon: "home" },
+      { page: "returnShipping", label: "发货", icon: "shipping" },
+      { page: "repairReports", label: "档案", icon: "archive" },
+      { page: "profile", label: "我的", icon: "profile" }
     ],
 
     admin: [
-      {
-        page: "home",
-        label: "首页"
-      },
-      {
-        page: "repair",
-        label: "工单"
-      },
-      {
-        page: "records",
-        label: "历史"
-      },
-      {
-        page: "inventory",
-        label: "库存"
-      },
-      {
-        page: "warehouse",
-        label: "库房"
-      },
-      { page: "machineTracking", label: "去向" },
-      {
-        page: "profile",
-        label: "我的"
-      }
+      { page: "home", label: "首页", icon: "home" },
+      { page: "records", label: "工单", icon: "work" },
+      { page: "inventory", label: "库存", icon: "inventory" },
+      { page: "profile", label: "我的", icon: "profile" }
     ]
 
   }
 
 
-  return navigationByRole[user.role] || []
+  const normalizedRole = String(user?.role || "").trim().toLowerCase()
+  return navigationByRole[normalizedRole] || []
 }
 
 

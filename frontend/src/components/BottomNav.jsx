@@ -2,6 +2,7 @@ import {
   getCurrentUser,
   getNavigationItems
 } from "../shared/userStore.js"
+import { AppIcon } from "./AppIcons.jsx"
 
 
 function BottomNav({
@@ -40,6 +41,7 @@ function BottomNav({
             setPage(item.page)
           }}
         >
+          <span className="bottom-nav-icon"><AppIcon name={item.icon} size={20} /></span>
           <span className="bottom-nav-label">
             {item.label}
             {item.page === "home" && supervisionUnreadCount > 0 && (
