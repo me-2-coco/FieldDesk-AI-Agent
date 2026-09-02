@@ -803,7 +803,8 @@ function createApp(
         const data = await withRecloud(connector, async (page) => {
           const detail = await connector.queryRmaByLogisticsNo(
             page,
-            logisticsNo
+            logisticsNo,
+            { preserveDetailPage: true }
           );
           const inspection = await connector.inspectReceiptForm(page, {
             dryRun: true,
@@ -871,7 +872,8 @@ function createApp(
         const data = await withRecloud(connector, async (page) => {
           const detail = await connector.queryRmaByLogisticsNo(
             page,
-            logisticsNo
+            logisticsNo,
+            { preserveDetailPage: true }
           );
           return connector.simulateReceiptForm(page, sn, remark, {
             dryRun: true,
@@ -1554,7 +1556,8 @@ function createApp(
       const data = await withRecloud(connector, async (page) => {
         const detail = await connector.queryRmaByLogisticsNo(
           page,
-          logisticsNo
+          logisticsNo,
+          { preserveDetailPage: true }
         );
         const sn = requestedSn || detail.sn;
         if (!sn) throw new Error("CRM 工单没有 SN，请手动提供 SN");
@@ -1717,7 +1720,11 @@ function createApp(
       let recloudSynced = Boolean(prepared.recloudReceiptConfirmedAt);
       if (isRecloudReceiptWriteEnabled(runtimeEnv) && !recloudSynced) {
         const liveResult = await withRecloud(connector, async (page) => {
-          const detail = await connector.queryRmaByLogisticsNo(page, prepared.logisticsNo);
+          const detail = await connector.queryRmaByLogisticsNo(
+            page,
+            prepared.logisticsNo,
+            { preserveDetailPage: true }
+          );
           if (detail.rmaNo && detail.rmaNo !== prepared.rmaNo) {
             throw createApiError(
               "RECLOUD_RECEIPT_ORDER_MISMATCH",

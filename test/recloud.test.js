@@ -1468,6 +1468,7 @@ test("detail markers transition to schema changed with complete missingFields", 
     "RMA",
     "JXTH9000000021",
     "RMA明细",
+    "用户手机号",
   ].join("\n");
   const hiddenInput = { async isVisible() { return false; } };
   const page = {

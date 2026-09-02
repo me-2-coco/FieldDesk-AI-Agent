@@ -1214,12 +1214,14 @@ function getRmaDetailSignals(bodyText, options = {}) {
   const hasRmaNumber = /JXTH\d+/i.test(text);
   const hasDetailSection = /产品信息|RMA\s*明细/i.test(text);
   const hasNearbyRmaNumber = /RMA[\s\S]{0,200}JXTH\d+/i.test(text);
+  const hasCustomerDetailField = /反馈电话|用户手机号/.test(text);
 
   return {
     hasRmaText,
     hasRmaNumber,
     hasDetailSection,
     hasNearbyRmaNumber,
+    hasCustomerDetailField,
     scanInputHidden: options.scanInputHidden === true,
     leftScanQueryRoute: options.leftScanQueryRoute === true,
   };
@@ -1228,10 +1230,30 @@ function getRmaDetailSignals(bodyText, options = {}) {
 function isRmaDetailReady(signals) {
   return (
     signals.scanInputHidden &&
+    signals.leftScanQueryRoute &&
     signals.hasRmaText &&
     signals.hasRmaNumber &&
-    signals.hasDetailSection
+    signals.hasDetailSection &&
+    signals.hasCustomerDetailField
   );
+}
+
+async function openUniqueRmaSearchResult(page, logger = console) {
+  const links = page.locator("a, [role='link']");
+  if (typeof links?.count !== "function") return false;
+  const count = Math.min(await links.count().catch(() => 0), 200);
+  const candidates = [];
+  for (let index = 0; index < count; index += 1) {
+    const link = links.nth(index);
+    if (!(await link.isVisible().catch(() => false))) continue;
+    const text = normalizeText(await link.innerText().catch(() => ""));
+    if (/^JXTH\d+$/i.test(text)) candidates.push({ link, text });
+  }
+  const uniqueNumbers = [...new Set(candidates.map(({ text }) => text))];
+  if (uniqueNumbers.length !== 1 || candidates.length !== 1) return false;
+  await candidates[0].link.click();
+  logRecloudStage("unique_rma_result_opened", logger);
+  return true;
 }
 
 async function waitForRmaDetail(page, logisticsNo = "", options = {}) {
@@ -1239,6 +1261,7 @@ async function waitForRmaDetail(page, logisticsNo = "", options = {}) {
   const logger = options.logger || console;
   let diagnosticsLogged = false;
   let enterRetried = false;
+  let resultOpened = false;
   const retryAt = Date.now() + (options.retryDelay ?? QUERY_RETRY_DELAY);
 
   while (Date.now() < deadline) {
@@ -1267,6 +1290,18 @@ async function waitForRmaDetail(page, logisticsNo = "", options = {}) {
         diagnosticsLogged = true;
       }
       return readRmaDetail(page, logisticsNo, options);
+    }
+
+    if (
+      !resultOpened &&
+      isScanQueryUrl(page.url()) &&
+      signals.hasRmaNumber
+    ) {
+      resultOpened = await openUniqueRmaSearchResult(page, logger);
+      if (resultOpened) {
+        await page.waitForTimeout(options.pollInterval ?? 200);
+        continue;
+      }
     }
 
     if (!enterRetried && Date.now() >= retryAt) {
@@ -1298,6 +1333,7 @@ async function queryRmaByLogisticsNo(page, logisticsNo, options = {}) {
   try {
     await enterRmaQuery(page, logisticsNo, options);
     const detail = await waitForRmaDetail(page, logisticsNo, options);
+    if (options.preserveDetailPage === true) return detail;
     return await enrichRmaFromPendingList(page, detail, options);
   } catch (error) {
     throw toQueryError(error);
@@ -1903,6 +1939,20 @@ async function firstVisible(locators) {
     }
   }
   return null;
+}
+
+async function uniqueVisible(locator, limit = 200) {
+  if (!locator || typeof locator.count !== "function") return null;
+  const count = Math.min(await locator.count().catch(() => 0), limit);
+  let match = null;
+  for (let index = 0; index < count; index += 1) {
+    const candidate = locator.nth(index);
+    if (!candidate || typeof candidate.click !== "function") continue;
+    if (!(await candidate.isVisible().catch(() => false))) continue;
+    if (match) return null;
+    match = candidate;
+  }
+  return match;
 }
 
 function logReceiptInspection(stage, logger = console) {
@@ -7269,67 +7319,124 @@ async function findMappedReceiptControl(page, options = {}) {
       { productTabActivated: false, rmaTabActivated: false }
     );
     await limited(() => prepareRmaDetailRegion(scope, page), null);
-    const directButtons = scope.locator("button");
-    if (typeof directButtons?.evaluateAll === "function") {
-      const buttonSnapshots = await limited(
-        () =>
-          directButtons.evaluateAll((buttons) =>
-            buttons.slice(0, 300).map((button, index) => {
-              const rect = button.getBoundingClientRect();
-              return {
-                index,
-                text: String(button.innerText || button.textContent || "")
-                  .replace(/\s+/g, " ")
-                  .trim(),
-                disabled: Boolean(button.disabled),
-                x: rect.x,
-                y: rect.y,
-                width: rect.width,
-                height: rect.height,
-              };
-            })
-          ),
-        []
+    if (typeof scope.getByRole === "function") {
+      const roleButtons = scope.getByRole("button", {
+        name: "签收",
+        exact: true,
+      });
+      const roleButtonCount = await limited(
+        async () => Math.min(await roleButtons.count(), 30),
+        0
       );
-      const receiptButtons = buttonSnapshots.filter(
-        (button) =>
-          button.text === "签收" &&
-          !button.disabled &&
-          button.width > 0 &&
-          button.height > 0
-      );
-      if (receiptButtons.length > 0) {
-        const minimumX = Math.min(...receiptButtons.map((button) => button.x));
-        const leftmost = receiptButtons.filter(
-          (button) => Math.abs(button.x - minimumX) <= 2
+      const positionedRoleButtons = [];
+      for (let index = 0; index < roleButtonCount; index += 1) {
+        const candidate = roleButtons.nth(index);
+        const visible = await limited(() => candidate.isVisible(), false);
+        const enabled = await limited(() => candidate.isEnabled(), false);
+        const box = await limited(() => candidate.boundingBox(), null);
+        if (visible && enabled && box && box.width > 0 && box.height > 0) {
+          positionedRoleButtons.push({ candidate, box });
+        }
+      }
+      if (positionedRoleButtons.length > 0) {
+        const minimumX = Math.min(
+          ...positionedRoleButtons.map(({ box }) => box.x)
         );
-        const separatedFromClones = receiptButtons.every(
-          (button) =>
-            Math.abs(button.x - minimumX) <= 2 || button.x - minimumX > 100
+        const leftmost = positionedRoleButtons.filter(
+          ({ box }) => Math.abs(box.x - minimumX) <= 2
+        );
+        const separatedFromClones = positionedRoleButtons.every(
+          ({ box }) =>
+            Math.abs(box.x - minimumX) <= 2 || box.x - minimumX > 100
         );
         if (leftmost.length === 1 && separatedFromClones) {
-          const entry = directButtons.nth(leftmost[0].index);
-          const visible = await limited(() => entry.isVisible(), false);
-          const enabled = await limited(() => entry.isEnabled(), false);
-          if (visible && enabled) {
-            return {
-              row: null,
-              entry,
-              operationDiagnostics: [],
-              receiptLocator: {
-                targetRowCandidateCount: 1,
-                targetRowMatchedBy: ["uniqueLeftmostButtonSnapshot"],
-                fixedOperationRowMatched: true,
-                fixedRightContainerFound: true,
-                fixedRightRowCandidateCount: 1,
-                fixedRightRowMatched: true,
-                fixedRightRowMatchedBy: "uniqueLeftmostButtonSnapshot",
-                operationCellFound: true,
-                operationControlCandidateCount: 1,
-              },
-            };
+          return {
+            row: null,
+            entry: leftmost[0].candidate,
+            operationDiagnostics: [],
+            receiptLocator: {
+              targetRowCandidateCount: 1,
+              targetRowMatchedBy: ["uniqueLeftmostRoleButton"],
+              fixedOperationRowMatched: true,
+              fixedRightContainerFound: true,
+              fixedRightRowCandidateCount: 1,
+              fixedRightRowMatched: true,
+              fixedRightRowMatchedBy: "uniqueLeftmostRoleButton",
+              operationCellFound: true,
+              operationControlCandidateCount: 1,
+            },
+          };
+        }
+      }
+    }
+    const directButtons = scope.locator("button, [role='button']");
+    if (typeof directButtons?.evaluateAll === "function") {
+      const controlDeadline = Math.min(deadline, Date.now() + 5000);
+      while (Date.now() < controlDeadline) {
+        const buttonSnapshots = await limited(
+          () =>
+            directButtons.evaluateAll((buttons) =>
+              buttons.slice(0, 300).map((button, index) => {
+                const rect = button.getBoundingClientRect();
+                return {
+                  index,
+                  text: String(button.innerText || button.textContent || "")
+                    .replace(/\s+/g, "")
+                    .trim(),
+                  disabled: Boolean(button.disabled),
+                  x: rect.x,
+                  y: rect.y,
+                  width: rect.width,
+                  height: rect.height,
+                };
+              })
+            ),
+          []
+        );
+        const receiptButtons = buttonSnapshots.filter(
+          (button) =>
+            button.text === "签收" &&
+            !button.disabled &&
+            button.width > 0 &&
+            button.height > 0
+        );
+        if (receiptButtons.length > 0) {
+          const minimumX = Math.min(
+            ...receiptButtons.map((button) => button.x)
+          );
+          const leftmost = receiptButtons.filter(
+            (button) => Math.abs(button.x - minimumX) <= 2
+          );
+          const separatedFromClones = receiptButtons.every(
+            (button) =>
+              Math.abs(button.x - minimumX) <= 2 ||
+              button.x - minimumX > 100
+          );
+          if (leftmost.length === 1 && separatedFromClones) {
+            const entry = directButtons.nth(leftmost[0].index);
+            const visible = await limited(() => entry.isVisible(), false);
+            const enabled = await limited(() => entry.isEnabled(), false);
+            if (visible && enabled) {
+              return {
+                row: null,
+                entry,
+                operationDiagnostics: [],
+                receiptLocator: {
+                  targetRowCandidateCount: 1,
+                  targetRowMatchedBy: ["uniqueLeftmostButtonSnapshot"],
+                  fixedOperationRowMatched: true,
+                  fixedRightContainerFound: true,
+                  fixedRightRowCandidateCount: 1,
+                  fixedRightRowMatched: true,
+                  fixedRightRowMatchedBy: "uniqueLeftmostButtonSnapshot",
+                  operationCellFound: true,
+                  operationControlCandidateCount: 1,
+                },
+              };
+            }
           }
         }
+        await page.waitForTimeout?.(250);
       }
     }
     const fixedButtonLocator = scope.locator(
@@ -8748,6 +8855,12 @@ async function inspectReceiptForm(page, options = {}) {
       .isVisible()
       .then((visible) => !visible)
       .catch(() => true);
+    if (!dialogClosed && formPage !== page && typeof formPage.close === "function") {
+      dialogClosed = await formPage
+        .close()
+        .then(() => true)
+        .catch(() => false);
+    }
     return dialogClosed;
   };
   try {
@@ -8765,6 +8878,13 @@ async function inspectReceiptForm(page, options = {}) {
     const { snInput, remarkInput, confirmButton } = controls;
     cancelButton = controls.cancelButton;
     closeButton = controls.closeButton;
+    if (!closeButton && typeof formPage.locator === "function") {
+      closeButton = await uniqueVisible(
+        formPage.locator(
+          ".el-dialog__headerbtn, button[aria-label*='关闭'], button[title*='关闭'], [role='button'][aria-label*='close' i]"
+        )
+      );
+    }
     await networkGuard?.assertSafe();
 
     const missingFields = [
@@ -8861,7 +8981,12 @@ async function inspectReceiptForm(page, options = {}) {
   } finally {
     if (dialog && !dialogClosed) {
       await closeDialog();
-      logReceiptInspection("dialog_closed_without_changes", logger);
+      logReceiptInspection(
+        dialogClosed
+          ? "dialog_closed_without_changes"
+          : "dialog_close_unavailable_without_changes",
+        logger
+      );
     }
     await networkGuard?.stop();
   }
