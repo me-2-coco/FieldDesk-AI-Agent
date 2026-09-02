@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { parsePartRows, parseSweepPartRows, projectCodesFromTitle, partSupportsProject, searchPartRows, retailPrice } = require("../connectors/feishu-parts-catalog");
+const { FeishuPartsCatalog, parsePartRows, parseSweepPartRows, projectCodesFromTitle, partSupportsProject, projectCodeSearchCandidates, searchPartRows, retailPrice } = require("../connectors/feishu-parts-catalog");
 
 test("零售价兼容飞书货币符号和千位分隔格式", () => {
   assert.equal(retailPrice("¥1,299.50"), 1299.5);
@@ -47,6 +47,34 @@ test("配件适用机型按完整项目号匹配", () => {
   const part = { projectCode: "W2448/W2448A，W2501" };
   assert.equal(partSupportsProject(part, "w2448"), true);
   assert.equal(partSupportsProject(part, "W244"), false);
+});
+
+test("配件目录在第六位字母精确匹配失败后回退前五位", async () => {
+  assert.deepEqual(projectCodeSearchCandidates("R2580X"), ["R2580X", "R2580"]);
+  assert.deepEqual(projectCodeSearchCandidates("W24480"), ["W24480"]);
+  const calls = [];
+  const catalog = new FeishuPartsCatalog();
+  catalog.readSweepProjectRows = async (projectCode) => {
+    calls.push(projectCode);
+    return projectCode === "R2580"
+      ? [{ code: "20020100020841", name: "售后基站排水组件", projectCode: "R2580" }]
+      : [];
+  };
+  const result = await catalog.search({ productLine: "扫地机", projectCode: "R2580X", keyword: "排水" });
+  assert.deepEqual(calls, ["R2580X", "R2580"]);
+  assert.deepEqual(result.map((part) => part.code), ["20020100020841"]);
+});
+
+test("配件目录优先保留第六位字母的精确匹配", async () => {
+  const calls = [];
+  const catalog = new FeishuPartsCatalog();
+  catalog.readSweepProjectRows = async (projectCode) => {
+    calls.push(projectCode);
+    return [{ code: "20020100000001", name: "精确机型配件", projectCode }];
+  };
+  const result = await catalog.search({ productLine: "扫地机", projectCode: "R2580X", keyword: "配件" });
+  assert.deepEqual(calls, ["R2580X"]);
+  assert.equal(result[0].projectCode, "R2580X");
 });
 
 test("从扫地机机型工作表标题和表头解析适用配件", () => {

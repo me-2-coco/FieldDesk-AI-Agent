@@ -60,6 +60,14 @@ function partSupportsProject(part, projectCode) {
   return candidates.includes("*") || candidates.includes(expected);
 }
 
+function projectCodeSearchCandidates(projectCode) {
+  const exact = comparable(projectCode);
+  if (!exact) return [];
+  return exact.length === 6 && /[A-Z]/.test(exact[5])
+    ? [exact, exact.slice(0, 5)]
+    : [exact];
+}
+
 function projectCodesFromTitle(title) {
   const value = text(title).toUpperCase();
   const codes = [];
@@ -181,13 +189,13 @@ class FeishuPartsCatalog {
   async search(input = {}) {
     const projectCode = comparable(input.projectCode);
     const keyword = text(input.keyword).toUpperCase();
-    let items;
-    if (text(input.productLine) === "扫地机") {
-      items = await this.readSweepProjectRows(projectCode);
-    } else {
-      items = await this.readWashProjectRows(projectCode);
+    for (const candidate of projectCodeSearchCandidates(projectCode)) {
+      const items = text(input.productLine) === "扫地机"
+        ? await this.readSweepProjectRows(candidate)
+        : await this.readWashProjectRows(candidate);
+      if (items.length) return searchPartRows(items, { projectCode: candidate, keyword });
     }
-    return searchPartRows(items, { projectCode, keyword });
+    return [];
   }
 
   async readSweepProjectRows(projectCode) {
@@ -239,4 +247,4 @@ class FeishuPartsCatalog {
   }
 }
 
-module.exports = { FeishuPartsCatalog, parsePartRows, parseSweepPartRows, projectCodesFromTitle, partSupportsProject, searchPartRows, retailPrice, columnIndex };
+module.exports = { FeishuPartsCatalog, parsePartRows, parseSweepPartRows, projectCodesFromTitle, partSupportsProject, projectCodeSearchCandidates, searchPartRows, retailPrice, columnIndex };
