@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { parsePartRows, parseSweepPartRows, projectCodesFromTitle, partSupportsProject, retailPrice } = require("../connectors/feishu-parts-catalog");
+const { parsePartRows, parseSweepPartRows, projectCodesFromTitle, partSupportsProject, searchPartRows, retailPrice } = require("../connectors/feishu-parts-catalog");
 
 test("零售价兼容飞书货币符号和千位分隔格式", () => {
   assert.equal(retailPrice("¥1,299.50"), 1299.5);
@@ -79,4 +79,16 @@ test("洗地机机型页支持物料名称表头和旧件返厂字段", () => {
   assert.equal(part.code, "20020100013703");
   assert.equal(part.retailPrice, 29);
   assert.equal(part.returnRequired, true);
+});
+
+test("配件搜索支持完整和模糊的物料条码与名称，并优先完整匹配", () => {
+  const items = [
+    { code: "20020100007510", name: "售后主机自动进水回充组件", projectCode: "W2336" },
+    { code: "20020100007511", name: "售后进水管", projectCode: "W2336" },
+    { code: "20020100009999", name: "7510 测试组件", projectCode: "W2336" },
+  ];
+  assert.deepEqual(searchPartRows(items, { projectCode: "W2336", keyword: "20020100007510" }).map((part) => part.code), ["20020100007510"]);
+  assert.deepEqual(searchPartRows(items, { projectCode: "W2336", keyword: "7510" }).map((part) => part.code), ["20020100007510", "20020100009999"]);
+  assert.deepEqual(searchPartRows(items, { projectCode: "W2336", keyword: "售后进水管" }).map((part) => part.code), ["20020100007511"]);
+  assert.deepEqual(searchPartRows(items, { projectCode: "W2336", keyword: "进水" }).map((part) => part.code), ["20020100007510", "20020100007511"]);
 });

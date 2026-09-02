@@ -72,6 +72,30 @@ function projectCodesFromTitle(title) {
   return codes;
 }
 
+function searchPartRows(items = [], input = {}) {
+  const projectCode = comparable(input.projectCode);
+  const keyword = text(input.keyword).toUpperCase();
+  const supported = items.filter((part) => partSupportsProject(part, projectCode));
+  if (!keyword) return supported.slice(0, 100);
+  return supported
+    .map((part, index) => {
+      const code = text(part.code).toUpperCase();
+      const name = text(part.name).toUpperCase();
+      const rank = code === keyword ? 0
+        : name === keyword ? 1
+          : code.startsWith(keyword) ? 2
+            : code.includes(keyword) ? 3
+              : name.startsWith(keyword) ? 4
+                : name.includes(keyword) ? 5
+                  : -1;
+      return { part, index, rank };
+    })
+    .filter((match) => match.rank >= 0)
+    .sort((left, right) => left.rank - right.rank || left.index - right.index)
+    .slice(0, 100)
+    .map((match) => match.part);
+}
+
 function parseSweepPartRows(values = [], sheet = {}) {
   let columns = null;
   const projectCodes = projectCodesFromTitle(sheet.title);
@@ -163,10 +187,7 @@ class FeishuPartsCatalog {
     } else {
       items = await this.readWashProjectRows(projectCode);
     }
-    return items.filter((part) =>
-      partSupportsProject(part, projectCode) &&
-      (!keyword || part.code.toUpperCase().includes(keyword) || part.name.toUpperCase().includes(keyword))
-    ).slice(0, 100);
+    return searchPartRows(items, { projectCode, keyword });
   }
 
   async readSweepProjectRows(projectCode) {
@@ -218,4 +239,4 @@ class FeishuPartsCatalog {
   }
 }
 
-module.exports = { FeishuPartsCatalog, parsePartRows, parseSweepPartRows, projectCodesFromTitle, partSupportsProject, retailPrice, columnIndex };
+module.exports = { FeishuPartsCatalog, parsePartRows, parseSweepPartRows, projectCodesFromTitle, partSupportsProject, searchPartRows, retailPrice, columnIndex };

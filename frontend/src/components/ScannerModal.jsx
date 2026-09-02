@@ -75,11 +75,11 @@ function ScannerModal({
 
     )
     .catch(()=>{
-      setCameraError(
-        mode === "sn"
-          ? "无法使用摄像头，请允许相机权限或手工输入SN"
-          : "无法使用摄像头，请允许相机权限或手工输入物流单号"
-      )
+      setCameraError(mode === "sn"
+        ? "无法使用摄像头，请允许相机权限或手工输入 SN"
+        : mode === "part"
+          ? "无法使用摄像头，请允许相机权限或手工输入物料条码"
+          : "无法使用摄像头，请允许相机权限或手工输入物流单号")
     })
 
 
@@ -159,7 +159,9 @@ function ScannerModal({
           {cameraError || (
             mode === "sn"
               ? "请将机器 SN 条码或二维码放入扫描框"
-              : "请将物流条码放入扫描框"
+              : mode === "part"
+                ? "请将物料条码放入扫描框，识别后自动搜索"
+                : "请将物流条码放入扫描框"
           )}
 
         </div>

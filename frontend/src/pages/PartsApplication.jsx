@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
+import ScannerModal from "../components/ScannerModal.jsx"
 import SupervisionNoticeCard from "../components/SupervisionNoticeCard.jsx"
+import { ScanIcon } from "../components/AppIcons.jsx"
 import { applyLocalPart, confirmRepairParts, getRepairParts, searchPartsCatalog, updateRepairPart } from "../shared/crmService.js"
 import {
   getCurrentRepairOrder,
@@ -21,6 +23,7 @@ function PartsApplication({ setPage }) {
   const [parts, setParts] = useState([])
   const [isSearching, setIsSearching] = useState(false)
   const [selectedParts, setSelectedParts] = useState([])
+  const [scannerOpen, setScannerOpen] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -56,6 +59,25 @@ function PartsApplication({ setPage }) {
   }, [keyword, repairOrder.crmOrderNo])
 
   const matches = useMemo(() => parts, [parts])
+
+  function updateKeyword(value) {
+    const nextKeyword = String(value || "").trimStart()
+    setKeyword(nextKeyword)
+    setSelectedCode("")
+    if (!nextKeyword.trim()) {
+      setParts([])
+      setIsSearching(false)
+    }
+  }
+
+  function handlePartScan(value) {
+    const scannedCode = String(value || "").trim()
+    setScannerOpen(false)
+    if (!scannedCode) return
+    updateKeyword(scannedCode)
+    setMessage(`已识别条码 ${scannedCode}，正在显示匹配结果`)
+    setErrorMessage("")
+  }
 
   const selectedPart = parts.find(
     (part) => part.code === selectedCode
@@ -198,21 +220,25 @@ function PartsApplication({ setPage }) {
       </section>
 
       <section className="card parts-search-card">
-        <h2>搜索配件</h2>
-        <input
-          id="part-search"
-          value={keyword}
-          onChange={(event) => {
-            const value = event.target.value
-            setKeyword(value)
-            if (!value.trim()) {
-              setParts([])
-              setIsSearching(false)
-              setSelectedCode("")
-            }
-          }}
-          placeholder="输入配件编码或名称"
-        />
+        <div className="parts-search-heading">
+          <div><span>配件目录</span><h2>搜索配件</h2></div>
+          <small>实时匹配</small>
+        </div>
+        <div className="parts-search-kinds" aria-label="支持的搜索方式">
+          <span>条码完整/模糊</span><span>名称完整/模糊</span>
+        </div>
+        <div className="parts-search-input-row">
+          <input
+            id="part-search"
+            value={keyword}
+            onChange={(event) => updateKeyword(event.target.value)}
+            placeholder="输入或扫描物料条码 / 物料名称"
+            autoComplete="off"
+          />
+          <button type="button" className="parts-scan-button" aria-label="扫描物料条码" onClick={() => setScannerOpen(true)}>
+            <ScanIcon size={20} /><span>扫码</span>
+          </button>
+        </div>
 
         <div className="part-search-result">
           {isSearching && <p>正在查询厂家飞书配件表...</p>}
@@ -227,32 +253,35 @@ function PartsApplication({ setPage }) {
                 onChange={() => setSelectedCode(part.code)}
               />
               <span className="part-search-copy">
-                <span>{part.name}（{part.code}）— {part.repairLevel} / 零售价 {priceText(part.retailPrice)}</span>
-                {part.returnRequired && <strong className="part-return-required">旧件需返厂</strong>}
+                <strong>{part.name}</strong>
+                <small>{part.code}</small>
+                <span className="part-result-meta"><em>{part.repairLevel}</em><b>零售价 {priceText(part.retailPrice)}</b>{part.returnRequired && <strong className="part-return-required">旧件需返厂</strong>}</span>
               </span>
             </label>
           ))}
         </div>
 
-        <label htmlFor="part-quantity">申请数量</label>
-        <input
-          id="part-quantity"
-          type="number"
-          min="1"
-          value={quantity}
-          onChange={(event) => setQuantity(event.target.value)}
-        />
+        <div className="part-apply-controls">
+          <label htmlFor="part-quantity">申请数量
+            <input
+              id="part-quantity"
+              type="number"
+              min="1"
+              value={quantity}
+              onChange={(event) => setQuantity(event.target.value)}
+            />
+          </label>
+          <button
+            className="primary-btn"
+            onClick={submitApplication}
+            disabled={isSaving || !selectedPart}
+          >
+            {isSaving ? "正在保存..." : "添加到本工单"}
+          </button>
+        </div>
 
         {errorMessage && <p className="error-message">{errorMessage}</p>}
         {message && <p role="status">{message}</p>}
-
-        <button
-          className="primary-btn"
-          onClick={submitApplication}
-          disabled={isSaving || !selectedPart}
-        >
-          {isSaving ? "正在保存..." : "保存配件申请"}
-        </button>
 
         <p className="dry-run-notice">
           配件与价格实时查询厂家飞书表；当前只记录到 FieldDesk，不写入瑞云
@@ -261,6 +290,13 @@ function PartsApplication({ setPage }) {
           {selectedParts.length ? "配件确认完成，进入维修完工" : "请先添加维修配件"}
         </button>
       </section>
+      <ScannerModal
+        open={scannerOpen}
+        mode="part"
+        title="扫描物料条码"
+        onScan={handlePartScan}
+        onClose={() => setScannerOpen(false)}
+      />
     </div>
   )
 }

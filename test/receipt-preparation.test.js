@@ -803,6 +803,11 @@ test("parts page provides live Feishu catalog and SN-bound application", async (
   assert.match(source, /零售价/);
   assert.match(source, /旧件需返厂/);
   assert.match(source, /searchPartsCatalog/);
+  assert.match(source, /ScannerModal/);
+  assert.match(source, /mode="part"/);
+  assert.match(source, /扫描物料条码/);
+  assert.match(source, /输入或扫描物料条码 \/ 物料名称/);
+  assert.match(source, /handlePartScan/);
   assert.match(source, /实时查询厂家飞书表/);
   assert.match(source, /申请数量/);
   assert.match(source, /不写入瑞云/);
