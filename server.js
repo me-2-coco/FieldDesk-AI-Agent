@@ -900,7 +900,9 @@ function createApp(
     if (!logisticsNo) return res.status(400).json({ success: false, message: "缺少物流单号" });
     try {
       const data = await withRecloud(connector, async (page) => {
-        const detail = await connector.queryRmaByLogisticsNo(page, logisticsNo);
+        const detail = await connector.queryRmaByLogisticsNo(page, logisticsNo, {
+          preserveDetailPage: true,
+        });
         const inspection = await connector.inspectDetectionForm(page, {
           dryRun: true,
           writeEnabled: false,
@@ -951,7 +953,9 @@ function createApp(
     }
     try {
       const data = await withRecloud(connector, async (page) => {
-        const detail = await connector.queryRmaByLogisticsNo(page, logisticsNo);
+        const detail = await connector.queryRmaByLogisticsNo(page, logisticsNo, {
+          preserveDetailPage: true,
+        });
         const prefillPlan = prefillRequested
           ? buildRecloudInspectionFormPlan({
               faultCategory: req.body?.faultCategory,
@@ -1051,7 +1055,9 @@ function createApp(
     if (!logisticsNo) return res.status(400).json({ success: false, message: "缺少一张处于待检测状态的物流单号" });
     try {
       const data = await withRecloud(connector, async (page) => {
-        await connector.queryRmaByLogisticsNo(page, logisticsNo);
+        await connector.queryRmaByLogisticsNo(page, logisticsNo, {
+          preserveDetailPage: true,
+        });
         const inspection = await connector.inspectDetectionForm(page, {
           dryRun: true,
           writeEnabled: false,

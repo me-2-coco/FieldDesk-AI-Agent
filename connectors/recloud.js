@@ -9042,6 +9042,7 @@ async function inspectDetectionForm(page, options = {}) {
   let networkGuard = null;
   let dialog = null;
   let dialogClosed = false;
+  let dialogCloseMethod = "";
   let faultInput = null;
   let faultInputTouched = false;
   let faultKeywordRestored = true;
@@ -9050,23 +9051,31 @@ async function inspectDetectionForm(page, options = {}) {
     if (typeof page.context === "function" && typeof page.context()?.route === "function") {
       networkGuard = await createReceiptNetworkGuard(page, guardState);
     }
-    if (typeof page.setViewportSize === "function") {
-      const viewport = typeof page.viewportSize === "function" ? page.viewportSize() : null;
-      if (!viewport || viewport.width < 1600) {
-        await page.setViewportSize({ width: 1920, height: Math.max(viewport?.height || 1080, 900) });
-        await page.waitForTimeout?.(500);
-      }
-    }
     const visible = [];
+    const observedActionTexts = new Set();
     const scopes = typeof page.frames === "function"
       ? [page, ...page.frames().filter((frame) => typeof page.mainFrame !== "function" || frame !== page.mainFrame())]
       : [page];
+    const initialDetectionTexts = page.getByText("检测", { exact: true });
+    const initialDetectionCount = await initialDetectionTexts.count().catch(() => 0);
+    for (let index = 0; index < initialDetectionCount; index += 1) {
+      const textNode = initialDetectionTexts.nth(index);
+      const button = textNode.locator("xpath=ancestor::button[1]");
+      const candidate = await button.count() ? button : textNode;
+      if (await candidate.isVisible().catch(() => false)) visible.push(candidate);
+    }
     const entryDeadline = Date.now() + (options.actionTimeout ?? 10000);
     while (visible.length === 0 && Date.now() < entryDeadline) {
       for (const scope of scopes) {
-        await activateReceiptDetailTabs(scope, page, options.logger || console);
         const region = await prepareRmaDetailRegion(scope, page);
         if (!region) continue;
+        for (const value of await region
+          .locator("button:visible, a:visible, [role='button']:visible")
+          .allInnerTexts()
+          .catch(() => [])) {
+          const normalized = normalizeText(value);
+          if (normalized && normalized.length <= 30) observedActionTexts.add(normalized);
+        }
         const candidates = region
           .locator("button:visible, a:visible, [role='button']:visible")
           .filter({ hasText: /^检测$/ });
@@ -9083,6 +9092,40 @@ async function inspectDetectionForm(page, options = {}) {
         }
       }
       if (visible.length === 0) await page.waitForTimeout?.(500);
+    }
+    if (visible.length === 0) {
+      const exactDetectionTexts = page.getByText("检测", { exact: true });
+      const globalDetectionCount = await exactDetectionTexts.count().catch(() => 0);
+      const globalCandidateStates = [];
+      for (let index = 0; index < globalDetectionCount; index += 1) {
+        const textNode = exactDetectionTexts.nth(index);
+        const button = textNode.locator("xpath=ancestor::button[1]");
+        const candidate = await button.count() ? button : textNode;
+        const candidateVisible = await candidate.isVisible().catch(() => false);
+        const inFixedRight = await candidate
+          .locator("xpath=ancestor::*[contains(@class,'table__fixed-right')][1]")
+          .count()
+          .catch(() => 0);
+        globalCandidateStates.push({ visible: candidateVisible, fixedRight: Boolean(inFixedRight) });
+        if (candidateVisible) visible.push(candidate);
+      }
+      (options.logger || console).info("RECLOUD_DETECTION_GLOBAL_CANDIDATES:", JSON.stringify({
+        count: globalDetectionCount,
+        states: globalCandidateStates,
+      }));
+    }
+    if (visible.length > 1) {
+      const fixedRightEntries = [];
+      for (const entry of visible) {
+        const inFixedRight = await entry
+          .locator("xpath=ancestor::*[contains(@class,'table__fixed-right')][1]")
+          .count()
+          .catch(() => 0);
+        if (inFixedRight) fixedRightEntries.push(entry);
+      }
+      if (fixedRightEntries.length === 1) {
+        visible.splice(0, visible.length, fixedRightEntries[0]);
+      }
     }
     if (visible.length > 1) {
       const uniqueByPosition = new Map();
@@ -9112,6 +9155,10 @@ async function inspectDetectionForm(page, options = {}) {
       if (inViewport.length === 1) visible.splice(0, visible.length, inViewport[0]);
     }
     if (visible.length !== 1) {
+      (options.logger || console).info(
+        "RECLOUD_DETECTION_ACTIONS:",
+        JSON.stringify([...observedActionTexts].slice(0, 80))
+      );
       const candidateDescriptors = [];
       for (const candidate of visible.slice(0, 5)) {
         const structure = await candidate.evaluate((element) => ({
@@ -9128,7 +9175,12 @@ async function inspectDetectionForm(page, options = {}) {
       error.code = visible.length ? "RECLOUD_DETECTION_ENTRY_AMBIGUOUS" : "RECLOUD_DETECTION_ENTRY_NOT_FOUND";
       error.status = 502;
       error.missingFields = ["detection.entry"];
-      error.inspection = { detectionEntryCandidateCount: visible.length, candidateDescriptors, confirmed: false };
+      error.inspection = {
+        detectionEntryCandidateCount: visible.length,
+        candidateDescriptors,
+        actionTexts: [...observedActionTexts].slice(0, 80),
+        confirmed: false,
+      };
       throw error;
     }
     await visible[0].click({ timeout: options.clickTimeout ?? 5000 });
@@ -9315,13 +9367,22 @@ async function inspectDetectionForm(page, options = {}) {
         dialog.getByRole("button", { name: /^(取消|关闭|返回)$/ }).last(),
         dialog.locator("button[aria-label='Close'], button[aria-label*='关闭'], button[title*='关闭'], .el-dialog__headerbtn, .rt-dialog__close").first(),
       ]);
-      if (closeControl) await closeControl.click({ timeout: 3000, force: true }).catch(() => {});
+      if (closeControl) {
+        await closeControl.click({ timeout: 3000, force: true }).catch(() => {});
+        dialogCloseMethod = "CLOSE_CONTROL";
+      }
       await page.waitForTimeout?.(300);
-      if (await dialog.isVisible().catch(() => false)) {
+      for (let attempt = 0; attempt < 3 && await dialog.isVisible().catch(() => false); attempt += 1) {
         await page.keyboard.press("Escape").catch(() => {});
-        await page.waitForTimeout?.(300);
+        dialogCloseMethod = "ESCAPE";
+        await page.waitForTimeout?.(400);
       }
       dialogClosed = await dialog.isVisible().then((value) => !value).catch(() => true);
+      if (!dialogClosed && typeof page.close === "function") {
+        await page.close({ runBeforeUnload: false });
+        dialogClosed = true;
+        dialogCloseMethod = "PAGE_CLOSE";
+      }
     }
     await networkGuard?.assertSafe();
     return {
@@ -9342,6 +9403,7 @@ async function inspectDetectionForm(page, options = {}) {
       valuesVerified: faultKeyword ? faultOptions.length > 0 : true,
       modelFieldFound: [...fieldLabels, ...placeholders].some((value) => /型号/.test(value)),
       dialogClosed,
+      dialogCloseMethod,
       blockedRequestCount: guardState.blockedRequestCount,
       confirmClicked: false,
       confirmed: false,

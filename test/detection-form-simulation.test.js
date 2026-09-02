@@ -21,8 +21,8 @@ test("detection simulation uses only configured test order and restores keyword"
   const calls = [];
   const connector = {
     openRecloud: async () => ({ page: {} }),
-    queryRmaByLogisticsNo: async (_page, logisticsNo) => {
-      calls.push(["query", logisticsNo]);
+    queryRmaByLogisticsNo: async (_page, logisticsNo, options) => {
+      calls.push(["query", logisticsNo, options]);
       return { rmaNo: "JXTH-TEST-DETECTION" };
     },
     inspectDetectionForm: async (_page, options) => {
@@ -57,7 +57,7 @@ test("detection simulation uses only configured test order and restores keyword"
   assert.equal(result.data.inspection.confirmClicked, false);
   assert.equal(result.data.inspection.controlMapping.readyToPrefill, false);
   assert.deepEqual(calls, [
-    ["query", "TEST-DETECTION-ORDER"],
+    ["query", "TEST-DETECTION-ORDER", { preserveDetailPage: true }],
     ["inspect", { dryRun: true, writeEnabled: false, faultKeyword: "水泵", prefillPlan: null }],
   ]);
 });
