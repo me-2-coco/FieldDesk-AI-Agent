@@ -329,6 +329,9 @@ function parseRmaFieldPairs(pairs, logisticsNo = "", options = {}) {
       FIELD_LABELS.pickupLogisticsNo
     ),
     productLine: normalizeText(options.productLine),
+    ...(normalizeText(options.projectCode)
+      ? { projectCode: normalizeText(options.projectCode) }
+      : {}),
     readOnly: true,
   };
 

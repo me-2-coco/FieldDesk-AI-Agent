@@ -142,7 +142,9 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
         setErrorMessage("")
         setReceiptMessage(localOrder.status === "TRANSFER_TO_HEADQUARTERS_PENDING"
           ? "该工单已录入 SN，当前为转总部待处理，不能重复签收"
-          : `该工单已存在，当前状态：${localOrder.status}`)
+          : localOrder.status === "MODEL_AUTHORIZATION_REVIEW"
+            ? "上次演练停在项目号验证，可重新录入并继续本地流程"
+            : `该工单已存在，当前状态：${localOrder.status}`)
         return true
       }
       restoreLocalOrder(localOrder, targetPage, result)
@@ -349,7 +351,9 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
         reportedFault: repairDetail.reportedFault,
         currentProjectCode: repairDetail.projectCode || ""
       })
-      if (preparation.authorization?.repairability !== "SUPPORTED" || preparation.status !== "RECEIPT_PREPARED") {
+      const canContinueLocalWorkflow = preparation.authorization?.repairability === "SUPPORTED"
+        || preparation.authorization?.localWorkflowAllowed === true
+      if (!canContinueLocalWorkflow) {
         setReceiptStep("detail")
         setReceiptMessage(preparation.authorization?.reason || preparation.message || "当前机型不能在网点继续签收")
         return
@@ -596,7 +600,8 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
             </p>
           )}
 
-          {repairDetail.localWorkflow?.status ? (
+          {repairDetail.localWorkflow?.status
+            && repairDetail.localWorkflow.status !== "MODEL_AUTHORIZATION_REVIEW" ? (
             <p className="receipt-status-message" role="status">
               已录入工单，无需重复录入 SN 或补签收照片
             </p>

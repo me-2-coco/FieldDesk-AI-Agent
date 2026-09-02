@@ -1184,6 +1184,7 @@ async function enrichRmaFromPendingList(page, detail, options = {}) {
     pickupLogisticsNo: detail.pickupLogisticsNo || row?.["取件物流单号"] || "",
     reportedFault: detail.reportedFault || row?.["故障描述"] || "",
     productSerialNo: detail.productSerialNo || row?.["产品序列号"] || "",
+    projectCode: detail.projectCode || row?.["项目号"] || "",
     productLine: detail.productLine || row?.["产品线"] || "",
     productModel: detail.productModel || row?.["产品名称"] || row?.["产品型号"] || "",
     pickupStatus: detail.pickupStatus || row?.["取件物流状态"] || "",

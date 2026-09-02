@@ -859,6 +859,30 @@ test("full phone is returned only when parsing explicitly allows reveal", () => 
   assert.equal(revealed.customer.phoneMasked, completePhone);
 });
 
+test("RMA detail parsing preserves the current Recloud project code", () => {
+  const detail = parseRmaFieldPairs([
+    ["寄修单号", "JXTH9000000045"],
+    ["描述", "测试项目号读取"],
+    ["取件物流单号", "TEST-PICKUP-0045"],
+  ], "TEST-SCAN-0045", {
+    projectCode: "W2458T",
+  });
+
+  assert.equal(detail.projectCode, "W2458T");
+});
+
+test("pending-list enrichment keeps the project number in the returned RMA detail", async () => {
+  const source = await fs.promises.readFile(
+    path.join(__dirname, "../connectors/recloud.js"),
+    "utf8"
+  );
+
+  assert.match(
+    source,
+    /projectCode: detail\.projectCode \|\| row\?\.\["项目号"\] \|\| ""/
+  );
+});
+
 test("product-line parser prefers the row whose operation is 签收", () => {
   const html = `
     <table>

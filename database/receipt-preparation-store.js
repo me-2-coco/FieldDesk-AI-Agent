@@ -227,7 +227,10 @@ class JsonReceiptPreparationStore {
         error.status = 404;
         throw error;
       }
-      if (existing.modelAuthorization?.repairability !== "SUPPORTED") {
+      if (
+        existing.modelAuthorization?.repairability !== "SUPPORTED"
+        && existing.modelAuthorization?.localWorkflowAllowed !== true
+      ) {
         const error = new Error("该机器尚未通过下放机型校验，不能进入检测");
         error.code = "MODEL_AUTHORIZATION_REQUIRED";
         error.status = 409;

@@ -155,6 +155,43 @@ test("receipt preparation passes the Recloud current project into SN authorizati
   assert.equal(result.data.authorization.productModelCode, "010201AA000656");
 });
 
+test("strict dry run may continue the local workflow when the current Recloud project is unavailable", async (t) => {
+  const store = await createTestStore(t);
+  const url = await startServer(
+    t,
+    { openRecloud: async () => assert.fail("must not open Recloud") },
+    store,
+    USERS.wash,
+    {
+      feishuModelCatalog: {
+        authorize: async () => ({
+          status: "CURRENT_PROJECT_MISSING",
+          repairability: "REVIEW_REQUIRED",
+          canContinue: false,
+          reason: "未读取到瑞云当前项目号，不能判断是否需要修改",
+        }),
+      },
+    }
+  );
+  const { response, result } = await post(
+    url,
+    "/api/repairs/prepare-receipt",
+    validPayload({ productLine: "洗地机", specialty: "洗地机" })
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(result.data.authorization.localWorkflowAllowed, true);
+  assert.match(result.data.message, /可继续本地处理流程/);
+
+  const completed = await post(
+    url,
+    "/api/repairs/complete-local-receipt",
+    { rmaNo: "JXTH900001001" }
+  );
+  assert.equal(completed.response.status, 200);
+  assert.equal(completed.result.data.status, "RECEIVED_PENDING_INSPECTION");
+});
+
 test("SN is trimmed and normalized to uppercase", async (t) => {
   const store = await createTestStore(t);
   const saved = await store.prepare(validPayload());
@@ -688,6 +725,9 @@ test("frontend enables SN step and shows the local-only success message", async 
   assert.match(source, /重新扫码/);
   assert.match(source, /placeholder="请输入、扫描枪输入或使用摄像头扫描"/);
   assert.match(source, /currentProjectCode: repairDetail\.projectCode \|\| ""/);
+  assert.match(source, /preparation\.authorization\?\.localWorkflowAllowed === true/);
+  assert.match(source, /localWorkflow\.status !== "MODEL_AUTHORIZATION_REVIEW"/);
+  assert.match(source, /上次演练停在项目号验证，可重新录入并继续本地流程/);
   assert.doesNotMatch(source, /recloudProjectCode: repairDetail\.projectCode/);
   assert.match(source, /function startReceiptPreparation\(\)[\s\S]*?setSn\(""\)[\s\S]*?setReceiptStep\("form"\)/);
   assert.doesNotMatch(source, /setSn\(normalizeReceiptSn\(repairDetail\?\.productSerialNo/);
