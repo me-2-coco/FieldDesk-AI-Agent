@@ -819,6 +819,10 @@ test("inspection page shows the required local order fields", async () => {
   assert.match(source, /INSPECTION_COMPLETE/);
   assert.match(source, /瑞云预填复核清单/);
   assert.match(source, /系统不会自动点击瑞云“确认”/);
+  assert.match(source, /返回添加配件/);
+  assert.match(source, /setPage\("partsApplication"\)/);
+  assert.match(source, /inspectionIsSaved/);
+  assert.match(source, /repairOrder\.level3Fault && repairOrder\.warrantyType/);
   assert.doesNotMatch(source, /配件申请/);
 });
 
@@ -846,5 +850,8 @@ test("parts page provides live Feishu catalog and SN-bound application", async (
   assert.match(source, /selectedPartAlreadyApplied/);
   assert.match(source, /disabled=\{alreadyApplied\}/);
   assert.match(source, /该配件已添加，请在上方改数量/);
+  assert.match(source, /const backPage/);
+  assert.match(source, /Boolean\(repairOrder\.level3Fault && repairOrder\.warrantyType\)/);
+  assert.match(source, /setPage\(backPage\)/);
   assert.match(source, /不写入瑞云/);
 });

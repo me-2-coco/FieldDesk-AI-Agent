@@ -28,6 +28,8 @@ function RepairProcess({ setPage }) {
   const [errorMessage, setErrorMessage] = useState("")
   const [isSaving, setIsSaving] = useState(false)
   const [recloudPrefillPlan, setRecloudPrefillPlan] = useState(null)
+  const inspectionIsSaved = Boolean(repairOrder.level3Fault && repairOrder.warrantyType)
+    || [REPAIR_STATUS.INSPECTION_COMPLETE, REPAIR_STATUS.REPAIRING].includes(repairOrder.status)
 
   useEffect(() => {
     let active = true
@@ -209,14 +211,20 @@ function RepairProcess({ setPage }) {
         )}
 
         <div className="inspection-actions">
-          <button
-            className="primary-btn"
-            onClick={saveDetection}
-            disabled={isSaving}
-          >
-            {isSaving ? "正在保存..." : "保存检测信息"}
-          </button>
-          {repairOrder.status === REPAIR_STATUS.INSPECTION_COMPLETE && (
+          {inspectionIsSaved ? (
+            <button className="secondary-btn" onClick={() => setPage("partsApplication")} disabled={isSaving}>
+              返回添加配件
+            </button>
+          ) : (
+            <button
+              className="primary-btn"
+              onClick={saveDetection}
+              disabled={isSaving}
+            >
+              {isSaving ? "正在保存..." : "保存检测信息"}
+            </button>
+          )}
+          {inspectionIsSaved && (
             <button className="primary-btn" onClick={() => setPage("repairCompletion")}>
               进入维修完工确认
             </button>
