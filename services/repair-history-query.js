@@ -7,6 +7,7 @@ function phoneMatches(maskedPhone, query) {
   const wanted = digits(query);
   if (wanted.length < 4) return false;
   const storedDigits = digits(stored);
+  if (storedDigits.length < 4) return false;
   if (wanted.length >= 11 && storedDigits.length >= 7) {
     return wanted.slice(0, 3) === storedDigits.slice(0, 3) && wanted.slice(-4) === storedDigits.slice(-4);
   }
@@ -117,6 +118,10 @@ function findMachineRepairHistory(records, { sn, phone, currentRmaNo = "", now =
     .filter((record) => String(record.rmaNo || "").trim() !== String(currentRmaNo || "").trim())
     .filter((record) => repairRecordTime(record))
     .map(safeHistoryRecord)
+    .filter((record) => {
+      const recordTime = new Date(record.completedAt).getTime();
+      return Number.isFinite(referenceTime) && Number.isFinite(recordTime) && recordTime < referenceTime;
+    })
     .sort((left, right) => String(right.completedAt).localeCompare(String(left.completedAt)));
   const latest = history[0] || null;
   const repeatRecord = history.find((record) => isWithinOneCalendarMonth(referenceTime, record.completedAt)) || null;

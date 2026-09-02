@@ -1789,7 +1789,10 @@ test("phone query marks nearby matching orders as repeat repairs and returns pro
 
   assert.equal(response.status, 200);
   assert.deepEqual(result.data.matches.map((item) => item.productLine), ["扫地机", "洗地机"]);
-  assert.deepEqual(result.data.matches.map((item) => item.isRepeatRepair), [true, true]);
+  assert.deepEqual(Object.fromEntries(result.data.matches.map((item) => [item.rmaNo, item.isRepeatRepair])), {
+    JXTH202608281001: false,
+    JXTH202608311002: true,
+  });
 });
 
 test("phone query trusts a matching masked live-query cache and returns the complete queried phone", async (t) => {

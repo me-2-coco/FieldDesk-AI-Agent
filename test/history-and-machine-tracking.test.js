@@ -7,6 +7,13 @@ const { findMachineRepairHistory } = require("../services/repair-history-query")
 const root = path.join(__dirname, "..");
 async function source(file) { return fs.readFile(path.join(root, file), "utf8"); }
 
+test("an empty stored phone never matches a queried customer", () => {
+  const { phoneMatches } = require("../services/repair-history-query");
+  assert.equal(phoneMatches("", "13882038666"), false);
+  assert.equal(phoneMatches("--", "13882038666"), false);
+  assert.equal(phoneMatches("138****3666", "13882033666"), true);
+});
+
 test("history is read-only and machine tracking is restricted to information clerk and admin", async () => {
   const server = await source("server.js");
   const history = await source("frontend/src/pages/RepairHistoryLookup.jsx");
@@ -78,9 +85,9 @@ test("repeat repair also recognizes the same phone before either order is comple
     now: new Date("2026-09-02T00:00:00.000Z"),
   });
 
-  assert.equal(older.isRepeatRepair, true);
+  assert.equal(older.isRepeatRepair, false);
   assert.equal(newer.isRepeatRepair, true);
-  assert.equal(older.records[0].rmaNo, "JXTH202608311002");
+  assert.equal(older.records.length, 0);
   assert.equal(newer.records[0].rmaNo, "JXTH202608281001");
 });
 
@@ -91,13 +98,13 @@ test("repeat repair uses one natural calendar month instead of a fixed day count
   ];
   assert.equal(findMachineRepairHistory(records, {
     sn: "SN-CALENDAR-MONTH",
-    currentRmaNo: "JXTH202601311001",
+    currentRmaNo: "JXTH202602281002",
   }).isRepeatRepair, true);
 
   records[1] = { rmaNo: "JXTH202603011002", sn: "SN-CALENDAR-MONTH", sourceCreatedAt: "2026-03-01T08:00:00+08:00" };
   assert.equal(findMachineRepairHistory(records, {
     sn: "SN-CALENDAR-MONTH",
-    currentRmaNo: "JXTH202601311001",
+    currentRmaNo: "JXTH202603011002",
   }).isRepeatRepair, false);
 });
 
