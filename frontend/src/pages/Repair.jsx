@@ -8,6 +8,7 @@ import {
   getCurrentFieldDeskUser,
   getLocalRepairOrders,
   getRepeatRepairBySn,
+  getSystemHealth,
   prepareReceipt,
   queryCrmRepairByAnyIdentifier,
   uploadReceiptAttachment
@@ -71,6 +72,7 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
   const [receiptAttachments, setReceiptAttachments] = useState([])
   const [photoCameraOpen, setPhotoCameraOpen] = useState(false)
   const [machineHistory, setMachineHistory] = useState(null)
+  const [receiptWriteEnabled, setReceiptWriteEnabled] = useState(false)
   const specialtyGate = getReceiptSpecialtyGate(
     currentUser,
     repairDetail?.productLine
@@ -167,6 +169,12 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
       })
     return () => { active = false }
   }, [signedInUser])
+
+  useEffect(() => {
+    getSystemHealth()
+      .then((health) => setReceiptWriteEnabled(Boolean(health.receiptWriteEnabled)))
+      .catch(() => setReceiptWriteEnabled(false))
+  }, [])
 
   async function searchRepair(queryOverride = "") {
     const queryValue = typeof queryOverride === "string" && queryOverride ? queryOverride : orderNo
@@ -750,8 +758,10 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
             ) : <p className="receipt-upload-empty">到店签收时拍摄机器外观、包装及异常位置</p>}
           </section>
 
-          <p className="dry-run-notice">
-            当前为演练模式，不会操作瑞云签收
+          <p className={receiptWriteEnabled ? "live-write-notice" : "dry-run-notice"}>
+            {receiptWriteEnabled
+              ? "真实签收模式：完成后将同步签收到瑞云"
+              : "当前为演练模式，不会操作瑞云签收"}
           </p>
 
           {errorMessage && (

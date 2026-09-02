@@ -24,6 +24,31 @@ function normalizeRequired(value) {
   return String(value || "").trim();
 }
 
+function validateReceiptCompletion(existing) {
+  if (!existing) {
+    const error = new Error("未找到本地签收准备记录");
+    error.code = "RECEIPT_PREPARATION_NOT_FOUND";
+    error.status = 404;
+    throw error;
+  }
+  if (
+    existing.modelAuthorization?.repairability !== "SUPPORTED"
+    && existing.modelAuthorization?.localWorkflowAllowed !== true
+  ) {
+    const error = new Error("该机器尚未通过下放机型校验，不能进入检测");
+    error.code = "MODEL_AUTHORIZATION_REQUIRED";
+    error.status = 409;
+    throw error;
+  }
+  if (!(existing.receiptAttachments || []).length) {
+    const error = new Error("请先拍摄并上传至少一张签收照片");
+    error.code = "RECEIPT_ATTACHMENT_REQUIRED";
+    error.status = 409;
+    throw error;
+  }
+  return existing;
+}
+
 function timelineEvent(type, label, operator = {}, at = new Date().toISOString()) {
   return {
     id: crypto.randomUUID(), type, label, at,
@@ -228,27 +253,8 @@ class JsonReceiptPreparationStore {
     const operation = this.writeQueue.then(async () => {
       const records = await this.readAll();
       const existing = records.find((record) => record.rmaNo === rmaNo);
-      if (!existing) {
-        const error = new Error("未找到本地签收准备记录");
-        error.code = "RECEIPT_PREPARATION_NOT_FOUND";
-        error.status = 404;
-        throw error;
-      }
-      if (
-        existing.modelAuthorization?.repairability !== "SUPPORTED"
-        && existing.modelAuthorization?.localWorkflowAllowed !== true
-      ) {
-        const error = new Error("该机器尚未通过下放机型校验，不能进入检测");
-        error.code = "MODEL_AUTHORIZATION_REQUIRED";
-        error.status = 409;
-        throw error;
-      }
-      if (!(existing.receiptAttachments || []).length) {
-        const error = new Error("请先拍摄并上传至少一张签收照片");
-        error.code = "RECEIPT_ATTACHMENT_REQUIRED";
-        error.status = 409;
-        throw error;
-      }
+      validateReceiptCompletion(existing);
+      if (existing.receiptCompletedAt) return existing;
       const timestamp = new Date().toISOString();
       const updated = {
         ...existing,
@@ -268,6 +274,39 @@ class JsonReceiptPreparationStore {
       await this.writeAll(
         records.map((record) => record.rmaNo === rmaNo ? updated : record)
       );
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
+  async markRecloudReceiptConfirmed(rmaNo, input = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing) {
+        const error = new Error("未找到本地签收准备记录");
+        error.code = "RECEIPT_PREPARATION_NOT_FOUND";
+        error.status = 404;
+        throw error;
+      }
+      if (existing.recloudReceiptConfirmedAt) return existing;
+      const timestamp = new Date().toISOString();
+      const operator = input.operator || {};
+      const updated = {
+        ...existing,
+        recloudReceiptConfirmedAt: timestamp,
+        recloudReceiptResult: {
+          confirmed: true,
+          message: normalizeRequired(input.receipt?.message) || "签收完成",
+        },
+        updatedAt: timestamp,
+        timeline: [
+          ...(existing.timeline || []),
+          timelineEvent("RECLOUD_RECEIPT_CONFIRMED", "瑞云签收完成", operator, timestamp),
+        ],
+      };
+      await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
       return updated;
     });
     this.writeQueue = operation.catch(() => {});
@@ -965,4 +1004,5 @@ module.exports = {
   JsonReceiptPreparationStore,
   createReceiptPreparation,
   normalizeSn,
+  validateReceiptCompletion,
 };

@@ -11,7 +11,7 @@ if (require.main === module) {
   }
 }
 const recloudConnector = require("./connectors/recloud");
-const { normalizeSn } = require("./database/receipt-preparation-store");
+const { normalizeSn, validateReceiptCompletion } = require("./database/receipt-preparation-store");
 const { createBusinessStores } = require("./database/business-store-factory");
 const { AccountStore } = require("./database/account-store");
 const { WorkCoordinationStore } = require("./database/work-coordination-store");
@@ -131,6 +131,14 @@ function isDryRun(env = process.env) {
 
 function isRecloudWriteEnabled(env = process.env) {
   return String(env.RECLOUD_WRITE_ENABLED ?? "false").toLowerCase() === "true";
+}
+
+function isRecloudReceiptWriteEnabled(env = process.env) {
+  const receiptOverride = env.RECLOUD_RECEIPT_WRITE_ENABLED;
+  if (receiptOverride !== undefined) {
+    return String(receiptOverride).toLowerCase() === "true";
+  }
+  return !isDryRun(env) && isRecloudWriteEnabled(env);
 }
 
 function normalizeMaskedPhone(value) {
@@ -440,8 +448,9 @@ function createApp(
     res.json({
       success: true,
       service: "fielddesk-api",
-      dryRun: isDryRun(),
-      recloudWriteEnabled: isRecloudWriteEnabled(),
+      dryRun: isDryRun(runtimeEnv),
+      recloudWriteEnabled: isRecloudWriteEnabled(runtimeEnv),
+      receiptWriteEnabled: isRecloudReceiptWriteEnabled(runtimeEnv),
     });
   });
 
@@ -1526,7 +1535,7 @@ function createApp(
   );
 
   app.post("/api/crm/repairs/receive", async (req, res, next) => {
-    if (!isRecloudWriteEnabled(runtimeEnv)) {
+    if (!isRecloudReceiptWriteEnabled(runtimeEnv)) {
       return res.status(403).json({
         success: false,
         code: "RECLOUD_WRITE_DISABLED",
@@ -1554,7 +1563,7 @@ function createApp(
           sn,
           detail.productType,
           requestedRemark,
-          { dryRun: isDryRun(runtimeEnv) }
+          { dryRun: false }
         );
         return { ...detail, sn, receipt };
       });
@@ -1695,9 +1704,44 @@ function createApp(
       });
     }
     try {
+      const currentUser = currentUserProvider(req);
+      const prepared = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
+      if (!prepared) {
+        throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到本地签收准备记录", 404);
+      }
+      validateReceiptCompletion(prepared);
+      let recloudSynced = Boolean(prepared.recloudReceiptConfirmedAt);
+      if (isRecloudReceiptWriteEnabled(runtimeEnv) && !recloudSynced) {
+        const liveResult = await withRecloud(connector, async (page) => {
+          const detail = await connector.queryRmaByLogisticsNo(page, prepared.logisticsNo);
+          if (detail.rmaNo && detail.rmaNo !== prepared.rmaNo) {
+            throw createApiError(
+              "RECLOUD_RECEIPT_ORDER_MISMATCH",
+              "瑞云查询结果与当前寄修单不一致，已停止签收",
+              409
+            );
+          }
+          const receipt = await connector.confirmSign(
+            page,
+            prepared.sn,
+            detail.productType || detail.productLine || prepared.productLine,
+            prepared.remark || prepared.specialty,
+            { dryRun: false }
+          );
+          if (!receipt?.confirmed) {
+            throw createApiError("RECLOUD_RECEIPT_NOT_CONFIRMED", "瑞云未确认签收，本地状态未改变", 502);
+          }
+          return { detail, receipt };
+        });
+        await receiptStore.markRecloudReceiptConfirmed(rmaNo, {
+          receipt: liveResult.receipt,
+          operator: currentUser,
+        });
+        recloudSynced = true;
+      }
       const data = await receiptStore.completeReceipt(
         rmaNo,
-        currentUserProvider(req)
+        currentUser
       );
       await enqueueRecloudNode(data, "RECEIPT", data.receiptCompletedAt || data.id);
       // A supervision order may have arrived before the technician received the
@@ -1709,8 +1753,10 @@ function createApp(
         data: {
           ...data,
           statusLabel: "已签收/待选择处理方式",
-          message: "本地签收完成，请选择维修、弃修、只检测不维修或调试",
-          recloudSynced: false,
+          message: recloudSynced
+            ? "瑞云签收完成，请选择维修、弃修、只检测不维修或调试"
+            : "演示签收完成，请选择维修、弃修、只检测不维修或调试",
+          recloudSynced,
         },
       });
     } catch (error) {
@@ -3041,6 +3087,7 @@ module.exports = {
   withRecloud,
   isDryRun,
   isRecloudWriteEnabled,
+  isRecloudReceiptWriteEnabled,
   initializeRecloudSession,
   monitorEnabled,
   monitorInterval,

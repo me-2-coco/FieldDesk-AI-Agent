@@ -62,6 +62,7 @@ async function startServer(t, connector, store, user = USERS.dual, options = {})
     const instance = createApp(connector, store, {
       getCurrentUser: () => user,
       feishuModelCatalog: options.feishuModelCatalog || { authorize: async () => ({ repairability: "SUPPORTED", status: "MATCHED", canContinue: true }) },
+      ...(options.env ? { env: options.env } : {}),
     }).listen(
       0,
       "127.0.0.1",
@@ -513,6 +514,88 @@ test("local receipt and inspection APIs never open Recloud", async (t) => {
   assert.equal(prefillWrites.warrantyStatus, "保内");
   assert.equal(prefillWrites.detectionResult, "维修");
   assert.equal(inspected.result.data.recloudPrefillPlan.canAutoConfirm, false);
+});
+
+test("receipt-only live mode confirms Recloud before completing the local receipt", async (t) => {
+  const store = await createTestStore(t);
+  await store.prepare({
+    ...validPayload(),
+    operatorId: USERS.sweep.userId,
+    operatorName: USERS.sweep.displayName,
+    remark: "扫地机",
+  });
+  let queryCount = 0;
+  let confirmCount = 0;
+  const connector = {
+    openRecloud: async () => ({ loginRequired: false, page: {} }),
+    queryRmaByLogisticsNo: async (_page, logisticsNo) => {
+      queryCount += 1;
+      assert.equal(logisticsNo, "TEST-LOGISTICS-1001");
+      return { rmaNo: "JXTH900001001", productLine: "扫地机" };
+    },
+    confirmSign: async (_page, sn, productType, remark, options) => {
+      confirmCount += 1;
+      assert.equal(sn, "TEST-SN-A1");
+      assert.equal(productType, "扫地机");
+      assert.equal(remark, "扫地机");
+      assert.equal(options.dryRun, false);
+      return { confirmed: true, dryRun: false, message: "签收完成" };
+    },
+  };
+  const url = await startServer(t, connector, store, USERS.sweep, {
+    env: {
+      ...process.env,
+      DRY_RUN: "true",
+      RECLOUD_WRITE_ENABLED: "false",
+      RECLOUD_RECEIPT_WRITE_ENABLED: "true",
+    },
+  });
+
+  const completed = await post(url, "/api/repairs/complete-local-receipt", { rmaNo: "JXTH900001001" });
+  assert.equal(completed.response.status, 200);
+  assert.equal(completed.result.data.recloudSynced, true);
+  assert.match(completed.result.data.message, /瑞云签收完成/);
+  assert.equal(queryCount, 1);
+  assert.equal(confirmCount, 1);
+
+  const saved = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
+  assert.equal(saved.status, "RECEIVED_PENDING_INSPECTION");
+  assert.ok(saved.recloudReceiptConfirmedAt);
+
+  const retried = await post(url, "/api/repairs/complete-local-receipt", { rmaNo: "JXTH900001001" });
+  assert.equal(retried.response.status, 200);
+  assert.equal(queryCount, 1);
+  assert.equal(confirmCount, 1);
+});
+
+test("a failed Recloud receipt leaves the local order prepared", async (t) => {
+  const store = await createTestStore(t);
+  await store.prepare({
+    ...validPayload(),
+    operatorId: USERS.sweep.userId,
+    operatorName: USERS.sweep.displayName,
+  });
+  const connector = {
+    openRecloud: async () => ({ loginRequired: false, page: {} }),
+    queryRmaByLogisticsNo: async () => ({ rmaNo: "JXTH900001001", productLine: "扫地机" }),
+    confirmSign: async () => {
+      throw Object.assign(new Error("瑞云签收失败"), { code: "RECLOUD_QUERY_TIMEOUT", status: 504 });
+    },
+  };
+  const url = await startServer(t, connector, store, USERS.sweep, {
+    env: {
+      ...process.env,
+      DRY_RUN: "true",
+      RECLOUD_WRITE_ENABLED: "false",
+      RECLOUD_RECEIPT_WRITE_ENABLED: "true",
+    },
+  });
+
+  const completed = await post(url, "/api/repairs/complete-local-receipt", { rmaNo: "JXTH900001001" });
+  assert.equal(completed.response.status, 504);
+  const saved = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
+  assert.equal(saved.status, "RECEIPT_PREPARED");
+  assert.equal(saved.receiptCompletedAt, undefined);
 });
 
 test("sweep and wash accounts generate their authorized remarks", () => {

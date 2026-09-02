@@ -91,6 +91,13 @@ async function get(path, { timeoutMs = 0 } = {}) {
   return result.data
 }
 
+export async function getSystemHealth() {
+  const response = await fetch(`${API_BASE_URL}/api/health`)
+  const result = await response.json().catch(() => null)
+  if (!response.ok || !result?.success) throw new Error(result?.message || "无法读取系统运行模式")
+  return result
+}
+
 async function downloadFile(path, fallbackName) {
   let response
   try { response = await fetch(`${API_BASE_URL}${path}`, { headers: apiHeaders() }) }

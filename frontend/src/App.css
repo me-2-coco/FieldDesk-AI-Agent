@@ -143,6 +143,17 @@ button:disabled {
   text-align: left;
 }
 
+.live-write-notice {
+  margin: 16px 0 !important;
+  padding: 11px 13px;
+  color: #087443 !important;
+  background: #f0fff8;
+  border: 1px solid #87e8ba;
+  border-radius: 10px;
+  font-weight: 700;
+  text-align: left;
+}
+
 .recloud-review-card {
   margin: 16px 0;
   padding: 14px;
