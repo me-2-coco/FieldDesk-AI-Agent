@@ -20,6 +20,7 @@ test("admin recovery is wired through an admin-only page and API", async () => {
   assert.match(app, /page === "adminRepairRecovery"/);
   assert.match(home, /title: "工单恢复"/);
   assert.match(users, /"adminRepairRecovery"/);
+  assert.match(users, /String\(user\?\.role \|\| ""\)\.trim\(\)\.toLowerCase\(\)/);
   assert.match(api, /reopenRepairTreatment/);
   assert.match(page, /恢复到选择处理方式/);
   assert.match(page, /原维修师傅/);

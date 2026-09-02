@@ -280,8 +280,8 @@ export function canAccessPage(
   }
 
 
-  const allowedPages =
-    rolePermissions[user.role] || []
+  const normalizedRole = String(user?.role || "").trim().toLowerCase()
+  const allowedPages = rolePermissions[normalizedRole] || []
 
 
   return allowedPages.includes(page)
