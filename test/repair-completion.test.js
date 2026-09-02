@@ -221,6 +221,7 @@ test("frontend completion page reuses confirmed fault and includes warranty, med
   const source = await fs.readFile(path.join(__dirname, "../frontend/src/pages/RepairCompletion.jsx"), "utf8");
   const receiptSource = await fs.readFile(path.join(__dirname, "../frontend/src/pages/Repair.jsx"), "utf8");
   const previewSource = await fs.readFile(path.join(__dirname, "../frontend/src/components/AttachmentPreviewList.jsx"), "utf8");
+  const appStyles = await fs.readFile(path.join(__dirname, "../frontend/src/App.css"), "utf8");
   const partsSource = await fs.readFile(path.join(__dirname, "../frontend/src/pages/PartsApplication.jsx"), "utf8");
   const measureSource = await fs.readFile(path.join(__dirname, "../frontend/src/shared/repairMeasure.js"), "utf8");
   assert.match(source, /已确认三级故障/);
@@ -239,6 +240,9 @@ test("frontend completion page reuses confirmed fault and includes warranty, med
   assert.match(previewSource, /<video[^>]+controls/);
   assert.match(previewSource, /点击放大/);
   assert.match(previewSource, /aria-label="关闭图片预览"/);
+  assert.match(appStyles, /attachment-preview-list\{[^}]*grid-template-columns:repeat\(4/);
+  assert.match(appStyles, /attachment-preview-list\{[^}]*max-height:176px/);
+  assert.match(appStyles, /attachment-preview-list\{[^}]*overflow-y:auto/);
   assert.match(source, /保存草稿/);
   assert.match(source, /提交完工/);
   assert.match(source, /canSubmitCompletion/);
