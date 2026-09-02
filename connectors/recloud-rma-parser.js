@@ -23,6 +23,7 @@ const FIELD_LABELS = {
   customerDetailedAddress: ["详细地址", "地址"],
   reportedFault: ["用户报修描述", "报修描述", "故障描述", "描述"],
   pickupLogisticsNo: ["取件物流单号", "取件运单号", "取件单号"],
+  technicianName: ["服务人员", "维修师傅"],
 };
 
 class RecloudQueryError extends Error {
@@ -324,6 +325,9 @@ function parseRmaFieldPairs(pairs, logisticsNo = "", options = {}) {
       ]),
     },
     reportedFault: findFieldValue(normalizedPairs, FIELD_LABELS.reportedFault),
+    ...(findFieldValue(normalizedPairs, FIELD_LABELS.technicianName)
+      ? { technicianName: findFieldValue(normalizedPairs, FIELD_LABELS.technicianName) }
+      : {}),
     pickupLogisticsNo: findFieldValue(
       normalizedPairs,
       FIELD_LABELS.pickupLogisticsNo

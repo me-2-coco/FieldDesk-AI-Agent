@@ -89,6 +89,7 @@ test("repeat repair also recognizes the same phone before either order is comple
   assert.equal(newer.isRepeatRepair, true);
   assert.equal(older.records.length, 0);
   assert.equal(newer.records[0].rmaNo, "JXTH202608281001");
+  assert.equal(newer.previousTechnicianName, "");
 });
 
 test("repeat repair uses one natural calendar month instead of a fixed day count", () => {
@@ -116,4 +117,5 @@ test("repair query shows a red repeat-repair label beside multiple results", asy
   assert.match(styles, /\.rma-repeat-label\{[^}]*color:#d1242f/);
   assert.match(repair, /rma-match-product-line/);
   assert.match(repair, /item\.productLine \|\| "产品线待确认"/);
+  assert.match(repair, /item\.previousTechnicianName \|\| "待分配"/);
 });

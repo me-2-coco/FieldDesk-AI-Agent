@@ -29,7 +29,7 @@ function safeHistoryRecord(record) {
       name: part.partName || part.name || "未命名配件",
       quantity: Number(part.quantity) || 1,
     })),
-    technicianName: record.technicianName || completion.operatorName || record.operatorName || "未记录",
+    technicianName: record.technicianName || completion.operatorName || record.operatorName || "",
     completedAt: repairRecordTime(record),
   };
 }

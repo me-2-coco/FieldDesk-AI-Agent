@@ -573,6 +573,7 @@ function createApp(
         for (const key of [
           "logisticsNo", "phone", "phoneMasked", "customerName", "regionAddress",
           "reportedFault", "sn", "productLine", "productModel", "pickupStatus",
+          "technicianName",
         ]) {
           if (!String(merged[key] || "").trim()) merged[key] = order[key] || existing[key] || "";
         }
@@ -624,6 +625,7 @@ function createApp(
               productLine: order.productLine || order.specialty || "",
               productModel: order.productModel || "",
               pickupStatus: order.pickupStatus || "",
+              technicianName: order.technicianName || "",
               summary: [order.productModel, order.pickupStatus].filter(Boolean).join("｜"),
               localWorkflow: order,
               source: order.source || "FIELDDESK_LOCAL",
@@ -650,6 +652,7 @@ function createApp(
           productLine: order.productLine || order.specialty || "",
           productModel: order.productModel || "",
           pickupStatus: order.pickupStatus || "",
+          technicianName: order.technicianName || "",
           projectCode: order.recloudProjectCode || order.projectCode || "",
           localWorkflow: order,
           source: order.source || "FIELDDESK_LOCAL",
@@ -732,6 +735,7 @@ function createApp(
           productLine: detail?.productLine || "",
           reportedFault: detail?.reportedFault || "",
           sourceCreatedAt: detail?.sourceCreatedAt || detail?.createdAt || "",
+          technicianName: detail?.technicianName || "",
         }));
         knownRepairOrders = [...new Map(
           [...knownRepairOrders, ...liveRows].filter((order) => order.rmaNo).map((order) => [order.rmaNo, order])
@@ -755,6 +759,7 @@ function createApp(
             productLine: detail.productLine || '',
             productModel: detail.productModel || '',
             pickupStatus: detail.pickupStatus || '',
+            technicianName: detail.technicianName || '',
             phoneVerified: detail.phoneVerified === true,
             source: 'RECLOUD_LIVE_QUERY_CACHE',
           });

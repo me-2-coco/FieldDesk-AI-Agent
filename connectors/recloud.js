@@ -1676,6 +1676,7 @@ async function readPendingReceiptOrders(page, options = {}) {
         sn: row['产品序列号'] || '',
         productLine: row['产品线'] || '',
         productModel: row['产品型号'] || '',
+        technicianName: row['服务人员'] || row['维修师傅'] || '',
         pickupStatus: row['取件物流状态'] || '',
         sourceCreatedAt: row['创建时间'] || row['寄修单创建时间'] || row['申请时间'] || row['日期'] || (Number.isFinite(rowTime) ? new Date(rowTime).toISOString() : ''),
         source: 'RECLOUD_PENDING_RECEIPT',
@@ -1832,6 +1833,7 @@ async function readRecentRmaOrders(page, options = {}) {
         sn: row["产品序列号"] || "",
         productLine: row["产品线"] || "",
         productModel: row["产品名称"] || "",
+        technicianName: row["服务人员"] || row["维修师傅"] || "",
         pickupStatus: row["取件物流状态"] || "",
         sourceCreatedAt: row["寄修单创建时间"] || row["创建时间"] || (Number.isFinite(rowTime) ? new Date(rowTime).toISOString() : ""),
         source: "RECLOUD_RECENT_RMA_BACKFILL",
@@ -1861,6 +1863,7 @@ async function readRecentRmaOrders(page, options = {}) {
       order.sn = detail?.productSerialNo || order.sn;
       order.productLine = detail?.productLine || order.productLine;
       order.productModel = detail?.productModel || order.productModel;
+      order.technicianName = detail?.technicianName || order.technicianName;
       order.phoneVerified = /^1[3-9]\d{9}$/.test(String(order.phone || "").trim());
       if (!order.phoneVerified) throw Object.assign(new Error("完整联系电话读取失败"), { code: "RECLOUD_FULL_PHONE_REQUIRED" });
       completedOrders.push(order);

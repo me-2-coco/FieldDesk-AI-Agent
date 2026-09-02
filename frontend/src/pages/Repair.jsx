@@ -509,7 +509,7 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
                 <b aria-hidden="true">›</b>
               </span>
               <span className="rma-match-product">{productName || "机型待确认"}</span>
-              {item.isRepeatRepair && <span className="rma-repeat-badge">重复维修{item.previousTechnicianName ? ` · 上次师傅：${item.previousTechnicianName}` : ""}</span>}
+              {item.isRepeatRepair && <span className="rma-repeat-badge">重复维修 · 上次师傅：{item.previousTechnicianName || "待分配"}</span>}
               <span className="rma-match-meta">
                 <span><small>物流单号</small><strong>{item.logisticsNo || "送修"}</strong></span>
                 <span><small>联系电话</small><strong>{item.phoneMasked || "未显示"}</strong></span>
