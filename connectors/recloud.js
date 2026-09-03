@@ -9784,8 +9784,8 @@ async function inspectRepairForm(page, options = {}) {
         {
           dryRun: true,
           writeEnabled: false,
-          openAssignmentDialog: true,
-          inspectPartAddDialog: true,
+          openAssignmentDialog: options.openAssignmentDialog === true,
+          inspectPartAddDialog: options.inspectPartAddDialog === true,
           assertSafe: () => networkGuard?.assertSafe(),
           guardState,
           timeoutMs: options.actionTimeout ?? 5000,
