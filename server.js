@@ -1024,6 +1024,7 @@ function createApp(
           inspectExecutionControls: true,
           targetAssignee,
           openAssignmentDialog: Boolean(targetAssignee),
+          simulateMeasureText: String(req.body?.simulateMeasureText || "").trim().slice(0, 80),
         });
         return {
           logisticsNo,

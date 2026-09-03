@@ -90,6 +90,7 @@ test("repair form inspection endpoint is restricted to a configured test order a
   assert.match(block, /preserveDetailPage: true/);
   assert.match(block, /inspectPartAddDialog: req\.body\?\.inspectPartAddDialog === true/);
   assert.match(block, /openAssignmentDialog: Boolean\(targetAssignee\)/);
+  assert.match(block, /simulateMeasureText:/);
   assert.match(block, /inspectExecutionControls: true/);
   assert.match(block, /targetAssignee/);
   assert.match(block, /assessRecloudRepairPageReadiness/);

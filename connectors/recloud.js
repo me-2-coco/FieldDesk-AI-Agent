@@ -9613,6 +9613,8 @@ async function inspectRepairForm(page, options = {}) {
     let repairMeasureSimulation = null;
     const simulationText = String(options.simulateMeasureText || "").trim();
     if (serviceReportOpened && simulationText) {
+      const measureDialogs = page.locator(".rt-dialog__wrapper:visible, .el-dialog__wrapper:visible, [role='dialog']:visible");
+      const measureDialogCountBefore = await measureDialogs.count();
       const heading = page.getByText("故障模式及责任判定", { exact: true }).filter({ visible: true }).last();
       if (!(await heading.count()) || !(await heading.isVisible().catch(() => false))) {
         const error = new Error("服务报告中没有找到故障模式及责任判定区域");
@@ -9696,8 +9698,27 @@ async function inspectRepairForm(page, options = {}) {
         error.missingFields = ["repair.measureRestore"];
         throw error;
       }
-      await page.keyboard.press("Escape").catch(() => {});
-      await page.waitForTimeout?.(200);
+      const closeMeasureEditor = async () => {
+        if (await measureDialogs.count() <= measureDialogCountBefore) return;
+        const editorDialog = measureDialogs.last();
+        const close = editorDialog.locator(
+          "button[aria-label*='关闭']:visible, button[title*='关闭']:visible, .el-dialog__headerbtn:visible, .rt-dialog__close:visible"
+        ).last();
+        if (await close.count()) await close.click({ timeout: 3000 }).catch(() => {});
+        if (await measureDialogs.count() > measureDialogCountBefore) await page.keyboard.press("Escape").catch(() => {});
+      };
+      await closeMeasureEditor();
+      const closeDeadline = Date.now() + 2500;
+      while (Date.now() < closeDeadline && await measureDialogs.count() > measureDialogCountBefore) {
+        await page.waitForTimeout?.(100);
+      }
+      if (await measureDialogs.count() > measureDialogCountBefore) {
+        const error = new Error("维修措施演练完成后编辑窗口未关闭");
+        error.code = "RECLOUD_REPAIR_MEASURE_EDITOR_CLOSE_FAILED";
+        error.status = 502;
+        error.missingFields = ["repair.measureEditorClose"];
+        throw error;
+      }
       repairMeasureSimulation = {
         editorOpened: true,
         valueFilled: true,
@@ -9785,7 +9806,9 @@ async function inspectRepairForm(page, options = {}) {
           dryRun: true,
           writeEnabled: false,
           openAssignmentDialog: options.openAssignmentDialog === true,
-          inspectPartAddDialog: options.inspectPartAddDialog === true,
+          // The dialog was already opened, inspected, and closed above. Opening it
+          // again here makes the second pass depend on stale modal DOM state.
+          inspectPartAddDialog: false,
           assertSafe: () => networkGuard?.assertSafe(),
           guardState,
           timeoutMs: options.actionTimeout ?? 5000,

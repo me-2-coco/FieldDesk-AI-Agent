@@ -64,11 +64,14 @@ async function inspectAndCloseRepairPartAddDialog(page, dialog) {
     .map((value) => String(value).replace(/^\*+|\*+$/g, "").trim())
     .filter((value) => value && value.length <= 50))];
   const saveButtonCount = await dialog.getByRole("button", { name: /^\s*保存\s*$/ }).filter({ visible: true }).count();
+  const cancel = dialog.getByRole("button", { name: /^\s*取消\s*$/ }).filter({ visible: true }).last();
+  if (await cancel.count()) await cancel.click({ timeout: 3000 }).catch(() => {});
   const close = dialog.locator(
     "button[aria-label*='关闭']:visible, button[title*='关闭']:visible, .el-dialog__headerbtn:visible, .rt-dialog__close:visible"
   ).last();
-  if (await close.count()) await close.click({ timeout: 3000 }).catch(() => {});
+  if (await dialog.isVisible().catch(() => false) && await close.count()) await close.click({ timeout: 3000 }).catch(() => {});
   if (await dialog.isVisible().catch(() => false)) await page.keyboard.press("Escape").catch(() => {});
+  await dialog.waitFor({ state: "hidden", timeout: 2000 }).catch(() => {});
   await page.waitForTimeout?.(100);
   return {
     fieldLabels,
