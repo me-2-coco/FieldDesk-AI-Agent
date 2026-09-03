@@ -9124,49 +9124,6 @@ async function inspectDetectionForm(page, options = {}) {
         states: globalCandidateStates,
       }));
     }
-    if (visible.length === 0) {
-      const serviceOrderActions = [...observedActionTexts].filter((value) => /^FWD[A-Z0-9-]{6,}$/i.test(value));
-      if (serviceOrderActions.length === 1) {
-        const serviceOrderEntry = page
-          .getByText(serviceOrderActions[0], { exact: true })
-          .filter({ visible: true });
-        const serviceOrderTarget = await firstVisible([
-          serviceOrderEntry
-            .locator("xpath=ancestor-or-self::*[contains(@class,'table__fixed-right')][1]")
-            .getByText(serviceOrderActions[0], { exact: true })
-            .first(),
-          serviceOrderEntry.first(),
-        ]);
-        if (serviceOrderTarget) {
-          guardState.allowServiceOrderReadQuery = true;
-          try {
-            await serviceOrderTarget.click({ timeout: options.clickTimeout ?? 5000 });
-            await page.waitForTimeout?.(800);
-          } finally {
-            guardState.allowServiceOrderReadQuery = false;
-          }
-          await networkGuard?.assertSafe();
-          for (const value of await page
-            .locator("button:visible, a:visible, [role='button']:visible")
-            .allInnerTexts()
-            .catch(() => [])) {
-            const normalized = normalizeText(value);
-            if (normalized && normalized.length <= 30) observedActionTexts.add(normalized);
-          }
-          const serviceOrderDetectionTexts = page.getByText("检测", { exact: true });
-          for (let index = 0; index < await serviceOrderDetectionTexts.count().catch(() => 0); index += 1) {
-            const textNode = serviceOrderDetectionTexts.nth(index);
-            const button = textNode.locator("xpath=ancestor::button[1]");
-            const candidate = await button.count() ? button : textNode;
-            if (await candidate.isVisible().catch(() => false)) visible.push(candidate);
-          }
-          (options.logger || console).info("RECLOUD_DETECTION_SERVICE_ORDER_CANDIDATES:", JSON.stringify({
-            serviceOrderActionCount: serviceOrderActions.length,
-            detectionEntryCandidateCount: visible.length,
-          }));
-        }
-      }
-    }
     if (visible.length > 1) {
       const fixedRightEntries = [];
       for (const entry of visible) {
@@ -10067,13 +10024,7 @@ async function createReceiptNetworkGuard(page, state, options = {}) {
       ? page.context()
       : page;
   const handler = async (route) => {
-    const allowServiceOrderReadQuery =
-      options.blockGenericExecuteQuery === true &&
-      state.allowServiceOrderReadQuery === true;
-    const classification = classifyRecloudRequest(
-      route.request(),
-      allowServiceOrderReadQuery ? {} : options
-    );
+    const classification = classifyRecloudRequest(route.request(), options);
     if (classification.kind === "mutation") {
       state.mutationRequestDetected = true;
       state.blockedRequestCount += 1;
