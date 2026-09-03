@@ -324,6 +324,16 @@ test("repair list allows only the observed exact POST read paths", () => {
   }).kind, "mutation");
 });
 
+test("strict detection guard blocks the generic ExecuteQuery endpoint", () => {
+  const request = {
+    method: () => "POST",
+    url: () => "https://crm2.recloud.com.cn/t/dreame/api/vlist/ExecuteQuery",
+  };
+
+  assert.equal(classifyRecloudRequest(request).kind, "read");
+  assert.equal(classifyRecloudRequest(request, { blockGenericExecuteQuery: true }).kind, "mutation");
+});
+
 test("unexpected mutation is blocked, cleaned up and returned without secrets", async () => {
   const fixture = createSimulationPage({
     originalRemark: "原测试备注",

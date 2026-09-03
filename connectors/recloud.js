@@ -9004,6 +9004,14 @@ const DETECTION_FIELD_LABELS = Object.freeze([
   "是否拆封",
   "责任判定",
 ]);
+const DETECTION_PREFILL_FIELD_KEYS = Object.freeze([
+  "faultCategory",
+  "customerReasonConsistent",
+  "warrantyStatus",
+  "detectionResult",
+  "productFunctionDecision",
+  "originalConsumables",
+]);
 
 async function collectDetectionFieldControls(dialog) {
   const controls = [];
@@ -9049,7 +9057,9 @@ async function inspectDetectionForm(page, options = {}) {
   let originalFaultKeyword = "";
   try {
     if (typeof page.context === "function" && typeof page.context()?.route === "function") {
-      networkGuard = await createReceiptNetworkGuard(page, guardState);
+      networkGuard = await createReceiptNetworkGuard(page, guardState, {
+        blockGenericExecuteQuery: true,
+      });
     }
     const visible = [];
     const observedActionTexts = new Set();
@@ -9113,6 +9123,49 @@ async function inspectDetectionForm(page, options = {}) {
         count: globalDetectionCount,
         states: globalCandidateStates,
       }));
+    }
+    if (visible.length === 0) {
+      const serviceOrderActions = [...observedActionTexts].filter((value) => /^FWD[A-Z0-9-]{6,}$/i.test(value));
+      if (serviceOrderActions.length === 1) {
+        const serviceOrderEntry = page
+          .getByText(serviceOrderActions[0], { exact: true })
+          .filter({ visible: true });
+        const serviceOrderTarget = await firstVisible([
+          serviceOrderEntry
+            .locator("xpath=ancestor-or-self::*[contains(@class,'table__fixed-right')][1]")
+            .getByText(serviceOrderActions[0], { exact: true })
+            .first(),
+          serviceOrderEntry.first(),
+        ]);
+        if (serviceOrderTarget) {
+          guardState.allowServiceOrderReadQuery = true;
+          try {
+            await serviceOrderTarget.click({ timeout: options.clickTimeout ?? 5000 });
+            await page.waitForTimeout?.(800);
+          } finally {
+            guardState.allowServiceOrderReadQuery = false;
+          }
+          await networkGuard?.assertSafe();
+          for (const value of await page
+            .locator("button:visible, a:visible, [role='button']:visible")
+            .allInnerTexts()
+            .catch(() => [])) {
+            const normalized = normalizeText(value);
+            if (normalized && normalized.length <= 30) observedActionTexts.add(normalized);
+          }
+          const serviceOrderDetectionTexts = page.getByText("检测", { exact: true });
+          for (let index = 0; index < await serviceOrderDetectionTexts.count().catch(() => 0); index += 1) {
+            const textNode = serviceOrderDetectionTexts.nth(index);
+            const button = textNode.locator("xpath=ancestor::button[1]");
+            const candidate = await button.count() ? button : textNode;
+            if (await candidate.isVisible().catch(() => false)) visible.push(candidate);
+          }
+          (options.logger || console).info("RECLOUD_DETECTION_SERVICE_ORDER_CANDIDATES:", JSON.stringify({
+            serviceOrderActionCount: serviceOrderActions.length,
+            detectionEntryCandidateCount: visible.length,
+          }));
+        }
+      }
     }
     if (visible.length > 1) {
       const fixedRightEntries = [];
@@ -9185,7 +9238,12 @@ async function inspectDetectionForm(page, options = {}) {
     }
     await visible[0].click({ timeout: options.clickTimeout ?? 5000 });
     dialog = page.locator(".rt-dialog__wrapper:visible, .el-dialog__wrapper:visible, [role='dialog']:visible").last();
-    await dialog.waitFor({ state: "visible", timeout: options.dialogTimeout ?? 10000 });
+    try {
+      await dialog.waitFor({ state: "visible", timeout: options.dialogTimeout ?? 10000 });
+    } catch (error) {
+      await networkGuard?.assertSafe();
+      throw error;
+    }
     await networkGuard?.assertSafe();
     const fieldLabels = [...new Set((await dialog
       .locator("label:visible, .rt-form-item__label:visible, .el-form-item__label:visible")
@@ -9203,6 +9261,11 @@ async function inspectDetectionForm(page, options = {}) {
       .evaluateAll((elements) => elements.map((element) => String(element.querySelector("label, .rt-form-item__label, .el-form-item__label")?.textContent || "").replace(/^\*+|\*+$/g, "").trim())))
       .filter((value) => value && value.length <= 40))];
     const fieldControls = await collectDetectionFieldControls(dialog);
+    const originalFieldValues = {};
+    const valueReader = createRecloudDetectionControlAdapter(page, dialog);
+    for (const key of DETECTION_PREFILL_FIELD_KEYS) {
+      originalFieldValues[key] = await valueReader.read(key).catch(() => null);
+    }
     let faultQuickSelectFound = false;
     let faultOptions = [];
     let faultKeywordFilled = false;
@@ -9395,6 +9458,7 @@ async function inspectDetectionForm(page, options = {}) {
       requiredFieldCount,
       requiredFieldLabels,
       fieldControls,
+      originalFieldValues,
       faultQuickSelectFound,
       faultOptions,
       faultKeywordFilled,
@@ -9958,7 +10022,7 @@ function createReceiptActionResponseObserver(page) {
   };
 }
 
-function classifyRecloudRequest(request) {
+function classifyRecloudRequest(request, options = {}) {
   const method = String(request.method?.() || "GET").toUpperCase();
   const path = sanitizeRecloudRequestPath(request.url?.() || "");
   const descriptor = { method, path };
@@ -9968,10 +10032,12 @@ function classifyRecloudRequest(request) {
 
   const exactReadOnlyPostPaths = new Set([
     "/t/dreame/api/common/menuclick",
-    "/t/dreame/api/vlist/ExecuteQuery",
     "/t/dreame/api/vlist/GetQueryListBadges",
     "/t/dreame/api/systemparameter/getvalues",
   ]);
+  if (!options.blockGenericExecuteQuery) {
+    exactReadOnlyPostPaths.add("/t/dreame/api/vlist/ExecuteQuery");
+  }
   if (method === "POST" && exactReadOnlyPostPaths.has(path)) {
     return { kind: "read", descriptor };
   }
@@ -9994,14 +10060,20 @@ function classifyRecloudRequest(request) {
   return { kind: "read", descriptor };
 }
 
-async function createReceiptNetworkGuard(page, state) {
+async function createReceiptNetworkGuard(page, state, options = {}) {
   const router =
     typeof page.context === "function" &&
     typeof page.context()?.route === "function"
       ? page.context()
       : page;
   const handler = async (route) => {
-    const classification = classifyRecloudRequest(route.request());
+    const allowServiceOrderReadQuery =
+      options.blockGenericExecuteQuery === true &&
+      state.allowServiceOrderReadQuery === true;
+    const classification = classifyRecloudRequest(
+      route.request(),
+      allowServiceOrderReadQuery ? {} : options
+    );
     if (classification.kind === "mutation") {
       state.mutationRequestDetected = true;
       state.blockedRequestCount += 1;
