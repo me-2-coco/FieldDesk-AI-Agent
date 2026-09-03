@@ -40,12 +40,25 @@ test("repair prefill verifies and restores reversible fields without saving", as
     repairMeasure: "原措施", highestRepairLevel: "小修", customerPaidAmount: 0,
   });
   assert.deepEqual(result.deferredFields, ["usedParts", "attachments"]);
+  assert.deepEqual(result.deferredActions, []);
   assert.equal(result.valuesVerified, true);
   assert.equal(result.valuesRestored, true);
   assert.equal(result.saveClicked, false);
   assert.equal(result.confirmClicked, false);
   assert.equal(result.recloudModified, false);
   assert.ok(adapter.safetyChecks >= 9);
+});
+
+test("one-shot warranty conversion is deferred and never simulated as a reversible field", async () => {
+  const adapter = memoryAdapter({ repairMeasure: "原措施", warrantyConversion: "按钮存在" });
+  const result = await executeRepairPrefillSafely({
+    ...PLAN,
+    safeWrites: [{ key: "repairMeasure", value: "维修措施演练" }],
+    requiredActions: [{ key: "warrantyConversion", action: "CLICK_IF_VISIBLE" }],
+  }, adapter);
+
+  assert.deepEqual(result.deferredActions, ["warrantyConversion"]);
+  assert.equal(adapter.writes.some(([key]) => key === "warrantyConversion"), false);
 });
 
 test("repair prefill restores snapshots when verification fails", async () => {

@@ -8,7 +8,6 @@ const REVERSIBLE_REPAIR_FIELDS = new Set([
   "highestRepairLevel",
   "customerPaidAmount",
   "logisticsAmount",
-  "warrantyConversion",
 ]);
 
 function repairPrefillError(message, code, fieldKey, phase, cause) {
@@ -128,6 +127,9 @@ async function executeRepairPrefillSafely(plan, adapter) {
     fieldsWritten: writtenFields,
     fieldsRestored: restoredFields.reverse(),
     deferredFields,
+    deferredActions: Array.isArray(plan.requiredActions)
+      ? plan.requiredActions.map((item) => item.key)
+      : [],
     valuesVerified: writtenFields.length === reversibleWrites.length,
     valuesRestored: restoredFields.length === snapshots.length,
     saveClicked: false,

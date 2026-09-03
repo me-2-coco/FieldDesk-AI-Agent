@@ -513,7 +513,9 @@ test("repair mapping confirms observed Recloud columns and blocks ambiguous fee 
   assert.equal(RECLOUD_REPAIR_FIELD_TARGETS.customerPaidAmount.status, "CONFIRMED");
   assert.deepEqual(RECLOUD_REPAIR_FIELD_TARGETS.attachments, { target: "附件", status: "CONFIRMED" });
   assert.deepEqual(RECLOUD_REPAIR_FIELD_TARGETS.detectionReportAttachments, { target: "附件（检测报告）", status: "EXCLUDED" });
-  assert.deepEqual(RECLOUD_REPAIR_FIELD_TARGETS.warrantyConversion, { target: "保外转保内", status: "CONFIRMED" });
+  assert.deepEqual(RECLOUD_REPAIR_FIELD_TARGETS.warrantyConversion, {
+    target: "保外转保内", status: "REQUIRED_ONCE", control: "ONE_SHOT_BUTTON",
+  });
   assert.equal(RECLOUD_REPAIR_FIELD_TARGETS.logisticsAmount.target, "快递金额");
   assert.equal(RECLOUD_REPAIR_FIELD_TARGETS.logisticsAmount.status, "CONFIRMED");
   assert.equal(RECLOUD_REPAIR_FIELD_TARGETS.personalizedLogisticsAmount.status, "EXCLUDED");
@@ -546,7 +548,14 @@ test("repair form plan only pre-fills confirmed customer-facing fields", () => {
   assert.equal(writes.customerPaidAmount, 447);
   assert.equal(writes.logisticsAmount, 122);
   assert.equal(writes.attachments.length, 1);
-  assert.equal(writes.warrantyConversion, "否");
+  assert.equal("warrantyConversion" in writes, false);
+  assert.deepEqual(plan.requiredActions, [{
+    key: "warrantyConversion",
+    target: "保外转保内",
+    action: "CLICK_IF_VISIBLE",
+    completedWhen: "HIDDEN",
+    requiredForEveryOrder: true,
+  }]);
   assert.equal("faultClassification" in writes, false);
   assert.equal("detectionResult" in writes, false);
   assert.equal("responsibilityType" in writes, false);

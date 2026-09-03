@@ -1,5 +1,4 @@
-const MAPPING_VERSION = "v11";
-const { resolveWarrantyConversion } = require("../services/warranty-conversion-policy");
+const MAPPING_VERSION = "v12";
 const { buildProjectCorrectionPlan } = require("../services/recloud-project-correction-rules");
 
 const NODE_REQUIRED_FIELDS = Object.freeze({
@@ -47,7 +46,7 @@ const RECLOUD_REPAIR_FIELD_TARGETS = Object.freeze({
   personalizedLogisticsAmount: { target: "快递金额（个性化）", status: "EXCLUDED" },
   attachments: { target: "附件", status: "CONFIRMED" },
   detectionReportAttachments: { target: "附件（检测报告）", status: "EXCLUDED" },
-  warrantyConversion: { target: "保外转保内", status: "CONFIRMED" },
+  warrantyConversion: { target: "保外转保内", status: "REQUIRED_ONCE", control: "ONE_SHOT_BUTTON" },
   troubleshooting: { target: "是否是排障问题", status: "CONFIRMED" },
 });
 
@@ -207,11 +206,6 @@ function buildRecloudRepairFormPlan(payload = {}) {
   const pricing = payload.pricing || {};
   const parts = compactParts(payload.usedParts);
   const isOutOfWarranty = pricing.warrantyStatus === "OUT_OF_WARRANTY";
-  const warrantyConversion = resolveWarrantyConversion({
-    warrantyStatus: normalizeWarrantyForRecloud(payload.responsibilityType),
-    manufacturerApproved: payload.manufacturerWarrantyConversion?.approved,
-    manufacturerApprovalNo: payload.manufacturerWarrantyConversion?.approvalNo,
-  });
   const safeWrites = [
     { key: "repairMeasure", target: RECLOUD_REPAIR_FIELD_TARGETS.repairMeasure.target, value: String(payload.repairMeasure || "").trim() },
     { key: "usedParts", target: RECLOUD_REPAIR_FIELD_TARGETS.usedParts.target, value: parts },
@@ -219,7 +213,6 @@ function buildRecloudRepairFormPlan(payload = {}) {
     { key: "customerPaidAmount", target: RECLOUD_REPAIR_FIELD_TARGETS.customerPaidAmount.target, value: isOutOfWarranty ? Number(pricing.totalFee || 0) : null },
     { key: "logisticsAmount", target: RECLOUD_REPAIR_FIELD_TARGETS.logisticsAmount.target, value: isOutOfWarranty ? Number(pricing.roundTripLogisticsFee || 0) : null },
     { key: "attachments", target: RECLOUD_REPAIR_FIELD_TARGETS.attachments.target, value: Array.isArray(payload.attachments) ? payload.attachments : [] },
-    { key: "warrantyConversion", target: RECLOUD_REPAIR_FIELD_TARGETS.warrantyConversion.target, value: warrantyConversion.value },
     { key: "troubleshooting", target: RECLOUD_REPAIR_FIELD_TARGETS.troubleshooting.target, value: "否" },
   ].filter((field) => field.value !== "" && field.value !== null && field.value !== undefined && (!Array.isArray(field.value) || field.value.length));
   const verifyOnlyFields = [
@@ -255,6 +248,13 @@ function buildRecloudRepairFormPlan(payload = {}) {
   const excludedFields = Object.entries(RECLOUD_REPAIR_FIELD_TARGETS)
     .filter(([, config]) => config.status === "EXCLUDED")
     .map(([key, config]) => ({ key, target: config.target }));
+  const requiredActions = [{
+    key: "warrantyConversion",
+    target: RECLOUD_REPAIR_FIELD_TARGETS.warrantyConversion.target,
+    action: "CLICK_IF_VISIBLE",
+    completedWhen: "HIDDEN",
+    requiredForEveryOrder: true,
+  }];
 
   return {
     safeWrites,
@@ -262,9 +262,9 @@ function buildRecloudRepairFormPlan(payload = {}) {
     manualReviewFields,
     systemCalculatedFields,
     excludedFields,
+    requiredActions,
     missingFields,
     readyToPrefill: missingFields.length === 0,
-    warrantyConversion,
     canAutoConfirm: false,
     reason: "保外仅填写客户实际支付金额和快递金额；配件及其他费用由瑞云自动计算",
   };
