@@ -135,11 +135,15 @@ function RepairProcess({ setPage }) {
     }
   }
 
+  function returnToPreviousStep() {
+    navigateToSavedStep(repairOrder.treatmentMode === "REPAIR" ? "partsApplication" : "repairDecision")
+  }
+
   return (
     <div className="page repair-process-page">
 
       <div className="top-bar">
-        <button className="arrow-back" onClick={() => setPage("repairWork")}>
+        <button className="arrow-back" onClick={returnToPreviousStep} disabled={isSaving}>
           ←
         </button>
         <h1>检测登记</h1>

@@ -41,9 +41,10 @@ import {
 } from "./shared/crmService.js"
 import {
   findRepairOrderByCrmOrderNo,
+  getCurrentRepairOrder,
   setCurrentRepairOrderId
 } from "./shared/repairOrderStore.js"
-import { pageForRepairStatus } from "./shared/repairNavigation.js"
+import { isTechnicianWorkflowLocked, pageForRepairStatus, resumePageForLocalWorkflow } from "./shared/repairNavigation.js"
 
 import "./App.css"
 
@@ -74,6 +75,20 @@ function App() {
   const [supervisionMonitorWarning, setSupervisionMonitorWarning] = useState("")
   const [syncAttentionTasks, setSyncAttentionTasks] = useState([])
   const [selectedInformationReportRmaNo, setSelectedInformationReportRmaNo] = useState("")
+
+  const currentRepairOrder = getCurrentRepairOrder()
+  const workflowLocked = currentUser?.role === USER_ROLES.TECHNICIAN
+    && isTechnicianWorkflowLocked(currentRepairOrder)
+
+  useEffect(() => {
+    if (!isLoggedIn || currentUser?.role !== USER_ROLES.TECHNICIAN) return
+    const activeOrder = getCurrentRepairOrder()
+    if (!isTechnicianWorkflowLocked(activeOrder) || page !== "home") return
+    queueMicrotask(() => {
+      setPageState(resumePageForLocalWorkflow(activeOrder) || pageForRepairStatus(activeOrder.status))
+      setPermissionMessage("当前工单尚未形成处理结果，请先完成或暂存本单")
+    })
+  }, [isLoggedIn, currentUser?.role, page])
 
   useEffect(() => {
     const handleExpiredSession = () => {
@@ -254,6 +269,15 @@ function App() {
     }
 
     setCurrentUser(latestUser)
+
+    if (
+      latestUser.role === USER_ROLES.TECHNICIAN
+      && ["home", "repair"].includes(nextPage)
+      && isTechnicianWorkflowLocked(getCurrentRepairOrder())
+    ) {
+      setPermissionMessage("当前工单必须先完成、弃修、调试、只检测、转寄总部或暂存，才能返回工单首页")
+      return
+    }
 
 
 
@@ -568,6 +592,8 @@ function App() {
         supervisionUnreadCount={supervisionUnreadCount}
 
         onOpenSupervision={() => openSupervisionInbox(latestSupervision?.rmaNo)}
+
+        workflowLocked={workflowLocked}
 
       />
 

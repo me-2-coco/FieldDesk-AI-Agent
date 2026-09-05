@@ -12,6 +12,7 @@ if (require.main === module) {
 }
 const recloudConnector = require("./connectors/recloud");
 const { classifyRecloudReceiptState } = require("./connectors/recloud-receipt-state");
+const { RECLOUD_HOLD_REASON_GROUPS, validateHoldInput } = require("./shared/recloud-hold-reasons");
 const { normalizeSn, validateReceiptCompletion } = require("./database/receipt-preparation-store");
 const { createBusinessStores } = require("./database/business-store-factory");
 const { AccountStore } = require("./database/account-store");
@@ -181,6 +182,14 @@ function isRecloudInspectionWriteEnabled(env = process.env) {
   const inspectionOverride = env.RECLOUD_INSPECTION_WRITE_ENABLED;
   if (inspectionOverride !== undefined) {
     return String(inspectionOverride).toLowerCase() === "true";
+  }
+  return !isDryRun(env) && isRecloudWriteEnabled(env);
+}
+
+function isRecloudHoldWriteEnabled(env = process.env) {
+  const holdOverride = env.RECLOUD_HOLD_WRITE_ENABLED;
+  if (holdOverride !== undefined) {
+    return String(holdOverride).toLowerCase() === "true";
   }
   return !isDryRun(env) && isRecloudWriteEnabled(env);
 }
@@ -519,6 +528,37 @@ function createApp(
   }
 
   const activeReceiptSyncs = new Set();
+  const activeHoldSyncs = new Set();
+
+  function scheduleRecloudHoldSync(order, operator = {}) {
+    const rmaNo = String(order?.rmaNo || "").trim();
+    if (!rmaNo || !order?.hold || !isRecloudHoldWriteEnabled(runtimeEnv) || activeHoldSyncs.has(rmaNo)) return false;
+    activeHoldSyncs.add(rmaNo);
+    setImmediate(async () => {
+      try {
+        const result = await withRecloud(connector, async (page) => {
+          const detail = await connector.queryRmaByLogisticsNo(page, order.logisticsNo || rmaNo, { preserveDetailPage: true });
+          if (detail.rmaNo && detail.rmaNo !== rmaNo) {
+            throw createApiError("RECLOUD_HOLD_ORDER_MISMATCH", "瑞云查询结果与当前暂存工单不一致", 409);
+          }
+          if (typeof connector.submitRmaHold !== "function") {
+            throw createApiError("RECLOUD_HOLD_EXECUTOR_UNAVAILABLE", "瑞云滞留执行器尚未装配", 503);
+          }
+          return connector.submitRmaHold(page, {
+            category: order.hold.category,
+            reason: order.hold.reason,
+            remark: order.hold.remark,
+          }, { writeEnabled: true });
+        });
+        await receiptStore.markRecloudHoldConfirmed(rmaNo, result, operator);
+      } catch (error) {
+        await receiptStore.markRecloudHoldFailed(rmaNo, error, operator).catch(() => {});
+      } finally {
+        activeHoldSyncs.delete(rmaNo);
+      }
+    });
+    return true;
+  }
 
   function scheduleRecloudReceiptSync(order, operator = {}, attemptId = "") {
     const rmaNo = String(order?.rmaNo || "").trim();
@@ -866,6 +906,7 @@ function createApp(
       recloudWriteEnabled: isRecloudWriteEnabled(runtimeEnv),
       receiptWriteEnabled: isRecloudReceiptWriteEnabled(runtimeEnv),
       inspectionWriteEnabled: isRecloudInspectionWriteEnabled(runtimeEnv),
+      holdWriteEnabled: isRecloudHoldWriteEnabled(runtimeEnv),
     });
   });
 
@@ -2292,9 +2333,10 @@ function createApp(
       ABANDONED: { label: "弃修", detectionResult: "弃修", nextStep: "repairProcess" },
       INSPECTION_ONLY: { label: "只检测不维修", detectionResult: "只检测不维修", nextStep: "repairProcess" },
       DEBUGGING: { label: "调试", detectionResult: "维修", nextStep: "repairProcess" },
+      ON_HOLD: { label: "暂存", detectionResult: "", nextStep: "home" },
     };
     if (!rmaNo) return next(createApiError("TREATMENT_DECISION_INVALID", "缺少必填字段：rmaNo", 400));
-    if (!decisions[treatmentMode]) return next(createApiError("TREATMENT_MODE_INVALID", "请选择维修、弃修、只检测不维修或调试", 400));
+    if (!decisions[treatmentMode]) return next(createApiError("TREATMENT_MODE_INVALID", "请选择维修、弃修、只检测不维修、调试或暂存", 400));
     try {
       const order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
       if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到已签收工单", 404);
@@ -2310,26 +2352,56 @@ function createApp(
       if (treatmentMode === "ABANDONED" && warranty.warrantyStatus !== "保外") {
         throw createApiError("IN_WARRANTY_ABANDONMENT_NOT_ALLOWED", "该机器在保内，无需付费，不能选择弃修", 409);
       }
+      const holdInput = treatmentMode === "ON_HOLD"
+        ? validateHoldInput({ category: req.body?.holdCategory, reason: req.body?.holdReason, remark: req.body?.holdRemark })
+        : null;
       const decision = decisions[treatmentMode];
       const data = await receiptStore.saveTreatmentDecision(rmaNo, {
         treatmentMode,
         detectionResult: decision.detectionResult,
         technicianWarranty: warranty.status === "DETERMINED" ? warranty.warrantyStatus : "",
         warrantyDecision: warranty,
+        ...(holdInput ? { holdCategory: holdInput.category, holdReason: holdInput.reason, holdRemark: holdInput.remark } : {}),
       }, currentUserProvider(req));
+      const holdSyncQueued = treatmentMode === "ON_HOLD"
+        ? scheduleRecloudHoldSync(data, currentUserProvider(req))
+        : false;
       return res.json({
         success: true,
         data: {
           ...data,
           nextStep: decision.nextStep,
-          message: treatmentMode === "REPAIR"
+          message: treatmentMode === "ON_HOLD"
+            ? holdSyncQueued
+              ? "本单已暂存，瑞云滞留正在后台同步"
+              : "本单已暂存；瑞云滞留同步未启用，请管理员处理"
+            : treatmentMode === "REPAIR"
             ? "已选择维修，下一步申请配件"
             : `已选择${decision.label}，下一步登记故障分类并完成检测`,
           recloudDetectionResult: decision.detectionResult,
           recloudDetectionPending: false,
+          holdSyncQueued,
         },
       });
     } catch (error) { return next(error); }
+  });
+
+  app.get("/api/repairs/hold-reasons", (_req, res) => {
+    res.json({ success: true, data: { source: "LOCAL_MIRROR", groups: RECLOUD_HOLD_REASON_GROUPS } });
+  });
+
+  app.post("/api/repairs/hold/retry", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      if (![USER_ROLES.TECHNICIAN, USER_ROLES.INFORMATION_CLERK, USER_ROLES.ADMIN].includes(user.role)) {
+        throw createApiError("RECLOUD_HOLD_RETRY_FORBIDDEN", "当前账号不能重试暂存同步", 403);
+      }
+      const rmaNo = String(req.body?.rmaNo || "").trim();
+      const order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
+      if (!order?.hold) throw createApiError("HOLD_NOT_FOUND", "未找到暂存记录", 404);
+      const queued = scheduleRecloudHoldSync(order, user);
+      res.json({ success: true, data: { queued, message: queued ? "瑞云滞留已进入后台重试" : "当前暂存无需重试或正在执行" } });
+    } catch (error) { next(error); }
   });
 
   app.post("/api/repairs/receipt/attachments", async (req, res, next) => {
@@ -3429,7 +3501,7 @@ function createApp(
         throw createApiError("MACHINE_TRACKING_FORBIDDEN", "只有信息员或管理员可以查询在手机器", 403);
       }
       const keyword = String(req.query?.keyword || "").trim();
-      if (!keyword || (!/[A-Za-z]/.test(keyword) && keyword.replace(/\D/g, "").length < 4)) {
+      if (keyword && (!/[A-Za-z]/.test(keyword) && keyword.replace(/\D/g, "").length < 4)) {
         throw createApiError("MACHINE_TRACKING_KEYWORD_INVALID", "请输入电话或完整物流单号", 400);
       }
       res.json({ success: true, data: queryMachinesInHand(await receiptStore.readAll(), keyword).slice(0, 100) });

@@ -9,7 +9,8 @@ function BottomNav({
   page,
   setPage,
   supervisionUnreadCount = 0,
-  onOpenSupervision
+  onOpenSupervision,
+  workflowLocked = false
 }) {
 
   const currentUser = getCurrentUser()
@@ -31,8 +32,10 @@ function BottomNav({
           className={
             page === item.page
               ? "active"
-              : ""
+              : workflowLocked && ["home", "repair"].includes(item.page) ? "workflow-locked" : ""
           }
+          aria-disabled={workflowLocked && ["home", "repair"].includes(item.page)}
+          title={workflowLocked && ["home", "repair"].includes(item.page) ? "当前工单处理完成或暂存后才能返回" : ""}
           onClick={() => {
             if (item.page === "home" && supervisionUnreadCount > 0 && onOpenSupervision) {
               onOpenSupervision()

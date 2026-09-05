@@ -142,11 +142,10 @@ const IN_HAND_EXCLUDED_STATUSES = new Set(["SHIPPED_PENDING_COMPLETION", "COMPLE
 
 function queryMachinesInHand(records, keyword) {
   const query = String(keyword || "").trim();
-  if (!query) return [];
   const normalizedLogistics = query.toUpperCase();
   return (Array.isArray(records) ? records : [])
     .filter((record) => !IN_HAND_EXCLUDED_STATUSES.has(record.status))
-    .filter((record) => phoneMatches(record.phoneMasked || record.phone, query) || String(record.logisticsNo || "").toUpperCase() === normalizedLogistics)
+    .filter((record) => !query || phoneMatches(record.phoneMasked || record.phone, query) || String(record.logisticsNo || "").toUpperCase() === normalizedLogistics)
     .map((record) => ({
       rmaNo: record.rmaNo,
       logisticsNo: record.logisticsNo,
@@ -154,6 +153,15 @@ function queryMachinesInHand(records, keyword) {
       productLine: record.productLine || record.specialty || "",
       status: record.status,
       technicianName: record.technicianName || record.operatorName || "未分配",
+      currentHolder: record.technicianName || record.operatorName || "未分配",
+      currentStage: record.status === "ON_HOLD"
+        ? `暂存 · ${record.hold?.reason || "原因待补充"}`
+        : record.treatmentLabel
+          ? `${record.treatmentLabel} · ${record.status}`
+          : record.status,
+      treatmentLabel: record.treatmentLabel || "",
+      hold: record.hold || null,
+      recentTimeline: (record.timeline || []).slice(-8).reverse(),
       receivedAt: record.receiptCompletedAt || record.createdAt || "",
       updatedAt: record.updatedAt || "",
     }))

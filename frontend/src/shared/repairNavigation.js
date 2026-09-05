@@ -1,8 +1,21 @@
 import { REPAIR_STATUS } from "./repairOrderStore.js"
 
 const RESUMABLE_PAGES = new Set(["repairWarranty", "repairDecision", "partsApplication", "repairProcess", "repairCompletion"])
+const WORKFLOW_RELEASE_STATUSES = new Set([
+  REPAIR_STATUS.WAIT_RECEIPT,
+  REPAIR_STATUS.ON_HOLD,
+  REPAIR_STATUS.TRANSFERRED_TO_HEADQUARTERS,
+  REPAIR_STATUS.REPAIR_COMPLETED_PENDING_SHIPMENT,
+  REPAIR_STATUS.SHIPPED_PENDING_COMPLETION,
+  REPAIR_STATUS.COMPLETED,
+])
+
+export function isTechnicianWorkflowLocked(order = {}) {
+  return Boolean(order?.crmOrderNo) && !WORKFLOW_RELEASE_STATUSES.has(order.status)
+}
 
 export function resumePageForLocalWorkflow(order = {}) {
+  if (["ON_HOLD", "TRANSFERRED_TO_HEADQUARTERS"].includes(order.status)) return ""
   if (["REPAIR_COMPLETED_PENDING_SHIPMENT", "SHIPPED_PENDING_COMPLETION", "COMPLETED"].includes(order.status)) return "repairCompletion"
   if (order.treatmentMode === "REPAIR" && order.inspectionUpdatedAt && !order.repairStartedAt && !order.recloudServiceOrderCreatedAt) return "repairProcess"
   if (RESUMABLE_PAGES.has(order.resumeStep)) return order.resumeStep
@@ -19,6 +32,7 @@ export function resumePageForLocalWorkflow(order = {}) {
 }
 
 export function pageForRepairStatus(status) {
+  if ([REPAIR_STATUS.ON_HOLD, REPAIR_STATUS.TRANSFERRED_TO_HEADQUARTERS].includes(status)) return "home"
   if (status === REPAIR_STATUS.WAIT_RECEIPT) return "repair"
   if (status === REPAIR_STATUS.WAIT_DECISION) return "repairDecision"
   if (status === REPAIR_STATUS.WAIT_INSPECTION) return "partsApplication"
@@ -40,6 +54,8 @@ export function pageForLocalWorkflowStatus(status) {
 }
 
 export function repairStatusForLocalWorkflow(status) {
+  if (status === "ON_HOLD") return REPAIR_STATUS.ON_HOLD
+  if (status === "TRANSFERRED_TO_HEADQUARTERS") return REPAIR_STATUS.TRANSFERRED_TO_HEADQUARTERS
   if (["RECEIVED_PENDING_INSPECTION", "INSPECTION_IN_PROGRESS"].includes(status)) return REPAIR_STATUS.WAIT_INSPECTION
   if (status === "INSPECTION_COMPLETED_PENDING_REPAIR") return REPAIR_STATUS.INSPECTION_COMPLETE
   if (status === "REPAIR_COMPLETION_DRAFT") return REPAIR_STATUS.REPAIRING

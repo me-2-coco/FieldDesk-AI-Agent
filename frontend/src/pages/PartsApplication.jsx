@@ -24,10 +24,9 @@ function PartsApplication({ setPage }) {
   const [isSearching, setIsSearching] = useState(false)
   const [selectedParts, setSelectedParts] = useState([])
   const [scannerOpen, setScannerOpen] = useState(false)
-  const backPage = Boolean(repairOrder.level3Fault && repairOrder.warrantyType)
-    || [REPAIR_STATUS.INSPECTION_COMPLETE, REPAIR_STATUS.REPAIRING].includes(repairOrder.status)
-    ? "repairProcess"
-    : "repairDecision"
+  // The repair path unwinds one page at a time:
+  // completion -> inspection -> parts -> treatment decision.
+  const backPage = "repairDecision"
 
   useEffect(() => {
     let active = true

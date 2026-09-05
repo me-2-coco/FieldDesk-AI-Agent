@@ -325,6 +325,7 @@ test("frontend completion page reuses confirmed fault and includes warranty, med
   assert.match(source, /正在读取维修资料/);
   assert.match(source, /维修资料读取失败/);
   assert.match(partsSource, /完整费用在维修完工页核对/);
+  assert.match(partsSource, /const backPage = "repairDecision"/);
   assert.match(source, /requiresOutOfWarrantyFee/);
   assert.match(source, /disabled=\{busy \|\| !canSubmitCompletion\}/);
   assert.doesNotMatch(source, /recloud|瑞云.*fetch/i);
@@ -345,15 +346,16 @@ test("completed orders reopen as read-only completion details", async () => {
   assert.match(homeSource, /repairStatusForLocalWorkflow\(workflow\.status\)/);
 });
 
-test("frontend exposes five treatment choices including headquarters transfer", async () => {
+test("frontend exposes six treatment choices including headquarters transfer and hold", async () => {
   const decisionSource = await fs.readFile(path.join(__dirname, "../frontend/src/pages/RepairDecision.jsx"), "utf8");
   const completionSource = await fs.readFile(path.join(__dirname, "../frontend/src/pages/RepairCompletion.jsx"), "utf8");
-  for (const mode of ["REPAIR", "ABANDONED", "INSPECTION_ONLY", "DEBUGGING", "TRANSFER_TO_HEADQUARTERS"]) {
+  for (const mode of ["REPAIR", "ABANDONED", "INSPECTION_ONLY", "DEBUGGING", "TRANSFER_TO_HEADQUARTERS", "ON_HOLD"]) {
     assert.match(decisionSource, new RegExp(mode));
   }
   assert.match(decisionSource, /申请配件/);
   assert.match(decisionSource, /transferToHeadquarters/);
-  assert.match(decisionSource, /5 选 1/);
+  assert.match(decisionSource, /6 选 1/);
+  assert.match(decisionSource, /RECLOUD_HOLD_REASON_GROUPS/);
   const serverSource = await fs.readFile(path.join(__dirname, "../server.js"), "utf8");
   assert.match(serverSource, /ABANDONED: \{ label: "弃修", detectionResult: "弃修", nextStep: "repairProcess" \}/);
   assert.match(completionSource, /application\/pdf/);

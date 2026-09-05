@@ -9,6 +9,7 @@ const ACTIVE_RECEIPT_STATUSES = new Set([
   "INSPECTION_IN_PROGRESS",
   "INSPECTION_COMPLETED_PENDING_REPAIR",
   "REPAIR_COMPLETION_DRAFT",
+  "ON_HOLD",
 ]);
 const DEFAULT_DATA_FILE = path.join(
   __dirname,
@@ -638,6 +639,7 @@ class JsonReceiptPreparationStore {
         ABANDONED: "弃修",
         INSPECTION_ONLY: "只检测不维修",
         DEBUGGING: "调试",
+        ON_HOLD: "暂存",
       };
       if (!labels[treatmentMode]) throw Object.assign(new Error("请选择有效的维修处理方式"), { code: "TREATMENT_MODE_INVALID", status: 400 });
       const technicianWarranty = normalizeRequired(input.technicianWarranty) || existing.technicianWarranty || "";
@@ -656,19 +658,83 @@ class JsonReceiptPreparationStore {
         treatmentMode,
         treatmentLabel: labels[treatmentMode],
         skipsParts,
-        status: hasSavedInspection ? "INSPECTION_COMPLETED_PENDING_REPAIR" : "RECEIVED_PENDING_INSPECTION",
-        resumeStep: skipsParts ? "repairProcess" : "partsApplication",
+        status: treatmentMode === "ON_HOLD"
+          ? "ON_HOLD"
+          : hasSavedInspection ? "INSPECTION_COMPLETED_PENDING_REPAIR" : "RECEIVED_PENDING_INSPECTION",
+        resumeStep: treatmentMode === "ON_HOLD" ? "" : skipsParts ? "repairProcess" : "partsApplication",
         inspectionResult: normalizeRequired(input.detectionResult),
         detectionResult: normalizeRequired(input.detectionResult),
         technicianWarranty,
         warrantyDecision: input.warrantyDecision || existing.warrantyDecision || null,
         treatmentDecidedAt: timestamp,
+        ...(treatmentMode === "ON_HOLD" ? {
+          hold: {
+            category: normalizeRequired(input.holdCategory),
+            reason: normalizeRequired(input.holdReason),
+            remark: normalizeRequired(input.holdRemark),
+            status: "PENDING",
+            requestedAt: timestamp,
+            requestedById: normalizeRequired(operator.userId),
+            requestedByName: normalizeRequired(operator.displayName) || "本地测试用户",
+            confirmedAt: "",
+            lastError: null,
+          },
+        } : {}),
         inspectionUpdatedAt: existing.inspectionUpdatedAt,
         updatedAt: timestamp,
         timeline: [
           ...(existing.timeline || []),
-          timelineEvent("TREATMENT_DECIDED", `维修处理方式：${labels[treatmentMode]}`, operator, timestamp),
+          timelineEvent(
+            treatmentMode === "ON_HOLD" ? "ORDER_HOLD_REQUESTED" : "TREATMENT_DECIDED",
+            treatmentMode === "ON_HOLD"
+              ? `已暂存：${normalizeRequired(input.holdCategory)} / ${normalizeRequired(input.holdReason)}；${normalizeRequired(input.holdRemark)}`
+              : `维修处理方式：${labels[treatmentMode]}`,
+            operator,
+            timestamp
+          ),
         ],
+      };
+      await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
+  async markRecloudHoldConfirmed(rmaNo, result = {}, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing?.hold) throw Object.assign(new Error("未找到暂存记录"), { code: "HOLD_NOT_FOUND", status: 404 });
+      const timestamp = new Date().toISOString();
+      const updated = {
+        ...existing,
+        hold: { ...existing.hold, status: "CONFIRMED", confirmedAt: timestamp, lastError: null, result },
+        updatedAt: timestamp,
+        timeline: [...(existing.timeline || []), timelineEvent("RECLOUD_HOLD_CONFIRMED", "瑞云滞留已同步", operator, timestamp)],
+      };
+      await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
+  async markRecloudHoldFailed(rmaNo, error = {}, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing?.hold || existing.hold.status === "CONFIRMED") return existing;
+      const timestamp = new Date().toISOString();
+      const updated = {
+        ...existing,
+        hold: {
+          ...existing.hold,
+          status: "FAILED",
+          lastError: { code: normalizeRequired(error.code) || "RECLOUD_HOLD_SYNC_FAILED", at: timestamp },
+        },
+        updatedAt: timestamp,
+        timeline: [...(existing.timeline || []), timelineEvent("RECLOUD_HOLD_FAILED", "瑞云滞留同步失败，等待重试", operator, timestamp)],
       };
       await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
       return updated;
@@ -1499,6 +1565,7 @@ class JsonReceiptPreparationStore {
         consumableName: "",
         dismantled: "",
         repairCompletion: null,
+        hold: null,
         treatmentReopenHistory: [...(existing.treatmentReopenHistory || []), recoveryRecord],
         updatedAt: timestamp,
         timeline: [

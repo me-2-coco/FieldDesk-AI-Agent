@@ -10811,6 +10811,172 @@ async function correctRmaProjectModel(page, input = {}, options = {}) {
   return { success: true, changed: true, dryRun: false, ...values, message: "项目号修改完成" };
 }
 
+function findRmaFieldItem(scope, labelPattern) {
+  return scope
+    .locator('.rt-form-item, .el-form-item, [class*="form-item"]')
+    .filter({ hasText: labelPattern })
+    .filter({ visible: true })
+    .first();
+}
+
+async function openRmaHoldReasonDropdown(scope) {
+  const item = findRmaFieldItem(scope, /滞处理原因/);
+  if (!await item.isVisible().catch(() => false)) {
+    const error = new Error("瑞云页面未找到滞处理原因字段");
+    error.code = "RECLOUD_HOLD_REASON_FIELD_NOT_FOUND";
+    throw error;
+  }
+  const input = await firstVisible([
+    item.locator('[role="combobox"] input, input').filter({ visible: true }).first(),
+    item.getByRole("combobox").filter({ visible: true }).first(),
+  ]);
+  if (!input) {
+    const error = new Error("瑞云滞处理原因下拉框不可用");
+    error.code = "RECLOUD_HOLD_REASON_CONTROL_NOT_FOUND";
+    throw error;
+  }
+  if (!await input.isEnabled().catch(() => true)) {
+    const error = new Error("需要先进入瑞云滞留操作");
+    error.code = "RECLOUD_HOLD_ACTION_REQUIRED";
+    throw error;
+  }
+  await input.click();
+  return input;
+}
+
+async function readRmaHoldReasonOptions(page) {
+  const fieldItem = findRmaFieldItem(page, /滞处理原因/);
+  const embedded = await fieldItem.evaluate((element) => {
+    const component = element.querySelector(".el-cascader")?.__vue__;
+    const options = Array.isArray(component?.options) ? component.options : [];
+    return options.map((option) => ({
+      category: String(option?.label || "").trim(),
+      reasons: (Array.isArray(option?.children) ? option.children : [])
+        .map((child) => String(child?.label || "").trim())
+        .filter(Boolean),
+    })).filter((group) => group.category && group.reasons.length);
+  }).catch(() => []);
+  if (embedded.length) return embedded;
+
+  let input;
+  let enteredHoldMode = false;
+  try {
+    input = await openRmaHoldReasonDropdown(page);
+  } catch (error) {
+    if (error.code !== "RECLOUD_HOLD_ACTION_REQUIRED") throw error;
+    const holdButton = await firstVisible([
+      page.getByRole("button", { name: /^滞留$/ }).filter({ visible: true }).first(),
+      page.getByText(/^滞留$/, { exact: true }).filter({ visible: true }).first(),
+    ]);
+    if (!holdButton) throw error;
+    await holdButton.click();
+    await page.waitForTimeout(300);
+    enteredHoldMode = true;
+    input = await openRmaHoldReasonDropdown(page);
+  }
+  const optionLocator = page.locator([
+    '.rt-select-dropdown:visible .rt-select-dropdown__item:visible',
+    '.el-select-dropdown:visible .el-select-dropdown__item:visible',
+    '[role="listbox"]:visible [role="option"]:visible',
+  ].join(", "));
+  await optionLocator.first().waitFor({ state: "visible", timeout: 5000 });
+  const values = [...new Set((await optionLocator.allTextContents())
+    .map(normalizeText)
+    .filter((value) => value && value !== "请选择"))];
+  await input.press("Escape").catch(() => {});
+  if (enteredHoldMode) {
+    const cancel = page.getByRole("button", { name: /^取消$/ }).filter({ visible: true }).first();
+    if (await cancel.isVisible().catch(() => false)) await cancel.click().catch(() => {});
+  }
+  if (!values.length) {
+    const error = new Error("瑞云滞处理原因没有可读取的选项");
+    error.code = "RECLOUD_HOLD_REASON_OPTIONS_EMPTY";
+    throw error;
+  }
+  return values;
+}
+
+async function submitRmaHold(page, input = {}, options = {}) {
+  const category = normalizeText(input.category);
+  const reason = normalizeText(input.reason);
+  const remark = normalizeText(input.remark);
+  if (!category || !reason || !remark) {
+    const error = new Error("瑞云滞留缺少分类、原因或备注");
+    error.code = "RECLOUD_HOLD_INPUT_INVALID";
+    throw error;
+  }
+
+  const holdButton = await firstVisible([
+    page.getByRole("button", { name: /^滞留$/ }).filter({ visible: true }).first(),
+    page.getByText(/^滞留$/, { exact: true }).filter({ visible: true }).first(),
+  ]);
+  if (holdButton) {
+    await holdButton.click();
+    await page.waitForTimeout(300);
+  }
+  const dialog = page.locator('.rt-dialog__wrapper:visible, [role="dialog"]:visible').last();
+  const scope = await dialog.isVisible().catch(() => false) ? dialog : page;
+  const reasonInput = await openRmaHoldReasonDropdown(scope);
+  const cascaderLabels = page.locator([
+    '.rtxpc-cascader__dropdown:visible .rtxpc-cascader-node__label:visible',
+    '.el-cascader__dropdown:visible .el-cascader-node__label:visible',
+  ].join(", "));
+  const categoryOption = cascaderLabels.filter({ hasText: category });
+  const categoryValues = (await categoryOption.allTextContents()).map(normalizeText).filter((value) => value === category);
+  if (categoryValues.length !== 1) {
+    await reasonInput.press("Escape").catch(() => {});
+    const error = new Error(`瑞云未找到唯一的滞处理分类：${category}`);
+    error.code = "RECLOUD_HOLD_REASON_NOT_UNIQUE";
+    throw error;
+  }
+  await categoryOption.first().click();
+  await page.waitForTimeout(200);
+  const reasonOption = cascaderLabels.filter({ hasText: reason });
+  const reasonValues = (await reasonOption.allTextContents()).map(normalizeText).filter((value) => value === reason);
+  if (reasonValues.length !== 1) {
+    await reasonInput.press("Escape").catch(() => {});
+    const error = new Error(`瑞云未找到唯一的滞处理原因：${category} / ${reason}`);
+    error.code = "RECLOUD_HOLD_REASON_NOT_UNIQUE";
+    throw error;
+  }
+  await reasonOption.first().click();
+
+  const remarkItem = findRmaFieldItem(scope, /^\s*备注/);
+  const remarkInput = await firstVisible([
+    remarkItem.locator('textarea, input').filter({ visible: true }).first(),
+    scope.getByPlaceholder("请输入", { exact: true }).filter({ visible: true }).last(),
+  ]);
+  if (!remarkInput) {
+    const error = new Error("瑞云页面未找到滞留备注输入框");
+    error.code = "RECLOUD_HOLD_REMARK_FIELD_NOT_FOUND";
+    throw error;
+  }
+  await remarkInput.fill(remark);
+
+  if (options.writeEnabled !== true) {
+    return { confirmed: false, dryRun: true, category, reason, remarkFilled: true };
+  }
+  const saveButton = await firstVisible([
+    scope.getByRole("button", { name: /^(保存|确定|确认)$/ }).filter({ visible: true }).last(),
+    page.getByRole("button", { name: /^保存$/ }).filter({ visible: true }).first(),
+  ]);
+  if (!saveButton) {
+    const error = new Error("瑞云页面未找到滞留保存按钮");
+    error.code = "RECLOUD_HOLD_SAVE_NOT_FOUND";
+    throw error;
+  }
+  await saveButton.click();
+  await page.waitForTimeout(800);
+  const errorNotice = page.getByText(/保存失败|操作失败|必填|请选择滞处理原因/).filter({ visible: true }).first();
+  if (await errorNotice.isVisible().catch(() => false)) {
+    const error = new Error("瑞云未确认滞留保存成功");
+    error.code = "RECLOUD_HOLD_RESULT_UNKNOWN";
+    error.resultUnknown = true;
+    throw error;
+  }
+  return { confirmed: true, category, reason, remarkSaved: true };
+}
+
 module.exports = {
   RECLOUD_URL,
   RECLOUD_PENDING_LIST_URL,
@@ -10901,6 +11067,8 @@ module.exports = {
   uploadRmaAttachments,
   validateProjectCorrectionInput,
   correctRmaProjectModel,
+  readRmaHoldReasonOptions,
+  submitRmaHold,
   fillReceiptFields,
   parseRepairDetail,
   readPendingRmaSupervisionOrders,

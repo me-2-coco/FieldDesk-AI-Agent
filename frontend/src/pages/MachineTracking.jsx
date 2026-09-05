@@ -34,9 +34,9 @@ function MachineTracking({ setPage }) {
     <div className="card compact-data-card">
       <div className="section-title-row"><div><small>快速查询</small><h2>定位机器</h2></div>{machines.length > 0 && <span>{machines.length} 台</span>}</div>
       <form onSubmit={search}>
-        <label htmlFor="machine-keyword">电话或物流单号</label>
-        <input id="machine-keyword" value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="输入电话或完整物流单号" />
-        <button className="primary-btn" type="submit" disabled={loading}>{loading ? "查询中..." : "查询机器"}</button>
+        <label htmlFor="machine-keyword">电话或物流单号（可不填）</label>
+        <input id="machine-keyword" value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="不填则查看全部在手机器" />
+        <button className="primary-btn" type="submit" disabled={loading}>{loading ? "查询中..." : keyword.trim() ? "查询机器" : "查看全部进度"}</button>
       </form>
     </div>
     {machines.length > 0 && <div className="card compact-data-card">
@@ -49,11 +49,16 @@ function MachineTracking({ setPage }) {
           </summary>
           <div className="compact-record-body">
             <div className="compact-key-value-grid">
-              <span><small>当前状态</small><strong>{machine.status || "未记录"}</strong></span>
+              <span><small>当前进度</small><strong>{machine.currentStage || machine.status || "未记录"}</strong></span>
+              <span><small>机器在谁手里</small><strong>{machine.currentHolder || machine.technicianName || "未分配"}</strong></span>
               <span><small>物流单号</small><strong>{machine.logisticsNo || "未记录"}</strong></span>
               <span><small>机器 SN</small><strong>{machine.sn || "未记录"}</strong></span>
               <span><small>签收时间</small><strong>{machine.receivedAt ? new Date(machine.receivedAt).toLocaleString() : "未记录"}</strong></span>
             </div>
+            {machine.hold && <div className="machine-hold-detail"><strong>暂存原因：{machine.hold.reason}</strong><p>{machine.hold.remark}</p><small>瑞云同步：{machine.hold.status === "CONFIRMED" ? "已完成" : machine.hold.status === "FAILED" ? "失败待重试" : "后台处理中"}</small></div>}
+            {machine.recentTimeline?.length > 0 && <ol className="machine-progress-timeline">
+              {machine.recentTimeline.map((event) => <li key={event.id}><span>{event.label}</span><small>{event.operatorName || "系统"} · {event.at ? new Date(event.at).toLocaleString() : ""}</small></li>)}
+            </ol>}
           </div>
         </details>)}
       </div>

@@ -195,8 +195,8 @@ export async function completeLocalReceipt(rmaNo) {
   )
 }
 
-export async function saveTreatmentDecision(rmaNo, treatmentMode) {
-  return request("/api/repairs/treatment-decision", { rmaNo, treatmentMode })
+export async function saveTreatmentDecision(rmaNo, treatmentMode, hold = {}) {
+  return request("/api/repairs/treatment-decision", { rmaNo, treatmentMode, ...hold })
 }
 
 export async function getLocalRepairOrders() {

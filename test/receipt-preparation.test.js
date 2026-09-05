@@ -1440,8 +1440,7 @@ test("parts page provides live Feishu catalog and SN-bound application", async (
   assert.match(source, /selectedPartAlreadyApplied/);
   assert.match(source, /disabled=\{alreadyApplied\}/);
   assert.match(source, /该配件已添加，请在上方改数量/);
-  assert.match(source, /const backPage/);
-  assert.match(source, /Boolean\(repairOrder\.level3Fault && repairOrder\.warrantyType\)/);
+  assert.match(source, /const backPage = "repairDecision"/);
   assert.match(source, /saveRepairResumeStep\(repairOrder\.crmOrderNo, backPage\)/);
   assert.match(source, /不写入瑞云/);
 });
