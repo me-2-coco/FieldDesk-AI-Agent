@@ -7,6 +7,7 @@ import RepairWork from "./pages/RepairWork.jsx"
 import RepairProcess from "./pages/RepairProcess.jsx"
 import PartsApplication from "./pages/PartsApplication.jsx"
 import RepairDecision from "./pages/RepairDecision.jsx"
+import RepairWarranty from "./pages/RepairWarranty.jsx"
 import RepairCompletion from "./pages/RepairCompletion.jsx"
 import ReturnShipping from "./pages/ReturnShipping.jsx"
 import RepairFinish from "./pages/RepairFinish.jsx"
@@ -14,6 +15,7 @@ import RepairHistoryLookup from "./pages/RepairHistoryLookup.jsx"
 import MachineTracking from "./pages/MachineTracking.jsx"
 import InformationRepairReports from "./pages/InformationRepairReports.jsx"
 import InformationExceptionCenter from "./pages/InformationExceptionCenter.jsx"
+import WarrantyConversionApprovals from "./pages/WarrantyConversionApprovals.jsx"
 import Inventory from "./pages/Inventory.jsx"
 import Warehouse from "./pages/Warehouse.jsx"
 import Profile from "./pages/Profile.jsx"
@@ -390,6 +392,10 @@ function App() {
           <RepairDecision setPage={setPage} />
         )}
 
+        {page === "repairWarranty" && (
+          <RepairWarranty setPage={setPage} />
+        )}
+
         {page === "repairCompletion" && (
           <RepairCompletion setPage={setPage} />
         )}
@@ -434,6 +440,10 @@ function App() {
 
         {page === "exceptionCenter" && (
           <InformationExceptionCenter setPage={setPage} onOpenReport={openInformationReport} />
+        )}
+
+        {page === "warrantyApprovals" && (
+          <WarrantyConversionApprovals setPage={setPage} />
         )}
 
 

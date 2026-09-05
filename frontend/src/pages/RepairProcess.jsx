@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { checkInspectionWarranty, saveInspection, saveRepairResumeStep, searchRecloudFaultCategories } from "../shared/crmService.js"
+import { saveInspection, saveRepairResumeStep, searchRecloudFaultCategories, startRepair } from "../shared/crmService.js"
 import SupervisionNoticeCard from "../components/SupervisionNoticeCard.jsx"
 import { rankFaultOptions } from "../shared/faultSearch.js"
 import {
@@ -17,8 +17,7 @@ function RepairProcess({ setPage }) {
   const [faultCategory, setFaultCategory] = useState(
     repairOrder.level3Fault || ""
   )
-  const [technicianWarranty, setTechnicianWarranty] = useState(repairOrder.warrantyType || "")
-  const [warrantyDecision, setWarrantyDecision] = useState(null)
+  const technicianWarranty = repairOrder.warrantyType || ""
   const [faultOptions, setFaultOptions] = useState([])
   const [faultCategoryConfirmed, setFaultCategoryConfirmed] = useState(Boolean(repairOrder.level3Fault))
   const [faultDropdownOpen, setFaultDropdownOpen] = useState(false)
@@ -30,18 +29,6 @@ function RepairProcess({ setPage }) {
   const [recloudPrefillPlan, setRecloudPrefillPlan] = useState(null)
   const inspectionIsSaved = Boolean(repairOrder.level3Fault && repairOrder.warrantyType)
     || [REPAIR_STATUS.INSPECTION_COMPLETE, REPAIR_STATUS.REPAIRING].includes(repairOrder.status)
-
-  useEffect(() => {
-    let active = true
-    checkInspectionWarranty({ rmaNo: repairOrder.crmOrderNo, sn: repairOrder.sn })
-      .then((result) => {
-        if (!active) return
-        setWarrantyDecision(result)
-        if (result.status === "DETERMINED") setTechnicianWarranty(result.warrantyStatus)
-      })
-      .catch((error) => active && setErrorMessage(error.message))
-    return () => { active = false }
-  }, [repairOrder.crmOrderNo, repairOrder.sn])
 
   useEffect(() => {
     const keyword = faultCategory.trim()
@@ -85,8 +72,8 @@ function RepairProcess({ setPage }) {
       setErrorMessage("请从瑞云返回的三级故障选项中选择")
       return
     }
-    if (!technicianWarranty || warrantyDecision?.status !== "DETERMINED") {
-      setErrorMessage(warrantyDecision?.reason || "系统尚未完成保修状态判断")
+    if (!technicianWarranty) {
+      setErrorMessage("请先返回确认保修状态")
       return
     }
     try {
@@ -109,6 +96,25 @@ function RepairProcess({ setPage }) {
       setRepairOrder(updated)
       setRecloudPrefillPlan(result.recloudPrefillPlan || null)
       setMessage(result.message || "检测信息已保存到 FieldDesk")
+    } catch (error) {
+      setErrorMessage(error.message)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  async function enterRepair() {
+    try {
+      setIsSaving(true)
+      setErrorMessage("")
+      const result = await startRepair(repairOrder.crmOrderNo)
+      const updated = updateRepairOrder({
+        status: REPAIR_STATUS.REPAIRING,
+        resumeStep: "repairCompletion",
+      })
+      setRepairOrder(updated)
+      setMessage(result.message || "已进入维修")
+      setPage("repairCompletion")
     } catch (error) {
       setErrorMessage(error.message)
     } finally {
@@ -194,13 +200,7 @@ function RepairProcess({ setPage }) {
         </div>
         {faultCategoryConfirmed && <p className="success-text">已选择瑞云三级故障分类</p>}
 
-        <p className={`warranty-status-line ${warrantyDecision?.status !== "DETERMINED" ? "warranty-pending" : technicianWarranty === "保外" ? "warranty-out" : "warranty-in"}`}><strong>保修状态</strong><span>{warrantyDecision?.status === "DETERMINED" ? technicianWarranty : "正在自动判断…"}</span></p>
-        {warrantyDecision?.status === "DETERMINED" && (
-          <p className={warrantyDecision.warrantyStatus === "保外" ? "warranty-judgment-out" : "success-text"}>
-            系统判断：{warrantyDecision.warrantyStatus}（{warrantyDecision.source === "PURCHASE_DATE" ? "按购买日期" : "按SN生产日期并加3个月"}）
-          </p>
-        )}
-        {warrantyDecision?.status === "MANUAL_CONFIRMATION_REQUIRED" && <p className="error-message">{warrantyDecision.reason}</p>}
+        <p className={`warranty-status-line ${technicianWarranty === "保外" ? "warranty-out" : "warranty-in"}`}><strong>保修状态</strong><span>{technicianWarranty || "未确认"}</span></p>
 
         {errorMessage && <p className="error-message">{errorMessage}</p>}
         {message && <p role="status">{message}</p>}
@@ -224,28 +224,33 @@ function RepairProcess({ setPage }) {
         )}
 
         <div className="inspection-actions">
-          {inspectionIsSaved ? (
+          {inspectionIsSaved && repairOrder.treatmentMode === "REPAIR" ? (
             <button className="secondary-btn" onClick={() => navigateToSavedStep("partsApplication")} disabled={isSaving}>
               返回添加配件
             </button>
-          ) : (
+          ) : !inspectionIsSaved ? (
             <button
               className="primary-btn"
               onClick={saveDetection}
               disabled={isSaving}
             >
-              {isSaving ? "正在保存..." : "保存检测信息"}
+              {isSaving ? "正在检测..." : "检测"}
+            </button>
+          ) : null}
+          {inspectionIsSaved && repairOrder.treatmentMode === "REPAIR" && (
+            <button className="primary-btn" onClick={enterRepair} disabled={isSaving}>
+              {isSaving ? "正在进入维修..." : "维修"}
             </button>
           )}
-          {inspectionIsSaved && (
+          {inspectionIsSaved && repairOrder.treatmentMode !== "REPAIR" && (
             <button className="primary-btn" onClick={() => navigateToSavedStep("repairCompletion")} disabled={isSaving}>
-              进入维修完工确认
+              进入处理结果
             </button>
           )}
         </div>
 
         <p className="dry-run-notice">
-          当前仅保存到 FieldDesk；瑞云最终确认必须由人工操作
+          “检测”只完成瑞云寄修单检测；“维修”才创建瑞云维修服务单
         </p>
       </div>
 

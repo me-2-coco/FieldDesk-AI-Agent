@@ -11,6 +11,7 @@ const {
 const { buildProjectCorrectionPlan } = require("../services/recloud-project-correction-rules");
 const { buildPricingPreview } = require("../services/out-of-warranty-pricing");
 const { orchestrateRepairCompletion } = require("../services/recloud-repair-completion-orchestrator");
+const { orchestrateRepairStart } = require("../services/recloud-repair-start-orchestrator");
 const {
   buildRecloudAssignmentPlan,
   assertRecloudOperationAllowed,
@@ -29,6 +30,7 @@ function memoryRepairAdapter() {
   const calls = [];
   return {
     calls,
+    async readAssignee() { calls.push("读取负责人"); return assignee; },
     async readRemoteState() { calls.push("read"); return { assignee, parts, attachments }; },
     async assignResponsible(plan) {
       calls.push(`负责人:${plan.servicePerson}`);
@@ -43,6 +45,7 @@ function memoryRepairAdapter() {
       assert.equal(policy.forbiddenAction, "放大镜");
       parts = additions;
     },
+    async confirmWarrantyConversion(options) { calls.push(`转保:${options.requested}`); },
     async applyRepairFields(plan) {
       calls.push("维修字段");
       assert.equal(plan.safeWrites.some((field) => field.target === "责任判定"), false);
@@ -131,7 +134,7 @@ test("一条完全本地的模拟整单覆盖项目号、费用、附件、负�
   assert.equal(RECLOUD_REPAIR_FIELD_TARGETS.detectionReportAttachments.target, "附件（检测报告）");
 
   const adapter = memoryRepairAdapter();
-  const result = await orchestrateRepairCompletion("LOCAL-SIMULATION-001", {
+  const repairPayload = {
     assignee: "唐张帅",
     faultLevel1: "产品质量",
     faultLevel2: "地刷不出水",
@@ -147,7 +150,19 @@ test("一条完全本地的模拟整单覆盖项目号、费用、附件、负�
       roundTripLogisticsFee: 0,
     },
     attachments: serviceAttachments,
+  };
+  const preparation = await orchestrateRepairStart({
+    assignee: repairPayload.assignee,
+    warrantyConversionRequested: false,
+    usedParts: repairPayload.usedParts,
   }, adapter, { writeEnabled: true });
+  assert.equal(preparation.status, "SUCCESS");
+  const result = await orchestrateRepairCompletion(
+    "LOCAL-SIMULATION-001",
+    repairPayload,
+    adapter,
+    { writeEnabled: true, preparationCompleted: true }
+  );
 
   assert.equal(result.status, "SUCCESS");
   assert.equal(result.stoppedImmediatelyAfterSubmit, true);
@@ -155,7 +170,8 @@ test("一条完全本地的模拟整单覆盖项目号、费用、附件、负�
   assert.equal(receiptAttachments.length, 7);
   assert.equal(serviceAttachments.length, 4);
   assert.deepEqual(adapter.calls, [
-    "read", "负责人:唐张帅", "read", "配件:DIRECT_CODE_INPUT:新件名称", "read",
+    "读取负责人", "负责人:唐张帅", "读取负责人", "read", "转保:false", "read",
+    "配件:DIRECT_CODE_INPUT:新件名称", "read", "read",
     "维修字段", "复核维修字段", "read", "附件:附件", "read", "完工", "等待提交", "提交",
   ]);
 });

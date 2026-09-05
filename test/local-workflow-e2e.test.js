@@ -136,7 +136,7 @@ test("frontend workflow lets technicians finish locally while shipping stays in 
   const parts = await fs.readFile(path.join(__dirname, "../frontend/src/pages/PartsApplication.jsx"), "utf8");
   const completion = await fs.readFile(path.join(__dirname, "../frontend/src/pages/RepairCompletion.jsx"), "utf8");
   const home = await fs.readFile(path.join(__dirname, "../frontend/src/pages/Home.jsx"), "utf8");
-  assert.match(parts, /setPage\(result\.nextStep === "repairCompletion"/);
+  assert.match(parts, /setPage\("repairProcess"\)/);
   assert.match(completion, /if \(submit\) setPage\("home"\)/);
   assert.doesNotMatch(completion, /setPage\("returnShipping"\)/);
   assert.match(home, /后台发货进度/);

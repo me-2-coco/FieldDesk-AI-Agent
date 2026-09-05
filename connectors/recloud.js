@@ -22,6 +22,7 @@ const {
 } = require("./recloud-supervision");
 const { executeDetectionPrefillSafely } = require("../services/detection-prefill-executor");
 const { createRecloudDetectionControlAdapter } = require("./recloud-detection-control-adapter");
+const { buildRecloudInspectionFormPlan } = require("./recloud-sync-mapping");
 const { inspectDirectRepairControls } = require("./recloud-repair-control-adapter");
 const { inspectRepairPartsTable } = require("./recloud-repair-parts-reader");
 const {
@@ -9001,6 +9002,8 @@ const DETECTION_FIELD_LABELS = Object.freeze([
   "成品功能判断",
   "是否原厂耗材",
   "耗材名称",
+  "故障内容",
+  "故障描述",
   "是否拆封",
   "责任判定",
 ]);
@@ -9011,6 +9014,7 @@ const DETECTION_PREFILL_FIELD_KEYS = Object.freeze([
   "detectionResult",
   "productFunctionDecision",
   "originalConsumables",
+  "faultContent",
 ]);
 
 async function collectDetectionFieldControls(dialog) {
@@ -9218,6 +9222,61 @@ async function inspectDetectionForm(page, options = {}) {
       .evaluateAll((elements) => elements.map((element) => String(element.querySelector("label, .rt-form-item__label, .el-form-item__label")?.textContent || "").replace(/^\*+|\*+$/g, "").trim())))
       .filter((value) => value && value.length <= 40))];
     const fieldControls = await collectDetectionFieldControls(dialog);
+    let faultContentOptions = [];
+    let faultContentDiagnostics = null;
+    const faultContentLabel = dialog
+      .locator(".rt-form-item__label:visible, .el-form-item__label:visible, label:visible")
+      .filter({ hasText: /^\s*故障内容\s*$/ });
+    if (await faultContentLabel.count().catch(() => 0) === 1) {
+      const faultContentItem = faultContentLabel.first().locator(
+        "xpath=ancestor::*[contains(concat(' ', normalize-space(@class), ' '), ' rt-form-item ') or contains(concat(' ', normalize-space(@class), ' '), ' el-form-item ')][1]"
+      );
+      const faultContentInput = faultContentItem.locator("input:visible, [role='combobox']:visible").last();
+      if (await faultContentInput.count().catch(() => 0)) {
+        const inputDetails = await faultContentInput.evaluate((element) => ({
+          tagName: element.tagName,
+          type: element.getAttribute("type") || "",
+          placeholder: element.getAttribute("placeholder") || "",
+          readOnly: Boolean(element.readOnly),
+          disabled: Boolean(element.disabled),
+          className: String(element.className || ""),
+        })).catch(() => null);
+        await faultContentInput.click({ timeout: 3000 }).catch(() => {});
+        await page.waitForTimeout(800);
+        const overlays = await page.locator(
+          ".rt-select-dropdown:visible, .el-select-dropdown:visible, .rt-popper:visible, .el-popper:visible, [role='listbox']:visible"
+        ).evaluateAll((elements) => elements.map((element) => ({
+          tagName: element.tagName,
+          className: String(element.className || "").slice(0, 200),
+          text: String(element.innerText || element.textContent || "").replace(/\s+/g, " ").trim().slice(0, 1000),
+          descendants: [...element.querySelectorAll("*")].map((child) => ({
+            tagName: child.tagName,
+            className: String(child.className || "").slice(0, 160),
+            role: child.getAttribute("role") || "",
+            text: String(child.innerText || child.textContent || "").replace(/\s+/g, " ").trim().slice(0, 120),
+          })).filter((child) => child.text).slice(0, 40),
+        }))).catch(() => []);
+        faultContentOptions = [...new Set((await page.locator(
+          ".rt-select-dropdown:visible [role='option']:visible, .el-select-dropdown:visible [role='option']:visible, " +
+          ".rtxpc-select-dropdown__item:visible, .el-select-dropdown__item:visible, " +
+          "[role='listbox']:visible > *:visible"
+        ).allInnerTexts().catch(() => [])).map((value) => normalizeText(value)).filter(Boolean))];
+        faultContentDiagnostics = { inputDetails, overlays };
+        await page.keyboard.press("Escape").catch(() => {});
+      }
+    }
+    const actionButtons = await dialog.locator("button:visible").evaluateAll((elements) => elements.map((element) => {
+      const box = element.getBoundingClientRect();
+      return {
+        text: String(element.innerText || element.textContent || "").replace(/\s+/g, " ").trim().slice(0, 80),
+        className: String(element.className || "").split(/\s+/).slice(0, 10).join(" ").slice(0, 200),
+        parentClassName: String(element.parentElement?.className || "").split(/\s+/).slice(0, 10).join(" ").slice(0, 200),
+        x: Math.round(box.x),
+        y: Math.round(box.y),
+        width: Math.round(box.width),
+        height: Math.round(box.height),
+      };
+    })).catch(() => []);
     const originalFieldValues = {};
     const valueReader = createRecloudDetectionControlAdapter(page, dialog);
     for (const key of DETECTION_PREFILL_FIELD_KEYS) {
@@ -9415,6 +9474,9 @@ async function inspectDetectionForm(page, options = {}) {
       requiredFieldCount,
       requiredFieldLabels,
       fieldControls,
+      faultContentOptions,
+      faultContentDiagnostics,
+      actionButtons,
       originalFieldValues,
       faultQuickSelectFound,
       faultOptions,
@@ -9453,6 +9515,175 @@ async function inspectDetectionForm(page, options = {}) {
     await networkGuard?.stop();
     if (cleanupError) throw cleanupError;
   }
+}
+
+async function visibleExactActions(page, label) {
+  const escaped = String(label).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`^\\s*${escaped}\\s*$`);
+  const candidates = page.locator("button:visible, a:visible, [role='button']:visible").filter({ hasText: pattern });
+  const visible = [];
+  const positions = new Set();
+  for (let index = 0; index < await candidates.count(); index += 1) {
+    const candidate = candidates.nth(index);
+    if (!await candidate.isVisible().catch(() => false)) continue;
+    const box = await candidate.boundingBox().catch(() => null);
+    const key = box ? `${Math.round(box.x)}:${Math.round(box.y)}:${Math.round(box.width)}:${Math.round(box.height)}` : `node:${index}`;
+    if (positions.has(key)) continue;
+    positions.add(key);
+    visible.push(candidate);
+  }
+  if (visible.length > 1) {
+    const fixedRight = [];
+    for (const candidate of visible) {
+      if (await candidate.locator("xpath=ancestor::*[contains(@class,'table__fixed-right')][1]").count().catch(() => 0)) {
+        fixedRight.push(candidate);
+      }
+    }
+    if (fixedRight.length === 1) return fixedRight;
+  }
+  return visible;
+}
+
+async function waitForUniqueAction(page, label, timeout = 10000) {
+  const deadline = Date.now() + timeout;
+  let actions = [];
+  while (Date.now() < deadline) {
+    actions = await visibleExactActions(page, label);
+    if (actions.length === 1) return actions[0];
+    await page.waitForTimeout(300);
+  }
+  const error = new Error(actions.length ? `瑞云“${label}”入口不唯一` : `瑞云未找到“${label}”入口`);
+  error.code = actions.length ? "RECLOUD_ACTION_AMBIGUOUS" : "RECLOUD_ACTION_NOT_FOUND";
+  error.status = 502;
+  error.missingFields = [`action.${label}`];
+  throw error;
+}
+
+async function confirmDetection(page, payload = {}, options = {}) {
+  if (options.writeEnabled !== true || options.dryRun === true) {
+    const error = new Error("瑞云检测确认未启用");
+    error.code = "RECLOUD_DETECTION_WRITE_DISABLED";
+    error.status = 403;
+    throw error;
+  }
+  assertRecloudAuthenticated(page);
+  const plan = buildRecloudInspectionFormPlan(payload);
+  if (plan.missingFields.length) {
+    const error = new Error(`检测必填字段不完整：${plan.missingFields.join(", ")}`);
+    error.code = "RECLOUD_DETECTION_PAYLOAD_INVALID";
+    error.status = 400;
+    error.missingFields = plan.missingFields;
+    throw error;
+  }
+
+  const detectionEntry = await waitForUniqueAction(page, "检测", options.actionTimeout || 10000);
+  await detectionEntry.click({ timeout: options.clickTimeout || 5000 });
+  const dialog = page.locator(".rt-dialog__wrapper:visible, .el-dialog__wrapper:visible, [role='dialog']:visible").last();
+  await dialog.waitFor({ state: "visible", timeout: options.dialogTimeout || 10000 });
+  const controls = createRecloudDetectionControlAdapter(page, dialog);
+  const fieldsWritten = [];
+  for (const write of plan.safeWrites) {
+    await controls.write(write.key, write.value);
+    const actual = await controls.read(write.key);
+    const expected = String(write.value || "").replace(/\s+/g, " ").trim();
+    const normalizedActual = String(actual || "").replace(/\s+/g, " ").trim();
+    const expectedFaultLeaf = expected.split(/[|｜/]/).at(-1).trim();
+    const matches = write.key === "faultCategory"
+      ? normalizedActual === expected || normalizedActual.endsWith(expectedFaultLeaf)
+      : normalizedActual === expected;
+    if (!matches) {
+      const error = new Error(`瑞云检测字段 ${write.key} 写入复核失败`);
+      error.code = "RECLOUD_DETECTION_POSTVERIFY_FAILED";
+      error.status = 502;
+      error.fieldKey = write.key;
+      throw error;
+    }
+    fieldsWritten.push(write.key);
+  }
+
+  // Only match the actual button element. Combining role and text locators also
+  // returns the button's inner text node in Recloud, making one visible button
+  // look like multiple confirmation controls.
+  const confirmButtons = dialog
+    .locator("button:visible")
+    .filter({ hasText: /^\s*(确认|确定)\s*$/ });
+  if (await confirmButtons.count() !== 1) {
+    const error = new Error("瑞云检测确认按钮不存在或不唯一");
+    error.code = "RECLOUD_DETECTION_CONFIRM_AMBIGUOUS";
+    error.status = 502;
+    throw error;
+  }
+  let confirmationAttempted = false;
+  try {
+    confirmationAttempted = true;
+    await confirmButtons.first().click({ timeout: 5000 });
+    await dialog.waitFor({ state: "hidden", timeout: options.confirmTimeout || 10000 });
+  } catch (error) {
+    if (confirmationAttempted && await dialog.isVisible().catch(() => false)) {
+      const validationMessages = [...new Set((await dialog.locator(
+        ".rt-form-item__error:visible, .el-form-item__error:visible, .is-error:visible, [role='alert']:visible"
+      ).allInnerTexts().catch(() => []))
+        .map((value) => normalizeText(value))
+        .filter(Boolean))];
+      const validationError = new Error(
+        validationMessages.length
+          ? `瑞云检测表单未通过校验：${validationMessages.join("；")}`
+          : "瑞云检测表单点击确认后仍未关闭，请核对必填项"
+      );
+      validationError.code = "RECLOUD_DETECTION_VALIDATION_FAILED";
+      validationError.status = 502;
+      validationError.validationMessages = validationMessages.slice(0, 20);
+      validationError.resultUnknown = false;
+      throw validationError;
+    }
+    if (confirmationAttempted) {
+      error.code = "RECLOUD_DETECTION_RESULT_UNKNOWN";
+      error.status = 409;
+      error.resultUnknown = true;
+      error.message = "瑞云检测确认已触发但结果未能核实，禁止重复提交";
+    }
+    throw error;
+  }
+
+  return {
+    success: true,
+    status: "DETECTION_CONFIRMED",
+    confirmed: true,
+    fieldsWritten,
+    serviceOrderCreated: false,
+    recloudModified: true,
+  };
+}
+
+async function startRepair(page, options = {}) {
+  if (options.writeEnabled !== true || options.dryRun === true) {
+    const error = new Error("瑞云维修建单未启用");
+    error.code = "RECLOUD_REPAIR_START_WRITE_DISABLED";
+    error.status = 403;
+    throw error;
+  }
+  assertRecloudAuthenticated(page);
+  const repairEntry = await waitForUniqueAction(page, "维修", options.actionTimeout || 15000);
+  let actionAttempted = false;
+  try {
+    actionAttempted = true;
+    await repairEntry.click({ timeout: options.clickTimeout || 5000 });
+    await page.waitForTimeout(800);
+  } catch (error) {
+    if (actionAttempted) {
+      error.code = "RECLOUD_REPAIR_START_RESULT_UNKNOWN";
+      error.status = 409;
+      error.resultUnknown = true;
+      error.message = "瑞云维修建单已触发但结果未能核实，禁止重复点击";
+    }
+    throw error;
+  }
+  return {
+    success: true,
+    status: "SERVICE_ORDER_CREATED",
+    serviceOrderCreated: true,
+    recloudModified: true,
+  };
 }
 
 async function inspectRepairForm(page, options = {}) {
@@ -10352,6 +10583,148 @@ async function confirmSign(page, sn, productType, remark, options = {}) {
   };
 }
 
+function parseAttachmentSize(value) {
+  const matched = String(value || "").trim().match(/([\d.]+)\s*(B|K|KB|M|MB|G|GB)/i);
+  if (!matched) return 0;
+  const units = {
+    B: 1,
+    K: 1024,
+    KB: 1024,
+    M: 1024 ** 2,
+    MB: 1024 ** 2,
+    G: 1024 ** 3,
+    GB: 1024 ** 3,
+  };
+  return Math.round(Number(matched[1]) * units[matched[2].toUpperCase()]);
+}
+
+async function getRmaAttachmentCard(page) {
+  const cards = page.locator('.apaas-sub-content[label="附件"]:visible');
+  const count = await cards.count();
+  if (count !== 1) {
+    const error = new Error(`瑞云寄修单“附件”区域数量异常（${count}）`);
+    error.code = "RECLOUD_RMA_ATTACHMENT_CARD_AMBIGUOUS";
+    error.status = 409;
+    throw error;
+  }
+  return cards.first();
+}
+
+async function readRmaAttachments(page) {
+  const card = await getRmaAttachmentCard(page);
+  const items = card.locator('.file-detail:visible, .rtxpc-file-detail:visible');
+  const result = [];
+  for (let index = 0; index < await items.count(); index += 1) {
+    const item = items.nth(index);
+    const name = normalizeText(await item.locator('.item-name').first().textContent().catch(() => ""));
+    const sizeText = normalizeText(await item.locator('.uploadTime-and-operation span').first().textContent().catch(() => ""));
+    if (name) result.push({ name, size: parseAttachmentSize(sizeText) });
+  }
+  return result;
+}
+
+async function uploadRmaAttachments(page, attachments = [], options = {}) {
+  if (options.writeEnabled !== true) {
+    const error = new Error("瑞云附件写入未授权");
+    error.code = "RECLOUD_RMA_ATTACHMENT_WRITE_DISABLED";
+    error.status = 403;
+    throw error;
+  }
+  const files = attachments.map((attachment) => ({
+    name: normalizeText(attachment.name),
+    mimeType: normalizeText(attachment.mimeType) || "application/octet-stream",
+    buffer: attachment.buffer,
+    size: Number(attachment.size || attachment.buffer?.length || 0),
+  }));
+  if (!files.length || files.some((file) => !file.name || !Buffer.isBuffer(file.buffer))) {
+    const error = new Error("签收照片内容不完整，已停止上传");
+    error.code = "RECLOUD_RMA_ATTACHMENT_INVALID";
+    error.status = 400;
+    throw error;
+  }
+
+  const existing = await readRmaAttachments(page);
+  const pending = files.filter((file) => {
+    const sameName = existing.find((item) => item.name === file.name);
+    if (!sameName) return true;
+    if (!sameName.size || !file.size || Math.abs(sameName.size - file.size) <= 2048) return false;
+    const error = new Error(`瑞云已存在同名但大小不同的附件：${file.name}`);
+    error.code = "RECLOUD_RMA_ATTACHMENT_NAME_CONFLICT";
+    error.status = 409;
+    throw error;
+  });
+  if (!pending.length) return { uploaded: [], skipped: files.map((file) => file.name) };
+
+  const card = await getRmaAttachmentCard(page);
+  const openButton = card.getByText(/^上传附件$/, { exact: true }).first();
+  await openButton.waitFor({ state: "visible" });
+  await openButton.click();
+  const dialog = page.locator('.uploadDialog:visible').last();
+  await dialog.waitFor({ state: "visible" });
+  const input = dialog.locator('input[type="file"]');
+  try {
+    await input.setInputFiles(pending.map(({ name, mimeType, buffer }) => ({ name, mimeType, buffer })));
+  } catch (error) {
+    error.code = "RECLOUD_RMA_ATTACHMENT_FILE_SELECTION_FAILED";
+    error.status = 502;
+    throw error;
+  }
+  // 瑞云的上传组件会在接收文件后立即清空原生 input，并把文件移入
+  // 自己的待上传列表。因此只能复核弹窗中的待上传文件名，不能读取
+  // input.files 判断是否选择成功。
+  const pendingListText = await dialog.innerText();
+  for (const file of pending) {
+    if (!pendingListText.includes(file.name)) {
+      const error = new Error(`瑞云附件选择复核失败：${file.name}`);
+      error.code = "RECLOUD_RMA_ATTACHMENT_FILE_SELECTION_MISMATCH";
+      error.status = 502;
+      throw error;
+    }
+  }
+  const dialogButtons = dialog.locator("button:visible");
+  const uploadButtonIndexes = [];
+  for (let index = 0; index < await dialogButtons.count(); index += 1) {
+    const label = normalizeText(await dialogButtons.nth(index).textContent()).replace(/\s+/g, "");
+    if (label === "上传") uploadButtonIndexes.push(index);
+  }
+  if (uploadButtonIndexes.length !== 1) {
+    const error = new Error("瑞云附件上传按钮不存在或不唯一");
+    error.code = "RECLOUD_RMA_ATTACHMENT_UPLOAD_BUTTON_AMBIGUOUS";
+    error.status = 502;
+    throw error;
+  }
+  const uploadButton = dialogButtons.nth(uploadButtonIndexes[0]);
+  let attempted = false;
+  try {
+    attempted = true;
+    await uploadButton.click();
+  } catch (error) {
+    if (attempted) {
+      error.code = "RECLOUD_RMA_ATTACHMENT_RESULT_UNKNOWN";
+      error.status = 409;
+      error.resultUnknown = true;
+      error.message = "瑞云附件上传已触发但结果未能核实，请人工核对后再重试";
+    }
+    throw error;
+  }
+  const deadline = Date.now() + (options.timeoutMs || 30_000);
+  let after = [];
+  while (Date.now() < deadline) {
+    after = await readRmaAttachments(page);
+    if (pending.every((file) => after.some((item) => item.name === file.name))) break;
+    await page.waitForTimeout(300);
+  }
+  const missing = pending.filter((file) => !after.some((item) => item.name === file.name));
+  if (missing.length) {
+    const error = new Error(`瑞云未显示已上传附件：${missing.map((item) => item.name).join("、")}`);
+    error.code = "RECLOUD_RMA_ATTACHMENT_RESULT_UNKNOWN";
+    error.status = 409;
+    error.resultUnknown = true;
+    throw error;
+  }
+  return { uploaded: pending.map((file) => file.name), skipped: files.filter((file) => !pending.includes(file)).map((file) => file.name) };
+}
+
 async function correctRmaProjectModel(page, input = {}, options = {}) {
   const values = validateProjectCorrectionInput(input);
   if (values.currentProjectCode.toUpperCase() === values.expectedProjectCode.toUpperCase()) {
@@ -10497,6 +10870,8 @@ module.exports = {
   inspectReceiptForm,
   collectDetectionFieldControls,
   inspectDetectionForm,
+  confirmDetection,
+  startRepair,
   inspectRepairForm,
   logReceiptInspection,
   simulateReceiptForm,
@@ -10506,6 +10881,8 @@ module.exports = {
   classifyRecloudRequest,
   createReceiptNetworkGuard,
   confirmSign,
+  readRmaAttachments,
+  uploadRmaAttachments,
   validateProjectCorrectionInput,
   correctRmaProjectModel,
   fillReceiptFields,

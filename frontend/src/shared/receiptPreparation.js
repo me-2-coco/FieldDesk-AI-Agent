@@ -47,6 +47,9 @@ export function validateReceiptSn(value, logisticsNo = "") {
   if (!/^[A-Z0-9-]+$/.test(sn)) {
     return "SN 只允许字母、数字和连字符“-”"
   }
+  if (/^1[3-9]\d{9}$/.test(sn)) {
+    return "扫描内容疑似联系电话，请重新扫描机器 SN"
+  }
   const logistics = normalizeReceiptSn(logisticsNo)
   if (
     sn === logistics ||

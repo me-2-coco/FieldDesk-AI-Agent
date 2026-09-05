@@ -57,10 +57,11 @@ test("repair orchestrator dry-run plans work without touching Recloud", async ()
 });
 
 test("repair orchestrator clicks complete and stops immediately after final submit", async () => {
-  const adapter = remoteAdapter();
+  const adapter = remoteAdapter({ assignee: "唐张帅", parts: PAYLOAD.usedParts });
   const checkpoints = [];
   const result = await orchestrateRepairCompletion("ORDER-1", PAYLOAD, adapter, {
     writeEnabled: true,
+    preparationCompleted: true,
     checkpointStore: { async load() { return null; }, async save(value) { checkpoints.push(value); } },
   });
   assert.equal(result.status, "SUCCESS");
@@ -69,7 +70,7 @@ test("repair orchestrator clicks complete and stops immediately after final subm
   assert.equal(result.stoppedImmediatelyAfterSubmit, true);
   assert.equal(result.postSubmitActions, 0);
   assert.deepEqual(adapter.calls, [
-    "read", "assign:唐张帅:负责人:协助", "read", "parts:DIRECT_CODE_INPUT:新件名称:放大镜", "read", "fields", "verify-fields", "read",
+    "read", "fields", "verify-fields", "read",
     "attachments:附件:附件（检测报告）", "read", "complete", "wait-submit-ready",
     "submit:内部维修单自动审批（成都欣益）:提交:true",
   ]);
@@ -84,26 +85,47 @@ test("repair orchestrator skips reassignment only when the responsible technicia
   assert.deepEqual(adapter.calls, ["read"]);
 });
 
-test("repair orchestrator stops when responsible-person verification fails", async () => {
+test("repair orchestrator never retries assignment from the completion stage", async () => {
   const adapter = remoteAdapter();
-  adapter.assignResponsible = async (plan) => {
-    adapter.calls.push(`assign:${plan.servicePerson}:${plan.action}:${plan.forbiddenAction}`);
-  };
   await assert.rejects(
-    orchestrateRepairCompletion("ORDER-1", PAYLOAD, adapter, { writeEnabled: true }),
-    { code: "RECLOUD_REPAIR_ASSIGNMENT_POSTVERIFY_FAILED", phase: "ASSIGNMENT" }
+    orchestrateRepairCompletion("ORDER-1", PAYLOAD, adapter, { writeEnabled: true, preparationCompleted: true }),
+    { code: "RECLOUD_REPAIR_PREPARATION_ASSIGNEE_MISMATCH", phase: "PREPARATION_VERIFY" }
   );
+  assert.deepEqual(adapter.calls, ["read"]);
+  assert.equal(adapter.calls.some((call) => call.startsWith("assign:")), false);
   assert.equal(adapter.calls.some((call) => call.startsWith("parts:")), false);
 });
 
-test("repair orchestrator never submits when Recloud does not become submit-ready", async () => {
-  const adapter = remoteAdapter();
-  adapter.waitForSubmitReady = async () => { adapter.calls.push("wait-submit-ready"); return false; };
+test("repair orchestrator blocks completion when first-entry preparation was not confirmed", async () => {
+  const adapter = remoteAdapter({ assignee: "唐张帅", parts: PAYLOAD.usedParts });
   await assert.rejects(
     orchestrateRepairCompletion("ORDER-1", PAYLOAD, adapter, { writeEnabled: true }),
+    { code: "RECLOUD_REPAIR_PREPARATION_REQUIRED", phase: "PREPARATION_VERIFY" }
+  );
+  assert.deepEqual(adapter.calls, ["read"]);
+});
+
+test("repair orchestrator never submits when Recloud does not become submit-ready", async () => {
+  const adapter = remoteAdapter({ assignee: "唐张帅", parts: PAYLOAD.usedParts });
+  adapter.waitForSubmitReady = async () => { adapter.calls.push("wait-submit-ready"); return false; };
+  await assert.rejects(
+    orchestrateRepairCompletion("ORDER-1", PAYLOAD, adapter, { writeEnabled: true, preparationCompleted: true }),
     { code: "RECLOUD_REPAIR_SUBMIT_NOT_READY", phase: "WAIT_SUBMIT_READY" }
   );
   assert.equal(adapter.calls.includes("submit"), false);
+});
+
+test("repair orchestrator prints required old-part labels before final submit", async () => {
+  const labelParts = PAYLOAD.usedParts.map((part) => ({ ...part, returnRequired: true }));
+  const adapter = remoteAdapter({ assignee: "唐张帅", parts: labelParts });
+  adapter.printOldPartLabels = async (parts) => adapter.calls.push(`labels:${parts.length}`);
+  const result = await orchestrateRepairCompletion("ORDER-LABEL", {
+    ...PAYLOAD,
+    usedParts: labelParts,
+  }, adapter, { writeEnabled: true, preparationCompleted: true });
+  assert.equal(result.status, "SUCCESS");
+  assert.ok(result.completedSteps.includes("OLD_PART_LABELS_PRINTED"));
+  assert.ok(adapter.calls.indexOf("labels:1") < adapter.calls.findIndex((item) => item.startsWith("submit:")));
 });
 
 test("repair orchestrator never trusts a checkpoint without rereading Recloud", async () => {

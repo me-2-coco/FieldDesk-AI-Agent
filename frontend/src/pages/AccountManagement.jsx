@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { getAdminUsers, saveAdminUser } from "../shared/crmService.js"
 
-const EMPTY = { userId: "", displayName: "", role: "TECHNICIAN", repairSpecialties: [], password: "", active: true }
+const EMPTY = { userId: "", displayName: "", role: "TECHNICIAN", repairSpecialties: [], password: "", active: true, recloudAssignmentMode: "DIRECT", recloudAssigneeName: "", recloudFallbackAssigneeName: "" }
 
 function AccountManagement({ setPage }) {
   const [users, setUsers] = useState([])
@@ -37,7 +37,7 @@ function AccountManagement({ setPage }) {
   }
 
   function editUser(user) {
-    setForm({ userId: user.userId, displayName: user.displayName, role: user.role, repairSpecialties: user.repairSpecialties || [], password: "", active: user.active !== false })
+    setForm({ userId: user.userId, displayName: user.displayName, role: user.role, repairSpecialties: user.repairSpecialties || [], password: "", active: user.active !== false, recloudAssignmentMode: user.recloudAssignmentMode || "DIRECT", recloudAssigneeName: user.recloudAssigneeName || "", recloudFallbackAssigneeName: user.recloudFallbackAssigneeName || "" })
     setMessage("正在编辑账号；不填写新密码则保留原密码")
   }
 
@@ -54,6 +54,13 @@ function AccountManagement({ setPage }) {
         </select></label>
         {(form.role === "TECHNICIAN" || form.role === "ADMIN") && <fieldset className="choice-fieldset"><legend>维修品类</legend>
           {["扫地机", "洗地机"].map((item) => <label key={item}><input type="checkbox" checked={form.repairSpecialties.includes(item)} onChange={() => toggleSpecialty(item)} /><span>{item}</span></label>)}
+        </fieldset>}
+        {form.role === "TECHNICIAN" && <fieldset className="choice-fieldset"><legend>瑞云改派</legend>
+          <label><input type="radio" name="recloud-mode" checked={form.recloudAssignmentMode === "DIRECT"} onChange={() => setForm({ ...form, recloudAssignmentMode: "DIRECT" })} /><span>瑞云已有本人</span></label>
+          <label><input type="radio" name="recloud-mode" checked={form.recloudAssignmentMode === "FALLBACK"} onChange={() => setForm({ ...form, recloudAssignmentMode: "FALLBACK" })} /><span>暂用兜底负责人</span></label>
+          {form.recloudAssignmentMode === "DIRECT"
+            ? <label>瑞云姓名<input value={form.recloudAssigneeName} onChange={(event) => setForm({ ...form, recloudAssigneeName: event.target.value })} placeholder="留空则使用显示名称" /></label>
+            : <label>兜底负责人<input value={form.recloudFallbackAssigneeName} onChange={(event) => setForm({ ...form, recloudFallbackAssigneeName: event.target.value })} placeholder="请输入瑞云中已存在的姓名" required /></label>}
         </fieldset>}
         <label>登录密码<input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder={users.some((user) => user.userId === form.userId) ? "不修改可留空" : "设置登录密码"} autoComplete="new-password" required={!users.some((user) => user.userId === form.userId)} /></label>
         <label className="switch-row"><span>账号启用</span><input type="checkbox" checked={form.active} onChange={(event) => setForm({ ...form, active: event.target.checked })} /></label>

@@ -134,6 +134,10 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
         String(item.rmaNo || "").trim() === String(result.rmaNo || "").trim()
       )
       if (!localOrder?.sn) return false
+      // 旧版本曾可能把联系电话或物流号误存为 SN。此类脏记录不能阻断重新录入。
+      if (validateReceiptSn(localOrder.sn, localOrder.logisticsNo || result.pickupLogisticsNo || "")) {
+        return false
+      }
       if (localOrder.status === "RECEIPT_PREPARED") {
         setRepairDetail({ ...result, localWorkflow: localOrder })
         setSn(localOrder.sn)
@@ -209,6 +213,9 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
       setSearchMatches([])
       setMachineHistory(null)
       setSn("")
+      // 每次查询都是一张新工单，不能继续展示上一张工单的签收/转寄提示。
+      setReceiptMessage("")
+      setReceiptStep("detail")
 
       let result = await queryCrmRepairByAnyIdentifier(queryValue)
       if (!result || typeof result !== "object") {
@@ -241,6 +248,20 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
         }
       }
       if (await resumeExistingWorkflow(result, queryValue)) return
+      const returnedSn = normalizeReceiptSn(result.productSerialNo || "")
+      const localWorkflowSn = normalizeReceiptSn(result.localWorkflow?.sn || "")
+      const returnedSnInvalid = returnedSn
+        && Boolean(validateReceiptSn(returnedSn, result.pickupLogisticsNo || result.logisticsNo || ""))
+      const localWorkflowInvalid = localWorkflowSn
+        && Boolean(validateReceiptSn(localWorkflowSn, result.localWorkflow?.logisticsNo || result.pickupLogisticsNo || ""))
+      if (returnedSnInvalid || localWorkflowInvalid) {
+        result = {
+          ...result,
+          productSerialNo: returnedSnInvalid ? "" : result.productSerialNo,
+          localWorkflow: localWorkflowInvalid ? null : result.localWorkflow,
+          cached: false
+        }
+      }
       setRepairDetail(result)
       setMachineHistory({
         isRepeatRepair: Boolean(result.isRepeatRepair),
@@ -400,13 +421,13 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
         sn: result.sn,
         originalFault: result.reportedFault,
         technician: result.operatorName,
-        status: REPAIR_STATUS.WAIT_DECISION,
+        status: REPAIR_STATUS.WAIT_INSPECTION,
         specialty: result.specialty,
         receiptRemark: result.remark
       })
       saveCurrentRepairOrder(order)
       setSn(normalizedSn)
-      setPage("repairDecision")
+      setPage("repairWarranty")
     } catch (error) {
       setErrorMessage(error.message)
     } finally {

@@ -11,9 +11,14 @@ function attachmentSummary(item, category) {
 }
 
 function reportAttachments(order) {
+  const repairAttachments = order.repairCompletion?.attachments || [];
+  const includedRepairIds = new Set(repairAttachments.map((item) => item.id));
   return [
     ...(order.receiptAttachments || []).map((item) => attachmentSummary(item, "receipt")),
-    ...(order.repairCompletion?.attachments || []).map((item) => attachmentSummary(item, "repair")),
+    ...repairAttachments.map((item) => attachmentSummary(item, "repair")),
+    ...(order.manufacturerWarrantyConversion?.proofAttachments || [])
+      .filter((item) => !includedRepairIds.has(item.id))
+      .map((item) => attachmentSummary(item, "warranty")),
     ...(order.returnShipment?.attachments || []).map((item) => attachmentSummary(item, "shipping")),
   ];
 }
@@ -97,6 +102,7 @@ function findAttachment(order, category, attachmentId) {
   const sources = {
     receipt: order.receiptAttachments || [],
     repair: order.repairCompletion?.attachments || [],
+    warranty: order.manufacturerWarrantyConversion?.proofAttachments || [],
     shipping: order.returnShipment?.attachments || [],
   };
   return (sources[category] || []).find((item) => item.id === attachmentId) || null;

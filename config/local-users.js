@@ -17,6 +17,8 @@ const LOCAL_DEVELOPMENT_USERS = Object.freeze([
     displayName: "本地测试师傅（扫地机）",
     role: USER_ROLES.TECHNICIAN,
     repairSpecialties: Object.freeze(["扫地机"]),
+    recloudAssignmentMode: "FALLBACK",
+    recloudFallbackAssigneeName: "杨晨曦",
   }),
   Object.freeze({
     userId: "LOCAL-TECH-WASH",
@@ -69,6 +71,9 @@ function getLocalCurrentUser(env = process.env, requestedId = "") {
     displayName: user.displayName,
     role: user.role,
     repairSpecialties: [...user.repairSpecialties],
+    recloudAssignmentMode: user.recloudAssignmentMode || "DIRECT",
+    recloudAssigneeName: user.recloudAssigneeName || "",
+    recloudFallbackAssigneeName: user.recloudFallbackAssigneeName || "",
     localDevelopmentAccount: true,
   };
 }

@@ -42,6 +42,7 @@ function createRecloudCommandExecutor(options = {}) {
             checkpointStore,
             submitReadyTimeoutMs: options.submitReadyTimeoutMs,
             submitReadyPollIntervalMs: options.submitReadyPollIntervalMs,
+            preparationCompleted: Boolean(task.payload?.repairPreparationCompletedAt),
           }
         );
       } finally {

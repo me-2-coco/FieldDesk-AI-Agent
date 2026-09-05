@@ -38,6 +38,12 @@ const USERS = {
     role: "WAREHOUSE",
     repairSpecialties: [],
   },
+  admin: {
+    userId: "TEST-ADMIN",
+    displayName: "测试管理员",
+    role: "ADMIN",
+    repairSpecialties: [],
+  },
 };
 
 async function createTestStore(t) {
@@ -63,6 +69,7 @@ async function startServer(t, connector, store, user = USERS.dual, options = {})
       getCurrentUser: () => user,
       feishuModelCatalog: options.feishuModelCatalog || { authorize: async () => ({ repairability: "SUPPORTED", status: "MATCHED", canContinue: true }) },
       ...(options.env ? { env: options.env } : {}),
+      ...(options.receiptAttachmentStore ? { receiptAttachmentStore: options.receiptAttachmentStore } : {}),
     }).listen(
       0,
       "127.0.0.1",
@@ -81,6 +88,16 @@ async function post(url, pathName, body) {
     body: JSON.stringify(body),
   });
   return { response, result: await response.json() };
+}
+
+async function waitForValue(readValue, expected, timeoutMs = 1000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const value = await readValue();
+    if (value === expected) return value;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.fail(`timed out waiting for ${expected}`);
 }
 
 function validPayload(overrides = {}) {
@@ -201,14 +218,7 @@ test("SN-authorized receipt can continue the local workflow without a current Re
   assert.equal(completed.response.status, 200);
   assert.equal(completed.result.data.status, "RECEIVED_PENDING_INSPECTION");
 
-  const treatment = await post(
-    url,
-    "/api/repairs/treatment-decision",
-    { rmaNo: "JXTH900001001", treatmentMode: "REPAIR" }
-  );
-  assert.equal(treatment.response.status, 200);
-  assert.equal(treatment.result.data.treatmentLabel, "维修");
-  assert.equal(treatment.result.data.nextStep, "partsApplication");
+  assert.equal(completed.result.data.resumeStep, "repairWarranty");
 });
 
 test("SN is trimmed and normalized to uppercase", async (t) => {
@@ -516,7 +526,112 @@ test("local receipt and inspection APIs never open Recloud", async (t) => {
   assert.equal(inspected.result.data.recloudPrefillPlan.canAutoConfirm, false);
 });
 
-test("receipt-only live mode confirms Recloud before completing the local receipt", async (t) => {
+test("live detection saves locally and responds before Recloud finishes in the background", async (t) => {
+  const store = await createTestStore(t);
+  await store.prepare({
+    ...validPayload({ sn: "W24480531TEST0001" }),
+    operatorId: USERS.sweep.userId,
+    operatorName: USERS.sweep.displayName,
+    remark: "扫地机",
+  });
+  await store.completeReceipt("JXTH900001001", USERS.sweep);
+  await store.saveWarrantyDecision("JXTH900001001", { technicianWarranty: "保内" }, USERS.sweep);
+  await store.saveTreatmentDecision("JXTH900001001", { treatmentMode: "REPAIR", technicianWarranty: "保内" }, USERS.sweep);
+  await store.applyPart("JXTH900001001", { code: "13703", name: "售后电池包组件", stock: 10 }, 1, USERS.sweep);
+  await store.confirmParts("JXTH900001001", USERS.sweep);
+
+  let confirmCount = 0;
+  let releaseConfirmation;
+  const confirmationGate = new Promise((resolve) => { releaseConfirmation = resolve; });
+  const connector = {
+    openRecloud: async () => ({ loginRequired: false, page: {} }),
+    queryRmaByLogisticsNo: async () => ({ rmaNo: "JXTH900001001" }),
+    confirmDetection: async () => {
+      confirmCount += 1;
+      await confirmationGate;
+      return { confirmed: true };
+    },
+  };
+  const url = await startServer(t, connector, store, USERS.sweep, {
+    env: {
+      ...process.env,
+      DRY_RUN: "true",
+      RECLOUD_WRITE_ENABLED: "false",
+      RECLOUD_INSPECTION_WRITE_ENABLED: "true",
+    },
+  });
+
+  const inspected = await post(url, "/api/repairs/inspection", {
+    rmaNo: "JXTH900001001",
+    inspectionResult: "",
+    faultCategory: "产品质量 / 离线 / 电池包不良",
+    faultCategoryConfirmed: true,
+    technicianWarranty: "保内",
+  });
+
+  assert.equal(inspected.response.status, 200);
+  assert.equal(inspected.result.data.status, "INSPECTION_COMPLETED_PENDING_REPAIR");
+  assert.equal(inspected.result.data.recloudDetectionSyncStatus, "PENDING");
+  assert.match(inspected.result.data.message, /可立即进入下一步/);
+  await waitForValue(() => confirmCount, 1);
+  releaseConfirmation();
+  await waitForValue(async () => {
+    const current = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
+    return current?.recloudDetectionSyncStatus;
+  }, "CONFIRMED");
+});
+
+test("a failed Recloud detection remains a background failure and does not roll back FieldDesk", async (t) => {
+  const store = await createTestStore(t);
+  await store.prepare({
+    ...validPayload({ sn: "W24480531TEST0001" }),
+    operatorId: USERS.sweep.userId,
+    operatorName: USERS.sweep.displayName,
+    remark: "扫地机",
+  });
+  await store.completeReceipt("JXTH900001001", USERS.sweep);
+  await store.saveWarrantyDecision("JXTH900001001", { technicianWarranty: "保内" }, USERS.sweep);
+  await store.saveTreatmentDecision("JXTH900001001", { treatmentMode: "REPAIR", technicianWarranty: "保内" }, USERS.sweep);
+  await store.applyPart("JXTH900001001", { code: "13703", name: "售后电池包组件", stock: 10 }, 1, USERS.sweep);
+  await store.confirmParts("JXTH900001001", USERS.sweep);
+
+  const connector = {
+    openRecloud: async () => ({ loginRequired: false, page: {} }),
+    queryRmaByLogisticsNo: async () => ({ rmaNo: "JXTH900001001" }),
+    confirmDetection: async () => {
+      throw Object.assign(new Error("检测选项识别不唯一"), { code: "RECLOUD_DETECTION_OPTION_AMBIGUOUS" });
+    },
+  };
+  const url = await startServer(t, connector, store, USERS.sweep, {
+    env: {
+      ...process.env,
+      DRY_RUN: "true",
+      RECLOUD_WRITE_ENABLED: "false",
+      RECLOUD_INSPECTION_WRITE_ENABLED: "true",
+    },
+  });
+
+  const inspected = await post(url, "/api/repairs/inspection", {
+    rmaNo: "JXTH900001001",
+    inspectionResult: "",
+    faultCategory: "产品质量 / 离线 / 电池包不良",
+    faultCategoryConfirmed: true,
+    technicianWarranty: "保内",
+  });
+
+  assert.equal(inspected.response.status, 200);
+  await waitForValue(async () => {
+    const current = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
+    return current?.recloudDetectionSyncStatus;
+  }, "FAILED");
+  const saved = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
+  assert.equal(saved.status, "INSPECTION_COMPLETED_PENDING_REPAIR");
+  assert.equal(saved.resumeStep, "repairProcess");
+  assert.equal(saved.faultCategory, "产品质量 / 离线 / 电池包不良");
+  assert.equal(saved.recloudDetectionLastError.code, "RECLOUD_DETECTION_OPTION_AMBIGUOUS");
+});
+
+test("receipt-only live mode completes locally before confirming Recloud in the background", async (t) => {
   const store = await createTestStore(t);
   await store.prepare({
     ...validPayload(),
@@ -526,6 +641,11 @@ test("receipt-only live mode confirms Recloud before completing the local receip
   });
   let queryCount = 0;
   let confirmCount = 0;
+  let uploadCount = 0;
+  let releaseConfirmation;
+  const confirmationGate = new Promise((resolve) => {
+    releaseConfirmation = resolve;
+  });
   const connector = {
     openRecloud: async () => ({ loginRequired: false, page: {} }),
     queryRmaByLogisticsNo: async (_page, logisticsNo) => {
@@ -541,10 +661,16 @@ test("receipt-only live mode confirms Recloud before completing the local receip
       assert.equal(options.dryRun, false);
       assert.equal(options.logisticsNo, "TEST-LOGISTICS-1001");
       assert.equal(options.productLine, "扫地机");
+      await confirmationGate;
       return { confirmed: true, dryRun: false, message: "签收完成" };
+    },
+    uploadRmaAttachments: async () => {
+      uploadCount += 1;
+      return { uploaded: ["receipt.jpg"], skipped: [] };
     },
   };
   const url = await startServer(t, connector, store, USERS.sweep, {
+    receiptAttachmentStore: { read: async () => Buffer.from("test-photo") },
     env: {
       ...process.env,
       DRY_RUN: "true",
@@ -555,10 +681,19 @@ test("receipt-only live mode confirms Recloud before completing the local receip
 
   const completed = await post(url, "/api/repairs/complete-local-receipt", { rmaNo: "JXTH900001001" });
   assert.equal(completed.response.status, 200);
-  assert.equal(completed.result.data.recloudSynced, true);
-  assert.match(completed.result.data.message, /瑞云签收完成/);
+  assert.equal(completed.result.data.recloudSynced, false);
+  assert.equal(completed.result.data.recloudReceiptSyncStatus, "PENDING");
+  assert.match(completed.result.data.message, /后台同步/);
+  await waitForValue(() => confirmCount, 1);
+  releaseConfirmation();
+
+  await waitForValue(async () => {
+    const current = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
+    return current?.recloudReceiptSyncStatus;
+  }, "CONFIRMED");
   assert.equal(queryCount, 1);
   assert.equal(confirmCount, 1);
+  assert.equal(uploadCount, 1);
 
   const saved = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
   assert.equal(saved.status, "RECEIVED_PENDING_INSPECTION");
@@ -572,7 +707,106 @@ test("receipt-only live mode confirms Recloud before completing the local receip
   assert.equal(confirmCount, 1);
 });
 
-test("a failed Recloud receipt leaves the local order prepared", async (t) => {
+test("live receipt confirms first and then uploads its FieldDesk photo exactly once", async (t) => {
+  const store = await createTestStore(t);
+  await store.prepare({
+    ...validPayload(),
+    operatorId: USERS.sweep.userId,
+    operatorName: USERS.sweep.displayName,
+    remark: "扫地机",
+  });
+  const calls = [];
+  const connector = {
+    openRecloud: async () => ({ loginRequired: false, page: {} }),
+    queryRmaByLogisticsNo: async () => ({ rmaNo: "JXTH900001001", productLine: "扫地机" }),
+    confirmSign: async () => {
+      calls.push("receipt");
+      return { confirmed: true, dryRun: false, message: "签收完成" };
+    },
+    uploadRmaAttachments: async (_page, attachments, options) => {
+      calls.push("photo");
+      assert.equal(options.writeEnabled, true);
+      assert.equal(attachments.length, 1);
+      assert.equal(attachments[0].name, "receipt.jpg");
+      assert.deepEqual(attachments[0].buffer, Buffer.from("test-photo"));
+      return { uploaded: ["receipt.jpg"], skipped: [] };
+    },
+  };
+  const receiptAttachmentStore = {
+    read: async () => Buffer.from("test-photo"),
+  };
+  const url = await startServer(t, connector, store, USERS.sweep, {
+    receiptAttachmentStore,
+    env: {
+      ...process.env,
+      DRY_RUN: "true",
+      RECLOUD_WRITE_ENABLED: "false",
+      RECLOUD_RECEIPT_WRITE_ENABLED: "true",
+    },
+  });
+
+  const completed = await post(url, "/api/repairs/complete-local-receipt", { rmaNo: "JXTH900001001" });
+  assert.equal(completed.response.status, 200);
+  await waitForValue(async () => {
+    const current = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
+    return current?.recloudReceiptAttachmentSyncStatus;
+  }, "CONFIRMED");
+  assert.deepEqual(calls, ["receipt", "photo"]);
+
+  const saved = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
+  assert.equal(saved.recloudReceiptSyncStatus, "CONFIRMED");
+  assert.equal(saved.recloudReceiptAttachmentSyncStatus, "CONFIRMED");
+  assert.ok(saved.recloudReceiptAttachmentConfirmedAt);
+
+  const retried = await post(url, "/api/repairs/complete-local-receipt", { rmaNo: "JXTH900001001" });
+  assert.equal(retried.response.status, 200);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(calls, ["receipt", "photo"]);
+});
+
+test("an already signed order can retry only its missing receipt photo", async (t) => {
+  const store = await createTestStore(t);
+  await store.prepare({
+    ...validPayload(),
+    operatorId: USERS.sweep.userId,
+    operatorName: USERS.sweep.displayName,
+  });
+  await store.completeReceipt("JXTH900001001", USERS.sweep);
+  await store.markRecloudReceiptConfirmed("JXTH900001001", {
+    receipt: { confirmed: true, message: "签收完成" },
+    operator: USERS.sweep,
+  });
+  let confirmCount = 0;
+  let uploadCount = 0;
+  const connector = {
+    openRecloud: async () => ({ loginRequired: false, page: {} }),
+    queryRmaByLogisticsNo: async () => ({ rmaNo: "JXTH900001001", productLine: "扫地机" }),
+    confirmSign: async () => { confirmCount += 1; },
+    uploadRmaAttachments: async () => {
+      uploadCount += 1;
+      return { uploaded: ["receipt.jpg"], skipped: [] };
+    },
+  };
+  const url = await startServer(t, connector, store, USERS.admin, {
+    receiptAttachmentStore: { read: async () => Buffer.from("test-photo") },
+    env: {
+      ...process.env,
+      DRY_RUN: "true",
+      RECLOUD_WRITE_ENABLED: "false",
+      RECLOUD_RECEIPT_WRITE_ENABLED: "true",
+    },
+  });
+
+  const retried = await post(url, "/api/admin/recloud/receipt-attachments/retry", {
+    rmaNo: "JXTH900001001",
+  });
+  assert.equal(retried.response.status, 200);
+  assert.equal(retried.result.data.queued, true);
+  await waitForValue(() => uploadCount, 1);
+  assert.equal(confirmCount, 0);
+});
+
+test("a failed background Recloud receipt does not block the local workflow", async (t) => {
   const store = await createTestStore(t);
   await store.prepare({
     ...validPayload(),
@@ -596,14 +830,19 @@ test("a failed Recloud receipt leaves the local order prepared", async (t) => {
   });
 
   const completed = await post(url, "/api/repairs/complete-local-receipt", { rmaNo: "JXTH900001001" });
-  assert.equal(completed.response.status, 504);
+  assert.equal(completed.response.status, 200);
+  assert.equal(completed.result.data.recloudReceiptSyncStatus, "PENDING");
+  await waitForValue(async () => {
+    const current = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
+    return current?.recloudReceiptSyncStatus;
+  }, "FAILED");
   const saved = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
-  assert.equal(saved.status, "RECEIPT_PREPARED");
+  assert.equal(saved.status, "RECEIVED_PENDING_INSPECTION");
   assert.equal(saved.recloudReceiptSyncStatus, "FAILED");
-  assert.equal(saved.receiptCompletedAt, undefined);
+  assert.ok(saved.receiptCompletedAt);
 });
 
-test("an unknown Recloud confirmation result blocks automatic retry and enters reconciliation", async (t) => {
+test("an unknown background Recloud result enters reconciliation without blocking local work", async (t) => {
   const store = await createTestStore(t);
   await store.prepare({
     ...validPayload(),
@@ -633,15 +872,20 @@ test("an unknown Recloud confirmation result blocks automatic retry and enters r
   });
 
   const first = await post(url, "/api/repairs/complete-local-receipt", { rmaNo: "JXTH900001001" });
-  assert.equal(first.response.status, 409);
+  assert.equal(first.response.status, 200);
+  assert.equal(first.result.data.recloudReceiptSyncStatus, "PENDING");
+  await waitForValue(async () => {
+    const current = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
+    return current?.recloudReceiptSyncStatus;
+  }, "RESULT_UNKNOWN");
   const saved = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
-  assert.equal(saved.status, "RECEIPT_PREPARED");
+  assert.equal(saved.status, "RECEIVED_PENDING_INSPECTION");
   assert.equal(saved.recloudReceiptSyncStatus, "RESULT_UNKNOWN");
   assert.equal(saved.timeline.at(-1).type, "RECLOUD_RECEIPT_RESULT_UNKNOWN");
 
   const retried = await post(url, "/api/repairs/complete-local-receipt", { rmaNo: "JXTH900001001" });
-  assert.equal(retried.response.status, 409);
-  assert.equal(retried.result.code, "RECLOUD_RECEIPT_RECONCILIATION_REQUIRED");
+  assert.equal(retried.response.status, 200);
+  assert.equal(retried.result.data.recloudReceiptSyncStatus, "RESULT_UNKNOWN");
   assert.equal(confirmCount, 1);
 });
 
@@ -826,6 +1070,9 @@ test("current-user API exposes only the server-side account profile", async (t) 
     displayName: "测试双品类师傅",
     role: "TECHNICIAN",
     repairSpecialties: ["扫地机", "洗地机"],
+    recloudAssignmentMode: "DIRECT",
+    recloudAssigneeName: "",
+    recloudFallbackAssigneeName: "",
   });
   assert.equal("password" in result.data, false);
 });
@@ -858,6 +1105,10 @@ test("SN scan normalization uppercases without auto-submitting", async () => {
 
   assert.equal(helpers.normalizeReceiptSn(" sn-ab12 \n"), "SN-AB12");
   assert.equal(helpers.validateReceiptSn("SN-AB12", "SF12345678"), "");
+  assert.match(
+    helpers.validateReceiptSn("13800138000", "SF12345678"),
+    /疑似联系电话/
+  );
   assert.match(
     helpers.validateReceiptSn("sf12345678", "SF12345678"),
     /疑似物流单号/
@@ -922,6 +1173,13 @@ test("frontend enables SN step, restores receipt progress and submits idempotent
   assert.match(source, /receipt-inline-error/);
   assert.match(source, /recloudReceiptSyncStatus === "RESULT_UNKNOWN"/);
   assert.match(source, /attachment\.uploaded/);
+  assert.match(source, /validateReceiptSn\(localOrder\.sn, localOrder\.logisticsNo/);
+  assert.match(source, /returnedSnInvalid \? "" : result\.productSerialNo/);
+  assert.match(source, /localWorkflowInvalid \? null : result\.localWorkflow/);
+  assert.match(
+    source,
+    /async function searchRepair[\s\S]*?setRepairDetail\(null\)[\s\S]*?setReceiptMessage\(""\)[\s\S]*?setReceiptStep\("detail"\)/
+  );
   const crmService = await fs.readFile(
     path.join(__dirname, "../frontend/src/shared/crmService.js"),
     "utf8"

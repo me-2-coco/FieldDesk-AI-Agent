@@ -51,7 +51,8 @@ function AttachmentPreviewItem({ attachment, loadAttachment, onRemove, disabled,
         <strong title={attachment.name}>{attachment.name}</strong>
         {loadError && <small>{loadError}</small>}
       </div>
-      {onRemove && <button type="button" className="attachment-remove-button" onClick={() => onRemove(attachment.id)} disabled={disabled} aria-label={`移除${attachment.name}`}>移除</button>}
+      {attachment.locked && <span className="attachment-locked-badge">信息员凭证 · 不可删除</span>}
+      {onRemove && !attachment.locked && <button type="button" className="attachment-remove-button" onClick={() => onRemove(attachment.id)} disabled={disabled} aria-label={`移除${attachment.name}`}>移除</button>}
     </article>
   )
 }

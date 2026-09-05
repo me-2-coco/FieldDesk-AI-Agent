@@ -9,7 +9,8 @@ test("repair parts headers are matched by exact normalized aliases", () => {
   assert.equal(normalizeHeader(" 新件 编码\n"), "新件编码");
 });
 
-test("repair parts header matcher refuses missing and duplicate aliases", () => {
+test("repair parts header matcher refuses missing columns and prioritizes exact new-part columns", () => {
   assert.equal(findHeaderIndex(["产品明细"], ["新件编码", "配件编码"]), -1);
-  assert.equal(findHeaderIndex(["新件编码", "配件编码"], ["新件编码", "配件编码"]), -1);
+  assert.equal(findHeaderIndex(["新件编码", "配件编码"], ["新件编码", "配件编码"]), 0);
+  assert.equal(findHeaderIndex(["新件编码", "新件编码"], ["新件编码", "配件编码"]), -1);
 });

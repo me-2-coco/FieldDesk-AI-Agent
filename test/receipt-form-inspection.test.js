@@ -285,7 +285,7 @@ function createInspectionPage(options = {}) {
   };
   const dialog = {
     count: async () => 1,
-    isVisible: async () => true,
+    isVisible: async () => escapePresses === 0,
     getByLabel(pattern) {
       return {
         first: () =>
@@ -382,6 +382,7 @@ test("DRY_RUN inspection locates fields without filling or final confirmation", 
   assert.equal(fixture.escapePresses, 1);
   assert.equal(result.confirmed, false);
   assert.equal(result.recloudModified, false);
+  assert.equal(result.dialogClosed, true);
   assert.equal(result.fields.sn.name, "serialNumber");
   assert.equal(result.fields.remark.name, "remark");
   assert.deepEqual(logs, [
@@ -393,7 +394,6 @@ test("DRY_RUN inspection locates fields without filling or final confirmation", 
     "RECLOUD_RECEIPT_INSPECTION: snInputFound",
     "RECLOUD_RECEIPT_INSPECTION: remarkInputFound",
     "RECLOUD_RECEIPT_INSPECTION: confirmButtonFound",
-    "RECLOUD_RECEIPT_INSPECTION: dialog_closed_without_changes",
   ]);
 });
 

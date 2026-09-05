@@ -124,7 +124,7 @@ export async function queryCrmOrderByLogisticsNo(queryValue) {
 
   return request("/api/crm/repairs/query", {
     queryValue: value
-  })
+  }, { timeoutMs: 20000 })
 }
 
 export async function queryCrmRepairByAnyIdentifier(queryValue) {
@@ -177,7 +177,8 @@ export async function transferToHeadquarters(rmaNo) {
 }
 
 export async function saveInspection(payload) {
-  return request("/api/repairs/inspection", payload)
+  const rmaNo = String(payload?.rmaNo || "").trim()
+  return request("/api/repairs/inspection", payload, { idempotencyKey: `inspection-confirm:${rmaNo}` })
 }
 
 export async function getSupervisionOrders(rmaNo) {
@@ -202,6 +203,23 @@ export async function syncSupervisionOrders(payload) {
 
 export async function checkInspectionWarranty(payload) {
   return request("/api/repairs/inspection/warranty-check", payload)
+}
+
+export async function confirmInspectionWarranty(rmaNo, technicianWarranty, conversionRequested) {
+  return request("/api/repairs/inspection/warranty-confirm", { rmaNo, technicianWarranty, conversionRequested })
+}
+
+export async function getWarrantyConversionRequests() {
+  return get("/api/information/warranty-conversions")
+}
+
+export async function uploadWarrantyConversionProof(payload) {
+  return request("/api/information/warranty-conversions/attachments", payload)
+}
+
+export async function startRepair(rmaNo) {
+  const normalizedRmaNo = String(rmaNo || "").trim()
+  return request("/api/repairs/start-repair", { rmaNo: normalizedRmaNo }, { idempotencyKey: `repair-start:${normalizedRmaNo}` })
 }
 
 export async function searchRecloudFaultCategories(payload) {

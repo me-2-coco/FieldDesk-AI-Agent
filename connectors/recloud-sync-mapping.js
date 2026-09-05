@@ -24,6 +24,7 @@ const RECLOUD_INSPECTION_FIELD_TARGETS = Object.freeze({
   productFunctionDecision: { target: "成品功能判断", status: "CONFIRMED", control: "SELECT" },
   originalConsumables: { target: "是否原厂耗材", status: "FIXED_YES", control: "RADIO" },
   consumableName: { target: "耗材名称", status: "EXCLUDED", control: "TEXT_INPUT" },
+  faultContent: { target: "故障内容", status: "CONFIRMED", control: "SELECT" },
   faultDescription: { target: "故障描述", status: "EXCLUDED", control: "TEXT_INPUT" },
   dismantled: { target: "是否拆封", status: "EXCLUDED", control: "RADIO" },
   openedRemark: { target: "拆封备注", status: "EXCLUDED", control: "TEXT_INPUT" },
@@ -90,8 +91,11 @@ function buildRecloudInspectionFormPlan(payload = {}) {
     detectionResult: String(payload.detectionResult || payload.inspectionResult || "").trim(),
     productFunctionDecision: String(payload.productFunctionDecision || "功能问题").trim(),
     originalConsumables: "是",
+    faultContent: String(payload.faultContent || (payload.treatmentMode === "REPAIR" ? "故障复现" : "")).trim(),
   };
-  const requiredFields = skipsFaultCategory ? ["warrantyStatus", "detectionResult"] : ["faultCategory", "warrantyStatus", "detectionResult"];
+  const requiredFields = skipsFaultCategory
+    ? ["warrantyStatus", "detectionResult", "faultContent"]
+    : ["faultCategory", "warrantyStatus", "detectionResult", "faultContent"];
   const missingFields = requiredFields
     .filter((key) => !fields[key]);
   return {
@@ -291,6 +295,8 @@ function buildNodePayload(order, nodeType) {
     },
     INSPECTION_COMPLETED: {
       treatmentMode: order.treatmentMode,
+      reportedFault: order.reportedFault,
+      faultContent: order.faultContent || (order.treatmentMode === "REPAIR" ? "故障复现" : ""),
       inspectionResult: order.inspectionResult,
       inspectionRemark: order.inspectionRemark,
       inspectionCompletedAt: order.inspectionUpdatedAt,
@@ -305,7 +311,9 @@ function buildNodePayload(order, nodeType) {
       dismantled: order.dismantled,
     },
     REPAIR_COMPLETED: {
-      assignee: order.technicianName || order.operatorName,
+      assignee: order.recloudRepairPreparation?.assignee || order.technicianName || order.operatorName,
+      assignmentSource: order.recloudRepairPreparation?.assignmentSource || "",
+      repairPreparationCompletedAt: order.recloudRepairPreparation?.completedAt || "",
       treatmentMode: order.treatmentMode,
       faultLevel1: completion.faultLevel1,
       faultLevel2: completion.faultLevel2,

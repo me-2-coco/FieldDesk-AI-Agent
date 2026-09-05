@@ -25,6 +25,8 @@ const { JsonRecloudSyncOutbox } = require("./database/recloud-sync-outbox");
 const { createRecloudAdapter } = require("./connectors/recloud-adapter");
 const { RecloudSyncService } = require("./services/recloud-sync-service");
 const { createRecloudCommandExecutor } = require("./services/recloud-command-executor");
+const { orchestrateRepairStart } = require("./services/recloud-repair-start-orchestrator");
+const { createRecloudRepairPageAdapter } = require("./connectors/recloud-repair-page-adapter");
 const { assessRecloudRepairPageReadiness } = require("./services/recloud-repair-page-readiness");
 const { JsonRecloudSyncDiagnosticsStore } = require("./database/recloud-sync-diagnostics-store");
 const { JsonRecloudRepairCheckpointStore } = require("./database/recloud-repair-checkpoint-store");
@@ -56,6 +58,7 @@ const {
 } = require("./services/recloud-supervision-monitor");
 const { PendingReceiptSync, pendingReceiptSyncEnabled, pendingReceiptSyncInterval } = require('./services/pending-receipt-sync');
 const { buildInspectionFormDecision } = require("./services/inspection-form-rules");
+const { resolveRecloudTechnician } = require("./services/recloud-technician-mapping");
 const {
   assessRecloudInspectionControlMapping,
   buildRecloudInspectionFormPlan,
@@ -137,6 +140,14 @@ function isRecloudReceiptWriteEnabled(env = process.env) {
   const receiptOverride = env.RECLOUD_RECEIPT_WRITE_ENABLED;
   if (receiptOverride !== undefined) {
     return String(receiptOverride).toLowerCase() === "true";
+  }
+  return !isDryRun(env) && isRecloudWriteEnabled(env);
+}
+
+function isRecloudInspectionWriteEnabled(env = process.env) {
+  const inspectionOverride = env.RECLOUD_INSPECTION_WRITE_ENABLED;
+  if (inspectionOverride !== undefined) {
+    return String(inspectionOverride).toLowerCase() === "true";
   }
   return !isDryRun(env) && isRecloudWriteEnabled(env);
 }
@@ -251,26 +262,32 @@ function validateReceiptSn(value, logisticsNo = "") {
 }
 
 async function withRecloud(connector, operation, options = {}) {
-  let state = withRecloud.queues.get(connector);
-  if (!state) {
-    state = { tail: Promise.resolve(), foregroundWaiting: 0 };
-    withRecloud.queues.set(connector, state);
+  let coordinator = withRecloud.queues.get(connector);
+  if (!coordinator) {
+    coordinator = { channels: new Map(), foregroundWaiting: 0 };
+    withRecloud.queues.set(connector, coordinator);
   }
   const foreground = options.background !== true;
-  if (foreground) state.foregroundWaiting += 1;
+  const channel = foreground ? "foreground" : "background";
+  let state = coordinator.channels.get(channel);
+  if (!state) {
+    state = { tail: Promise.resolve() };
+    coordinator.channels.set(channel, state);
+  }
+  if (foreground) coordinator.foregroundWaiting += 1;
   const previous = state.tail;
   const current = previous.catch(() => {}).then(async () => {
-    const session = await connector.openRecloud();
+    const session = await connector.openRecloud({ channel });
     if (session.loginRequired) {
       const error = new Error("请重新初始化瑞云登录状态");
       error.code = "RECLOUD_LOGIN_REQUIRED";
       throw error;
     }
     return await operation(session.page, {
-      shouldYield: () => options.background === true && state.foregroundWaiting > 0,
+      shouldYield: () => options.background === true && coordinator.foregroundWaiting > 0,
     });
   }).finally(() => {
-    if (foreground) state.foregroundWaiting = Math.max(0, state.foregroundWaiting - 1);
+    if (foreground) coordinator.foregroundWaiting = Math.max(0, coordinator.foregroundWaiting - 1);
   });
   state.tail = current;
   return current;
@@ -389,6 +406,9 @@ function createApp(
         displayName: user.displayName,
         role: user.role,
         repairSpecialties: getAllowedRepairSpecialties(user),
+        recloudAssignmentMode: user.recloudAssignmentMode || "DIRECT",
+        recloudAssigneeName: user.recloudAssigneeName || "",
+        recloudFallbackAssigneeName: user.recloudFallbackAssigneeName || "",
       } });
     } catch (error) { next(error); }
   });
@@ -444,6 +464,266 @@ function createApp(
     }
   }
 
+  const activeReceiptSyncs = new Set();
+
+  function scheduleRecloudReceiptSync(order, operator = {}, attemptId = "") {
+    const rmaNo = String(order?.rmaNo || "").trim();
+    const receiptNeedsSync = !order?.recloudReceiptConfirmedAt;
+    const attachments = Array.isArray(order?.receiptAttachments)
+      ? order.receiptAttachments
+      : [];
+    const attachmentsNeedSync = attachments.length > 0
+      && !order?.recloudReceiptAttachmentConfirmedAt
+      && order?.recloudReceiptAttachmentSyncStatus !== "RESULT_UNKNOWN";
+    if (
+      !rmaNo ||
+      !isRecloudReceiptWriteEnabled(runtimeEnv) ||
+      (!receiptNeedsSync && !attachmentsNeedSync) ||
+      (receiptNeedsSync && order.recloudReceiptSyncStatus === "RESULT_UNKNOWN") ||
+      activeReceiptSyncs.has(rmaNo)
+    ) {
+      return false;
+    }
+
+    activeReceiptSyncs.add(rmaNo);
+    setImmediate(async () => {
+      try {
+        const result = await withRecloud(connector, async (page) => {
+          const detail = await connector.queryRmaByLogisticsNo(
+            page,
+            order.logisticsNo,
+            { preserveDetailPage: true }
+          );
+          if (detail.rmaNo && detail.rmaNo !== rmaNo) {
+            throw createApiError(
+              "RECLOUD_RECEIPT_ORDER_MISMATCH",
+              "瑞云查询结果与当前寄修单不一致，已停止签收",
+              409
+            );
+          }
+          let receipt = null;
+          if (receiptNeedsSync) {
+            await receiptStore.markRecloudReceiptSyncing(rmaNo, {
+              attemptId,
+              operator,
+            });
+            try {
+              receipt = await connector.confirmSign(
+                page,
+                order.sn,
+                detail.productType || detail.productLine || order.productLine,
+                order.remark || order.specialty,
+                {
+                  dryRun: false,
+                  logisticsNo: order.logisticsNo,
+                  productLine:
+                    detail.productLine || detail.productType || order.productLine,
+                }
+              );
+              if (!receipt?.confirmed) {
+                throw createApiError(
+                  "RECLOUD_RECEIPT_NOT_CONFIRMED",
+                  "瑞云未确认签收",
+                  502
+                );
+              }
+              await receiptStore.markRecloudReceiptConfirmed(rmaNo, {
+                receipt,
+                operator,
+              });
+            } catch (error) {
+              await receiptStore.markRecloudReceiptFailed(rmaNo, {
+                code: error.code,
+                resultUnknown:
+                  error.resultUnknown === true ||
+                  error.code === "RECLOUD_RECEIPT_RESULT_UNKNOWN",
+                operator,
+              }).catch(() => {});
+              throw error;
+            }
+          }
+
+          let attachmentResult = null;
+          if (attachmentsNeedSync) {
+            await receiptStore.markRecloudReceiptAttachmentsSyncing(rmaNo);
+            try {
+              const hydrated = await Promise.all(attachments.map(async (attachment) => ({
+                ...attachment,
+                buffer: await receiptAttachmentStore.read(rmaNo, attachment),
+              })));
+              attachmentResult = await connector.uploadRmaAttachments(
+                page,
+                hydrated,
+                { writeEnabled: true }
+              );
+              await receiptStore.markRecloudReceiptAttachmentsConfirmed(rmaNo, {
+                result: attachmentResult,
+                operator,
+              });
+            } catch (error) {
+              await receiptStore.markRecloudReceiptAttachmentsFailed(rmaNo, {
+                code: error.code,
+                resultUnknown:
+                  error.resultUnknown === true ||
+                  error.code === "RECLOUD_RMA_ATTACHMENT_RESULT_UNKNOWN",
+              }).catch(() => {});
+              throw error;
+            }
+          }
+          return { receipt, attachmentResult };
+        }, { background: true });
+        return result;
+      } catch (error) {
+        console.error(`RECLOUD_RECEIPT_BACKGROUND: failed ${error.code || "UNKNOWN"}`);
+      } finally {
+        activeReceiptSyncs.delete(rmaNo);
+      }
+    });
+    return true;
+  }
+
+  const activeDetectionSyncs = new Set();
+
+  function scheduleRecloudDetectionSync(order, operator = {}) {
+    const rmaNo = String(order?.rmaNo || "").trim();
+    if (
+      !rmaNo ||
+      !isRecloudInspectionWriteEnabled(runtimeEnv) ||
+      order.recloudDetectionConfirmedAt ||
+      order.recloudDetectionSyncStatus === "RESULT_UNKNOWN" ||
+      activeDetectionSyncs.has(rmaNo)
+    ) {
+      return false;
+    }
+    activeDetectionSyncs.add(rmaNo);
+    setImmediate(async () => {
+      try {
+        await receiptStore.markRecloudDetectionSyncing(rmaNo);
+        const liveResult = await withRecloud(connector, async (page) => {
+          const detail = await connector.queryRmaByLogisticsNo(page, order.logisticsNo, {
+            preserveDetailPage: true,
+          });
+          if (detail.rmaNo && detail.rmaNo !== rmaNo) {
+            throw createApiError(
+              "RECLOUD_DETECTION_ORDER_MISMATCH",
+              "瑞云查询结果与当前寄修单不一致，已停止检测",
+              409
+            );
+          }
+          return connector.confirmDetection(page, {
+            treatmentMode: order.treatmentMode,
+            faultCategory: order.faultCategory,
+            warrantyStatus: order.technicianWarranty,
+            detectionResult: order.detectionResult,
+            inspectionResult: order.inspectionResult,
+            productFunctionDecision: order.productFunctionDecision,
+            reportedFault: order.reportedFault,
+          }, {
+            dryRun: false,
+            writeEnabled: true,
+          });
+        }, { background: true });
+        if (!liveResult?.confirmed) {
+          throw createApiError("RECLOUD_DETECTION_NOT_CONFIRMED", "瑞云未确认检测", 502);
+        }
+        await receiptStore.markRecloudDetectionConfirmed(rmaNo, { operator });
+      } catch (error) {
+        await receiptStore.markRecloudDetectionFailed(rmaNo, {
+          code: error.code,
+          resultUnknown:
+            error.resultUnknown === true ||
+            error.code === "RECLOUD_DETECTION_RESULT_UNKNOWN",
+        }).catch(() => {});
+        console.error(
+          `RECLOUD_DETECTION_BACKGROUND: failed ${error.code || "UNKNOWN"}`,
+          JSON.stringify({
+            name: error.name || "Error",
+            message: error.message || "",
+            fieldKey: error.fieldKey || "",
+            validationMessages: error.validationMessages || [],
+          })
+        );
+      } finally {
+        activeDetectionSyncs.delete(rmaNo);
+      }
+    });
+    return true;
+  }
+
+  const activeServiceOrderSyncs = new Set();
+
+  function scheduleRecloudServiceOrderSync(order, operator = {}) {
+    const rmaNo = String(order?.rmaNo || "").trim();
+    if (
+      !rmaNo ||
+      !isRecloudInspectionWriteEnabled(runtimeEnv) ||
+      order.recloudServiceOrderCreatedAt ||
+      order.recloudServiceOrderSyncStatus === "RESULT_UNKNOWN" ||
+      activeServiceOrderSyncs.has(rmaNo)
+    ) return false;
+    activeServiceOrderSyncs.add(rmaNo);
+    setImmediate(async () => {
+      let serviceOrderCreated = false;
+      try {
+        await receiptStore.markRecloudServiceOrderSyncing(rmaNo);
+        let preparationResult = null;
+        const liveResult = await withRecloud(connector, async (page) => {
+          const detail = await connector.queryRmaByLogisticsNo(page, order.logisticsNo, { preserveDetailPage: true });
+          if (detail.rmaNo && detail.rmaNo !== rmaNo) {
+            throw createApiError("RECLOUD_REPAIR_ORDER_MISMATCH", "瑞云查询结果与当前寄修单不一致", 409);
+          }
+          const result = await connector.startRepair(page, { dryRun: false, writeEnabled: true });
+          if (!result?.serviceOrderCreated) {
+            throw createApiError("RECLOUD_SERVICE_ORDER_NOT_CREATED", "瑞云未确认创建维修服务单", 502);
+          }
+          serviceOrderCreated = true;
+          await receiptStore.markRecloudServiceOrderConfirmed(rmaNo, operator);
+          if (!options.recloudRepairPageAdapterFactory) {
+            throw createApiError("RECLOUD_FIRST_ENTRY_ADAPTER_REQUIRED", "缺少首次进入服务单执行器，禁止退出后重新进入补改派", 502);
+          }
+          const adapter = options.recloudRepairPageAdapterFactory(page, {
+            rmaNo,
+            logisticsNo: order.logisticsNo,
+            payload: order.recloudRepairPreparation,
+          });
+          preparationResult = await orchestrateRepairStart({
+            assignee: order.recloudRepairPreparation?.assignee,
+            assignmentSource: order.recloudRepairPreparation?.assignmentSource,
+            warrantyConversionRequested: order.recloudRepairPreparation?.warrantyConversionRequested === true,
+            usedParts: order.recloudRepairPreparation?.usedParts || [],
+          }, adapter, { writeEnabled: true });
+          return result;
+        }, { background: true });
+        if (!liveResult?.serviceOrderCreated) {
+          throw createApiError("RECLOUD_SERVICE_ORDER_NOT_CREATED", "瑞云未确认创建维修服务单", 502);
+        }
+        if (preparationResult?.status !== "SUCCESS") {
+          throw createApiError("RECLOUD_REPAIR_PREPARATION_NOT_CONFIRMED", "瑞云改派、保外转保内或配件未全部确认", 502);
+        }
+        await receiptStore.markRecloudRepairPreparationConfirmed?.(rmaNo, preparationResult, operator);
+      } catch (error) {
+        if (serviceOrderCreated) {
+          await receiptStore.markRecloudRepairPreparationFailed?.(rmaNo, {
+            code: error.code,
+            message: error.message,
+          }).catch(() => {});
+        } else {
+          await receiptStore.markRecloudServiceOrderFailed(rmaNo, {
+            code: error.code,
+            resultUnknown: error.resultUnknown === true || error.code === "RECLOUD_REPAIR_START_RESULT_UNKNOWN",
+          }).catch(() => {});
+        }
+        console.error(
+          `RECLOUD_SERVICE_ORDER_BACKGROUND: failed ${error.code || "UNKNOWN"}`,
+          JSON.stringify({ name: error.name || "Error", message: error.message || "" })
+        );
+      } finally {
+        activeServiceOrderSyncs.delete(rmaNo);
+      }
+    });
+    return true;
+  }
+
   app.get("/api/health", (req, res) => {
     res.json({
       success: true,
@@ -451,6 +731,7 @@ function createApp(
       dryRun: isDryRun(runtimeEnv),
       recloudWriteEnabled: isRecloudWriteEnabled(runtimeEnv),
       receiptWriteEnabled: isRecloudReceiptWriteEnabled(runtimeEnv),
+      inspectionWriteEnabled: isRecloudInspectionWriteEnabled(runtimeEnv),
     });
   });
 
@@ -483,6 +764,9 @@ function createApp(
         displayName: user.displayName,
         role: user.role,
         repairSpecialties: getAllowedRepairSpecialties(user),
+        recloudAssignmentMode: user.recloudAssignmentMode || "DIRECT",
+        recloudAssigneeName: user.recloudAssigneeName || "",
+        recloudFallbackAssigneeName: user.recloudFallbackAssigneeName || "",
       },
     });
   });
@@ -704,12 +988,7 @@ function createApp(
             phoneRevealTimeout: 3000,
           });
         };
-        try {
-          return await queryOnline();
-        } catch (error) {
-          if (error.code !== "RECLOUD_QUERY_TIMEOUT") throw error;
-          return await queryOnline();
-        }
+        return await queryOnline();
       });
       if (localFallbackData && !Array.isArray(data?.matches)) {
         data = {
@@ -1726,64 +2005,19 @@ function createApp(
         throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到本地签收准备记录", 404);
       }
       validateReceiptCompletion(prepared);
-      let recloudSynced = Boolean(prepared.recloudReceiptConfirmedAt);
-      if (isRecloudReceiptWriteEnabled(runtimeEnv) && !recloudSynced) {
-        await receiptStore.markRecloudReceiptSyncing(rmaNo, {
-          attemptId: String(req.headers["idempotency-key"] || "").trim(),
-          operator: currentUser,
-        });
-        let liveResult;
-        try {
-          liveResult = await withRecloud(connector, async (page) => {
-            const detail = await connector.queryRmaByLogisticsNo(
-              page,
-              prepared.logisticsNo,
-              { preserveDetailPage: true }
-            );
-            if (detail.rmaNo && detail.rmaNo !== prepared.rmaNo) {
-              throw createApiError(
-                "RECLOUD_RECEIPT_ORDER_MISMATCH",
-                "瑞云查询结果与当前寄修单不一致，已停止签收",
-                409
-              );
-            }
-            const receipt = await connector.confirmSign(
-              page,
-              prepared.sn,
-              detail.productType || detail.productLine || prepared.productLine,
-              prepared.remark || prepared.specialty,
-              {
-                dryRun: false,
-                logisticsNo: prepared.logisticsNo,
-                productLine:
-                  detail.productLine || detail.productType || prepared.productLine,
-              }
-            );
-            if (!receipt?.confirmed) {
-              throw createApiError("RECLOUD_RECEIPT_NOT_CONFIRMED", "瑞云未确认签收，本地状态未改变", 502);
-            }
-            return { detail, receipt };
-          });
-        } catch (error) {
-          await receiptStore.markRecloudReceiptFailed(rmaNo, {
-            code: error.code,
-            resultUnknown: error.resultUnknown === true
-              || error.code === "RECLOUD_RECEIPT_RESULT_UNKNOWN",
-            operator: currentUser,
-          });
-          throw error;
-        }
-        await receiptStore.markRecloudReceiptConfirmed(rmaNo, {
-          receipt: liveResult.receipt,
-          operator: currentUser,
-        });
-        recloudSynced = true;
-      }
       const data = await receiptStore.completeReceipt(
         rmaNo,
         currentUser
       );
-      await enqueueRecloudNode(data, "RECEIPT", data.receiptCompletedAt || data.id);
+      const recloudSynced = Boolean(data.recloudReceiptConfirmedAt);
+      const recloudSyncQueued = scheduleRecloudReceiptSync(
+        data,
+        currentUser,
+        String(req.headers["idempotency-key"] || "").trim()
+      );
+      if (!isRecloudReceiptWriteEnabled(runtimeEnv)) {
+        await enqueueRecloudNode(data, "RECEIPT", data.receiptCompletedAt || data.id);
+      }
       // A supervision order may have arrived before the technician received the
       // machine. Recheck immediately after receipt so it can be routed to the
       // assigned technician without waiting for the periodic monitor tick.
@@ -1795,11 +2029,17 @@ function createApp(
           statusLabel: "已签收/待选择处理方式",
           message: recloudSynced
             ? "瑞云签收完成，请选择维修、弃修、只检测不维修或调试"
-            : "演示签收完成，请选择维修、弃修、只检测不维修或调试",
+            : recloudSyncQueued
+              ? "FieldDesk 签收完成，瑞云正在后台同步，请继续下一步"
+              : data.recloudReceiptSyncStatus === "RESULT_UNKNOWN"
+                ? "FieldDesk 签收完成，瑞云结果等待管理员核对，请继续下一步"
+                : "演示签收完成，请选择维修、弃修、只检测不维修或调试",
           recloudSynced,
           recloudReceiptSyncStatus: recloudSynced
             ? "CONFIRMED"
-            : data.recloudReceiptSyncStatus || "LOCAL_ONLY",
+            : recloudSyncQueued
+              ? "PENDING"
+              : data.recloudReceiptSyncStatus || "LOCAL_ONLY",
         },
       });
     } catch (error) {
@@ -1812,9 +2052,9 @@ function createApp(
     const treatmentMode = String(req.body?.treatmentMode || "").trim();
     const decisions = {
       REPAIR: { label: "维修", detectionResult: "维修", nextStep: "partsApplication" },
-      ABANDONED: { label: "弃修", detectionResult: "弃修", nextStep: "repairCompletion" },
-      INSPECTION_ONLY: { label: "只检测不维修", detectionResult: "只检测不维修", nextStep: "repairCompletion" },
-      DEBUGGING: { label: "调试", detectionResult: "维修", nextStep: "repairCompletion" },
+      ABANDONED: { label: "弃修", detectionResult: "弃修", nextStep: "repairProcess" },
+      INSPECTION_ONLY: { label: "只检测不维修", detectionResult: "只检测不维修", nextStep: "repairProcess" },
+      DEBUGGING: { label: "调试", detectionResult: "维修", nextStep: "repairProcess" },
     };
     if (!rmaNo) return next(createApiError("TREATMENT_DECISION_INVALID", "缺少必填字段：rmaNo", 400));
     if (!decisions[treatmentMode]) return next(createApiError("TREATMENT_MODE_INVALID", "请选择维修、弃修、只检测不维修或调试", 400));
@@ -1840,12 +2080,6 @@ function createApp(
         technicianWarranty: warranty.status === "DETERMINED" ? warranty.warrantyStatus : "",
         warrantyDecision: warranty,
       }, currentUserProvider(req));
-      // No-parts treatments are complete inspection decisions by themselves.
-      // Their Recloud inspection task can safely use the selected detection
-      // result without inventing a fault classification.
-      if (treatmentMode !== "REPAIR") {
-        await enqueueRecloudNode(data, "INSPECTION_COMPLETED", data.inspectionUpdatedAt || data.id);
-      }
       return res.json({
         success: true,
         data: {
@@ -1853,7 +2087,7 @@ function createApp(
           nextStep: decision.nextStep,
           message: treatmentMode === "REPAIR"
             ? "已选择维修，下一步申请配件"
-            : `已选择${decision.label}，已跳过配件申请`,
+            : `已选择${decision.label}，下一步登记故障分类并完成检测`,
           recloudDetectionResult: decision.detectionResult,
           recloudDetectionPending: false,
         },
@@ -1878,6 +2112,37 @@ function createApp(
     } catch (error) { next(error); }
   });
 
+  app.post("/api/admin/recloud/receipt-attachments/retry", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      if (![USER_ROLES.ADMIN, USER_ROLES.INFORMATION_CLERK].includes(user.role)) {
+        throw createApiError("RECLOUD_ATTACHMENT_RETRY_FORBIDDEN", "只有管理员或信息员可以重试瑞云签收照片", 403);
+      }
+      const rmaNo = String(req.body?.rmaNo || "").trim();
+      if (!rmaNo) throw createApiError("RECEIPT_PREPARATION_INVALID", "缺少必填字段：rmaNo", 400);
+      const order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
+      if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到本地签收准备记录", 404);
+      if (!(order.receiptAttachments || []).length) {
+        throw createApiError("RECEIPT_ATTACHMENT_REQUIRED", "该工单没有可同步的签收照片", 409);
+      }
+      if (!order.recloudReceiptConfirmedAt) {
+        throw createApiError("RECLOUD_RECEIPT_NOT_CONFIRMED", "请先核实瑞云签收状态，再单独重试照片", 409);
+      }
+      if (order.recloudReceiptAttachmentSyncStatus === "RESULT_UNKNOWN") {
+        throw createApiError("RECLOUD_ATTACHMENT_RECONCILIATION_REQUIRED", "照片上传结果未知，请先在瑞云人工核对", 409);
+      }
+      const queued = scheduleRecloudReceiptSync(order, user, crypto.randomUUID());
+      return res.json({
+        success: true,
+        data: {
+          rmaNo,
+          queued,
+          message: queued ? "签收照片已进入后台同步" : "签收照片无需同步或已有任务执行中",
+        },
+      });
+    } catch (error) { return next(error); }
+  });
+
   app.post("/api/repairs/inspection", async (req, res, next) => {
     const rmaNo = String(req.body?.rmaNo || "").trim();
     if (!rmaNo) {
@@ -1894,6 +2159,9 @@ function createApp(
       }
       const order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
       if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到待检测工单", 404);
+      if (order.treatmentMode === "REPAIR" && (!(order.partApplications || []).length || !order.partsConfirmedAt)) {
+        throw createApiError("REPAIR_PARTS_NOT_CONFIRMED", "请先添加并确认维修配件，再进行故障分类和检测", 409);
+      }
       const warranty = evaluateWarranty({
         sn: order.sn,
         purchaseDate: order.purchaseDate,
@@ -1916,6 +2184,7 @@ function createApp(
           decision.status === "MANUAL_CONFIRMATION_REQUIRED" ? 409 : 400
         );
       }
+      const recloudWriteEnabled = isRecloudInspectionWriteEnabled(runtimeEnv);
       const data = await receiptStore.saveInspection(
         rmaNo,
         {
@@ -1932,27 +2201,121 @@ function createApp(
           originalConsumables: decision.fields.originalConsumables,
           consumableName: decision.fields.consumableName,
           dismantled: decision.fields.dismantled,
+          recloudDetectionSyncStatus: recloudWriteEnabled ? "PENDING" : "NOT_STARTED",
         },
         currentUserProvider(req)
       );
-      await enqueueRecloudNode(data, "INSPECTION_COMPLETED", data.inspectionUpdatedAt || data.id);
+      const recloudSyncQueued = recloudWriteEnabled
+        ? scheduleRecloudDetectionSync(data, currentUserProvider(req))
+        : false;
+      if (!recloudWriteEnabled) {
+        await enqueueRecloudNode(data, "INSPECTION_COMPLETED", data.inspectionUpdatedAt || data.id);
+      }
       const recloudPrefillPlan = buildRecloudInspectionFormPlan({
         faultCategory: data.faultCategory,
         warrantyStatus: data.technicianWarranty,
         detectionResult: data.detectionResult,
+        reportedFault: data.reportedFault,
       });
       return res.json({
         success: true,
         data: {
           ...data,
           recloudPrefillPlan,
-          message: "检测信息已保存到 FieldDesk；请按瑞云预填清单人工核对后确认",
-          recloudSynced: false,
+          message: recloudSyncQueued
+            ? "FieldDesk 检测已保存，瑞云正在后台检测；可立即进入下一步"
+            : data.recloudDetectionConfirmedAt
+              ? "瑞云检测已确认，可立即进入下一步"
+              : "检测信息已保存到 FieldDesk；请按瑞云预填清单人工核对后确认",
+          recloudSynced: Boolean(data.recloudDetectionConfirmedAt),
+          recloudDetectionSyncStatus: recloudSyncQueued
+            ? "PENDING"
+            : data.recloudDetectionSyncStatus || "NOT_STARTED",
+          recloudResult: null,
         },
       });
     } catch (error) {
       return next(error);
     }
+  });
+
+  app.post("/api/repairs/start-repair", async (req, res, next) => {
+    try {
+      const rmaNo = String(req.body?.rmaNo || "").trim();
+      if (!rmaNo) throw createApiError("REPAIR_START_INVALID", "缺少必填字段：rmaNo", 400);
+      const order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
+      if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到待维修工单", 404);
+      if (order.treatmentMode !== "REPAIR") throw createApiError("REPAIR_START_NOT_REQUIRED", "当前处理方式无需创建维修服务单", 409);
+      if (!order.inspectionUpdatedAt) throw createApiError("INSPECTION_REQUIRED", "请先完成检测", 409);
+      const recloudWriteEnabled = isRecloudInspectionWriteEnabled(runtimeEnv);
+      if (recloudWriteEnabled && !order.recloudDetectionConfirmedAt) {
+        throw createApiError(
+          "RECLOUD_DETECTION_NOT_CONFIRMED",
+          order.recloudDetectionSyncStatus === "FAILED"
+            ? "瑞云检测同步失败，请先重试检测；尚未真实检测成功，不能进入维修"
+            : "瑞云检测仍在后台处理中；确认成功后才能进入维修",
+          409
+        );
+      }
+      if (
+        recloudWriteEnabled &&
+        !options.recloudRepairPageAdapterFactory &&
+        !options.recloudRepairAdapterProvider?.open
+      ) {
+        throw createApiError(
+          "RECLOUD_REPAIR_EXECUTOR_NOT_CONFIGURED",
+          "瑞云维修执行器尚未接入，已阻止进入维修，避免出现 FieldDesk 已进入但瑞云未操作",
+          503
+        );
+      }
+      const operator = currentUserProvider(req);
+      const recloudTechnician = resolveRecloudTechnician(operator, {
+        defaultFallbackAssignee: runtimeEnv.RECLOUD_DEFAULT_FALLBACK_ASSIGNEE,
+      });
+      const appliedParts = (await hydratePartApplications(order)).map((part) => ({
+        partCode: part.partCode,
+        partName: part.partName,
+        quantity: part.quantity,
+        repairLevel: part.repairLevel,
+        returnRequired: Boolean(part.returnRequired),
+      }));
+      const usedParts = appliedParts.length
+        ? appliedParts
+        : await inventoryStore.usedPartsForOrder(order.rmaNo, order.sn);
+      const repairPreparation = {
+        fieldDeskUserId: recloudTechnician.fieldDeskUserId,
+        fieldDeskDisplayName: recloudTechnician.fieldDeskDisplayName,
+        assignee: recloudTechnician.servicePerson,
+        assignmentSource: recloudTechnician.source,
+        warrantyConversionRequested: order.manufacturerWarrantyConversion?.requested === true,
+        usedParts,
+        capturedAt: new Date().toISOString(),
+      };
+      const data = await receiptStore.startRepair(rmaNo, {
+        recloudSynced: Boolean(order.recloudServiceOrderCreatedAt),
+        recloudSyncStatus: recloudWriteEnabled ? "PENDING" : "NOT_STARTED",
+        repairPreparation,
+      }, operator);
+      const recloudSyncQueued = recloudWriteEnabled
+        ? scheduleRecloudServiceOrderSync(data, operator)
+        : false;
+      res.json({
+        success: true,
+        data: {
+          ...data,
+          nextStep: "repairCompletion",
+          recloudResult: null,
+          recloudServiceOrderSyncStatus: recloudSyncQueued
+            ? "PENDING"
+            : data.recloudServiceOrderSyncStatus || "NOT_STARTED",
+          message: recloudSyncQueued
+            ? "已进入维修，瑞云服务单正在后台创建"
+            : data.recloudServiceOrderCreatedAt
+              ? "瑞云维修服务单已创建，进入维修"
+              : "演示模式：已进入维修，未操作瑞云",
+        },
+      });
+    } catch (error) { next(error); }
   });
 
   app.post("/api/repairs/supervision/capture", async (req, res, next) => {
@@ -2073,6 +2436,76 @@ function createApp(
     } catch (error) {
       return next(error);
     }
+  });
+
+  app.post("/api/repairs/inspection/warranty-confirm", async (req, res, next) => {
+    try {
+      const rmaNo = String(req.body?.rmaNo || "").trim();
+      if (!rmaNo) throw createApiError("WARRANTY_DECISION_INVALID", "缺少必填字段：rmaNo", 400);
+      const order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
+      if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到已签收工单", 404);
+      const warranty = evaluateWarranty({
+        sn: order.sn,
+        purchaseDate: order.purchaseDate,
+        warrantyYears: order.modelAuthorization?.warrantyYears || 2,
+        isOfficialRefurbished: order.modelAuthorization?.isOfficialRefurbished === true,
+      });
+      if (warranty.status !== "DETERMINED") {
+        throw createApiError("WARRANTY_MANUAL_CONFIRMATION_REQUIRED", warranty.reason || "保修状态无法自动判断，需人工确认", 409);
+      }
+      const technicianWarranty = String(req.body?.technicianWarranty || "").trim();
+      if (!["保内", "保外"].includes(technicianWarranty)) {
+        throw createApiError("WARRANTY_STATUS_REQUIRED", "请由师傅明确选择保内或保外", 400);
+      }
+      const conversionRequested = req.body?.conversionRequested === true;
+      if (conversionRequested && technicianWarranty !== "保外") {
+        throw createApiError("WARRANTY_CONVERSION_NOT_APPLICABLE", "只有当前状态为保外时才能选择保外转保内", 400);
+      }
+      const data = await receiptStore.saveWarrantyDecision(rmaNo, {
+        technicianWarranty,
+        conversionRequested,
+        warrantyDecision: warranty,
+      }, currentUserProvider(req));
+      const conversionMessage = conversionRequested ? "，已通知信息员申请并上传凭证" : "";
+      res.json({ success: true, data: { ...data, nextStep: "repairDecision", message: `已确认${technicianWarranty}${conversionMessage}，请选择处理方式` } });
+    } catch (error) { next(error); }
+  });
+
+  app.get("/api/information/warranty-conversions", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      if (![USER_ROLES.INFORMATION_CLERK, USER_ROLES.ADMIN].includes(user.role)) {
+        throw createApiError("WARRANTY_CONVERSION_FORBIDDEN", "只有信息员或管理员可以查看保外转保内申请", 403);
+      }
+      const records = (await receiptStore.readAll())
+        .filter((order) => order.manufacturerWarrantyConversion?.requested === true)
+        .map((order) => ({
+          rmaNo: order.rmaNo, logisticsNo: order.logisticsNo, sn: order.sn,
+          productLine: order.productLine || order.specialty || "",
+          customerName: order.customerName || "", technicianName: order.technicianName || order.operatorName || "",
+          status: order.manufacturerWarrantyConversion.status || "PENDING_APPROVAL",
+          requestedAt: order.manufacturerWarrantyConversion.requestedAt || order.warrantyConfirmedAt || "",
+          approvalNo: order.manufacturerWarrantyConversion.approvalNo || "",
+          proofAttachments: order.manufacturerWarrantyConversion.proofAttachments || [],
+        }))
+        .sort((left, right) => String(right.requestedAt).localeCompare(String(left.requestedAt)));
+      res.json({ success: true, data: records });
+    } catch (error) { next(error); }
+  });
+
+  app.post("/api/information/warranty-conversions/attachments", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      if (![USER_ROLES.INFORMATION_CLERK, USER_ROLES.ADMIN].includes(user.role)) {
+        throw createApiError("WARRANTY_CONVERSION_FORBIDDEN", "只有信息员或管理员可以上传申请凭证", 403);
+      }
+      const rmaNo = String(req.body?.rmaNo || "").trim();
+      const mimeType = String(req.body?.mimeType || "");
+      if (!mimeType.startsWith("image/")) throw createApiError("WARRANTY_CONVERSION_PROOF_INVALID", "申请凭证仅支持照片", 400);
+      const attachment = await attachmentStore.save(req.body || {});
+      const order = await receiptStore.addWarrantyConversionProof(rmaNo, attachment, { approvalNo: req.body?.approvalNo }, user);
+      res.json({ success: true, data: { ...order.manufacturerWarrantyConversion, message: "申请凭证已保存，并将自动带入维修附件" } });
+    } catch (error) { next(error); }
   });
 
   app.post("/api/repairs/inspection/model-match", async (req, res, next) => {
@@ -2338,7 +2771,9 @@ function createApp(
             subtotal: canPrice ? Number((partsPricing.partsFee + repairPricing.fee).toFixed(2)) : null,
           }
         : { status: "IN_WARRANTY", canPrice: true, partsFee: 0, fee: 0, subtotal: 0 };
-      res.json({ success: true, data: { order, usedParts, pricing, recloudSynced: false } });
+      const warrantyApprovalAttachments = (order.manufacturerWarrantyConversion?.proofAttachments || [])
+        .map((item) => ({ ...item, locked: true, source: "WARRANTY_CONVERSION_APPROVAL" }));
+      res.json({ success: true, data: { order, usedParts, pricing, warrantyApprovalAttachments, recloudSynced: false } });
     } catch (error) { next(error); }
   });
 
@@ -2353,6 +2788,20 @@ function createApp(
       const rmaNo = String(req.body?.rmaNo || "").trim();
       const order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
       if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到待维修工单", 404);
+      const conversion = order.manufacturerWarrantyConversion || {};
+      if (submit && conversion.requested === true && conversion.status !== "APPROVED") {
+        throw createApiError("WARRANTY_CONVERSION_APPROVAL_PENDING", "保外转保内申请凭证尚未上传，请等待信息员处理", 409);
+      }
+      const proofAttachments = (conversion.proofAttachments || []).map((item) => ({
+        ...item, locked: true, source: "WARRANTY_CONVERSION_APPROVAL",
+      }));
+      const technicianAttachments = Array.isArray(req.body?.attachments)
+        ? req.body.attachments.filter((item) => item?.source !== "WARRANTY_CONVERSION_APPROVAL")
+        : [];
+      const mergedAttachments = [...technicianAttachments];
+      for (const proof of proofAttachments) {
+        if (!mergedAttachments.some((item) => item?.id === proof.id)) mergedAttachments.push(proof);
+      }
       const appliedParts = (await hydratePartApplications(order)).map((part) => ({
         partCode: part.partCode, partName: part.partName, quantity: part.quantity,
         repairLevel: part.repairLevel, retailPrice: part.retailPrice,
@@ -2448,6 +2897,7 @@ function createApp(
         rmaNo,
         {
           ...req.body,
+          attachments: mergedAttachments,
           ...confirmedFault,
           responsibilityType,
           usedParts,
@@ -2731,7 +3181,7 @@ function createApp(
 
   function attachmentSource(category) {
     return category === "receipt" ? receiptAttachmentStore
-      : category === "repair" ? attachmentStore
+      : ["repair", "warranty"].includes(category) ? attachmentStore
         : category === "shipping" ? shippingAttachmentStore
           : null;
   }
@@ -2799,7 +3249,7 @@ function createApp(
         throw createApiError("REPAIR_ATTACHMENT_FORBIDDEN", "只能查看本人负责工单的附件", 403);
       }
       const category = String(req.params.category || "");
-      if (!["receipt", "repair"].includes(category)) throw createApiError("ATTACHMENT_NOT_FOUND", "附件不存在", 404);
+      if (!["receipt", "repair", "warranty"].includes(category)) throw createApiError("ATTACHMENT_NOT_FOUND", "附件不存在", 404);
       const attachment = findAttachment(order, category, String(req.params.attachmentId || ""));
       const source = attachmentSource(category);
       if (!attachment || !source) throw createApiError("ATTACHMENT_NOT_FOUND", "附件不存在", 404);
@@ -3095,6 +3545,7 @@ if (require.main === module) {
     supervisionMonitor,
     pendingReceiptStore,
     rmaQueryCacheStore,
+    recloudRepairPageAdapterFactory: createRecloudRepairPageAdapter,
   });
   const tlsOptions = loadTlsOptions(runtimeConfig);
   const server = tlsOptions ? https.createServer(tlsOptions, app) : http.createServer(app);
@@ -3115,7 +3566,11 @@ if (require.main === module) {
         pendingReceiptSync.start(orders.length === 0 || cacheExpired);
       });
     }
-    if (session) scheduleRmaQueryBackfill(5000);
+    // 批量补全会长时间占用同一个瑞云页面。默认关闭自动补全，保证师傅的
+    // 到店查询始终优先；需要维护历史缓存时再显式开启或运行独立脚本。
+    if (session && String(process.env.RMA_QUERY_BACKFILL_ENABLED || "false").toLowerCase() === "true") {
+      scheduleRmaQueryBackfill(5000);
+    }
   }).finally(() => {
     // 监测服务必须持续运行；即使启动时瑞云尚未登录，也要定时重试，
     // 登录恢复后即可自动取得并展示真实督办内容。

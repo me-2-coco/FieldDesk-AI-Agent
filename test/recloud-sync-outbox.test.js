@@ -32,6 +32,7 @@ async function outboxFixture(t) {
 const ORDER = {
   id: "LOCAL-WORK-1", rmaNo: "RMA-MOCK-1", logisticsNo: "LOGISTICS-MOCK-1", sn: "SN-MOCK-1",
   remark: "洗地机", specialty: "洗地机", productLine: "洗地机",
+  reportedFault: "用户反馈机器无法正常出水",
   receiptCompletedAt: "2026-08-03T01:00:00.000Z",
   receiptAttachments: [{ id: "MOCK-RECEIPT-PHOTO", name: "receipt.jpg", mimeType: "image/jpeg" }],
   modelAuthorization: {
@@ -39,6 +40,7 @@ const ORDER = {
     productModelCode: "010201AA000656", model: "X50 Pro 履带上下水版",
   },
   inspectionResult: "模拟检测完成", inspectionRemark: "模拟备注",
+  treatmentMode: "REPAIR",
   faultCategory: "产品质量 / 不出水 / 水泵不良",
   technicianWarranty: "保内",
   customerReasonConsistent: "是",
@@ -180,7 +182,7 @@ test("inspection mapping prepares fixed Recloud fields but never auto-confirms",
   assert.equal(writes.originalConsumables, "是");
   assert.equal(writes.consumableName, undefined);
   assert.equal("dismantled" in writes, false);
-  assert.equal("faultDescription" in writes, false);
+  assert.equal(writes.faultContent, "故障复现");
   assert.equal("openedRemark" in writes, false);
   assert.deepEqual(plan.excludedFields, [
     {
@@ -236,6 +238,8 @@ test("no-parts treatment maps the selected Recloud detection result without inve
     treatmentMode: "ABANDONED",
     warrantyStatus: "保内",
     detectionResult: "弃修",
+    reportedFault: "用户要求弃修",
+    faultContent: "故障复现",
   });
   assert.deepEqual(plan.missingFields, []);
   assert.equal(plan.safeWrites.some((item) => item.key === "faultCategory"), false);
@@ -283,7 +287,7 @@ test("inspection control mapping requires one compatible Recloud control per wri
   assert.deepEqual(result.missingFields, []);
   assert.deepEqual(result.ambiguousFields, []);
   assert.deepEqual(result.incompatibleFields, []);
-  assert.equal(result.fields.length, 6);
+  assert.equal(result.fields.length, 7);
   assert.deepEqual(result.excludedFields, [
     {
       key: "qualityDescription",

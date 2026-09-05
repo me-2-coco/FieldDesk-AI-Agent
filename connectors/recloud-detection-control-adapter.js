@@ -1,7 +1,10 @@
 const { RECLOUD_INSPECTION_FIELD_TARGETS } = require("./recloud-sync-mapping");
 
 function normalizeControlText(value) {
-  return String(value || "").replace(/\s+/g, " ").trim();
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .replace(/\s*[|｜]\s*/g, " / ")
+    .trim();
 }
 
 function adapterError(message, code, key) {
@@ -34,14 +37,17 @@ async function uniqueExactCandidate(candidates, value, key) {
 async function uniqueFullPathOrLeafCandidate(candidates, value, key) {
   const expected = normalizeControlText(value);
   const expectedLeaf = normalizeControlText(expected.split("/").at(-1));
-  const matches = [];
+  const exactMatches = [];
+  const leafMatches = [];
   const candidateTexts = [];
   for (const candidate of candidates) {
     const text = normalizeControlText(await candidate.text());
     candidateTexts.push(text);
     const leaf = normalizeControlText(text.split("/").at(-1));
-    if (text === expected || leaf === expectedLeaf) matches.push(candidate);
+    if (text === expected) exactMatches.push(candidate);
+    else if (leaf === expectedLeaf) leafMatches.push(candidate);
   }
+  const matches = exactMatches.length ? exactMatches : leafMatches;
   if (matches.length !== 1) {
     const error = adapterError(
       matches.length
@@ -64,6 +70,26 @@ function labelPattern(label) {
 }
 
 async function locateUniqueItem(dialog, definition, key) {
+  const exactLabel = new RegExp(`^\\s*${String(definition.target)
+    .replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")
+    .replace(/[（(]/g, "[（(]")
+    .replace(/[）)]/g, "[）)]")}\\s*$`);
+  const labels = dialog
+    .locator(".rt-form-item__label:visible, .el-form-item__label:visible, label:visible")
+    .filter({ hasText: exactLabel });
+  const labelCount = await labels.count();
+  if (labelCount === 1) {
+    const exactItem = labels.first().locator(
+      "xpath=ancestor::*[contains(concat(' ', normalize-space(@class), ' '), ' rt-form-item ') or contains(concat(' ', normalize-space(@class), ' '), ' el-form-item ')][1]"
+    );
+    if (await exactItem.count() === 1) return exactItem;
+  } else if (labelCount > 1) {
+    throw adapterError(
+      `检测字段 ${key} 对应多个完全相同的标签`,
+      "RECLOUD_DETECTION_CONTROL_AMBIGUOUS",
+      key
+    );
+  }
   const items = dialog
     .locator(".rt-form-item:visible, .el-form-item:visible")
     .filter({ hasText: labelPattern(definition.target) });
@@ -142,6 +168,7 @@ async function chooseDropdownValue(page, item, value, key, searchable) {
   await page.waitForTimeout?.(300);
   const optionLocator = page.locator(
     ".rt-select-dropdown:visible [role='option']:visible, .el-select-dropdown:visible [role='option']:visible, " +
+    ".rtxpc-select-dropdown__item:visible, .el-select-dropdown__item:visible, " +
     ".rt-cascader-dropdown:visible li:visible, .el-cascader__dropdown:visible li:visible, " +
     "[role='list']:visible > *:visible, [role='listbox']:visible > *:visible"
   );

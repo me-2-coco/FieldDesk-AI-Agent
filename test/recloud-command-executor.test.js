@@ -13,6 +13,7 @@ const task = {
     responsibilityType: "保内质保",
     detectionResult: "维修",
     repairMeasure: "更换单向阀，测试正常寄回",
+    repairPreparationCompletedAt: "2026-09-05T00:00:00.000Z",
     usedParts: [],
     attachments: [{ fileName: "finish.jpg", path: "/safe/finish.jpg", size: 200000, mimeType: "image/jpeg" }],
   },

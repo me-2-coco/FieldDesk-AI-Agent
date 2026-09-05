@@ -8,7 +8,7 @@ async function source(file) { return fs.readFile(path.join(root, file), "utf8");
 
 test("local workflow pages are routed and reachable from status-aware actions", async () => {
   const app = await source("frontend/src/App.jsx");
-  for (const page of ["repair", "repairProcess", "partsApplication", "repairCompletion", "returnShipping"]) assert.match(app, new RegExp(`page === "${page}"`));
+  for (const page of ["repair", "repairWarranty", "repairDecision", "partsApplication", "repairProcess", "repairCompletion", "returnShipping"]) assert.match(app, new RegExp(`page === "${page}"`));
   const home = await source("frontend/src/pages/Home.jsx");
   const navigation = await source("frontend/src/shared/repairNavigation.js");
   for (const action of ["未完成维修", "待料", "维修已完成", "继续当前工单", "后台发货进度"]) assert.match(home, new RegExp(action));
@@ -23,9 +23,10 @@ test("local workflow pages are routed and reachable from status-aware actions", 
 
 test("inspection parts and completion expose the current technician flow while shipping is read only", async () => {
   const inspection = await source("frontend/src/pages/RepairProcess.jsx");
-  assert.match(inspection, /进入维修完工确认/);
+  assert.match(inspection, /startRepair\(repairOrder\.crmOrderNo\)/);
+  assert.match(inspection, /“检测”只完成瑞云寄修单检测/);
   const parts = await source("frontend/src/pages/PartsApplication.jsx");
-  assert.match(parts, /REPAIR_STATUS\.WAIT_PARTS/); assert.match(parts, /进入维修完工/);
+  assert.match(parts, /REPAIR_STATUS\.WAIT_PARTS/); assert.match(parts, /下一步故障分类/);
   const repairWork = await source("frontend/src/pages/RepairWork.jsx");
   assert.doesNotMatch(repairWork, /实际维修记录/); assert.match(repairWork, /setPage\("repairProcess"\)/);
   const completion = await source("frontend/src/pages/RepairCompletion.jsx");

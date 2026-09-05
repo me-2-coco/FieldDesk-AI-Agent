@@ -5,6 +5,7 @@ const { USER_ROLES } = require("../config/local-users");
 
 const SPECIALTIES = new Set(["扫地机", "洗地机"]);
 const ROLES = new Set(Object.values(USER_ROLES));
+const RECLOUD_ASSIGNMENT_MODES = new Set(["DIRECT", "FALLBACK"]);
 
 class AccountStore {
   constructor(options = {}) {
@@ -74,6 +75,13 @@ class AccountStore {
     const specialties = [...new Set(input.repairSpecialties || [])];
     if (specialties.some((item) => !SPECIALTIES.has(item))) throw Object.assign(new Error("维修品类无效"), { code: "ACCOUNT_SPECIALTY_INVALID", status: 400 });
     if (role !== USER_ROLES.TECHNICIAN && specialties.length && role !== USER_ROLES.ADMIN) throw Object.assign(new Error("该角色不能配置维修品类"), { code: "ACCOUNT_SPECIALTY_FORBIDDEN", status: 400 });
+    const recloudAssignmentMode = String(input.recloudAssignmentMode || "DIRECT").trim().toUpperCase();
+    const recloudAssigneeName = String(input.recloudAssigneeName || "").trim();
+    const recloudFallbackAssigneeName = String(input.recloudFallbackAssigneeName || "").trim();
+    if (!RECLOUD_ASSIGNMENT_MODES.has(recloudAssignmentMode)) throw Object.assign(new Error("瑞云改派方式无效"), { code: "ACCOUNT_RECLOUD_ASSIGNMENT_MODE_INVALID", status: 400 });
+    if (role === USER_ROLES.TECHNICIAN && recloudAssignmentMode === "FALLBACK" && !recloudFallbackAssigneeName) {
+      throw Object.assign(new Error("新员工暂未进入瑞云时，必须填写兜底负责人"), { code: "ACCOUNT_RECLOUD_FALLBACK_REQUIRED", status: 400 });
+    }
     return this.backend.update((data) => {
       const userId = String(input.userId || "").trim();
       const existing = data.users.find((item) => item.userId === userId);
@@ -82,7 +90,7 @@ class AccountStore {
         ? crypto.createHash("sha256").update(String(password)).digest("hex")
         : existing?.tokenHash;
       if (!userId || !input.displayName || !tokenHash) throw Object.assign(new Error("账号资料不完整"), { code: "ACCOUNT_FIELDS_REQUIRED", status: 400 });
-      const next = { userId, displayName: String(input.displayName).trim(), role, repairSpecialties: specialties, active: input.active !== false, allowBearer: false, tokenHash, tokenExpiresAt: null, updatedAt: new Date().toISOString() };
+      const next = { userId, displayName: String(input.displayName).trim(), role, repairSpecialties: specialties, recloudAssignmentMode, recloudAssigneeName, recloudFallbackAssigneeName, active: input.active !== false, allowBearer: false, tokenHash, tokenExpiresAt: null, updatedAt: new Date().toISOString() };
       if (existing) Object.assign(existing, next); else data.users.push({ ...next, createdAt: next.updatedAt });
       const { tokenHash: ignored, ...safe } = next;
       return safe;

@@ -150,6 +150,46 @@ test("logged-in persistent profile is reused in one backend process", async (t) 
   assert.equal(browser.closeCount, 1);
 });
 
+test("foreground and background channels use separate pages in one authenticated context", async (t) => {
+  const directory = await createTemporaryDirectory(t);
+  const pages = [];
+  const createPage = () => {
+    let currentUrl = "https://crm2.recloud.com.cn/home";
+    const created = {
+      isClosed: () => false,
+      url: () => currentUrl,
+      setDefaultTimeout() {},
+      async goto(url) { currentUrl = url; },
+    };
+    pages.push(created);
+    return created;
+  };
+  createPage();
+  const context = {
+    pages: () => pages,
+    newPage: async () => createPage(),
+    close: async () => {},
+  };
+  const manager = createRecloudSessionManager({
+    chromium: { launchPersistentContext: async () => context },
+    profileDirectory: path.join(directory, "profile"),
+    lockPath: path.join(directory, "profile.lock"),
+    targetUrl: "https://crm2.recloud.com.cn/#/scanSignin/query",
+    isLoginPage: (url) => url.includes("auth4.recloud.com.cn"),
+    env: { RECLOUD_HEADLESS: "true" },
+    logger: { info() {} },
+  });
+
+  const foreground = await manager.ensureOpen({ channel: "foreground" });
+  const background = await manager.ensureOpen({ channel: "background" });
+
+  assert.notEqual(foreground.page, background.page);
+  assert.equal(foreground.channel, "foreground");
+  assert.equal(background.channel, "background");
+  assert.equal(pages.length, 2);
+  await manager.close();
+});
+
 test("expired session enters login-required flow without keychain access", async (t) => {
   const directory = await createTemporaryDirectory(t);
   const browser = createSessionBrowser(

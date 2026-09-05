@@ -181,7 +181,7 @@ function PartsApplication({ setPage }) {
         status: result.nextStep === "repairCompletion" ? REPAIR_STATUS.REPAIRING : REPAIR_STATUS.WAIT_INSPECTION
       })
       setRepairOrder(updated)
-      setPage(result.nextStep === "repairCompletion" ? "repairCompletion" : "repairProcess")
+      setPage("repairProcess")
     } catch (error) {
       setErrorMessage(error.message)
     } finally {
@@ -329,7 +329,7 @@ function PartsApplication({ setPage }) {
           配件与价格实时查询厂家飞书表；当前只记录到 FieldDesk，不写入瑞云
         </p>
         <button className="primary-btn" onClick={continueToCompletion} disabled={isSaving || selectedParts.length === 0}>
-          {selectedParts.length ? "配件确认完成，进入维修完工" : "请先添加维修配件"}
+          {selectedParts.length ? "配件确认完成，下一步故障分类" : "请先添加维修配件"}
         </button>
       </section>
       <ScannerModal

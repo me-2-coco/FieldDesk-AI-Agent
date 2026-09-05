@@ -24,6 +24,17 @@ test("Recloud detection option matching normalizes whitespace but requires an ex
   await selected.click();
   assert.deepEqual(calls, [" 保内 "]);
   assert.equal(normalizeControlText("产品质量  /\n水泵不良"), "产品质量 / 水泵不良");
+  assert.equal(normalizeControlText("产品质量|万向轮异常|万向轮不良"), "产品质量 / 万向轮异常 / 万向轮不良");
+});
+
+test("saved pipe-delimited fault paths match Recloud slash-delimited options", async () => {
+  const calls = [];
+  const selected = await uniqueFullPathOrLeafCandidate([
+    option("产品质量 / 万向轮异常 / 万向轮不良", calls),
+    option("产品质量 / 异音 / 万向轮不良", calls),
+  ], "产品质量|万向轮异常|万向轮不良", "faultCategory");
+  await selected.click();
+  assert.deepEqual(calls, ["产品质量 / 万向轮异常 / 万向轮不良"]);
 });
 
 test("Recloud detection option matching refuses a partial match", async () => {
@@ -57,6 +68,17 @@ test("restoration may match a unique leaf when the saved value contains a shorte
     option("产品质量 / 外观不良 / 软管外观不良", calls),
   ], "产品质量 / 污水管道包胶开裂", "faultCategory");
   assert.equal(await selected.text(), "产品质量 / 管路问题 / 污水管道包胶开裂");
+});
+
+test("a complete fault path wins over other options with the same leaf label", async () => {
+  const calls = [];
+  const selected = await uniqueFullPathOrLeafCandidate([
+    option("产品质量 / 无法开机 / 电池包不良", calls),
+    option("产品质量 / 离线 / 电池包不良", calls),
+    option("产品质量 / 无法充电 / 电池包不良", calls),
+  ], "产品质量 / 离线 / 电池包不良", "faultCategory");
+  await selected.click();
+  assert.deepEqual(calls, ["产品质量 / 离线 / 电池包不良"]);
 });
 
 test("restoration refuses duplicate leaf labels from different fault paths", async () => {

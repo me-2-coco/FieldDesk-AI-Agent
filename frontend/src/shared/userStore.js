@@ -228,6 +228,7 @@ export function canAccessPage(
     "repairWork",
     "repairProcess",
     "repairDecision",
+    "repairWarranty",
     "partsApplication",
     "repairCompletion",
     "repairFinish",
@@ -250,6 +251,7 @@ export function canAccessPage(
       "machineTracking",
       "repairReports",
       "exceptionCenter",
+      "warrantyApprovals",
       "profile"
     ],
 
@@ -260,6 +262,7 @@ export function canAccessPage(
   "repairWork",
   "repairProcess",
   "repairDecision",
+  "repairWarranty",
   "partsApplication",
   "repairCompletion",
   "returnShipping",
@@ -274,6 +277,7 @@ export function canAccessPage(
   "machineTracking",
   "repairReports",
   "exceptionCenter",
+  "warrantyApprovals",
   "profile"
 ],
 

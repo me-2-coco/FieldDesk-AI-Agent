@@ -100,11 +100,11 @@ function RepairCompletion({ setPage }) {
   const [busy, setBusy] = useState(false)
   const [contextLoading, setContextLoading] = useState(true)
   const [syncStatus, setSyncStatus] = useState(null)
+  const [warrantyConversion, setWarrantyConversion] = useState(repairOrder.manufacturerWarrantyConversion || null)
   const pricingSummaryRef = useRef(null)
 
   useEffect(() => {
     let active = true
-    setContextLoading(true)
     getRepairCompletionContext(repairOrder.crmOrderNo).then((context) => {
       if (!active) return
       const contextParts = context.usedParts || []
@@ -116,6 +116,9 @@ function RepairCompletion({ setPage }) {
       const presetTemplate = treatmentPreset?.speechTemplate || templates[0]
       setUsedParts(contextParts)
       setPricing(contextPricing)
+      const conversion = context.order?.manufacturerWarrantyConversion || null
+      const approvalAttachments = context.warrantyApprovalAttachments || []
+      setWarrantyConversion(conversion)
       setResponsibilityType(autoResponsibilityType)
       const confirmedFault = String(context.order?.faultCategory || "").split(/[|/]/).map((item) => item.trim()).filter(Boolean)
       if (confirmedFault.length >= 3) {
@@ -138,18 +141,21 @@ function RepairCompletion({ setPage }) {
         setRepairMeasure(treatmentPreset
           ? buildRepairMeasure(selectedTemplate, contextParts, repairOrder.originalFault, confirmedFault.at(-1))
           : draft.repairMeasure || buildRepairMeasure(selectedTemplate, contextParts, repairOrder.originalFault, confirmedFault.at(-1)))
-        setAttachments(draft.attachments || [])
+        const combined = [...(draft.attachments || [])]
+        for (const approval of approvalAttachments) if (!combined.some((item) => item.id === approval.id)) combined.push(approval)
+        setAttachments(combined)
         setOneWayLogisticsFee(draftLogisticsMode === "WAIVED" ? "" : draftLogisticsFee)
         setLogisticsChargeMode(draftLogisticsMode)
       }
       if (!draft) {
         setSpeechTemplate(presetTemplate)
         setRepairMeasure(buildRepairMeasure(presetTemplate, contextParts, repairOrder.originalFault, confirmedFault.at(-1)))
+        setAttachments(approvalAttachments)
       }
     }).catch((error) => active && setErrorMessage(error.message))
       .finally(() => active && setContextLoading(false))
     return () => { active = false }
-  }, [repairOrder.crmOrderNo, repairOrder.originalFault, treatmentMode])
+  }, [isAbandoned, isInspectionOnly, repairOrder.crmOrderNo, repairOrder.originalFault, treatmentMode, treatmentPreset])
 
   useEffect(() => {
     let active = true
@@ -176,14 +182,18 @@ function RepairCompletion({ setPage }) {
   const logisticsFeeNumber = Number(oneWayLogisticsFee)
   const hasValidOutOfWarrantyFee = oneWayLogisticsFee !== "" && Number.isFinite(logisticsFeeNumber) && logisticsFeeNumber >= 0
   const hasValidOptionalOutOfWarrantyFee = oneWayLogisticsFee === "" || hasValidOutOfWarrantyFee
-  const hasInspectionReport = attachments.some((item) => item.mimeType === "application/pdf")
-  const hasInspectionMedia = attachments.some((item) => /^(image|video)\//.test(item.mimeType || ""))
-  const hasRequiredAttachment = isInspectionOnly ? hasInspectionReport && hasInspectionMedia : attachments.length > 0
-  const canSubmitCompletion = hasRequiredAttachment && (
+  const technicianAttachments = attachments.filter((item) => item.source !== "WARRANTY_CONVERSION_APPROVAL")
+  const hasInspectionReport = technicianAttachments.some((item) => item.mimeType === "application/pdf")
+  const hasInspectionMedia = technicianAttachments.some((item) => /^(image|video)\//.test(item.mimeType || ""))
+  const hasRequiredAttachment = isInspectionOnly ? hasInspectionReport && hasInspectionMedia : technicianAttachments.length > 0
+  const conversionReady = warrantyConversion?.requested !== true || warrantyConversion?.status === "APPROVED"
+  const canSubmitCompletion = hasRequiredAttachment && conversionReady && (
     !isOutOfWarranty
     || (pricing?.canPrice && (requiresLogisticsFee ? hasValidOutOfWarrantyFee : logisticsChargeMode === "WAIVED" || hasValidOptionalOutOfWarrantyFee))
   )
-  const submitButtonLabel = !hasRequiredAttachment
+  const submitButtonLabel = !conversionReady
+    ? "等待信息员上传转保凭证"
+    : !hasRequiredAttachment
     ? isInspectionOnly
       ? !hasInspectionReport ? "请先上传 PDF 检测报告" : "请先上传照片/视频"
       : "请先上传维修照片/视频"
@@ -268,7 +278,7 @@ function RepairCompletion({ setPage }) {
   }
 
   function removeAttachment(attachmentId) {
-    setAttachments((current) => current.filter((item) => item.id !== attachmentId))
+    setAttachments((current) => current.filter((item) => item.id !== attachmentId || item.locked || item.source === "WARRANTY_CONVERSION_APPROVAL"))
     setMessage("已移除附件，保存草稿或提交完工后生效")
   }
 
@@ -277,7 +287,7 @@ function RepairCompletion({ setPage }) {
   }
 
   const loadSavedAttachment = useCallback(
-    (attachment) => downloadRepairAttachment(repairOrder.crmOrderNo, "repair", attachment),
+    (attachment) => downloadRepairAttachment(repairOrder.crmOrderNo, attachment.source === "WARRANTY_CONVERSION_APPROVAL" ? "warranty" : "repair", attachment),
     [repairOrder.crmOrderNo]
   )
 
@@ -454,6 +464,10 @@ function RepairCompletion({ setPage }) {
           {!completedDetail && <div className="receipt-upload-actions">
             <button type="button" className="receipt-upload-button camera-button" onClick={() => setPhotoCameraOpen(true)} disabled={busy}><CameraIcon size={18} />拍照</button>
             <label className="receipt-upload-button" htmlFor="repair-attachments">▧ 从相册选择</label>
+          </div>}
+          {warrantyConversion?.requested === true && <div className={`warranty-proof-status ${conversionReady ? "is-ready" : "is-pending"}`}>
+            <strong>{conversionReady ? "保外转保内凭证已带入" : "保外转保内申请中"}</strong>
+            <span>{conversionReady ? "信息员上传的凭证已锁定，提交完工时会自动上传瑞云附件。" : "已通知信息员；凭证上传后会自动显示，师傅不可删除。"}</span>
           </div>}
           {attachments.length > 0 ? <AttachmentPreviewList
             attachments={attachments}

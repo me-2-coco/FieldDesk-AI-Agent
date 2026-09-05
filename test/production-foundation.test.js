@@ -58,6 +58,21 @@ test("administrator configures six account profiles and tokens stay private", as
   assert.throws(() => store.upsert({ userId: "X" }, sweep), { code: "ACCOUNT_ADMIN_REQUIRED" });
 });
 
+test("administrator can preconfigure a new technician to a Recloud fallback assignee", async () => {
+  const store = new AccountStore({ backend: new MemoryDocumentBackend({ users: [] }) });
+  const user = await store.upsert({
+    userId: "NEW-TECH", displayName: "新员工", role: USER_ROLES.TECHNICIAN,
+    repairSpecialties: ["扫地机"], password: "safe-password",
+    recloudAssignmentMode: "FALLBACK", recloudFallbackAssigneeName: "指定负责人",
+  }, admin);
+  assert.equal(user.recloudAssignmentMode, "FALLBACK");
+  assert.equal(user.recloudFallbackAssigneeName, "指定负责人");
+  assert.throws(() => store.upsert({
+    userId: "INVALID", displayName: "无兜底", role: USER_ROLES.TECHNICIAN,
+    repairSpecialties: ["扫地机"], password: "safe-password", recloudAssignmentMode: "FALLBACK",
+  }, admin), { code: "ACCOUNT_RECLOUD_FALLBACK_REQUIRED" });
+});
+
 test("production account mode can bootstrap one administrator without exposing token", async () => {
   const store = new AccountStore({ backend: new MemoryDocumentBackend({ users: [] }) });
   assert.equal(await store.ensureBootstrap("bootstrap-secret"), true);

@@ -111,38 +111,23 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
     };
   }
 
+  // 改派和配件只能在首次点击“维修”进入服务单时完成。完工任务可能在
+  // 服务单关闭后被重试，因此这里只允许复核，绝不重新改派或补加配件。
+  if (options.preparationCompleted !== true) {
+    throw orchestratorError(
+      "维修启动阶段尚未确认，禁止在完工阶段补改派或补加配件",
+      "RECLOUD_REPAIR_PREPARATION_REQUIRED",
+      "PREPARATION_VERIFY"
+    );
+  }
   if (assignmentRequired) {
-    if (typeof adapter.assignResponsible !== "function") {
-      throw orchestratorError("缺少负责人改派执行器", "RECLOUD_REPAIR_ASSIGNMENT_ADAPTER_INVALID", "ASSIGNMENT");
-    }
-    assertRecloudOperationAllowed({ action: assignmentPlan.action, target: assignmentPlan.servicePerson });
-    await adapter.assignResponsible(assignmentPlan);
-    remote = await adapter.readRemoteState();
-    assignmentRequired = String(remote.assignee || "").trim() !== assignmentPlan.servicePerson;
-    if (assignmentRequired) {
-      throw orchestratorError("负责人改派后远端复核失败", "RECLOUD_REPAIR_ASSIGNMENT_POSTVERIFY_FAILED", "ASSIGNMENT");
-    }
-    partsPlan = buildRecloudRepairPartsPlan(payload.usedParts, remote.parts);
-    attachmentsPlan = buildRecloudRepairAttachmentsPlan(payload.attachments, remote.attachments);
+    throw orchestratorError("维修启动阶段的负责人远端复核失败", "RECLOUD_REPAIR_PREPARATION_ASSIGNEE_MISMATCH", "PREPARATION_VERIFY");
   }
   completedSteps.push("ASSIGNEE_VERIFIED");
   await saveCheckpoint(options.checkpointStore, { orderKey, fingerprint, status: "RUNNING", completedSteps: [...completedSteps] });
 
-  if (partsPlan.additions.length) {
-    if (typeof adapter.addParts !== "function") {
-      throw orchestratorError("缺少配件新增执行器", "RECLOUD_REPAIR_PART_WRITE_ADAPTER_INVALID", "PARTS");
-    }
-    assertRecloudOperationAllowed({ action: "直接输入编码", target: RECLOUD_WORK_ORDER_OPERATION_POLICY.partEntryTarget });
-    await adapter.addParts(partsPlan.additions, {
-      entryMode: RECLOUD_WORK_ORDER_OPERATION_POLICY.partEntryMode,
-      target: RECLOUD_WORK_ORDER_OPERATION_POLICY.partEntryTarget,
-      forbiddenAction: RECLOUD_WORK_ORDER_OPERATION_POLICY.forbiddenPartLookup,
-    });
-    remote = await adapter.readRemoteState();
-    partsPlan = buildRecloudRepairPartsPlan(payload.usedParts, remote.parts);
-    if (!partsPlan.readyToAdd || partsPlan.additions.length) {
-      throw orchestratorError("配件新增后远端复核失败", "RECLOUD_REPAIR_PART_POSTVERIFY_FAILED", "PARTS");
-    }
+  if (!partsPlan.readyToAdd || partsPlan.additions.length) {
+    throw orchestratorError("维修启动阶段的配件远端复核失败", "RECLOUD_REPAIR_PREPARATION_PARTS_MISMATCH", "PREPARATION_VERIFY");
   }
   completedSteps.push("PARTS_VERIFIED");
   await saveCheckpoint(options.checkpointStore, { orderKey, fingerprint, status: "RUNNING", completedSteps: [...completedSteps] });
@@ -197,6 +182,15 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
     throw orchestratorError("瑞云点击完工后未进入可提交状态", "RECLOUD_REPAIR_SUBMIT_NOT_READY", "WAIT_SUBMIT_READY");
   }
   completedSteps.push("SUBMIT_READY");
+
+  const hasOldPartLabels = (payload.usedParts || []).some((part) => part?.returnRequired === true);
+  if (hasOldPartLabels) {
+    if (typeof adapter.printOldPartLabels !== "function") {
+      throw orchestratorError("缺少旧件标签打印执行器", "RECLOUD_OLD_PART_LABEL_ADAPTER_INVALID", "OLD_PART_LABELS");
+    }
+    await adapter.printOldPartLabels(payload.usedParts.filter((part) => part?.returnRequired === true));
+    completedSteps.push("OLD_PART_LABELS_PRINTED");
+  }
 
   if (typeof adapter.clickSubmit !== "function") {
     throw orchestratorError("缺少瑞云提交按钮执行器", "RECLOUD_REPAIR_SUBMIT_ADAPTER_INVALID", "SUBMIT");

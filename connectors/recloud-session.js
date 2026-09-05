@@ -245,33 +245,42 @@ function createRecloudSessionManager(options = {}) {
 
   let context = null;
   let page = null;
+  const channelPages = new Map();
   let opening = null;
   let releaseLock = null;
   let autoLoginAttempted = false;
 
-  function findLivePage() {
+  function findLivePage(channel = "foreground") {
     if (!context) return null;
-    return context
-      .pages()
-      .find((candidate) => !candidate.isClosed());
+    const assigned = channelPages.get(channel);
+    if (assigned && !assigned.isClosed()) return assigned;
+    if (channel !== "foreground") return null;
+    const claimedPages = new Set(channelPages.values());
+    return context.pages().find((candidate) => !candidate.isClosed() && !claimedPages.has(candidate)) || null;
   }
 
   async function ensureOpen(openOptions = {}) {
+    const channel = String(openOptions.channel || "foreground");
     const navigationTimeout =
       openOptions.navigationTimeout ?? defaultTimeout;
     if (context) {
-      page = findLivePage() || (await context.newPage().catch(() => null));
-      if (!page) await close();
+      const channelPage = findLivePage(channel) || (await context.newPage().catch(() => null));
+      if (!channelPage) await close();
+      else {
+        channelPages.set(channel, channelPage);
+        page = channelPage;
+        logSession("reused", logger);
+        await channelPage.goto(targetUrl, {
+          waitUntil: "domcontentloaded",
+          timeout: navigationTimeout,
+        });
+        return preparePage(channelPage, channel);
+      }
     }
-    if (context && page && !page.isClosed()) {
-      logSession("reused", logger);
-      await page.goto(targetUrl, {
-        waitUntil: "domcontentloaded",
-        timeout: navigationTimeout,
-      });
-      return preparePage();
+    if (opening) {
+      await opening;
+      return ensureOpen(openOptions);
     }
-    if (opening) return opening;
 
     opening = (async () => {
       const profileAlreadyExists = (options.fs || fs).existsSync(
@@ -296,13 +305,14 @@ function createRecloudSessionManager(options = {}) {
           }
         );
         page = context.pages()[0] || (await context.newPage());
+        channelPages.set(channel, page);
         page.setDefaultTimeout(defaultTimeout);
         await page.goto(targetUrl, {
           waitUntil: "domcontentloaded",
           timeout: navigationTimeout,
         });
         if (profileAlreadyExists) logSession("reused", logger);
-        return await preparePage();
+        return await preparePage(page, channel);
       } catch (error) {
         const recoverableLoginCodes = new Set([
           "RECLOUD_AUTO_LOGIN_FAILED",
@@ -320,51 +330,53 @@ function createRecloudSessionManager(options = {}) {
     return opening;
   }
 
-  async function preparePage() {
+  async function preparePage(candidatePage = page, channel = "foreground") {
+    let activePage = candidatePage;
     const loginPage = context
       ?.pages?.()
       .find((candidate) => !candidate.isClosed() && isLoginPage(candidate.url()));
-    if (loginPage) page = loginPage;
-    if (!isLoginPage(page.url())) {
+    if (loginPage) activePage = loginPage;
+    channelPages.set(channel, activePage);
+    page = activePage;
+    if (!isLoginPage(activePage.url())) {
       if (
         typeof isReadyPage === "function" &&
-        !(await isReadyPage(page).catch(() => false))
+        !(await isReadyPage(activePage).catch(() => false))
       ) {
         const redirectedLoginPage = context
           ?.pages?.()
           .find((candidate) => !candidate.isClosed() && isLoginPage(candidate.url()));
         if (redirectedLoginPage) {
-          page = redirectedLoginPage;
-          return preparePage();
+          return preparePage(redirectedLoginPage, channel);
         }
         logSession("login_required", logger);
-        return { context, page, loginRequired: true };
+        return { context, page: activePage, loginRequired: true, channel };
       }
       // A completed authenticated visit starts a fresh login-expiry cycle.
       // This permits one new Keychain login if Recloud expires again tomorrow.
       autoLoginAttempted = false;
       logSession("ready", logger);
-      return { context, page, reused: true };
+      return { context, page: activePage, reused: true, channel };
     }
 
     logSession("login_required", logger);
     if (!isLoginAutofillEnabled(env) || autoLoginAttempted) {
-      return { context, page, loginRequired: true };
+      return { context, page: activePage, loginRequired: true, channel };
     }
     autoLoginAttempted = true;
 
-    await autofillLoginOnce(page, {
+    await autofillLoginOnce(activePage, {
       enabled: true,
       username: env.RECLOUD_LOGIN_USERNAME,
       readPassword,
     });
     try {
-      await page.waitForURL(
+      await activePage.waitForURL(
         (url) => !isLoginPage(String(url)),
         { timeout: options.loginTimeout || 10000 }
       );
     } catch {
-      if (await hasLoginChallenge(page)) {
+      if (await hasLoginChallenge(activePage)) {
         const verificationError = new Error(
           "检测到安全验证，请在瑞云页面人工完成登录"
         );
@@ -375,21 +387,22 @@ function createRecloudSessionManager(options = {}) {
       error.code = "RECLOUD_AUTO_LOGIN_FAILED";
       throw error;
     }
-    if (await hasLoginChallenge(page)) {
+    if (await hasLoginChallenge(activePage)) {
       const error = new Error("检测到安全验证，请在瑞云页面人工完成登录");
       error.code = "RECLOUD_MANUAL_VERIFICATION_REQUIRED";
       throw error;
     }
-    await page.goto(targetUrl, { waitUntil: "domcontentloaded" });
+    await activePage.goto(targetUrl, { waitUntil: "domcontentloaded" });
     autoLoginAttempted = false;
     logSession("ready", logger);
-    return { context, page, reused: false };
+    return { context, page: activePage, reused: false, channel };
   }
 
   async function close() {
     const activeContext = context;
     context = null;
     page = null;
+    channelPages.clear();
     if (activeContext) await activeContext.close().catch(() => {});
     if (releaseLock) {
       const release = releaseLock;

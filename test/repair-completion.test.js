@@ -102,8 +102,8 @@ test("reselecting repair preserves a saved inspection and can return to completi
   assert.equal(reselected.faultCategory, "产品质量|无法启动|电源模块不良");
 
   const confirmed = await receiptStore.confirmParts("TEST-RMA", USER);
-  assert.equal(confirmed.order.status, "REPAIR_COMPLETION_DRAFT");
-  assert.equal(confirmed.nextStep, "repairCompletion");
+  assert.equal(confirmed.order.status, "INSPECTION_COMPLETED_PENDING_REPAIR");
+  assert.equal(confirmed.nextStep, "repairProcess");
 });
 
 test("unfinished order persists the exact page to resume", async (t) => {
@@ -198,7 +198,7 @@ test("admin cannot restore an order after return shipment", async (t) => {
   );
 });
 
-test("treatment decision routes repair to parts and no-parts modes to completion", async (t) => {
+test("treatment decision routes repair to parts and no-parts modes to detection", async (t) => {
   const { receiptStore } = await fixture(t);
   await assert.rejects(receiptStore.saveTreatmentDecision("TEST-RMA", {
     treatmentMode: "ABANDONED",
@@ -213,6 +213,12 @@ test("treatment decision routes repair to parts and no-parts modes to completion
   assert.equal(abandoned.status, "INSPECTION_COMPLETED_PENDING_REPAIR");
   assert.equal(abandoned.skipsParts, true);
   assert.equal(abandoned.detectionResult, "弃修");
+
+  await receiptStore.saveInspection("TEST-RMA", {
+    inspectionResult: "弃修",
+    faultCategory: "产品质量|无法启动|电源模块不良",
+    technicianWarranty: "保外",
+  }, USER);
 
   const completed = await receiptStore.saveRepairCompletion("TEST-RMA", {
     responsibilityType: "保外维修",
@@ -230,6 +236,11 @@ test("inspection-only completion requires a PDF inspection report", async (t) =>
   await receiptStore.saveTreatmentDecision("TEST-RMA", {
     treatmentMode: "INSPECTION_ONLY",
     detectionResult: "只检测不维修",
+    technicianWarranty: "保内",
+  }, USER);
+  await receiptStore.saveInspection("TEST-RMA", {
+    inspectionResult: "只检测不维修",
+    faultCategory: "产品质量|无法启动|电源模块不良",
     technicianWarranty: "保内",
   }, USER);
   const base = {
@@ -340,11 +351,11 @@ test("frontend exposes five treatment choices including headquarters transfer", 
   for (const mode of ["REPAIR", "ABANDONED", "INSPECTION_ONLY", "DEBUGGING", "TRANSFER_TO_HEADQUARTERS"]) {
     assert.match(decisionSource, new RegExp(mode));
   }
-  assert.match(decisionSource, /partsApplication/);
+  assert.match(decisionSource, /申请配件/);
   assert.match(decisionSource, /transferToHeadquarters/);
   assert.match(decisionSource, /5 选 1/);
   const serverSource = await fs.readFile(path.join(__dirname, "../server.js"), "utf8");
-  assert.match(serverSource, /ABANDONED: \{ label: "弃修", detectionResult: "弃修", nextStep: "repairCompletion" \}/);
+  assert.match(serverSource, /ABANDONED: \{ label: "弃修", detectionResult: "弃修", nextStep: "repairProcess" \}/);
   assert.match(completionSource, /application\/pdf/);
   assert.match(completionSource, /检测报告与照片\/视频/);
   assert.match(completionSource, /保内检测/);

@@ -5,9 +5,9 @@ import { getCurrentRepairOrder, REPAIR_STATUS, updateRepairOrder } from "../shar
 
 const OPTIONS = [
   { value: "REPAIR", title: "维修", badge: "需配件", description: "需要更换配件，下一步申请配件。", next: "申请配件" },
-  { value: "ABANDONED", title: "弃修", badge: "免配件", description: "用户不维修，直接进入资料上传。", next: "上传资料" },
-  { value: "INSPECTION_ONLY", title: "只检测不维修", badge: "检测报告", description: "只出检测报告，不申请配件。", next: "上传报告" },
-  { value: "DEBUGGING", title: "调试", badge: "免配件", description: "无硬件故障，完成调试后上传资料。", next: "上传资料" },
+  { value: "ABANDONED", title: "弃修", badge: "免配件", description: "用户不维修，下一步登记故障分类并完成检测。", next: "填写检测" },
+  { value: "INSPECTION_ONLY", title: "只检测不维修", badge: "检测报告", description: "不申请配件，下一步登记故障分类并完成检测。", next: "填写检测" },
+  { value: "DEBUGGING", title: "调试", badge: "免配件", description: "无硬件故障，下一步登记故障分类并完成检测。", next: "填写检测" },
   { value: "TRANSFER_TO_HEADQUARTERS", title: "转寄总部", badge: "转总部", description: "网点不继续处理，登记后转寄总部。", next: "结束网点流程" },
 ]
 
@@ -30,7 +30,7 @@ function RepairDecision({ setPage }) {
         treatmentLabel: result.treatmentLabel || OPTIONS.find((item) => item.value === selected)?.title,
         inspectionResult: result.detectionResult,
         warrantyType: result.technicianWarranty || repairOrder.warrantyType,
-        status: result.nextStep === "partsApplication" ? REPAIR_STATUS.WAIT_INSPECTION : REPAIR_STATUS.INSPECTION_COMPLETE,
+        status: REPAIR_STATUS.WAIT_INSPECTION,
       })
       setRepairOrder(updated)
       setPage(selected === "TRANSFER_TO_HEADQUARTERS" ? "home" : result.nextStep)
@@ -43,7 +43,7 @@ function RepairDecision({ setPage }) {
 
   return <div className="page repair-decision-page">
     <div className="repair-decision-header">
-      <button className="arrow-back" onClick={() => setPage("repair")}>←</button>
+      <button className="arrow-back" onClick={() => setPage("repairWarranty")}>←</button>
       <div>
         <span>工单处理</span>
         <h1>维修处理</h1>

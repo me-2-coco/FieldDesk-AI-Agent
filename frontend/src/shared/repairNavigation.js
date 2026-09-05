@@ -1,20 +1,20 @@
 import { REPAIR_STATUS } from "./repairOrderStore.js"
 
-const RESUMABLE_PAGES = new Set(["repairDecision", "partsApplication", "repairProcess", "repairCompletion"])
+const RESUMABLE_PAGES = new Set(["repairWarranty", "repairDecision", "partsApplication", "repairProcess", "repairCompletion"])
 
 export function resumePageForLocalWorkflow(order = {}) {
   if (["REPAIR_COMPLETED_PENDING_SHIPMENT", "SHIPPED_PENDING_COMPLETION", "COMPLETED"].includes(order.status)) return "repairCompletion"
+  if (order.treatmentMode === "REPAIR" && order.inspectionUpdatedAt && !order.repairStartedAt && !order.recloudServiceOrderCreatedAt) return "repairProcess"
   if (RESUMABLE_PAGES.has(order.resumeStep)) return order.resumeStep
   if (order.repairCompletion?.savedAt || order.status === "REPAIR_COMPLETION_DRAFT") return "repairCompletion"
   const hasSavedInspection = Boolean(order.inspectionUpdatedAt && order.faultCategory && order.technicianWarranty)
   if (hasSavedInspection) {
     if (order.treatmentMode && order.treatmentMode !== "REPAIR") return "repairCompletion"
-    const timelineTypes = new Set((order.timeline || []).map((item) => item.type))
-    return timelineTypes.has("PARTS_CONFIRMED") ? "repairCompletion" : "repairProcess"
+    return order.repairStartedAt || order.recloudServiceOrderCreatedAt ? "repairCompletion" : "repairProcess"
   }
   if (order.treatmentMode === "REPAIR") return "partsApplication"
-  if (order.treatmentMode) return "repairCompletion"
-  if (order.receiptCompletedAt) return "repairDecision"
+  if (order.treatmentMode) return "repairProcess"
+  if (order.receiptCompletedAt) return order.technicianWarranty ? "repairDecision" : "repairWarranty"
   return ""
 }
 
@@ -32,7 +32,7 @@ export function pageForRepairStatus(status) {
 }
 
 export function pageForLocalWorkflowStatus(status) {
-  if (["RECEIVED_PENDING_INSPECTION", "INSPECTION_IN_PROGRESS"].includes(status)) return "repairDecision"
+  if (["RECEIVED_PENDING_INSPECTION", "INSPECTION_IN_PROGRESS"].includes(status)) return "repairWarranty"
   if (["INSPECTION_COMPLETED_PENDING_REPAIR", "REPAIR_COMPLETION_DRAFT"].includes(status)) return "repairCompletion"
   if (["REPAIR_COMPLETED_PENDING_SHIPMENT", "SHIPPED_PENDING_COMPLETION"].includes(status)) return "repairCompletion"
   if (status === "COMPLETED") return "records"

@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react"
-import { getLocalRepairOrders, getShippingOrders } from "../shared/crmService.js"
+import { useCallback, useEffect, useState } from "react"
+import { getLocalRepairOrders, getShippingOrders, getWarrantyConversionRequests } from "../shared/crmService.js"
 import { findRepairOrderByCrmOrderNo, getCurrentRepairOrder, REPAIR_STATUS, saveCurrentRepairOrder } from "../shared/repairOrderStore.js"
 import { pageForRepairStatus, repairStatusForLocalWorkflow, resumePageForLocalWorkflow } from "../shared/repairNavigation.js"
 import { USER_ROLES } from "../shared/userStore.js"
@@ -38,6 +38,7 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
   const [order, setOrder] = useState(() => getCurrentRepairOrder())
   const [resumeError, setResumeError] = useState("")
   const [backgroundShippingCount, setBackgroundShippingCount] = useState(0)
+  const [pendingWarrantyCount, setPendingWarrantyCount] = useState(0)
   const [workflows, setWorkflows] = useState([])
   const [statStartDate, setStatStartDate] = useState(() => `${localDateKey(new Date()).slice(0, 7)}-01`)
   const [statEndDate, setStatEndDate] = useState(() => localDateKey(new Date()))
@@ -48,7 +49,7 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
   const isInformationClerk = currentUser?.role === USER_ROLES.INFORMATION_CLERK
   const nextPage = pageForRepairStatus(order?.status)
 
-  function restoreLocalOrder(workflow, targetPage = resumePageForLocalWorkflow(workflow)) {
+  const restoreLocalOrder = useCallback((workflow, targetPage = resumePageForLocalWorkflow(workflow)) => {
     const restoredParts = workflow.repairCompletion?.usedParts?.length
       ? workflow.repairCompletion.usedParts
       : Array.isArray(workflow.partApplications)
@@ -66,6 +67,8 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
       sn: workflow.sn || "",
       projectCode: workflow.recloudProjectCode || workflow.projectCode || "",
       warrantyType: workflow.technicianWarranty || workflow.warrantyType || "",
+      warrantyDecision: workflow.warrantyDecision || null,
+      manufacturerWarrantyConversion: workflow.manufacturerWarrantyConversion || null,
       originalFault: workflow.reportedFault || "",
       inspectionResult: workflow.inspectionResult || "",
       inspectionRemark: workflow.inspectionRemark || "",
@@ -94,7 +97,7 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
     })
     setOrder(restored)
     return restored
-  }
+  }, [])
 
   async function syncCurrentProgress({ navigate = false } = {}) {
     if (!order?.crmOrderNo) return
@@ -116,9 +119,26 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
   }
 
   useEffect(() => {
-    const timer = window.setTimeout(() => syncCurrentProgress(), 0)
-    return () => window.clearTimeout(timer)
-  }, [order?.crmOrderNo])
+    const rmaNo = order?.crmOrderNo
+    if (!rmaNo) return undefined
+    let active = true
+    const timer = window.setTimeout(async () => {
+      try {
+        const rows = await getLocalRepairOrders()
+        if (!active) return
+        const workflow = rows.find((item) => item.rmaNo === rmaNo)
+        if (!workflow?.receiptCompletedAt) return
+        restoreLocalOrder(workflow, resumePageForLocalWorkflow(workflow))
+        setResumeError("")
+      } catch (error) {
+        if (active) setResumeError(error.message)
+      }
+    }, 0)
+    return () => {
+      active = false
+      window.clearTimeout(timer)
+    }
+  }, [order?.crmOrderNo, restoreLocalOrder])
 
   useEffect(() => {
     if (!isTechnician && !isAdmin) return undefined
@@ -133,6 +153,15 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
     getShippingOrders()
       .then((rows) => active && setBackgroundShippingCount(rows.length))
       .catch(() => active && setBackgroundShippingCount(0))
+    return () => { active = false }
+  }, [isInformationClerk, isAdmin])
+
+  useEffect(() => {
+    if (!isInformationClerk && !isAdmin) return undefined
+    let active = true
+    getWarrantyConversionRequests()
+      .then((rows) => active && setPendingWarrantyCount((rows || []).filter((item) => item.status === "PENDING_APPROVAL").length))
+      .catch(() => active && setPendingWarrantyCount(0))
     return () => { active = false }
   }, [isInformationClerk, isAdmin])
 
@@ -173,6 +202,7 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
       title: "发货与异常",
       description: "优先处理需要跟进的工单",
       actions: [
+        { page: "warrantyApprovals", title: "转保申请", description: pendingWarrantyCount ? `${pendingWarrantyCount} 单待申请上传` : "暂无待处理申请", icon: "archive" },
         { page: "returnShipping", title: "后台发货进度", description: backgroundShippingCount ? `${backgroundShippingCount} 单待查看` : "查看待发货和待完结", icon: "shipping" },
         { page: "exceptionCenter", title: "问题工单", description: "集中处理业务异常", icon: "alert" }
       ]
@@ -192,6 +222,7 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
       description: "处理异常并管理工单状态",
       actions: [
         { page: "adminRepairRecovery", title: "工单恢复", description: "恢复到处理方式选择", icon: "recovery" },
+        { page: "warrantyApprovals", title: "转保申请", description: pendingWarrantyCount ? `${pendingWarrantyCount} 单待申请上传` : "暂无待处理申请", icon: "archive" },
         { page: "exceptionCenter", title: "问题工单", description: "查看全局业务异常", icon: "alert" },
         { page: "records", title: "全部工单", description: "查询历史业务记录", icon: "records" }
       ]

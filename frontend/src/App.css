@@ -2911,6 +2911,8 @@ background:#fafafa;
 .completion-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:12px}.completion-actions button{width:100%;min-height:44px;margin:0;padding:8px 10px;border-radius:11px;font-size:14px}
 .receipt-upload-heading .repair-required-badge{margin:0;padding:4px 9px;color:#1768e5;background:#eaf2ff;border:1px solid #c9ddff;border-radius:999px;font-size:11px;font-weight:750;white-space:nowrap}
 .warranty-status-line{display:flex;align-items:center;justify-content:center;gap:9px;margin:12px 0!important}.warranty-status-line strong{color:#176a4b;font-size:14px}.warranty-status-line span{padding:5px 11px;color:#087f5b;background:#e8fbf3;border:1px solid #a7ebcf;border-radius:999px;font-size:14px;font-weight:800}.inspection-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:14px}.inspection-actions:has(button:only-child){grid-template-columns:1fr}.inspection-actions button{width:100%;min-height:44px;margin:0;padding:8px 9px;border-radius:11px;font-size:13px;line-height:1.25}
+.warranty-confirm-card{display:grid;gap:14px}.warranty-decision-panel{padding:20px;text-align:center;border:1px solid #b7ead6;border-radius:16px;background:#effcf6}.warranty-decision-panel.is-out{border-color:#ffc5c5;background:#fff4f4}.warranty-decision-panel small,.warranty-decision-panel strong,.warranty-decision-panel p{display:block;margin:0}.warranty-decision-panel small{color:#8796ab;font-weight:700}.warranty-decision-panel strong{margin:7px 0 5px;color:#087f5b;font-size:28px}.warranty-decision-panel.is-out strong{color:#df3f3f}.warranty-decision-panel p{color:#617087;font-size:13px}.warranty-confirm-card .form-hint{text-align:center;color:#7e8da2;font-size:13px}
+.warranty-choice-section{display:grid;gap:12px;padding:16px;border:1px solid #dce6f3;border-radius:16px;background:#f8faff}.warranty-option-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.warranty-option-grid button{display:grid;grid-template-columns:24px 1fr;align-items:center;gap:3px;padding:14px;border:1px solid #d6e0ed;border-radius:14px;background:#fff;color:#53627a;text-align:left}.warranty-option-grid button>span{grid-row:1/3;display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#edf2f8;color:#fff}.warranty-option-grid button strong{font-size:17px}.warranty-option-grid button small{color:#8896a9}.warranty-option-grid button.active{border-color:#2f80ed;background:#edf5ff;color:#176bd8}.warranty-option-grid button.active>span{background:#2f80ed}.warranty-conversion-choice{display:grid;gap:8px;padding-top:12px;border-top:1px solid #e3eaf3}.warranty-conversion-choice p,.warranty-conversion-choice small{margin:0;color:#76859a;font-size:13px}.warranty-conversion-option{grid-template-columns:1fr}.warranty-conversion-option button{width:100%}.warranty-proof-status{display:grid;gap:4px;margin:12px 0;padding:12px 14px;border-radius:12px}.warranty-proof-status span{font-size:12px;line-height:1.5}.warranty-proof-status.is-ready{background:#eafaf3;color:#087f5b}.warranty-proof-status.is-pending{background:#fff7df;color:#98620b}.attachment-locked-badge{display:block;margin:0 8px 8px;padding:5px 8px;border-radius:8px;background:#eafaf3;color:#087f5b;font-size:11px;font-weight:700}.warranty-approval-record{display:grid;gap:14px}.warranty-approval-record .compact-record-detail{display:grid;grid-template-columns:1fr 1fr;gap:10px}.warranty-proof-upload{display:block;text-align:center;cursor:pointer}.warranty-proof-upload input{display:none}.status-success{color:#087f5b}.status-warning{color:#a96a00}
 .warranty-status-line.warranty-out strong{color:#b42318}.warranty-status-line.warranty-out span{color:#c92a2a;background:#fff0f0;border-color:#ffb8b8}.warranty-status-line.warranty-pending strong{color:#52657a}.warranty-status-line.warranty-pending span{color:#52657a;background:#f1f4f8;border-color:#d9e0e8}
 .repair-warranty-badge.warranty-out{color:#c92a2a;background:#fff0f0;border-color:#ffb8b8}.repair-warranty-badge.warranty-pending{color:#52657a;background:#f1f4f8;border-color:#d9e0e8}
 .warranty-badge{display:inline-flex;align-items:center;padding:4px 10px;border:1px solid;border-radius:999px;font-size:13px;font-weight:800;line-height:1.35;white-space:nowrap}.warranty-badge-in{color:#087f5b;background:#e8fbf3;border-color:#a7ebcf}.warranty-badge-out{color:#c92a2a;background:#fff0f0;border-color:#ffb8b8}.warranty-badge-pending{color:#52657a;background:#f1f4f8;border-color:#d9e0e8}.warranty-judgment-out{color:#c92a2a!important;font-weight:700}
@@ -3266,3 +3268,26 @@ background:#fafafa;
 @media(max-width:390px){.compact-record-detail{grid-template-columns:1fr 1fr}.diagnostic-form-grid{grid-template-columns:1fr}.report-attachment-grid{grid-template-columns:1fr 1fr}}
 
 .attachment-storage-hint,.sync-safety-hint{margin:0 1px 9px!important;color:#8b96a7!important;font-size:8px!important;line-height:1.45!important;text-align:left!important}.sync-safety-hint{margin-top:6px!important;margin-bottom:0!important}
+
+/* Compact mobile warranty confirmation */
+.repair-warranty-page .warranty-confirm-card{gap:10px;padding:12px!important;border-radius:18px!important}
+.repair-warranty-page .mobile-record-hero{min-height:72px;margin-bottom:0;padding:10px 12px;border-radius:14px;gap:2px}
+.repair-warranty-page .mobile-record-hero span,.repair-warranty-page .mobile-record-hero small{font-size:9px}
+.repair-warranty-page .mobile-record-hero strong{font-size:15px}
+.repair-warranty-page .warranty-decision-panel{padding:12px 10px;border-radius:13px}
+.repair-warranty-page .warranty-decision-panel small{font-size:10px}
+.repair-warranty-page .warranty-decision-panel strong{margin:3px 0 2px;font-size:22px}
+.repair-warranty-page .warranty-decision-panel p{font-size:10px}
+.repair-warranty-page .warranty-choice-section{gap:9px;padding:11px;border-radius:14px;background:#f8faff}
+.repair-warranty-page .receipt-upload-heading strong{font-size:13px}
+.repair-warranty-page .receipt-upload-heading span{margin-top:2px;font-size:9px}
+.repair-warranty-page .warranty-option-grid{gap:7px}
+.repair-warranty-page .warranty-option-grid button{grid-template-columns:18px minmax(0,1fr);min-height:58px;padding:9px 10px;border-radius:11px;gap:1px 7px}
+.repair-warranty-page .warranty-option-grid button>span{width:18px;height:18px;font-size:11px}
+.repair-warranty-page .warranty-option-grid button strong{font-size:13px}
+.repair-warranty-page .warranty-option-grid button small{font-size:9px}
+.repair-warranty-page .warranty-conversion-choice{gap:7px;padding-top:9px}
+.repair-warranty-page .warranty-conversion-option button{min-height:52px;background:#fff}
+.repair-warranty-page .warranty-conversion-option button.active{background:#edf5ff}
+.repair-warranty-page .primary-btn{min-height:42px;margin:0;padding:8px 10px;border-radius:11px;font-size:13px}
+.repair-warranty-page .warranty-confirm-card .form-hint{margin:0!important;font-size:9px;line-height:1.45}
