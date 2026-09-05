@@ -68,7 +68,7 @@ class AccountStore {
   async list(operator) {
     const data = await this.backend.read();
     return data.users
-      .filter((user) => !user.deletedAt && (!operator || isOwner(operator) || user.role !== USER_ROLES.ADMIN))
+      .filter((user) => !user.deletedAt && (!operator || isOwner(operator) || (user.role !== USER_ROLES.ADMIN && user.userId !== RECLOUD_TEST_USER_ID)))
       .map(({ tokenHash, passwordHash, allowBearer, tokenExpiresAt, ...user }) => user);
   }
   async getNextManagedUserId() {
@@ -113,11 +113,13 @@ class AccountStore {
     if (!/^1[3-9]\d{9}$/.test(phone)) throw Object.assign(new Error("请填写正确的11位手机号"), { code: "ACCOUNT_PHONE_INVALID", status: 400 });
     if (!MANAGED_ACCOUNT_ROLES.has(role)) throw Object.assign(new Error("请选择账号角色"), { code: "ACCOUNT_ROLE_INVALID", status: 400 });
     if (role === USER_ROLES.ADMIN && !isOwner(operator)) throw Object.assign(new Error("只有负责人可以创建管理员账号"), { code: "ACCOUNT_OWNER_REQUIRED", status: 403 });
+    if (isRecloudTestAccount && !isOwner(operator)) throw Object.assign(new Error("只有负责人可以创建和管理 FieldDesk0004 测试账号"), { code: "ACCOUNT_OWNER_REQUIRED", status: 403 });
     if (requestedUserId && !/^FieldDesk\d{4,}$/.test(requestedUserId)) throw Object.assign(new Error("账号必须由 FieldDesk 加4位以上数字组成"), { code: "ACCOUNT_USER_ID_INVALID", status: 400 });
     if (requestedUserId && Number(requestedUserId.slice(MANAGED_ACCOUNT_PREFIX.length)) < Number(RECLOUD_TEST_USER_ID.slice(MANAGED_ACCOUNT_PREFIX.length))) throw Object.assign(new Error("账号数字不能小于0004"), { code: "ACCOUNT_USER_ID_BELOW_MINIMUM", status: 400 });
     if (isRecloudTestAccount && role !== USER_ROLES.TECHNICIAN) throw Object.assign(new Error("FieldDesk0004 是瑞云对接测试师傅账号，请选择扫地机或洗地机师傅"), { code: "ACCOUNT_RECLOUD_TEST_ROLE_REQUIRED", status: 400 });
     if (specialties.some((item) => !SPECIALTIES.has(item))) throw Object.assign(new Error("维修品类无效"), { code: "ACCOUNT_SPECIALTY_INVALID", status: 400 });
-    if (role === USER_ROLES.TECHNICIAN && specialties.length !== 1) throw Object.assign(new Error("维修师傅必须且只能选择一个维修品类"), { code: "ACCOUNT_SPECIALTY_REQUIRED", status: 400 });
+    if (role === USER_ROLES.TECHNICIAN && isRecloudTestAccount && !(specialties.length === SPECIALTIES.size && specialties.every((item) => SPECIALTIES.has(item)))) throw Object.assign(new Error("FieldDesk0004 必须同时拥有扫地机和洗地机权限"), { code: "ACCOUNT_SPECIALTY_REQUIRED", status: 400 });
+    if (role === USER_ROLES.TECHNICIAN && !isRecloudTestAccount && specialties.length !== 1) throw Object.assign(new Error("维修师傅必须且只能选择一个维修品类"), { code: "ACCOUNT_SPECIALTY_REQUIRED", status: 400 });
     if (role !== USER_ROLES.TECHNICIAN && specialties.length) throw Object.assign(new Error("库管和信息员不能配置维修权限"), { code: "ACCOUNT_SPECIALTY_FORBIDDEN", status: 400 });
     return this.backend.update((data) => {
       const userId = requestedUserId || nextManagedUserId(data.users);
@@ -161,6 +163,7 @@ class AccountStore {
       const index = data.users.findIndex((item) => item.userId === normalizedUserId && !item.deletedAt);
       if (index < 0) throw Object.assign(new Error("账号不存在"), { code: "ACCOUNT_NOT_FOUND", status: 404 });
       if (isOwner(data.users[index])) throw Object.assign(new Error("负责人账号不能删除"), { code: "ACCOUNT_OWNER_PROTECTED", status: 409 });
+      if (data.users[index].userId === RECLOUD_TEST_USER_ID && !isOwner(operator)) throw Object.assign(new Error("只有负责人可以删除 FieldDesk0004 测试账号"), { code: "ACCOUNT_OWNER_REQUIRED", status: 403 });
       if (data.users[index].role === USER_ROLES.ADMIN && !isOwner(operator)) throw Object.assign(new Error("只有负责人可以删除管理员账号"), { code: "ACCOUNT_OWNER_REQUIRED", status: 403 });
       const removed = data.users[index];
       removed.active = false;
@@ -176,6 +179,7 @@ class AccountStore {
       const user = data.users.find((item) => item.userId === normalizedUserId && !item.deletedAt);
       if (!user) throw Object.assign(new Error("账号不存在"), { code: "ACCOUNT_NOT_FOUND", status: 404 });
       if (isOwner(user)) throw Object.assign(new Error("负责人账号不能由账号管理页重置"), { code: "ACCOUNT_OWNER_PROTECTED", status: 409 });
+      if (user.userId === RECLOUD_TEST_USER_ID && !isOwner(operator)) throw Object.assign(new Error("只有负责人可以重置 FieldDesk0004 测试账号密码"), { code: "ACCOUNT_OWNER_REQUIRED", status: 403 });
       if (user.role === USER_ROLES.ADMIN && !isOwner(operator)) throw Object.assign(new Error("只有负责人可以重置管理员密码"), { code: "ACCOUNT_OWNER_REQUIRED", status: 403 });
       user.passwordHash = crypto.createHash("sha256").update(MANAGED_ACCOUNT_DEFAULT_PASSWORD).digest("hex");
       user.mustChangePassword = true;
@@ -197,6 +201,22 @@ class AccountStore {
       return { userId: user.userId, displayName: user.displayName };
     });
   }
+  updateRecloudTestName(userId, value) {
+    const normalizedUserId = String(userId || "").trim();
+    const displayName = String(value || "").trim();
+    if (normalizedUserId !== RECLOUD_TEST_USER_ID) throw Object.assign(new Error("只有 FieldDesk0004 可以使用测试姓名设置"), { code: "ACCOUNT_RECLOUD_TEST_REQUIRED", status: 403 });
+    if (!displayName) throw Object.assign(new Error("请填写要在瑞云中测试的师傅姓名"), { code: "ACCOUNT_DISPLAY_NAME_REQUIRED", status: 400 });
+    return this.backend.update((data) => {
+      const user = data.users.find((item) => item.userId === RECLOUD_TEST_USER_ID && !item.deletedAt && item.active !== false);
+      if (!user) throw Object.assign(new Error("FieldDesk0004 测试账号不存在或已停用"), { code: "ACCOUNT_NOT_FOUND", status: 404 });
+      user.displayName = displayName;
+      user.recloudAssignmentMode = "DIRECT";
+      user.recloudAssigneeName = displayName;
+      user.recloudFallbackAssigneeName = "";
+      user.updatedAt = new Date().toISOString();
+      return { userId: user.userId, displayName, recloudAssigneeName: displayName };
+    });
+  }
   upsert(input, operator) {
     if (operator?.role !== USER_ROLES.ADMIN) throw Object.assign(new Error("只有管理员可以配置账号"), { code: "ACCOUNT_ADMIN_REQUIRED", status: 403 });
     const role = String(input.role || "");
@@ -205,10 +225,12 @@ class AccountStore {
     if (userId === OWNER_USER_ID) throw Object.assign(new Error("负责人账号和权限不能修改"), { code: "ACCOUNT_OWNER_PROTECTED", status: 409 });
     if (!ROLES.has(role)) throw Object.assign(new Error("账号角色无效"), { code: "ACCOUNT_ROLE_INVALID", status: 400 });
     if (isRecloudTestAccount && role !== USER_ROLES.TECHNICIAN) throw Object.assign(new Error("FieldDesk0004 必须保持为瑞云对接测试师傅账号"), { code: "ACCOUNT_RECLOUD_TEST_ROLE_REQUIRED", status: 400 });
+    if (isRecloudTestAccount && !isOwner(operator)) throw Object.assign(new Error("只有负责人可以管理 FieldDesk0004 测试账号"), { code: "ACCOUNT_OWNER_REQUIRED", status: 403 });
     const specialties = [...new Set(input.repairSpecialties || [])];
     if (specialties.some((item) => !SPECIALTIES.has(item))) throw Object.assign(new Error("维修品类无效"), { code: "ACCOUNT_SPECIALTY_INVALID", status: 400 });
     if (role === USER_ROLES.TECHNICIAN && specialties.length === 0) throw Object.assign(new Error("维修师傅至少选择一个维修权限"), { code: "ACCOUNT_SPECIALTY_REQUIRED", status: 400 });
-    if (/^FieldDesk\d+$/.test(userId) && role === USER_ROLES.TECHNICIAN && specialties.length !== 1) throw Object.assign(new Error("正式维修账号必须且只能选择一个维修品类"), { code: "ACCOUNT_SPECIALTY_REQUIRED", status: 400 });
+    if (isRecloudTestAccount && !(specialties.length === SPECIALTIES.size && specialties.every((item) => SPECIALTIES.has(item)))) throw Object.assign(new Error("FieldDesk0004 必须同时拥有扫地机和洗地机权限"), { code: "ACCOUNT_SPECIALTY_REQUIRED", status: 400 });
+    if (!isRecloudTestAccount && /^FieldDesk\d+$/.test(userId) && role === USER_ROLES.TECHNICIAN && specialties.length !== 1) throw Object.assign(new Error("正式维修账号必须且只能选择一个维修品类"), { code: "ACCOUNT_SPECIALTY_REQUIRED", status: 400 });
     if (role !== USER_ROLES.TECHNICIAN && specialties.length && role !== USER_ROLES.ADMIN) throw Object.assign(new Error("该角色不能配置维修品类"), { code: "ACCOUNT_SPECIALTY_FORBIDDEN", status: 400 });
     const displayName = String(input.displayName || "").trim();
     const recloudAssignmentMode = isRecloudTestAccount ? "DIRECT" : String(input.recloudAssignmentMode || "DIRECT").trim().toUpperCase();

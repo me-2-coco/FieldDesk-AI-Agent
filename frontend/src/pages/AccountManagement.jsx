@@ -5,12 +5,14 @@ import { createAdminAccount, deleteAdminAccount, getAdminUsers, getCurrentFieldD
 const EMPTY = { userId: "", displayName: "", phone: "", role: "", repairSpecialties: [], active: true, recloudAssignmentMode: "DIRECT", recloudAssigneeName: "", recloudFallbackAssigneeName: "" }
 
 function permissionValue(form) {
+  if (form.userId === "FieldDesk0004" || form.accountPurpose === "RECLOUD_TECHNICIAN_TEST") return "TECHNICIAN_TEST"
   if (form.role !== "TECHNICIAN") return form.role
   if (form.repairSpecialties.length > 1) return "TECHNICIAN_DUAL"
   return form.repairSpecialties[0] === "扫地机" ? "TECHNICIAN_SWEEP" : form.repairSpecialties[0] === "洗地机" ? "TECHNICIAN_WASH" : ""
 }
 
 function permissionFields(value) {
+  if (value === "TECHNICIAN_TEST") return { role: "TECHNICIAN", repairSpecialties: ["扫地机", "洗地机"] }
   if (value === "TECHNICIAN_SWEEP") return { role: "TECHNICIAN", repairSpecialties: ["扫地机"] }
   if (value === "TECHNICIAN_WASH") return { role: "TECHNICIAN", repairSpecialties: ["洗地机"] }
   if (value === "TECHNICIAN_DUAL") return { role: "TECHNICIAN", repairSpecialties: ["扫地机", "洗地机"] }
@@ -24,9 +26,11 @@ const ROLE_CHOICES = [
   { value: "INFORMATION_CLERK", title: "信息员", description: "查看异常、进度与维修档案", icon: "records", tone: "information" },
 ]
 const ADMIN_CHOICE = { value: "ADMIN", title: "管理员", description: "管理普通账号、工单、库存与系统设置", icon: "accounts", tone: "admin" }
+const RECLOUD_TEST_CHOICE = { value: "TECHNICIAN_TEST", title: "双品类测试师傅", description: "同时测试扫地机和洗地机的瑞云姓名识别", icon: "work", tone: "admin" }
 
 function roleDisplay(user) {
   if (user.accountAuthority === "OWNER") return "负责人"
+  if (user.userId === "FieldDesk0004") return "双品类测试师傅"
   if (user.role === "TECHNICIAN") return `${user.repairSpecialties?.[0] || "未配置"}师傅`
   if (user.role === "WAREHOUSE") return "库管"
   if (user.role === "INFORMATION_CLERK") return "信息员"
@@ -44,7 +48,7 @@ function AccountManagement({ setPage }) {
   const creatingRecloudTestAccount = !form.userId && `FieldDesk${accountSuffix.padStart(4, "0")}` === "FieldDesk0004"
   const recloudTestAccount = editingRecloudTestAccount || creatingRecloudTestAccount
   const availableRoleChoices = recloudTestAccount
-    ? ROLE_CHOICES.filter((choice) => choice.value.startsWith("TECHNICIAN_"))
+    ? [RECLOUD_TEST_CHOICE]
     : [...ROLE_CHOICES, ...(currentProfile?.accountAuthority === "OWNER" ? [ADMIN_CHOICE] : [])]
 
   async function refresh() {

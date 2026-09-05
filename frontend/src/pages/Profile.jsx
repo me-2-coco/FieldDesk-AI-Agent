@@ -4,15 +4,18 @@ import {
   getUsers,
   getCurrentUser,
   getRoleName,
+  setAuthenticatedUser,
   setCurrentUser,
   USER_ROLES
 } from "../shared/userStore.js"
 import { AppIcon } from "../components/AppIcons.jsx"
+import { updateRecloudTestDisplayName } from "../shared/crmService.js"
 
 
 function Profile({
   setPage,
-  onLogout
+  onLogout,
+  onProfileChange
 }) {
 
   const [users] = useState(() =>
@@ -24,6 +27,7 @@ function Profile({
   )
 
   const [message, setMessage] = useState("")
+  const [testDisplayName, setTestDisplayName] = useState(() => currentUser.id === "FieldDesk0004" ? currentUser.name : "")
   const isTechnician = currentUser.role === USER_ROLES.TECHNICIAN
   const isWarehouse = currentUser.role === USER_ROLES.WAREHOUSE
   const isInformationClerk = currentUser.role === USER_ROLES.INFORMATION_CLERK
@@ -77,6 +81,20 @@ function Profile({
     }
 
     onLogout()
+  }
+
+  async function saveTestDisplayName(event) {
+    event.preventDefault()
+    try {
+      const profile = await updateRecloudTestDisplayName(testDisplayName)
+      const updatedUser = { ...currentUser, name: profile.displayName }
+      setAuthenticatedUser(updatedUser)
+      setCurrentUserState(updatedUser)
+      onProfileChange?.(updatedUser)
+      setMessage(`瑞云测试姓名已更新为：${profile.displayName}`)
+    } catch (error) {
+      setMessage(error.message)
+    }
   }
 
 
@@ -184,6 +202,18 @@ function Profile({
         ))}
 
       </details>}
+
+      {currentUser.id === "FieldDesk0004" && <div className="card profile-section-card">
+        <div className="profile-section-heading">
+          <div><span>瑞云对接测试</span><h2>测试师傅姓名</h2></div>
+          <small>扫地机 + 洗地机</small>
+        </div>
+        <p className="profile-section-description">修改后，两类工单都会使用这个姓名识别瑞云负责人。</p>
+        <form onSubmit={saveTestDisplayName}>
+          <label>师傅姓名<input value={testDisplayName} onChange={(event) => setTestDisplayName(event.target.value)} placeholder="请输入瑞云中的师傅姓名" required /></label>
+          <button type="submit">保存测试姓名</button>
+        </form>
+      </div>}
 
       <div className="card profile-section-card profile-settings-card">
         <div className="profile-section-heading">

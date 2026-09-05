@@ -24,6 +24,10 @@ export async function changeFieldDeskPassword(newPassword) {
   return request("/api/auth/change-password", { newPassword })
 }
 
+export async function updateRecloudTestDisplayName(displayName) {
+  return request("/api/auth/recloud-test-name", { displayName })
+}
+
 function apiHeaders() {
   const localUserId =
     typeof localStorage === "undefined"

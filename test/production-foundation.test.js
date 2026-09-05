@@ -122,14 +122,26 @@ test("administrator creates managed FieldDesk accounts from 0005 with required r
 
 test("FieldDesk0004 is a formal Recloud technician-name test account", async () => {
   const store = new AccountStore({ backend: new MemoryDocumentBackend({ users: [] }) });
-  const created = await store.createManagedAccount({ userId: "FieldDesk0004", displayName: "刘成", phone: "13700137000", role: USER_ROLES.TECHNICIAN, repairSpecialties: ["扫地机"] }, owner);
+  assert.throws(() => store.createManagedAccount({ userId: "FieldDesk0004", displayName: "刘成", phone: "13700137000", role: USER_ROLES.TECHNICIAN, repairSpecialties: ["扫地机", "洗地机"] }, admin), { code: "ACCOUNT_OWNER_REQUIRED" });
+  assert.throws(() => store.createManagedAccount({ userId: "FieldDesk0004", displayName: "刘成", phone: "13700137000", role: USER_ROLES.TECHNICIAN, repairSpecialties: ["扫地机"] }, owner), { code: "ACCOUNT_SPECIALTY_REQUIRED" });
+  const created = await store.createManagedAccount({ userId: "FieldDesk0004", displayName: "刘成", phone: "13700137000", role: USER_ROLES.TECHNICIAN, repairSpecialties: ["扫地机", "洗地机"] }, owner);
   assert.equal(created.accountPurpose, "RECLOUD_TECHNICIAN_TEST");
   assert.equal(created.recloudAssigneeName, "刘成");
+  assert.deepEqual(created.repairSpecialties, ["扫地机", "洗地机"]);
   assert.equal(await store.getNextManagedUserId(), "FieldDesk0005");
+  assert.equal((await store.list(admin)).some((user) => user.userId === "FieldDesk0004"), false);
+  assert.equal((await store.list(owner)).some((user) => user.userId === "FieldDesk0004"), true);
+  assert.throws(() => store.upsert({ ...created, displayName: "管理员无权修改" }, admin), { code: "ACCOUNT_OWNER_REQUIRED" });
+  await assert.rejects(() => store.resetPassword("FieldDesk0004", admin), { code: "ACCOUNT_OWNER_REQUIRED" });
+  await assert.rejects(() => store.delete("FieldDesk0004", admin), { code: "ACCOUNT_OWNER_REQUIRED" });
   const updated = await store.upsert({ ...created, displayName: "另一位师傅", recloudAssigneeName: "旧名字" }, owner);
   assert.equal(updated.displayName, "另一位师傅");
   assert.equal(updated.recloudAssigneeName, "另一位师傅");
   assert.equal(updated.recloudAssignmentMode, "DIRECT");
+  const selfUpdated = await store.updateRecloudTestName("FieldDesk0004", "刘成");
+  assert.equal(selfUpdated.displayName, "刘成");
+  assert.equal(selfUpdated.recloudAssigneeName, "刘成");
+  assert.throws(() => store.updateRecloudTestName("FieldDesk0005", "越权修改"), { code: "ACCOUNT_RECLOUD_TEST_REQUIRED" });
 });
 
 test("production account mode can bootstrap one administrator without exposing token", async () => {

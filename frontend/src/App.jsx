@@ -479,6 +479,7 @@ function App() {
           <Profile
             setPage={setPage}
             onLogout={handleLogout}
+            onProfileChange={setCurrentUser}
           />
 
         )}

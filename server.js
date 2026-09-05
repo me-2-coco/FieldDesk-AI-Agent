@@ -789,6 +789,13 @@ function createApp(
     } catch (error) { next(error); }
   });
 
+  app.post("/api/auth/recloud-test-name", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      res.json({ success: true, data: await accountStore.updateRecloudTestName(user.userId, req.body?.displayName) });
+    } catch (error) { next(error); }
+  });
+
   app.get("/api/admin/users", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
