@@ -3354,3 +3354,4 @@ background:#fafafa;
 .treatment-option[class*="treatment-option-"].is-selected{color:var(--treatment-accent);background:var(--treatment-bg);border-color:var(--treatment-accent);box-shadow:0 5px 14px var(--treatment-shadow)}
 .treatment-option[class*="treatment-option-"].is-selected .treatment-option-icon{background:var(--treatment-accent)}
 .bottom-nav button.workflow-resume{color:#1768e5;background:#edf5ff}.bottom-nav button.workflow-resume .bottom-nav-icon{opacity:1}
+.home-workload-grid .workload-out-of-warranty{background:#f5f0ff}.home-workload-grid .workload-out-of-warranty strong{color:#7657c4}.home-workload-grid .workload-held{background:#eef7ff}.home-workload-grid .workload-held strong{color:#2677d9}.home-order-status.outOfWarranty{color:#6e4db8!important;background:#f2ecff}.home-order-status.held{color:#216cb7!important;background:#eaf5ff}

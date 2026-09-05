@@ -3,11 +3,11 @@ import { getLocalRepairOrders, getShippingOrders, getWarrantyConversionRequests 
 import { findRepairOrderByCrmOrderNo, getCurrentRepairOrder, REPAIR_STATUS, saveCurrentRepairOrder } from "../shared/repairOrderStore.js"
 import { pageForRepairStatus, repairStatusForLocalWorkflow, resumePageForLocalWorkflow } from "../shared/repairNavigation.js"
 import { USER_ROLES } from "../shared/userStore.js"
+import { categorizeTechnicianWorkflows, technicianWorkloadStatusLabel } from "../shared/homeWorkload.js"
 import SupervisionInbox from "../components/SupervisionInbox.jsx"
 import { AppIcon } from "../components/AppIcons.jsx"
 
 const COMPLETED_WORKFLOW_STATUSES = new Set(["REPAIR_COMPLETED_PENDING_SHIPMENT", "SHIPPED_PENDING_COMPLETION", "COMPLETED"])
-const WAITING_PART_STATUSES = new Set(["PARTS_REQUESTED", "WAITING_PARTS", "WAITING_PART"])
 
 function localDateKey(value) {
   const date = value ? new Date(value) : null
@@ -20,12 +20,6 @@ function localDateKey(value) {
 
 function completionDate(order) { return order.repairCompletion?.submittedAt || order.completedAt || "" }
 function isAbandoned(order) { return /弃修/.test(`${order.repairCompletion?.repairMeasure || ""} ${order.repairCompletion?.speechTemplate || ""}`) }
-function workflowStatusLabel(status) {
-  if (COMPLETED_WORKFLOW_STATUSES.has(status)) return "维修已完成"
-  if (WAITING_PART_STATUSES.has(status)) return "待料"
-  return "维修中"
-}
-
 function fullLocalPhone(workflow) {
   const directPhone = String(workflow.phone || "").trim()
   if (/^1[3-9]\d{9}$/.test(directPhone)) return directPhone
@@ -174,10 +168,12 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
   ].includes(order?.status)
   const roleName = isAdmin ? "管理员" : isWarehouse ? "库房" : isInformationClerk ? "信息员" : "维修师傅"
   const accountName = currentUser?.name || "未识别"
-  const completedOrders = workflows.filter((item) => item.repairCompletion?.submittedAt || COMPLETED_WORKFLOW_STATUSES.has(item.status))
-  const waitingParts = workflows.filter((item) => !item.repairCompletion?.submittedAt && resumePageForLocalWorkflow(item) === "partsApplication")
-  const heldOrders = workflows.filter((item) => item.status === "ON_HOLD")
-  const unfinished = workflows.filter((item) => item.receiptCompletedAt && !item.repairCompletion?.submittedAt && !COMPLETED_WORKFLOW_STATUSES.has(item.status) && item.status !== "ON_HOLD" && !waitingParts.includes(item))
+  const workload = categorizeTechnicianWorkflows(workflows)
+  const completedOrders = workload.completed
+  const unfinished = workload.unfinished
+  const waitingMaterial = workload.waitingMaterial
+  const outOfWarranty = workload.outOfWarranty
+  const otherHeld = workload.otherHeld
   const currentMonth = localDateKey(new Date()).slice(0, 7)
   const summarize = (rows) => ({ repaired: rows.filter((item) => !isAbandoned(item)).length, abandoned: rows.filter(isAbandoned).length, total: rows.length })
   const monthSummary = summarize(completedOrders.filter((item) => localDateKey(completionDate(item)).startsWith(currentMonth)))
@@ -185,7 +181,15 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
     const date = localDateKey(completionDate(item))
     return date && (!statStartDate || date >= statStartDate) && (!statEndDate || date <= statEndDate)
   }))
-  const detailOrders = detailStatus === "unfinished" ? unfinished : detailStatus === "waiting" ? waitingParts : detailStatus === "held" ? heldOrders : detailStatus === "completed" ? completedOrders : []
+  const detailOrders = detailStatus === "unfinished"
+    ? unfinished
+    : detailStatus === "waiting"
+      ? waitingMaterial
+      : detailStatus === "outOfWarranty"
+        ? outOfWarranty
+        : detailStatus === "held"
+          ? otherHeld
+          : detailStatus === "completed" ? completedOrders : []
   const quickActions = isTechnician ? [
     { page: "repair", title: "扫码签收", description: "查询物流并开始寄修", icon: "work" },
     { page: "records", title: "工单查询", description: "查找历史工单", icon: "records" },
@@ -317,19 +321,20 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
     {isTechnician && <SupervisionInbox openKey={supervisionOpenKey} targetRmaNo={supervisionTargetRmaNo} />}
 
     {isTechnician && <div className="card">
-      <div className="home-section-heading"><div><span>实时工作量</span><h2>维修执行</h2></div><small>共 {workflows.length} 台</small></div>
+      <div className="home-section-heading"><div><span>实时工作量</span><h2>维修执行</h2></div><small>手上共 {unfinished.length} 台</small></div>
       <div className="home-workload-grid">
         <button type="button" className={`workload-unfinished ${detailStatus === "unfinished" ? "active" : ""}`} onClick={() => setDetailStatus(detailStatus === "unfinished" ? "" : "unfinished")}><span>未完成维修</span><strong>{unfinished.length}</strong><small>台</small></button>
-        <button type="button" className={`workload-waiting ${detailStatus === "waiting" ? "active" : ""}`} onClick={() => setDetailStatus(detailStatus === "waiting" ? "" : "waiting")}><span>待料</span><strong>{waitingParts.length}</strong><small>台</small></button>
-        <button type="button" className={`workload-waiting ${detailStatus === "held" ? "active" : ""}`} onClick={() => setDetailStatus(detailStatus === "held" ? "" : "held")}><span>暂存</span><strong>{heldOrders.length}</strong><small>台</small></button>
+        <button type="button" className={`workload-waiting ${detailStatus === "waiting" ? "active" : ""}`} onClick={() => setDetailStatus(detailStatus === "waiting" ? "" : "waiting")}><span>待料</span><strong>{waitingMaterial.length}</strong><small>台</small></button>
+        <button type="button" className={`workload-out-of-warranty ${detailStatus === "outOfWarranty" ? "active" : ""}`} onClick={() => setDetailStatus(detailStatus === "outOfWarranty" ? "" : "outOfWarranty")}><span>保外</span><strong>{outOfWarranty.length}</strong><small>台</small></button>
+        <button type="button" className={`workload-held ${detailStatus === "held" ? "active" : ""}`} onClick={() => setDetailStatus(detailStatus === "held" ? "" : "held")}><span>暂存</span><strong>{otherHeld.length}</strong><small>台</small></button>
         <button type="button" className={`workload-completed ${detailStatus === "completed" ? "active" : ""}`} onClick={() => setDetailStatus(detailStatus === "completed" ? "" : "completed")}><span>维修已完成</span><strong>{completedOrders.length}</strong><small>台</small></button>
       </div>
       {detailStatus && <div className="home-work-order-list">
-        <div className="home-list-heading"><strong>{detailStatus === "unfinished" ? "未完成维修" : detailStatus === "waiting" ? "待料工单" : detailStatus === "held" ? "暂存工单" : "已完成维修"}</strong><span>{detailOrders.length} 台</span></div>
+        <div className="home-list-heading"><strong>{detailStatus === "unfinished" ? "师傅手上未修走的机器" : detailStatus === "waiting" ? "待料工单" : detailStatus === "outOfWarranty" ? "保外暂存工单" : detailStatus === "held" ? "其他暂存工单" : "已完成维修"}</strong><span>{detailOrders.length} 台</span></div>
         {!detailOrders.length && <p>当前没有该状态的机器</p>}
         {detailOrders.map((item) => <button type="button" key={item.rmaNo} onClick={() => item.status !== "ON_HOLD" && openWorkflow(item)} aria-disabled={item.status === "ON_HOLD"}>
-          <span className="home-order-main"><strong>{fullLocalPhone(item)}</strong><small>{item.productLine || item.specialty || "品类未记录"} · SN {item.sn || "未记录"}</small></span>
-          <span className={`home-order-status ${detailStatus}`}>{workflowStatusLabel(item.status)}</span><b>›</b>
+          <span className="home-order-main"><strong>{fullLocalPhone(item)}</strong><small>{item.productLine || item.specialty || "品类未记录"} · SN {item.sn || "未记录"}{item.status === "ON_HOLD" && <> · {item.hold?.category || "分类未记录"}/{item.hold?.reason || "原因未记录"}</>}</small></span>
+          <span className={`home-order-status ${detailStatus}`}>{technicianWorkloadStatusLabel(item)}</span><b>›</b>
         </button>)}
       </div>}
       {order?.crmOrderNo && !technicianOrderFinished && <>
