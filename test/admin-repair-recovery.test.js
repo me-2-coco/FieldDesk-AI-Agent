@@ -15,7 +15,7 @@ test("admin recovery is wired through an admin-only page and API", async () => {
   ]);
 
   assert.match(server, /\/api\/repairs\/admin\/reopen-treatment/);
-  assert.match(server, /user\.role !== USER_ROLES\.ADMIN/);
+  assert.match(server, /hasBusinessRole\(user, USER_ROLES\.ADMIN\)/);
   assert.match(server, /cancelOrderNodes/);
   assert.match(app, /page === "adminRepairRecovery"/);
   assert.match(home, /title: "工单恢复"/);

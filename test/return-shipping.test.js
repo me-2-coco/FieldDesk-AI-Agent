@@ -110,7 +110,7 @@ test("frontend exposes read-only background shipping progress to information rol
   const server = await fs.readFile(path.join(__dirname, "../server.js"), "utf8");
   assert.match(server, /\/api\/shipping\/submit/);
   assert.match(server, /\/api\/shipping\/complete/);
-  assert.match(server, /user\.role !== USER_ROLES\.ADMIN/);
+  assert.match(server, /hasBusinessRole\(user, USER_ROLES\.ADMIN\)/);
   const shippingBlock = server.slice(server.indexOf('app.get("/api/shipping/orders"'), server.indexOf("// 保留已有调用方兼容性"));
   assert.doesNotMatch(shippingBlock, /withRecloud|connector\./);
 });

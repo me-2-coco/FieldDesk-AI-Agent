@@ -7,7 +7,7 @@ test("administrator receives safe global alerts for actionable sync states", asy
   const app = await fs.readFile(path.join(__dirname, "../frontend/src/App.jsx"), "utf8");
   assert.match(app, /getRecloudSyncTasks/);
   assert.match(app, /FAILED", "MANUAL_REVIEW", "READY_DRY_RUN", "AWAITING_FINAL_CONFIRM/);
-  assert.match(app, /currentUser\?\.role === USER_ROLES\.ADMIN/);
+  assert.match(app, /hasBusinessRole\(currentUser, USER_ROLES\.ADMIN\)/);
   assert.match(app, /window\.setTimeout\(refreshSyncAttention, 10000\)/);
   assert.match(app, /setPage\("syncTasks"\)/);
   assert.doesNotMatch(app, /syncAttentionTasks\[0\]\?\.(?:payload|lastError|sn|logisticsNo)/);

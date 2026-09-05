@@ -85,8 +85,7 @@ test("only ordinary technicians are workflow-restricted while owner admin and Fi
   assert.match(app, /nextPage === "repair"/);
   assert.match(app, /isWorkflowRestrictedTechnician\(latestUser\)/);
   assert.match(app, /resumePageForLocalWorkflow\(activeOrder\)/);
-  assert.match(userStore, /user\?\.id !== "FieldDesk0004"/);
-  assert.match(userStore, /user\?\.accountAuthority !== "OWNER"/);
+  assert.match(userStore, /!isBusinessRuleExempt\(user\)/);
   assert.match(bottomNav, /item\.page === "home"/);
   assert.match(bottomNav, /item\.page === "repair" \? "workflow-resume"/);
   assert.doesNotMatch(bottomNav, /\["home", "repair"\]\.includes/);

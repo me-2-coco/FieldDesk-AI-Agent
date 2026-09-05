@@ -69,6 +69,7 @@ const {
   USER_ROLES,
   getLocalCurrentUser,
 } = require("./config/local-users");
+const { hasBusinessRole, isBusinessRuleExempt } = require("./config/business-access-policy");
 
 const SUPPORTED_REPAIR_SPECIALTIES = Object.freeze(["扫地机", "洗地机"]);
 const ACCOUNT_SESSION_COOKIE = "fielddesk_session";
@@ -250,7 +251,7 @@ function technicianWorkloadOrder(order = {}) {
 }
 
 function getAllowedRepairSpecialties(user) {
-  if (user?.role === USER_ROLES.ADMIN) {
+  if (isBusinessRuleExempt(user) || user?.role === USER_ROLES.ADMIN) {
     return [...SUPPORTED_REPAIR_SPECIALTIES];
   }
   if (user?.role !== USER_ROLES.TECHNICIAN) return [];
@@ -2425,7 +2426,7 @@ function createApp(
   app.post("/api/repairs/hold/retry", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      if (![USER_ROLES.TECHNICIAN, USER_ROLES.INFORMATION_CLERK, USER_ROLES.ADMIN].includes(user.role)) {
+      if (!hasBusinessRole(user, USER_ROLES.TECHNICIAN, USER_ROLES.INFORMATION_CLERK, USER_ROLES.ADMIN)) {
         throw createApiError("RECLOUD_HOLD_RETRY_FORBIDDEN", "当前账号不能重试暂存同步", 403);
       }
       const rmaNo = String(req.body?.rmaNo || "").trim();
@@ -2456,7 +2457,7 @@ function createApp(
   app.post("/api/admin/recloud/receipt-attachments/retry", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      if (![USER_ROLES.ADMIN, USER_ROLES.INFORMATION_CLERK].includes(user.role)) {
+      if (!hasBusinessRole(user, USER_ROLES.ADMIN, USER_ROLES.INFORMATION_CLERK)) {
         throw createApiError("RECLOUD_ATTACHMENT_RETRY_FORBIDDEN", "只有管理员或信息员可以重试瑞云签收照片", 403);
       }
       const rmaNo = String(req.body?.rmaNo || "").trim();
@@ -2494,7 +2495,7 @@ function createApp(
       const ownsOrder = [order.operatorId, order.technicianId]
         .map((value) => String(value || "").trim())
         .includes(String(user.userId || "").trim());
-      if (!ownsOrder && user.role !== USER_ROLES.ADMIN) {
+      if (!ownsOrder && !hasBusinessRole(user, USER_ROLES.ADMIN)) {
         throw createApiError("RECLOUD_RECEIPT_RETRY_FORBIDDEN", "只能重试自己的瑞云签收工单", 403);
       }
       if (order.recloudReceiptResult?.skipped === true) {
@@ -2713,7 +2714,7 @@ function createApp(
       const order = records.find((item) => item.rmaNo === rmaNo);
       if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到督办单对应工单", 404);
       const user = currentUserProvider(req);
-      const privileged = [USER_ROLES.ADMIN, USER_ROLES.WAREHOUSE].includes(user.role);
+      const privileged = hasBusinessRole(user, USER_ROLES.ADMIN, USER_ROLES.WAREHOUSE);
       if (!privileged && (order.technicianId || order.operatorId) !== user.userId) {
         throw createApiError("SUPERVISION_FORBIDDEN", "只能同步本人负责工单的督办单", 403);
       }
@@ -2746,7 +2747,7 @@ function createApp(
       const order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
       if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到督办单对应工单", 404);
       const user = currentUserProvider(req);
-      const privileged = [USER_ROLES.ADMIN, USER_ROLES.WAREHOUSE].includes(user.role);
+      const privileged = hasBusinessRole(user, USER_ROLES.ADMIN, USER_ROLES.WAREHOUSE);
       if (!privileged && (order.technicianId || order.operatorId) !== user.userId) {
         throw createApiError("SUPERVISION_FORBIDDEN", "只能查看本人负责工单的督办单", 403);
       }
@@ -2785,7 +2786,7 @@ function createApp(
       const order = records.find((item) => item.rmaNo === rmaNo);
       if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到督办单对应工单", 404);
       const user = currentUserProvider(req);
-      const privileged = [USER_ROLES.ADMIN, USER_ROLES.WAREHOUSE].includes(user.role);
+      const privileged = hasBusinessRole(user, USER_ROLES.ADMIN, USER_ROLES.WAREHOUSE);
       if (!privileged && (order.technicianId || order.operatorId) !== user.userId) {
         throw createApiError("SUPERVISION_FORBIDDEN", "只能查看本人负责工单的督办单", 403);
       }
@@ -2848,7 +2849,7 @@ function createApp(
   app.get("/api/information/warranty-conversions", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      if (![USER_ROLES.INFORMATION_CLERK, USER_ROLES.ADMIN].includes(user.role)) {
+      if (!hasBusinessRole(user, USER_ROLES.INFORMATION_CLERK, USER_ROLES.ADMIN)) {
         throw createApiError("WARRANTY_CONVERSION_FORBIDDEN", "只有信息员或管理员可以查看保外转保内申请", 403);
       }
       const records = (await receiptStore.readAll())
@@ -2870,7 +2871,7 @@ function createApp(
   app.post("/api/information/warranty-conversions/attachments", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      if (![USER_ROLES.INFORMATION_CLERK, USER_ROLES.ADMIN].includes(user.role)) {
+      if (!hasBusinessRole(user, USER_ROLES.INFORMATION_CLERK, USER_ROLES.ADMIN)) {
         throw createApiError("WARRANTY_CONVERSION_FORBIDDEN", "只有信息员或管理员可以上传申请凭证", 403);
       }
       const rmaNo = String(req.body?.rmaNo || "").trim();
@@ -2956,7 +2957,7 @@ function createApp(
     }
     try {
       const user = currentUserProvider(req);
-      if (user.role !== USER_ROLES.TECHNICIAN) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有维修师傅可以申请配件", 403);
+      if (!hasBusinessRole(user, USER_ROLES.TECHNICIAN)) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有维修师傅可以申请配件", 403);
       const order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
       if (!order || !["RECEIVED_PENDING_INSPECTION", "INSPECTION_COMPLETED_PENDING_REPAIR", "REPAIR_COMPLETION_DRAFT"].includes(order.status)) throw createApiError("PART_APPLICATION_NOT_ALLOWED", "当前工单不能选择维修配件", 409);
       if ((order.partApplications || []).some((item) => item.partCode === partCode)) {
@@ -3018,7 +3019,7 @@ function createApp(
   app.post("/api/repairs/parts/update", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      if (user.role !== USER_ROLES.TECHNICIAN) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有维修师傅可以修改配件", 403);
+      if (!hasBusinessRole(user, USER_ROLES.TECHNICIAN)) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有维修师傅可以修改配件", 403);
       const data = await receiptStore.updatePartApplication(
         String(req.body?.rmaNo || "").trim(),
         String(req.body?.applicationId || "").trim(),
@@ -3037,7 +3038,7 @@ function createApp(
   app.post("/api/repairs/parts/confirm", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      if (user.role !== USER_ROLES.TECHNICIAN) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有维修师傅可以确认配件", 403);
+      if (!hasBusinessRole(user, USER_ROLES.TECHNICIAN)) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有维修师傅可以确认配件", 403);
       const data = await receiptStore.confirmParts(String(req.body?.rmaNo || "").trim(), user);
       res.json({ success: true, data: { ...data, message: data.nextStep === "repairCompletion" ? "配件已确认，进入维修完工" : "配件已确认，进入检测登记" } });
     } catch (error) { next(error); }
@@ -3054,7 +3055,7 @@ function createApp(
   app.post("/api/inventory/stock-in", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      if (![USER_ROLES.ADMIN, USER_ROLES.WAREHOUSE].includes(user.role)) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有管理员或库房可以登记入库", 403);
+      if (!hasBusinessRole(user, USER_ROLES.ADMIN, USER_ROLES.WAREHOUSE)) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有管理员或库房可以登记入库", 403);
       const data = await inventoryStore.receive(req.body?.partCode, req.body?.partName, req.body?.quantity, user);
       res.json({ success: true, data: { ...data, message: "配件入库已记录" } });
     } catch (error) { next(error); }
@@ -3063,7 +3064,7 @@ function createApp(
   app.post("/api/inventory/allocate", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      if (![USER_ROLES.ADMIN, USER_ROLES.WAREHOUSE].includes(user.role)) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有管理员或库房可以发放配件", 403);
+      if (!hasBusinessRole(user, USER_ROLES.ADMIN, USER_ROLES.WAREHOUSE)) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有管理员或库房可以发放配件", 403);
       const technician = { userId: String(req.body?.technicianId || "").trim(), displayName: String(req.body?.technicianName || "").trim(), role: USER_ROLES.TECHNICIAN };
       if (!technician.userId || !technician.displayName) throw createApiError("INVENTORY_TECHNICIAN_REQUIRED", "请选择领用师傅", 400);
       const data = await inventoryStore.allocate(req.body?.partCode, req.body?.quantity, technician, user);
@@ -3081,7 +3082,7 @@ function createApp(
   app.post("/api/inventory/use", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      if (user.role !== USER_ROLES.TECHNICIAN) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有维修师傅可以使用配件", 403);
+      if (!hasBusinessRole(user, USER_ROLES.TECHNICIAN)) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有维修师傅可以使用配件", 403);
       const data = await inventoryStore.use(await inventoryContext(req), String(req.body?.partCode || ""), req.body?.quantity, user);
       res.json({ success: true, data: { ...data, message: "配件使用已记录" } });
     } catch (error) { next(error); }
@@ -3090,7 +3091,7 @@ function createApp(
   app.post("/api/inventory/returns", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      if (user.role !== USER_ROLES.TECHNICIAN) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有维修师傅可以申请退还", 403);
+      if (!hasBusinessRole(user, USER_ROLES.TECHNICIAN)) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有维修师傅可以申请退还", 403);
       const data = await inventoryStore.requestReturn(await inventoryContext(req), String(req.body?.partCode || ""), req.body?.quantity, user);
       res.json({ success: true, data: { ...data, message: "退还申请已提交，等待库房确认" } });
     } catch (error) { next(error); }
@@ -3099,7 +3100,7 @@ function createApp(
   app.post("/api/inventory/returns/confirm", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      if (![USER_ROLES.ADMIN, USER_ROLES.WAREHOUSE].includes(user.role)) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有管理员或库房可以确认退还", 403);
+      if (!hasBusinessRole(user, USER_ROLES.ADMIN, USER_ROLES.WAREHOUSE)) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有管理员或库房可以确认退还", 403);
       const data = await inventoryStore.confirmReturn(String(req.body?.requestId || ""), user);
       res.json({ success: true, data: { ...data, message: "退还已确认并入总库" } });
     } catch (error) { next(error); }
@@ -3320,7 +3321,7 @@ function createApp(
       const user = currentUserProvider(req);
       const order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
       if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到待发货工单", 404);
-      if (![USER_ROLES.ADMIN, USER_ROLES.INFORMATION_CLERK].includes(user.role)) {
+      if (!hasBusinessRole(user, USER_ROLES.ADMIN, USER_ROLES.INFORMATION_CLERK)) {
         throw createApiError("SHIPPING_ORDER_FORBIDDEN", "只有信息员或管理员可以查看后台发货进度", 403);
       }
       if (!["REPAIR_COMPLETED_PENDING_SHIPMENT", "SHIPPED_PENDING_COMPLETION"].includes(order.status)) {
@@ -3343,7 +3344,7 @@ function createApp(
       const rmaNo = String(req.body?.rmaNo || "").trim();
       const order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
       if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到待发货工单", 404);
-      const privileged = [USER_ROLES.ADMIN, USER_ROLES.WAREHOUSE].includes(user.role);
+      const privileged = hasBusinessRole(user, USER_ROLES.ADMIN, USER_ROLES.WAREHOUSE);
       if (!privileged && (order.technicianId || order.operatorId) !== user.userId) {
         throw createApiError("SHIPPING_ORDER_FORBIDDEN", "只能操作本人负责的待发货工单", 403);
       }
@@ -3356,7 +3357,7 @@ function createApp(
   app.post("/api/shipping/complete", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      if (user.role !== USER_ROLES.ADMIN) throw createApiError("ORDER_COMPLETION_FORBIDDEN", "只有管理员可以确认完结", 403);
+      if (!hasBusinessRole(user, USER_ROLES.ADMIN)) throw createApiError("ORDER_COMPLETION_FORBIDDEN", "只有管理员可以确认完结", 403);
       const data = await receiptStore.confirmCompletion(String(req.body?.rmaNo || "").trim(), user);
       await enqueueRecloudNode(data, "ORDER_COMPLETED", data.completedAt || data.id);
       res.json({ success: true, data: { ...data, statusLabel: "已完结", message: "工单已在 FieldDesk 本地完结", recloudSynced: false } });
@@ -3366,7 +3367,7 @@ function createApp(
   app.get("/api/recloud-sync/tasks", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      if (user.role !== USER_ROLES.ADMIN) throw createApiError("SYNC_TASKS_FORBIDDEN", "只有管理员可以查看瑞云同步任务", 403);
+      if (!hasBusinessRole(user, USER_ROLES.ADMIN)) throw createApiError("SYNC_TASKS_FORBIDDEN", "只有管理员可以查看瑞云同步任务", 403);
       res.json({ success: true, data: await syncService.outbox.readAll() });
     } catch (error) { next(error); }
   });
@@ -3378,7 +3379,7 @@ function createApp(
       if (!rmaNo) throw createApiError("SYNC_ORDER_STATUS_RMA_REQUIRED", "缺少寄修单号", 400);
       const order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
       if (!order) throw createApiError("SYNC_ORDER_STATUS_NOT_FOUND", "未找到对应本地工单", 404);
-      const isAdmin = user.role === USER_ROLES.ADMIN;
+      const isAdmin = hasBusinessRole(user, USER_ROLES.ADMIN);
       const isAssignedTechnician = user.role === USER_ROLES.TECHNICIAN
         && (order.technicianId || order.operatorId) === user.userId;
       if (!isAdmin && !isAssignedTechnician) {
@@ -3406,7 +3407,7 @@ function createApp(
   app.get("/api/recloud-sync/diagnostics", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      if (user.role !== USER_ROLES.ADMIN) throw createApiError("SYNC_DIAGNOSTICS_FORBIDDEN", "只有管理员可以查看瑞云同步诊断", 403);
+      if (!hasBusinessRole(user, USER_ROLES.ADMIN)) throw createApiError("SYNC_DIAGNOSTICS_FORBIDDEN", "只有管理员可以查看瑞云同步诊断", 403);
       res.json({ success: true, data: await syncDiagnostics.inspectAll() });
     } catch (error) { next(error); }
   });
@@ -3415,14 +3416,14 @@ function createApp(
     app.get(`/api/recloud-sync/diagnostics/${nodeKey}/inspect`, async (req, res, next) => {
       try {
         const user = currentUserProvider(req);
-        if (user.role !== USER_ROLES.ADMIN) throw createApiError("SYNC_DIAGNOSTICS_FORBIDDEN", "只有管理员可以查看瑞云同步诊断", 403);
+        if (!hasBusinessRole(user, USER_ROLES.ADMIN)) throw createApiError("SYNC_DIAGNOSTICS_FORBIDDEN", "只有管理员可以查看瑞云同步诊断", 403);
         res.json({ success: true, data: await syncDiagnostics.inspect(nodeKey) });
       } catch (error) { next(error); }
     });
     app.post(`/api/recloud-sync/diagnostics/${nodeKey}/capture`, async (req, res, next) => {
       try {
         const user = currentUserProvider(req);
-        if (user.role !== USER_ROLES.ADMIN) throw createApiError("SYNC_DIAGNOSTICS_FORBIDDEN", "只有管理员可以采集瑞云同步诊断", 403);
+        if (!hasBusinessRole(user, USER_ROLES.ADMIN)) throw createApiError("SYNC_DIAGNOSTICS_FORBIDDEN", "只有管理员可以采集瑞云同步诊断", 403);
         const revealPhone = String(process.env.RECLOUD_REVEAL_PHONE_ENABLED || "false").toLowerCase() === "true";
         if (!isDryRun() || isRecloudWriteEnabled() || revealPhone) {
           throw createApiError("SYNC_DIAGNOSTICS_UNSAFE", "同步诊断采集只允许在严格只读安全模式下执行", 403);
@@ -3442,7 +3443,7 @@ function createApp(
   app.get("/api/repairs/technician-workloads", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      if (![USER_ROLES.ADMIN, USER_ROLES.INFORMATION_CLERK].includes(user.role)) {
+      if (!hasBusinessRole(user, USER_ROLES.ADMIN, USER_ROLES.INFORMATION_CLERK)) {
         throw createApiError("TECHNICIAN_WORKLOAD_FORBIDDEN", "只有管理员或信息员可以查看师傅工作量", 403);
       }
       const [accounts, orders] = await Promise.all([
@@ -3469,7 +3470,7 @@ function createApp(
   app.post("/api/repairs/resume-step", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      if (user.role !== USER_ROLES.TECHNICIAN) {
+      if (!hasBusinessRole(user, USER_ROLES.TECHNICIAN)) {
         throw createApiError("REPAIR_RESUME_STEP_FORBIDDEN", "只有维修师傅可以更新工单操作位置", 403);
       }
       const data = await receiptStore.setResumeStep(
@@ -3484,7 +3485,7 @@ function createApp(
   app.post("/api/repairs/admin/reopen-treatment", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      if (user.role !== USER_ROLES.ADMIN) {
+      if (!hasBusinessRole(user, USER_ROLES.ADMIN)) {
         throw createApiError("TREATMENT_REOPEN_FORBIDDEN", "只有管理员可以恢复工单处理方式", 403);
       }
       const rmaNo = String(req.body?.rmaNo || "").trim();
@@ -3521,7 +3522,7 @@ function createApp(
   app.get("/api/repairs/history", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      if (![USER_ROLES.TECHNICIAN, USER_ROLES.INFORMATION_CLERK, USER_ROLES.ADMIN].includes(user.role)) {
+      if (!hasBusinessRole(user, USER_ROLES.TECHNICIAN, USER_ROLES.INFORMATION_CLERK, USER_ROLES.ADMIN)) {
         throw createApiError("REPAIR_HISTORY_FORBIDDEN", "当前账号不能查看历史维修记录", 403);
       }
       const keyword = String(req.query?.keyword || req.query?.phone || "").trim();
@@ -3538,7 +3539,7 @@ function createApp(
   app.get("/api/repairs/repeat-repair", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      if (![USER_ROLES.TECHNICIAN, USER_ROLES.INFORMATION_CLERK, USER_ROLES.ADMIN].includes(user.role)) {
+      if (!hasBusinessRole(user, USER_ROLES.TECHNICIAN, USER_ROLES.INFORMATION_CLERK, USER_ROLES.ADMIN)) {
         throw createApiError("REPAIR_HISTORY_FORBIDDEN", "当前账号不能查看历史维修记录", 403);
       }
       const sn = String(req.query?.sn || "").trim();
@@ -3556,7 +3557,7 @@ function createApp(
   app.get("/api/repairs/machines-in-hand", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      if (![USER_ROLES.INFORMATION_CLERK, USER_ROLES.ADMIN].includes(user.role)) {
+      if (!hasBusinessRole(user, USER_ROLES.INFORMATION_CLERK, USER_ROLES.ADMIN)) {
         throw createApiError("MACHINE_TRACKING_FORBIDDEN", "只有信息员或管理员可以查询在手机器", 403);
       }
       const keyword = String(req.query?.keyword || "").trim();
@@ -3568,7 +3569,7 @@ function createApp(
   });
 
   function assertInformationReportAccess(user) {
-    if (![USER_ROLES.INFORMATION_CLERK, USER_ROLES.ADMIN].includes(user.role)) {
+    if (!hasBusinessRole(user, USER_ROLES.INFORMATION_CLERK, USER_ROLES.ADMIN)) {
       throw createApiError("INFORMATION_REPORT_FORBIDDEN", "只有信息员或管理员可以查看完整维修报告", 403);
     }
   }
@@ -3645,7 +3646,7 @@ function createApp(
       const user = currentUserProvider(req);
       const order = (await receiptStore.readAll()).find((item) => item.rmaNo === String(req.params.rmaNo || "").trim());
       if (!order) throw createApiError("ATTACHMENT_NOT_FOUND", "附件不存在", 404);
-      const privileged = [USER_ROLES.ADMIN, USER_ROLES.INFORMATION_CLERK].includes(user.role);
+      const privileged = hasBusinessRole(user, USER_ROLES.ADMIN, USER_ROLES.INFORMATION_CLERK);
       if (!privileged && (order.technicianId || order.operatorId) !== user.userId) {
         throw createApiError("REPAIR_ATTACHMENT_FORBIDDEN", "只能查看本人负责工单的附件", 403);
       }
@@ -3666,7 +3667,7 @@ function createApp(
   app.post("/api/recloud-sync/tasks/retry", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      if (user.role !== USER_ROLES.ADMIN) throw createApiError("SYNC_TASKS_FORBIDDEN", "只有管理员可以重试瑞云同步任务", 403);
+      if (!hasBusinessRole(user, USER_ROLES.ADMIN)) throw createApiError("SYNC_TASKS_FORBIDDEN", "只有管理员可以重试瑞云同步任务", 403);
       res.json({ success: true, data: await syncService.retry(String(req.body?.taskId || "").trim()) });
     } catch (error) { next(error); }
   });

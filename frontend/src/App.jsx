@@ -33,6 +33,7 @@ import {
   setAuthenticatedUser,
   USER_ROLES
 } from "./shared/userStore.js"
+import { hasBusinessRole } from "./shared/accountAccessPolicy.js"
 import {
   getRecloudSyncTasks,
   getSupervisionInbox,
@@ -104,7 +105,7 @@ function App() {
   }, [])
 
   useEffect(() => {
-    const canMonitorSync = isLoggedIn && currentUser?.role === USER_ROLES.ADMIN
+    const canMonitorSync = isLoggedIn && hasBusinessRole(currentUser, USER_ROLES.ADMIN)
     if (!canMonitorSync) {
       queueMicrotask(() => setSyncAttentionTasks([]))
       return undefined
@@ -133,7 +134,7 @@ function App() {
   }, [isLoggedIn, currentUser?.id, currentUser?.role])
 
   useEffect(() => {
-    const canReceiveSupervision = isLoggedIn && [USER_ROLES.TECHNICIAN, USER_ROLES.ADMIN].includes(currentUser?.role)
+    const canReceiveSupervision = isLoggedIn && hasBusinessRole(currentUser, USER_ROLES.TECHNICIAN, USER_ROLES.ADMIN)
     if (!canReceiveSupervision) return undefined
     let active = true
     let timer
@@ -162,7 +163,7 @@ function App() {
   }, [isLoggedIn, currentUser?.id, currentUser?.role])
 
   useEffect(() => {
-    const canInspectSupervisionMonitor = isLoggedIn && [USER_ROLES.INFORMATION_CLERK, USER_ROLES.ADMIN].includes(currentUser?.role)
+    const canInspectSupervisionMonitor = isLoggedIn && hasBusinessRole(currentUser, USER_ROLES.INFORMATION_CLERK, USER_ROLES.ADMIN)
     if (!canInspectSupervisionMonitor) {
       queueMicrotask(() => setSupervisionMonitorWarning(""))
       return undefined
@@ -570,7 +571,7 @@ function App() {
         </button>
       )}
 
-      {currentUser?.role === USER_ROLES.ADMIN && syncAttentionTasks.length > 0 && page !== "syncTasks" && (
+      {hasBusinessRole(currentUser, USER_ROLES.ADMIN) && syncAttentionTasks.length > 0 && page !== "syncTasks" && (
         <button
           type="button"
           className={`global-sync-alert${supervisionUnreadCount > 0 ? " with-supervision" : ""}`}

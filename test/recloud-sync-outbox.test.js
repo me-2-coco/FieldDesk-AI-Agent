@@ -614,5 +614,5 @@ test("admin page exposes task status and retry while server hooks all five nodes
   for (const node of ["RECEIPT", "INSPECTION_COMPLETED", "REPAIR_COMPLETED", "RETURN_SHIPPED", "ORDER_COMPLETED"]) {
     assert.match(server, new RegExp(`enqueueRecloudNode\\([\\s\\S]{0,180}\"${node}\"`));
   }
-  assert.match(server, /user\.role !== USER_ROLES\.ADMIN/);
+  assert.match(server, /hasBusinessRole\(user, USER_ROLES\.ADMIN\)/);
 });
