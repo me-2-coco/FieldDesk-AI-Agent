@@ -23,6 +23,31 @@ async function uniqueVisible(locator, message, code, phase) {
   return locator.first();
 }
 
+async function readApprovalFlow(dialog, flowInput) {
+  const selectedValues = await dialog.locator([
+    ".rt-picklist__tags .rt-tag-text:visible",
+    ".rtxpc-select__tags .rt-tag-text:visible",
+    ".el-select__tags .el-tag__content:visible",
+    ".rt-select__selected-value:visible",
+    ".el-select__selected-item:visible",
+  ].join(", ")).allInnerTexts().catch(() => []);
+  const uniqueValues = [...new Set(selectedValues.map((value) => String(value || "").replace(/\s+/g, " ").trim()).filter(Boolean))];
+  if (uniqueValues.length > 1) {
+    throw adapterError("瑞云签核流程存在多个已选值", "RECLOUD_REPAIR_APPROVAL_FLOW_AMBIGUOUS", "SUBMIT");
+  }
+  if (uniqueValues.length === 1) return uniqueValues[0];
+  return String(await flowInput.inputValue().catch(() => "")).replace(/\s+/g, " ").trim();
+}
+
+async function clickApprovalFlowInput(flowInput) {
+  try {
+    await flowInput.click({ timeout: 3000 });
+  } catch (error) {
+    if (!String(error?.message || error).includes("intercepts pointer events")) throw error;
+    await flowInput.click({ timeout: 3000, force: true });
+  }
+}
+
 async function openServiceReport(page, timeoutMs = 15000) {
   const partsHeading = page.getByText("服务单更换件明细", { exact: true }).filter({ visible: true });
   if (await partsHeading.count() === 1) return;
@@ -507,9 +532,9 @@ function createRecloudRepairPageAdapter(page, context = {}) {
         "RECLOUD_REPAIR_APPROVAL_FLOW_CONTROL_AMBIGUOUS",
         "SUBMIT"
       );
-      let selectedFlow = String(await flowInput.inputValue().catch(() => "")).trim();
+      let selectedFlow = await readApprovalFlow(dialog, flowInput);
       if (selectedFlow !== expectedFlow) {
-        await flowInput.click({ timeout: 3000 });
+        await clickApprovalFlowInput(flowInput);
         await page.waitForTimeout?.(300);
         const flowOption = await uniqueVisible(
           page.locator(".el-select-dropdown__item:visible, .rtxpc-select-dropdown__item:visible, [role='option']:visible")
@@ -519,7 +544,7 @@ function createRecloudRepairPageAdapter(page, context = {}) {
           "SUBMIT"
         );
         await flowOption.click({ timeout: 3000 });
-        selectedFlow = String(await flowInput.inputValue().catch(() => "")).trim();
+        selectedFlow = await readApprovalFlow(dialog, flowInput);
       }
       if (selectedFlow !== expectedFlow) {
         throw adapterError("瑞云签核流程不是预期流程", "RECLOUD_REPAIR_APPROVAL_FLOW_MISMATCH", "SUBMIT");
@@ -531,4 +556,4 @@ function createRecloudRepairPageAdapter(page, context = {}) {
   };
 }
 
-module.exports = { createRecloudRepairPageAdapter };
+module.exports = { clickApprovalFlowInput, createRecloudRepairPageAdapter, readApprovalFlow };
