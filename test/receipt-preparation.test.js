@@ -795,7 +795,7 @@ test("live receipt confirms first and then uploads its FieldDesk photo exactly o
   assert.deepEqual(calls, ["receipt", "photo"]);
 });
 
-test("detection-stage Recloud order skips duplicate receipt confirmation", async (t) => {
+test("detection-stage Recloud order skips receipt but still corrects project and uploads attachments", async (t) => {
   const store = await createTestStore(t);
   await store.prepare({
     ...validPayload(),
@@ -806,14 +806,27 @@ test("detection-stage Recloud order skips duplicate receipt confirmation", async
   });
   let confirmCount = 0;
   let uploadCount = 0;
+  let correctionCount = 0;
   const connector = {
     openRecloud: async () => ({ loginRequired: false, page: {} }),
     queryRmaByLogisticsNo: async () => ({
       rmaNo: "JXTH900001001",
       productLine: "扫地机",
       orderStatus: "检测中",
+      projectCode: "WRONG",
     }),
     confirmSign: async () => { confirmCount += 1; },
+    correctRmaProjectModel: async (_page, input, options) => {
+      correctionCount += 1;
+      assert.deepEqual(input, {
+        sn: "TEST-SN-A1",
+        currentProjectCode: "WRONG",
+        expectedProjectCode: "R2502",
+        productModelCode: "010204AA000753",
+      });
+      assert.equal(options.dryRun, false);
+      return { success: true, changed: true };
+    },
     uploadRmaAttachments: async () => {
       uploadCount += 1;
       return { uploaded: ["receipt.jpg"], skipped: [] };
@@ -821,6 +834,15 @@ test("detection-stage Recloud order skips duplicate receipt confirmation", async
   };
   const url = await startServer(t, connector, store, USERS.sweep, {
     receiptAttachmentStore: { read: async () => Buffer.from("test-photo") },
+    feishuModelCatalog: {
+      authorize: async ({ currentProjectCode }) => ({
+        status: "CHANGE_REQUIRED",
+        repairability: "SUPPORTED",
+        currentProjectCode,
+        projectCode: "R2502",
+        productModelCode: "010204AA000753",
+      }),
+    },
     env: {
       ...process.env,
       DRY_RUN: "true",
@@ -840,9 +862,11 @@ test("detection-stage Recloud order skips duplicate receipt confirmation", async
     return current?.recloudReceiptAttachmentSyncStatus;
   }, "CONFIRMED");
   const saved = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
+  assert.equal(correctionCount, 1);
   assert.equal(confirmCount, 0);
-  assert.equal(uploadCount, 0);
+  assert.equal(uploadCount, 1);
   assert.equal(saved.recloudReceiptResult.skipped, true);
+  assert.deepEqual(saved.recloudReceiptAttachmentResult.uploaded, ["receipt.jpg"]);
   assert.equal(saved.timeline.some((item) => item.type === "RECLOUD_RECEIPT_ALREADY_COMPLETED"), true);
 });
 

@@ -546,7 +546,7 @@ function createApp(
           let detail = await connector.queryRmaByLogisticsNo(
             page,
             order.logisticsNo,
-            { preserveDetailPage: false }
+            { preserveDetailPage: true }
           );
           if (detail.rmaNo && detail.rmaNo !== rmaNo) {
             throw createApiError(
@@ -556,35 +556,50 @@ function createApp(
             );
           }
           let receipt = null;
-          let remoteReceiptSkipped = false;
           if (receiptNeedsSync) {
-            const receiptState = classifyRecloudReceiptState(detail);
-            if (receiptState.receiptRequired === false) {
-              remoteReceiptSkipped = true;
-              await receiptStore.markRecloudReceiptConfirmed(rmaNo, {
-                skipped: true,
-                receipt: { confirmed: true, message: `瑞云当前为${receiptState.label}，无需重复签收` },
-                operator,
-              });
-            } else if (receiptState.receiptRequired !== true) {
-              throw createApiError(
-                "RECLOUD_RECEIPT_STATE_UNKNOWN",
-                "无法确认瑞云是否仍待签收，已停止操作以避免重复签收",
-                409
-              );
-            } else {
+            try {
+              const projectAuthorization = typeof feishuModelCatalog.authorize === "function"
+                ? await feishuModelCatalog.authorize({ sn: order.sn, currentProjectCode: detail.projectCode || "" })
+                : order.modelAuthorization;
+              if (projectAuthorization?.status === "CHANGE_REQUIRED") {
+                if (typeof connector.correctRmaProjectModel !== "function") {
+                  throw createApiError("RECLOUD_PROJECT_CORRECTION_UNAVAILABLE", "瑞云项目号需要修改，但修改功能不可用", 503);
+                }
+                await connector.correctRmaProjectModel(page, {
+                  sn: order.sn,
+                  currentProjectCode: projectAuthorization.currentProjectCode,
+                  expectedProjectCode: projectAuthorization.projectCode,
+                  productModelCode: projectAuthorization.productModelCode,
+                }, { dryRun: false });
+              } else if (projectAuthorization?.status !== "MATCHED") {
+                throw createApiError("RECLOUD_PROJECT_VERIFICATION_REQUIRED", "无法确认瑞云项目号与 SN 一致，已停止后台操作", 409);
+              }
+
+              const receiptState = classifyRecloudReceiptState(detail);
+              if (receiptState.receiptRequired === false) {
+                await receiptStore.markRecloudReceiptConfirmed(rmaNo, {
+                  skipped: true,
+                  receipt: { confirmed: true, message: `瑞云当前为${receiptState.label}，无需重复签收` },
+                  operator,
+                });
+              } else if (receiptState.receiptRequired !== true) {
+                throw createApiError(
+                  "RECLOUD_RECEIPT_STATE_UNKNOWN",
+                  "无法确认瑞云是否仍待签收，已停止操作以避免重复签收",
+                  409
+                );
+              } else {
               // 状态元数据来自待处理列表；写入前重新打开同一 RMA 详情，
               // 让签收与后续附件上传始终发生在经过核对的当前工单页面。
-              detail = await connector.queryRmaByLogisticsNo(
-                page,
-                order.logisticsNo,
-                { preserveDetailPage: true }
-              );
-              await receiptStore.markRecloudReceiptSyncing(rmaNo, {
-                attemptId,
-                operator,
-              });
-              try {
+                detail = await connector.queryRmaByLogisticsNo(
+                  page,
+                  order.logisticsNo,
+                  { preserveDetailPage: true }
+                );
+                await receiptStore.markRecloudReceiptSyncing(rmaNo, {
+                  attemptId,
+                  operator,
+                });
                 receipt = await connector.confirmSign(
                   page,
                   order.sn,
@@ -608,7 +623,9 @@ function createApp(
                   receipt,
                   operator,
                 });
-              } catch (error) {
+              }
+            } catch (error) {
+              if (!order.recloudReceiptConfirmedAt) {
                 await receiptStore.markRecloudReceiptFailed(rmaNo, {
                   code: error.code,
                   resultUnknown:
@@ -616,8 +633,8 @@ function createApp(
                     error.code === "RECLOUD_RECEIPT_RESULT_UNKNOWN",
                   operator,
                 }).catch(() => {});
-                throw error;
               }
+              throw error;
             }
           }
 
@@ -625,18 +642,6 @@ function createApp(
           if (attachmentsNeedSync) {
             await receiptStore.markRecloudReceiptAttachmentsSyncing(rmaNo);
             try {
-              if (remoteReceiptSkipped) {
-                attachmentResult = {
-                  uploaded: [],
-                  skipped: attachments.map((attachment) => attachment.name),
-                  reason: "瑞云已越过签收阶段",
-                };
-                await receiptStore.markRecloudReceiptAttachmentsConfirmed(rmaNo, {
-                  result: attachmentResult,
-                  operator,
-                });
-                return { receipt, attachmentResult };
-              }
               // The first read may intentionally reset the page back to the
               // scanner. Reopen and preserve the verified RMA detail before
               // locating its attachment card, including attachment-only retries.
@@ -2073,10 +2078,15 @@ function createApp(
     try {
       const currentUser = currentUserProvider(req);
       const sn = validateReceiptSn(req.body?.sn, logisticsNo);
-      const authorization = typeof feishuModelCatalog.authorizeLocal === "function"
-        ? await feishuModelCatalog.authorizeLocal({ sn })
+      const currentProjectCode = String(
+        req.body?.currentProjectCode || req.body?.recloudProjectCode || ""
+      ).trim();
+      const authorization = currentProjectCode && typeof feishuModelCatalog.authorize === "function"
+        ? await feishuModelCatalog.authorize({ sn, currentProjectCode })
+        : typeof feishuModelCatalog.authorizeLocal === "function"
+          ? await feishuModelCatalog.authorizeLocal({ sn })
         : typeof feishuModelCatalog.authorize === "function"
-          ? await feishuModelCatalog.authorize({ sn })
+          ? await feishuModelCatalog.authorize({ sn, currentProjectCode })
         : await feishuModelCatalog.match({ sn, productLine });
       const snProductLine = SUPPORTED_REPAIR_SPECIALTIES.includes(authorization.productLine)
         ? authorization.productLine
@@ -2087,9 +2097,6 @@ function createApp(
         req.body?.specialty
       );
       const remark = specialty;
-      const currentProjectCode = String(
-        req.body?.currentProjectCode || req.body?.recloudProjectCode || ""
-      ).trim();
       // The query screen already captured the remote receipt snapshot. Persist
       // that snapshot locally and let the background worker re-query Recloud
       // immediately before any write. This keeps technicians moving while the
