@@ -8,6 +8,7 @@ const ROLES = new Set(Object.values(USER_ROLES));
 const RECLOUD_ASSIGNMENT_MODES = new Set(["DIRECT", "FALLBACK"]);
 const MANAGED_ACCOUNT_PREFIX = "FieldDesk";
 const MANAGED_ACCOUNT_START_SEQUENCE = 5;
+const RECLOUD_TEST_USER_ID = "FieldDesk0004";
 const MANAGED_ACCOUNT_DEFAULT_PASSWORD = "000000";
 const MANAGED_ACCOUNT_ROLES = new Set([USER_ROLES.ADMIN, USER_ROLES.TECHNICIAN, USER_ROLES.WAREHOUSE, USER_ROLES.INFORMATION_CLERK]);
 const OWNER_USER_ID = "FieldDesk0001";
@@ -106,13 +107,15 @@ class AccountStore {
     const phone = normalizeTechnicianPhone(input.phone);
     const role = String(input.role || "").trim().toUpperCase();
     const requestedUserId = String(input.userId || "").trim();
+    const isRecloudTestAccount = requestedUserId === RECLOUD_TEST_USER_ID;
     const specialties = [...new Set(input.repairSpecialties || [])];
     if (!displayName) throw Object.assign(new Error("请填写姓名"), { code: "ACCOUNT_DISPLAY_NAME_REQUIRED", status: 400 });
     if (!/^1[3-9]\d{9}$/.test(phone)) throw Object.assign(new Error("请填写正确的11位手机号"), { code: "ACCOUNT_PHONE_INVALID", status: 400 });
     if (!MANAGED_ACCOUNT_ROLES.has(role)) throw Object.assign(new Error("请选择账号角色"), { code: "ACCOUNT_ROLE_INVALID", status: 400 });
     if (role === USER_ROLES.ADMIN && !isOwner(operator)) throw Object.assign(new Error("只有负责人可以创建管理员账号"), { code: "ACCOUNT_OWNER_REQUIRED", status: 403 });
     if (requestedUserId && !/^FieldDesk\d{4,}$/.test(requestedUserId)) throw Object.assign(new Error("账号必须由 FieldDesk 加4位以上数字组成"), { code: "ACCOUNT_USER_ID_INVALID", status: 400 });
-    if (requestedUserId && Number(requestedUserId.slice(MANAGED_ACCOUNT_PREFIX.length)) < MANAGED_ACCOUNT_START_SEQUENCE) throw Object.assign(new Error("账号数字不能小于0005"), { code: "ACCOUNT_USER_ID_BELOW_MINIMUM", status: 400 });
+    if (requestedUserId && Number(requestedUserId.slice(MANAGED_ACCOUNT_PREFIX.length)) < Number(RECLOUD_TEST_USER_ID.slice(MANAGED_ACCOUNT_PREFIX.length))) throw Object.assign(new Error("账号数字不能小于0004"), { code: "ACCOUNT_USER_ID_BELOW_MINIMUM", status: 400 });
+    if (isRecloudTestAccount && role !== USER_ROLES.TECHNICIAN) throw Object.assign(new Error("FieldDesk0004 是瑞云对接测试师傅账号，请选择扫地机或洗地机师傅"), { code: "ACCOUNT_RECLOUD_TEST_ROLE_REQUIRED", status: 400 });
     if (specialties.some((item) => !SPECIALTIES.has(item))) throw Object.assign(new Error("维修品类无效"), { code: "ACCOUNT_SPECIALTY_INVALID", status: 400 });
     if (role === USER_ROLES.TECHNICIAN && specialties.length !== 1) throw Object.assign(new Error("维修师傅必须且只能选择一个维修品类"), { code: "ACCOUNT_SPECIALTY_REQUIRED", status: 400 });
     if (role !== USER_ROLES.TECHNICIAN && specialties.length) throw Object.assign(new Error("库管和信息员不能配置维修权限"), { code: "ACCOUNT_SPECIALTY_FORBIDDEN", status: 400 });
@@ -130,6 +133,7 @@ class AccountStore {
         displayName,
         phone,
         role,
+        accountPurpose: isRecloudTestAccount ? "RECLOUD_TECHNICIAN_TEST" : "",
         repairSpecialties: specialties,
         recloudAssignmentMode: "DIRECT",
         recloudAssigneeName: role === USER_ROLES.TECHNICIAN ? displayName : "",
@@ -197,15 +201,18 @@ class AccountStore {
     if (operator?.role !== USER_ROLES.ADMIN) throw Object.assign(new Error("只有管理员可以配置账号"), { code: "ACCOUNT_ADMIN_REQUIRED", status: 403 });
     const role = String(input.role || "");
     const userId = String(input.userId || "").trim();
+    const isRecloudTestAccount = userId === RECLOUD_TEST_USER_ID;
     if (userId === OWNER_USER_ID) throw Object.assign(new Error("负责人账号和权限不能修改"), { code: "ACCOUNT_OWNER_PROTECTED", status: 409 });
     if (!ROLES.has(role)) throw Object.assign(new Error("账号角色无效"), { code: "ACCOUNT_ROLE_INVALID", status: 400 });
+    if (isRecloudTestAccount && role !== USER_ROLES.TECHNICIAN) throw Object.assign(new Error("FieldDesk0004 必须保持为瑞云对接测试师傅账号"), { code: "ACCOUNT_RECLOUD_TEST_ROLE_REQUIRED", status: 400 });
     const specialties = [...new Set(input.repairSpecialties || [])];
     if (specialties.some((item) => !SPECIALTIES.has(item))) throw Object.assign(new Error("维修品类无效"), { code: "ACCOUNT_SPECIALTY_INVALID", status: 400 });
     if (role === USER_ROLES.TECHNICIAN && specialties.length === 0) throw Object.assign(new Error("维修师傅至少选择一个维修权限"), { code: "ACCOUNT_SPECIALTY_REQUIRED", status: 400 });
     if (/^FieldDesk\d+$/.test(userId) && role === USER_ROLES.TECHNICIAN && specialties.length !== 1) throw Object.assign(new Error("正式维修账号必须且只能选择一个维修品类"), { code: "ACCOUNT_SPECIALTY_REQUIRED", status: 400 });
     if (role !== USER_ROLES.TECHNICIAN && specialties.length && role !== USER_ROLES.ADMIN) throw Object.assign(new Error("该角色不能配置维修品类"), { code: "ACCOUNT_SPECIALTY_FORBIDDEN", status: 400 });
-    const recloudAssignmentMode = String(input.recloudAssignmentMode || "DIRECT").trim().toUpperCase();
-    const recloudAssigneeName = String(input.recloudAssigneeName || "").trim();
+    const displayName = String(input.displayName || "").trim();
+    const recloudAssignmentMode = isRecloudTestAccount ? "DIRECT" : String(input.recloudAssignmentMode || "DIRECT").trim().toUpperCase();
+    const recloudAssigneeName = isRecloudTestAccount ? displayName : String(input.recloudAssigneeName || "").trim();
     const recloudFallbackAssigneeName = String(input.recloudFallbackAssigneeName || "").trim();
     if (!RECLOUD_ASSIGNMENT_MODES.has(recloudAssignmentMode)) throw Object.assign(new Error("瑞云改派方式无效"), { code: "ACCOUNT_RECLOUD_ASSIGNMENT_MODE_INVALID", status: 400 });
     if (role === USER_ROLES.TECHNICIAN && recloudAssignmentMode === "FALLBACK" && !recloudFallbackAssigneeName) {
@@ -219,7 +226,7 @@ class AccountStore {
         ? crypto.createHash("sha256").update(String(password)).digest("hex")
         : existing?.passwordHash || existing?.tokenHash;
       if (!userId || !input.displayName || !passwordHash) throw Object.assign(new Error("账号资料不完整"), { code: "ACCOUNT_FIELDS_REQUIRED", status: 400 });
-      const next = { userId, displayName: String(input.displayName).trim(), phone: normalizeTechnicianPhone(input.phone ?? existing?.phone), role, repairSpecialties: specialties, recloudAssignmentMode, recloudAssigneeName, recloudFallbackAssigneeName, active: input.active !== false, allowBearer: false, tokenHash: null, passwordHash, mustChangePassword: password ? true : existing?.mustChangePassword === true, tokenExpiresAt: null, updatedAt: new Date().toISOString() };
+      const next = { userId, displayName, phone: normalizeTechnicianPhone(input.phone ?? existing?.phone), role, accountPurpose: isRecloudTestAccount ? "RECLOUD_TECHNICIAN_TEST" : existing?.accountPurpose || "", repairSpecialties: specialties, recloudAssignmentMode, recloudAssigneeName, recloudFallbackAssigneeName: isRecloudTestAccount ? "" : recloudFallbackAssigneeName, active: input.active !== false, allowBearer: false, tokenHash: null, passwordHash, mustChangePassword: password ? true : existing?.mustChangePassword === true, tokenExpiresAt: null, updatedAt: new Date().toISOString() };
       if (existing) Object.assign(existing, next); else data.users.push({ ...next, createdAt: next.updatedAt });
       const { tokenHash: ignoredToken, passwordHash: ignoredPassword, ...safe } = next;
       return safe;
@@ -227,4 +234,4 @@ class AccountStore {
   }
 }
 
-module.exports = { AccountStore, SPECIALTIES, MANAGED_ACCOUNT_PREFIX, MANAGED_ACCOUNT_DEFAULT_PASSWORD, OWNER_USER_ID, OWNER_AUTHORITY, nextManagedUserId };
+module.exports = { AccountStore, SPECIALTIES, MANAGED_ACCOUNT_PREFIX, MANAGED_ACCOUNT_DEFAULT_PASSWORD, RECLOUD_TEST_USER_ID, OWNER_USER_ID, OWNER_AUTHORITY, nextManagedUserId };

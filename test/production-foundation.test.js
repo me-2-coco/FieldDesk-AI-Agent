@@ -102,7 +102,8 @@ test("administrator creates managed FieldDesk accounts from 0005 with required r
   assert.throws(() => store.createManagedAccount({ displayName: "测试丙", phone: "123", role: USER_ROLES.WAREHOUSE }, admin), { code: "ACCOUNT_PHONE_INVALID" });
   assert.throws(() => store.createManagedAccount({ displayName: "测试丙", phone: "13700137000", role: USER_ROLES.TECHNICIAN }, admin), { code: "ACCOUNT_SPECIALTY_REQUIRED" });
   assert.throws(() => store.createManagedAccount({ displayName: "测试丙", phone: "13700137000", role: USER_ROLES.TECHNICIAN, repairSpecialties: ["扫地机", "洗地机"] }, admin), { code: "ACCOUNT_SPECIALTY_REQUIRED" });
-  assert.throws(() => store.createManagedAccount({ userId: "FieldDesk0004", displayName: "测试丙", phone: "13700137000", role: USER_ROLES.ADMIN }, owner), { code: "ACCOUNT_USER_ID_BELOW_MINIMUM" });
+  assert.throws(() => store.createManagedAccount({ userId: "FieldDesk0003", displayName: "测试丙", phone: "13700137000", role: USER_ROLES.TECHNICIAN, repairSpecialties: ["扫地机"] }, owner), { code: "ACCOUNT_USER_ID_BELOW_MINIMUM" });
+  assert.throws(() => store.createManagedAccount({ userId: "FieldDesk0004", displayName: "测试丙", phone: "13700137000", role: USER_ROLES.ADMIN }, owner), { code: "ACCOUNT_RECLOUD_TEST_ROLE_REQUIRED" });
   assert.deepEqual(await store.delete(warehouseAccount.userId, admin), { userId: warehouseAccount.userId, displayName: "测试库管" });
   assert.equal(await store.findByCredentials(warehouseAccount.userId, "000000"), null);
   const third = await store.createManagedAccount({ displayName: "测试丙", phone: "13700137000", role: USER_ROLES.INFORMATION_CLERK }, admin);
@@ -117,6 +118,18 @@ test("administrator creates managed FieldDesk accounts from 0005 with required r
   const updatedAdmin = await store.upsert({ ...managedAdmin, displayName: "新管理员名称", role: USER_ROLES.ADMIN }, owner);
   assert.equal(updatedAdmin.displayName, "新管理员名称");
   assert.throws(() => store.delete(admin.userId, admin), { code: "ACCOUNT_SELF_DELETE_FORBIDDEN" });
+});
+
+test("FieldDesk0004 is a formal Recloud technician-name test account", async () => {
+  const store = new AccountStore({ backend: new MemoryDocumentBackend({ users: [] }) });
+  const created = await store.createManagedAccount({ userId: "FieldDesk0004", displayName: "刘成", phone: "13700137000", role: USER_ROLES.TECHNICIAN, repairSpecialties: ["扫地机"] }, owner);
+  assert.equal(created.accountPurpose, "RECLOUD_TECHNICIAN_TEST");
+  assert.equal(created.recloudAssigneeName, "刘成");
+  assert.equal(await store.getNextManagedUserId(), "FieldDesk0005");
+  const updated = await store.upsert({ ...created, displayName: "另一位师傅", recloudAssigneeName: "旧名字" }, owner);
+  assert.equal(updated.displayName, "另一位师傅");
+  assert.equal(updated.recloudAssigneeName, "另一位师傅");
+  assert.equal(updated.recloudAssignmentMode, "DIRECT");
 });
 
 test("production account mode can bootstrap one administrator without exposing token", async () => {
