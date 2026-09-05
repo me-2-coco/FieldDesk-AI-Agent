@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react"
-import { getLocalRepairOrders, getShippingOrders, getWarrantyConversionRequests } from "../shared/crmService.js"
+import { getLocalRepairOrders, getShippingOrders, getTechnicianWorkloads, getWarrantyConversionRequests } from "../shared/crmService.js"
 import { findRepairOrderByCrmOrderNo, getCurrentRepairOrder, REPAIR_STATUS, saveCurrentRepairOrder } from "../shared/repairOrderStore.js"
 import { pageForRepairStatus, repairStatusForLocalWorkflow, resumePageForLocalWorkflow } from "../shared/repairNavigation.js"
 import { USER_ROLES } from "../shared/userStore.js"
-import { categorizeTechnicianWorkflows, technicianWorkloadStatusLabel } from "../shared/homeWorkload.js"
+import { buildTechnicianDirectory, categorizeTechnicianWorkflows, technicianWorkloadStatusLabel } from "../shared/homeWorkload.js"
 import SupervisionInbox from "../components/SupervisionInbox.jsx"
 import { AppIcon } from "../components/AppIcons.jsx"
 
@@ -34,6 +34,9 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
   const [backgroundShippingCount, setBackgroundShippingCount] = useState(0)
   const [pendingWarrantyCount, setPendingWarrantyCount] = useState(0)
   const [workflows, setWorkflows] = useState([])
+  const [technicians, setTechnicians] = useState([])
+  const [selectedTechnicianId, setSelectedTechnicianId] = useState("")
+  const [technicianLoadError, setTechnicianLoadError] = useState("")
   const [statStartDate, setStatStartDate] = useState(() => `${localDateKey(new Date()).slice(0, 7)}-01`)
   const [statEndDate, setStatEndDate] = useState(() => localDateKey(new Date()))
   const [detailStatus, setDetailStatus] = useState("")
@@ -135,11 +138,30 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
   }, [order?.crmOrderNo, restoreLocalOrder])
 
   useEffect(() => {
-    if (!isTechnician && !isAdmin) return undefined
+    if (!isTechnician) return undefined
     let active = true
     getLocalRepairOrders().then((rows) => active && setWorkflows(Array.isArray(rows) ? rows : [])).catch(() => active && setWorkflows([]))
     return () => { active = false }
-  }, [isTechnician, isAdmin])
+  }, [isTechnician])
+
+  useEffect(() => {
+    if (!isInformationClerk && !isAdmin) return undefined
+    let active = true
+    getTechnicianWorkloads()
+      .then((data) => {
+        if (!active) return
+        setTechnicians(Array.isArray(data?.technicians) ? data.technicians : [])
+        setWorkflows(Array.isArray(data?.orders) ? data.orders : [])
+        setTechnicianLoadError("")
+      })
+      .catch((error) => {
+        if (!active) return
+        setTechnicians([])
+        setWorkflows([])
+        setTechnicianLoadError(error.message)
+      })
+    return () => { active = false }
+  }, [isInformationClerk, isAdmin])
 
   useEffect(() => {
     if (!isInformationClerk && !isAdmin) return undefined
@@ -168,7 +190,16 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
   ].includes(order?.status)
   const roleName = isAdmin ? "管理员" : isWarehouse ? "库房" : isInformationClerk ? "信息员" : "维修师傅"
   const accountName = currentUser?.name || "未识别"
-  const workload = categorizeTechnicianWorkflows(workflows)
+  const canViewTechnicians = isInformationClerk || isAdmin
+  const technicianDirectory = buildTechnicianDirectory(technicians, workflows)
+  const selectedTechnician = technicianDirectory.find((item) => item.userId === selectedTechnicianId) || null
+  const visibleWorkflows = isTechnician
+    ? workflows
+    : selectedTechnicianId
+      ? workflows.filter((item) => (item.technicianId || item.operatorId) === selectedTechnicianId)
+      : []
+  const showTechnicianDashboard = isTechnician || Boolean(selectedTechnician)
+  const workload = categorizeTechnicianWorkflows(visibleWorkflows)
   const completedOrders = workload.completed
   const unfinished = workload.unfinished
   const waitingMaterial = workload.waitingMaterial
@@ -301,7 +332,41 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
       </div>
     </div>}
 
-    {!isTechnician && <div className="home-workspace-groups">
+    {canViewTechnicians && !selectedTechnician && <section className="card home-technician-directory">
+      <div className="home-section-heading">
+        <div><span>人员工作量</span><h2>师傅</h2></div>
+        <small>{technicianDirectory.length} 人</small>
+      </div>
+      <p className="home-technician-hint">选择师傅，查看他名下的实时维修执行和维修统计。</p>
+      {technicianLoadError && <p className="error-text">师傅数据读取失败：{technicianLoadError}</p>}
+      {!technicianLoadError && !technicianDirectory.length && <p className="empty-state">当前没有可查看的师傅账号</p>}
+      <div className="home-technician-list">
+        {technicianDirectory.map((technician) => {
+          const rows = workflows.filter((item) => (item.technicianId || item.operatorId) === technician.userId)
+          const technicianWorkload = categorizeTechnicianWorkflows(rows)
+          return <button type="button" key={technician.userId} onClick={() => { setSelectedTechnicianId(technician.userId); setDetailStatus("") }}>
+            <span className="home-technician-avatar">{technician.displayName.slice(0, 1)}</span>
+            <span className="home-technician-copy">
+              <strong>{technician.displayName}</strong>
+              <small>{technician.repairSpecialties.length ? technician.repairSpecialties.join(" + ") : "维修品类未配置"} · {technician.userId}</small>
+            </span>
+            <span className="home-technician-count"><strong>{technicianWorkload.unfinished.length}</strong><small>台在手</small></span>
+            <b>›</b>
+          </button>
+        })}
+      </div>
+    </section>}
+
+    {canViewTechnicians && selectedTechnician && <section className="card home-technician-selected">
+      <button type="button" className="home-technician-back" onClick={() => { setSelectedTechnicianId(""); setDetailStatus("") }}>← 返回师傅列表</button>
+      <div className="home-technician-profile">
+        <span className="home-technician-avatar">{selectedTechnician.displayName.slice(0, 1)}</span>
+        <div><span>当前查看师傅</span><strong>{selectedTechnician.displayName}</strong><small>{selectedTechnician.repairSpecialties.length ? selectedTechnician.repairSpecialties.join(" + ") : "维修品类未配置"} · {selectedTechnician.userId}</small></div>
+        <em>只读</em>
+      </div>
+    </section>}
+
+    {!isTechnician && !selectedTechnician && <div className="home-workspace-groups">
       <div className="home-workspace-heading">
         <div><span>{roleName}工作台</span><h2>全部功能</h2></div>
         <small>{workspaceGroups.reduce((count, group) => count + group.actions.length, 0)} 项</small>
@@ -320,7 +385,7 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
 
     {isTechnician && <SupervisionInbox openKey={supervisionOpenKey} targetRmaNo={supervisionTargetRmaNo} />}
 
-    {isTechnician && <div className="card">
+    {showTechnicianDashboard && <div className="card">
       <div className="home-section-heading"><div><span>实时工作量</span><h2>维修执行</h2></div><small>手上共 {unfinished.length} 台</small></div>
       <div className="home-workload-grid">
         <button type="button" className={`workload-unfinished ${detailStatus === "unfinished" ? "active" : ""}`} onClick={() => setDetailStatus(detailStatus === "unfinished" ? "" : "unfinished")}><span>未完成维修</span><strong>{unfinished.length}</strong><small>台</small></button>
@@ -332,12 +397,12 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
       {detailStatus && <div className="home-work-order-list">
         <div className="home-list-heading"><strong>{detailStatus === "unfinished" ? "师傅手上未修走的机器" : detailStatus === "waiting" ? "待料工单" : detailStatus === "outOfWarranty" ? "保外暂存工单" : detailStatus === "held" ? "其他暂存工单" : "已完成维修"}</strong><span>{detailOrders.length} 台</span></div>
         {!detailOrders.length && <p>当前没有该状态的机器</p>}
-        {detailOrders.map((item) => <button type="button" key={item.rmaNo} onClick={() => item.status !== "ON_HOLD" && openWorkflow(item)} aria-disabled={item.status === "ON_HOLD"}>
-          <span className="home-order-main"><strong>{fullLocalPhone(item)}</strong><small>{item.productLine || item.specialty || "品类未记录"} · SN {item.sn || "未记录"}{item.status === "ON_HOLD" && <> · {item.hold?.category || "分类未记录"}/{item.hold?.reason || "原因未记录"}</>}</small></span>
-          <span className={`home-order-status ${detailStatus}`}>{technicianWorkloadStatusLabel(item)}</span><b>›</b>
+        {detailOrders.map((item) => <button type="button" key={item.rmaNo} className={canViewTechnicians ? "read-only" : ""} onClick={() => isTechnician && item.status !== "ON_HOLD" && openWorkflow(item)} aria-disabled={canViewTechnicians || item.status === "ON_HOLD"}>
+          <span className="home-order-main"><strong>{canViewTechnicians ? item.phoneMasked || "电话未记录" : fullLocalPhone(item)}</strong><small>{item.productLine || item.specialty || "品类未记录"} · SN {item.sn || "未记录"}{item.status === "ON_HOLD" && <> · {item.hold?.category || "分类未记录"}/{item.hold?.reason || "原因未记录"}</>}</small></span>
+          <span className={`home-order-status ${detailStatus}`}>{technicianWorkloadStatusLabel(item)}</span>{isTechnician && <b>›</b>}
         </button>)}
       </div>}
-      {order?.crmOrderNo && !technicianOrderFinished && <>
+      {isTechnician && order?.crmOrderNo && !technicianOrderFinished && <>
         <p>当前工单：{order.crmOrderNo}</p>
         <p>当前状态：{order.status || "未提供"}</p>
         <button className="primary-btn" onClick={() => syncCurrentProgress({ navigate: true })}>继续当前工单</button>
@@ -345,7 +410,7 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
       </>}
     </div>}
 
-    {isTechnician && <div className="card home-performance-card">
+    {showTechnicianDashboard && <div className="card home-performance-card">
       <div className="home-section-heading"><div><span>{currentMonth.replace("-", "年")}月</span><h2>维修统计</h2></div></div>
       <div className="home-performance-summary">
         <div><span>维修完成</span><strong>{monthSummary.repaired}</strong><small>台</small></div>

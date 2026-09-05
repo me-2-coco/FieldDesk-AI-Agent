@@ -41,3 +41,26 @@ export function technicianWorkloadStatusLabel(order = {}) {
   if (order.status === "ON_HOLD") return "暂存"
   return "维修中"
 }
+
+export function buildTechnicianDirectory(technicians = [], workflows = []) {
+  const byId = new Map()
+  for (const technician of Array.isArray(technicians) ? technicians : []) {
+    const userId = String(technician?.userId || "").trim()
+    if (!userId) continue
+    byId.set(userId, {
+      userId,
+      displayName: technician.displayName || userId,
+      repairSpecialties: Array.isArray(technician.repairSpecialties) ? technician.repairSpecialties : [],
+    })
+  }
+  for (const workflow of Array.isArray(workflows) ? workflows : []) {
+    const userId = String(workflow?.technicianId || workflow?.operatorId || "").trim()
+    if (!userId || byId.has(userId)) continue
+    byId.set(userId, {
+      userId,
+      displayName: workflow.technicianName || workflow.operatorName || userId,
+      repairSpecialties: [workflow.specialty || workflow.productLine].filter(Boolean),
+    })
+  }
+  return [...byId.values()].sort((left, right) => left.displayName.localeCompare(right.displayName, "zh-CN"))
+}

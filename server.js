@@ -217,6 +217,38 @@ function createApiError(code, message, status) {
   return error;
 }
 
+function technicianWorkloadOrder(order = {}) {
+  return {
+    rmaNo: order.rmaNo || "",
+    logisticsNo: order.logisticsNo || "",
+    phoneMasked: order.phoneMasked || "",
+    productLine: order.productLine || "",
+    specialty: order.specialty || "",
+    sn: order.sn || "",
+    status: order.status || "",
+    receiptCompletedAt: order.receiptCompletedAt || "",
+    technicianId: order.technicianId || order.operatorId || "",
+    technicianName: order.technicianName || order.operatorName || "",
+    operatorId: order.operatorId || "",
+    operatorName: order.operatorName || "",
+    technicianWarranty: order.technicianWarranty || "",
+    treatmentMode: order.treatmentMode || "",
+    treatmentLabel: order.treatmentLabel || "",
+    hold: order.hold ? {
+      category: order.hold.category || "",
+      reason: order.hold.reason || "",
+      remark: order.hold.remark || "",
+    } : null,
+    repairCompletion: order.repairCompletion ? {
+      submittedAt: order.repairCompletion.submittedAt || "",
+      repairMeasure: order.repairCompletion.repairMeasure || "",
+      speechTemplate: order.repairCompletion.speechTemplate || "",
+    } : null,
+    completedAt: order.completedAt || "",
+    createdAt: order.createdAt || "",
+  };
+}
+
 function getAllowedRepairSpecialties(user) {
   if (user?.role === USER_ROLES.ADMIN) {
     return [...SUPPORTED_REPAIR_SPECIALTIES];
@@ -3404,6 +3436,33 @@ function createApp(
     try {
       const user = currentUserProvider(req);
       res.json({ success: true, data: await receiptStore.listOrdersForUser(user, USER_ROLES) });
+    } catch (error) { next(error); }
+  });
+
+  app.get("/api/repairs/technician-workloads", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      if (![USER_ROLES.ADMIN, USER_ROLES.INFORMATION_CLERK].includes(user.role)) {
+        throw createApiError("TECHNICIAN_WORKLOAD_FORBIDDEN", "只有管理员或信息员可以查看师傅工作量", 403);
+      }
+      const [accounts, orders] = await Promise.all([
+        accountStore.list(),
+        receiptStore.readAll(),
+      ]);
+      const technicians = accounts
+        .filter((account) => account.role === USER_ROLES.TECHNICIAN && account.active !== false)
+        .map((account) => ({
+          userId: account.userId,
+          displayName: account.displayName || account.userId,
+          repairSpecialties: Array.isArray(account.repairSpecialties) ? account.repairSpecialties : [],
+        }));
+      res.json({
+        success: true,
+        data: {
+          technicians,
+          orders: orders.map(technicianWorkloadOrder),
+        },
+      });
     } catch (error) { next(error); }
   });
 

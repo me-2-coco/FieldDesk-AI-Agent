@@ -203,6 +203,10 @@ export async function getLocalRepairOrders() {
   return get("/api/repairs/local-orders")
 }
 
+export async function getTechnicianWorkloads() {
+  return get("/api/repairs/technician-workloads")
+}
+
 export async function saveRepairResumeStep(rmaNo, resumeStep) {
   return request("/api/repairs/resume-step", { rmaNo, resumeStep })
 }
