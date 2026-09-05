@@ -558,44 +558,23 @@ function createApp(
           let receipt = null;
           if (receiptNeedsSync) {
             try {
-              const projectAuthorization = typeof feishuModelCatalog.authorize === "function"
-                ? await feishuModelCatalog.authorize({ sn: order.sn, currentProjectCode: detail.projectCode || "" })
-                : order.modelAuthorization;
-              if (projectAuthorization?.status === "CHANGE_REQUIRED") {
-                if (typeof connector.correctRmaProjectModel !== "function") {
-                  throw createApiError("RECLOUD_PROJECT_CORRECTION_UNAVAILABLE", "瑞云项目号需要修改，但修改功能不可用", 503);
-                }
-                await connector.correctRmaProjectModel(page, {
-                  sn: order.sn,
-                  currentProjectCode: projectAuthorization.currentProjectCode,
-                  expectedProjectCode: projectAuthorization.projectCode,
-                  productModelCode: projectAuthorization.productModelCode,
-                }, { dryRun: false });
-              } else if (projectAuthorization?.status !== "MATCHED") {
-                throw createApiError("RECLOUD_PROJECT_VERIFICATION_REQUIRED", "无法确认瑞云项目号与 SN 一致，已停止后台操作", 409);
-              }
-
               const receiptState = classifyRecloudReceiptState(detail);
-              if (receiptState.receiptRequired === false) {
+              const receiptTarget = typeof connector.findMappedReceiptControl === "function"
+                ? await connector.findMappedReceiptControl(page, {
+                    logisticsNo: order.logisticsNo,
+                    productLine: detail.productLine || detail.productType || order.productLine,
+                    rowIndex: 1,
+                  })
+                : receiptState.receiptRequired === true
+                  ? { entry: null }
+                  : null;
+              if (!receiptTarget) {
                 await receiptStore.markRecloudReceiptConfirmed(rmaNo, {
                   skipped: true,
-                  receipt: { confirmed: true, message: `瑞云当前为${receiptState.label}，无需重复签收` },
+                  receipt: { confirmed: true, message: "瑞云当前没有签收按钮，已跳过签收操作" },
                   operator,
                 });
-              } else if (receiptState.receiptRequired !== true) {
-                throw createApiError(
-                  "RECLOUD_RECEIPT_STATE_UNKNOWN",
-                  "无法确认瑞云是否仍待签收，已停止操作以避免重复签收",
-                  409
-                );
               } else {
-              // 状态元数据来自待处理列表；写入前重新打开同一 RMA 详情，
-              // 让签收与后续附件上传始终发生在经过核对的当前工单页面。
-                detail = await connector.queryRmaByLogisticsNo(
-                  page,
-                  order.logisticsNo,
-                  { preserveDetailPage: true }
-                );
                 await receiptStore.markRecloudReceiptSyncing(rmaNo, {
                   attemptId,
                   operator,
@@ -610,6 +589,7 @@ function createApp(
                     logisticsNo: order.logisticsNo,
                     productLine:
                       detail.productLine || detail.productType || order.productLine,
+                    ...(receiptTarget.entry ? { receiptTarget } : {}),
                   }
                 );
                 if (!receipt?.confirmed) {
@@ -636,6 +616,47 @@ function createApp(
               }
               throw error;
             }
+          }
+
+          try {
+            // Whether receipt was clicked or skipped, project matching remains
+            // mandatory. Reopen the same RMA detail before comparing and
+            // correcting the project number derived from the machine SN.
+            detail = await connector.queryRmaByLogisticsNo(
+              page,
+              order.logisticsNo,
+              { preserveDetailPage: true }
+            );
+            if (detail.rmaNo && detail.rmaNo !== rmaNo) {
+              throw createApiError(
+                "RECLOUD_RECEIPT_ORDER_MISMATCH",
+                "瑞云查询结果与当前寄修单不一致，已停止项目号核对",
+                409
+              );
+            }
+            const projectAuthorization = typeof feishuModelCatalog.authorize === "function"
+              ? await feishuModelCatalog.authorize({ sn: order.sn, currentProjectCode: detail.projectCode || "" })
+              : order.modelAuthorization;
+            if (projectAuthorization?.status === "CHANGE_REQUIRED") {
+              if (typeof connector.correctRmaProjectModel !== "function") {
+                throw createApiError("RECLOUD_PROJECT_CORRECTION_UNAVAILABLE", "瑞云项目号需要修改，但修改功能不可用", 503);
+              }
+              await connector.correctRmaProjectModel(page, {
+                sn: order.sn,
+                currentProjectCode: projectAuthorization.currentProjectCode,
+                expectedProjectCode: projectAuthorization.projectCode,
+                productModelCode: projectAuthorization.productModelCode,
+              }, { dryRun: false });
+            } else if (projectAuthorization?.status !== "MATCHED") {
+              throw createApiError("RECLOUD_PROJECT_VERIFICATION_REQUIRED", "无法确认瑞云项目号与 SN 一致，已停止后台操作", 409);
+            }
+          } catch (error) {
+            if (attachmentsNeedSync) {
+              await receiptStore.markRecloudReceiptAttachmentsFailed(rmaNo, {
+                code: error.code || "RECLOUD_PROJECT_VERIFICATION_REQUIRED",
+              }).catch(() => {});
+            }
+            throw error;
           }
 
           let attachmentResult = null;

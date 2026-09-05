@@ -809,6 +809,7 @@ test("detection-stage Recloud order skips receipt but still corrects project and
   let correctionCount = 0;
   const connector = {
     openRecloud: async () => ({ loginRequired: false, page: {} }),
+    findMappedReceiptControl: async () => null,
     queryRmaByLogisticsNo: async () => ({
       rmaNo: "JXTH900001001",
       productLine: "扫地机",

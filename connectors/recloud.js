@@ -10535,7 +10535,7 @@ async function confirmSign(page, sn, productType, remark, options = {}) {
 
   const receiptRemark =
     normalizeText(remark) || normalizeText(productType) || "寄修机器签收";
-  const target = await findMappedReceiptControl(page, {
+  const target = options.receiptTarget || await findMappedReceiptControl(page, {
     ...options,
     logisticsNo: options.logisticsNo,
     productLine: options.productLine || productType,
