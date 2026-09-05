@@ -1126,12 +1126,17 @@ async function readRmaDetail(page, logisticsNo = "", options = {}) {
     requirePickupLogisticsNo: options.requirePickupLogisticsNo,
   });
   if (!detail.receiptState && typeof page.getByText === "function") {
-    const receiptActions = page
-      .getByText("签收", { exact: true })
-      .filter({ visible: true });
-    const receiptActionCount = await receiptActions.count().catch(() => null);
-    if (receiptActionCount !== null) {
-      detail.receiptStatus = receiptActionCount > 0 ? "待签收" : "无需签收";
+    const pendingReceiptAction = await findPendingReceiptAction(
+      page,
+      options.logger || console,
+      {
+        logisticsNo,
+        productLine,
+        actionTimeout: options.receiptActionTimeout || 5000,
+      }
+    ).catch(() => null);
+    if (pendingReceiptAction) {
+      detail.receiptStatus = "待签收";
       detail.receiptState = classifyRecloudReceiptState(detail);
     }
   }
@@ -10658,15 +10663,12 @@ async function uploadRmaAttachments(page, attachments = [], options = {}) {
   }
 
   const existing = await readRmaAttachments(page);
-  const pending = files.filter((file) => {
-    const sameName = existing.find((item) => item.name === file.name);
-    if (!sameName) return true;
-    if (!sameName.size || !file.size || Math.abs(sameName.size - file.size) <= 2048) return false;
-    const error = new Error(`瑞云已存在同名但大小不同的附件：${file.name}`);
-    error.code = "RECLOUD_RMA_ATTACHMENT_NAME_CONFLICT";
-    error.status = 409;
-    throw error;
-  });
+  // Recloud may transform an image while storing it, so its displayed size is
+  // not a stable checksum. FieldDesk camera filenames are unique per capture;
+  // exact names within the verified RMA are therefore the retry idempotency key.
+  const pending = files.filter((file) => (
+    !existing.some((item) => item.name === file.name)
+  ));
   if (!pending.length) return { uploaded: [], skipped: files.map((file) => file.name) };
 
   const card = await getRmaAttachmentCard(page);

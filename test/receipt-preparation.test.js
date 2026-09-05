@@ -691,7 +691,7 @@ test("receipt-only live mode completes locally before confirming Recloud in the 
     const current = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
     return current?.recloudReceiptSyncStatus;
   }, "CONFIRMED");
-  assert.equal(queryCount, 2);
+  assert.equal(queryCount, 3);
   assert.equal(confirmCount, 1);
   assert.equal(uploadCount, 1);
 
@@ -703,7 +703,7 @@ test("receipt-only live mode completes locally before confirming Recloud in the 
 
   const retried = await post(url, "/api/repairs/complete-local-receipt", { rmaNo: "JXTH900001001" });
   assert.equal(retried.response.status, 200);
-  assert.equal(queryCount, 2);
+  assert.equal(queryCount, 3);
   assert.equal(confirmCount, 1);
 });
 
@@ -855,6 +855,64 @@ test("an already signed order can retry only its missing receipt photo", async (
   assert.equal(retried.result.data.queued, true);
   await waitForValue(() => uploadCount, 1);
   assert.equal(confirmCount, 0);
+});
+
+test("a falsely skipped receipt can be reset and safely retried by its technician", async (t) => {
+  const store = await createTestStore(t);
+  await store.prepare({
+    ...validPayload(),
+    operatorId: USERS.sweep.userId,
+    operatorName: USERS.sweep.displayName,
+  });
+  await store.completeReceipt("JXTH900001001", USERS.sweep);
+  await store.markRecloudReceiptConfirmed("JXTH900001001", {
+    skipped: true,
+    receipt: { confirmed: true, message: "瑞云当前已签收，跳过" },
+    operator: USERS.sweep,
+  });
+  await store.markRecloudReceiptAttachmentsConfirmed("JXTH900001001", {
+    result: { uploaded: [], skipped: ["receipt.jpg"] },
+    operator: USERS.sweep,
+  });
+  let confirmCount = 0;
+  let uploadCount = 0;
+  const connector = {
+    openRecloud: async () => ({ loginRequired: false, page: {} }),
+    queryRmaByLogisticsNo: async () => ({
+      rmaNo: "JXTH900001001",
+      productLine: "扫地机",
+      orderStatus: "待签收",
+    }),
+    confirmSign: async () => {
+      confirmCount += 1;
+      return { confirmed: true, message: "签收完成" };
+    },
+    uploadRmaAttachments: async () => {
+      uploadCount += 1;
+      return { uploaded: ["receipt.jpg"], skipped: [] };
+    },
+  };
+  const url = await startServer(t, connector, store, USERS.sweep, {
+    receiptAttachmentStore: { read: async () => Buffer.from("test-photo") },
+    env: {
+      ...process.env,
+      DRY_RUN: "true",
+      RECLOUD_WRITE_ENABLED: "false",
+      RECLOUD_RECEIPT_WRITE_ENABLED: "true",
+    },
+  });
+
+  const retried = await post(url, "/api/repairs/recloud-receipt/retry", {
+    rmaNo: "JXTH900001001",
+  });
+  assert.equal(retried.response.status, 200);
+  assert.equal(retried.result.data.queued, true);
+  await waitForValue(() => confirmCount, 1);
+  await waitForValue(() => uploadCount, 1);
+  const saved = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
+  assert.equal(saved.recloudReceiptResult.skipped, false);
+  assert.deepEqual(saved.recloudReceiptAttachmentResult.uploaded, ["receipt.jpg"]);
+  assert.equal(saved.timeline.some((item) => item.type === "RECLOUD_RECEIPT_FALSE_SKIP_RESET"), true);
 });
 
 test("a failed background Recloud receipt does not block the local workflow", async (t) => {

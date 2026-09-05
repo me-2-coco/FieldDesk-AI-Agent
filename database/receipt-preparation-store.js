@@ -350,6 +350,54 @@ class JsonReceiptPreparationStore {
     return operation;
   }
 
+  async resetFalseSkippedRecloudReceipt(rmaNo, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing) {
+        throw Object.assign(new Error("未找到本地签收准备记录"), {
+          code: "RECEIPT_PREPARATION_NOT_FOUND", status: 404,
+        });
+      }
+      const wasSkipped = existing.recloudReceiptResult?.skipped === true
+        && (existing.timeline || []).some((event) => event.type === "RECLOUD_RECEIPT_ALREADY_COMPLETED");
+      if (!wasSkipped) {
+        throw Object.assign(new Error("该工单不是误跳过的瑞云签收记录，禁止重置"), {
+          code: "RECLOUD_RECEIPT_FALSE_SKIP_REQUIRED", status: 409,
+        });
+      }
+      const timestamp = new Date().toISOString();
+      const updated = {
+        ...existing,
+        recloudReceiptSyncStatus: "PENDING",
+        recloudReceiptAttemptId: "",
+        recloudReceiptAttemptedAt: "",
+        recloudReceiptConfirmedAt: "",
+        recloudReceiptResult: null,
+        recloudReceiptLastError: null,
+        recloudReceiptAttachmentSyncStatus: (existing.receiptAttachments || []).length ? "PENDING" : "NOT_STARTED",
+        recloudReceiptAttachmentAttemptedAt: "",
+        recloudReceiptAttachmentConfirmedAt: "",
+        recloudReceiptAttachmentResult: null,
+        recloudReceiptAttachmentLastError: null,
+        updatedAt: timestamp,
+        timeline: [
+          ...(existing.timeline || []),
+          timelineEvent(
+            "RECLOUD_RECEIPT_FALSE_SKIP_RESET",
+            "已撤销错误的瑞云签收跳过结果，等待安全重试",
+            operator,
+            timestamp
+          ),
+        ],
+      };
+      await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
   async markRecloudReceiptSyncing(rmaNo, input = {}) {
     const operation = this.writeQueue.then(async () => {
       const records = await this.readAll();

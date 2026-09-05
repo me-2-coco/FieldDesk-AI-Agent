@@ -593,6 +593,21 @@ function createApp(
                 });
                 return { receipt, attachmentResult };
               }
+              // The first read may intentionally reset the page back to the
+              // scanner. Reopen and preserve the verified RMA detail before
+              // locating its attachment card, including attachment-only retries.
+              detail = await connector.queryRmaByLogisticsNo(
+                page,
+                order.logisticsNo,
+                { preserveDetailPage: true }
+              );
+              if (detail.rmaNo && detail.rmaNo !== rmaNo) {
+                throw createApiError(
+                  "RECLOUD_RECEIPT_ORDER_MISMATCH",
+                  "瑞云查询结果与当前寄修单不一致，已停止上传签收照片",
+                  409
+                );
+              }
               const hydrated = await Promise.all(attachments.map(async (attachment) => ({
                 ...attachment,
                 buffer: await receiptAttachmentStore.read(rmaNo, attachment),
@@ -620,7 +635,10 @@ function createApp(
         }, { background: true });
         return result;
       } catch (error) {
-        console.error(`RECLOUD_RECEIPT_BACKGROUND: failed ${error.code || "UNKNOWN"}`);
+        console.error(
+          `RECLOUD_RECEIPT_BACKGROUND: failed ${error.code || "UNKNOWN"}`,
+          JSON.stringify({ name: error.name || "Error", message: error.message || "" })
+        );
       } finally {
         activeReceiptSyncs.delete(rmaNo);
       }
@@ -2288,6 +2306,39 @@ function createApp(
           rmaNo,
           queued,
           message: queued ? "签收照片已进入后台同步" : "签收照片无需同步或已有任务执行中",
+        },
+      });
+    } catch (error) { return next(error); }
+  });
+
+  app.post("/api/repairs/recloud-receipt/retry", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      const rmaNo = String(req.body?.rmaNo || "").trim();
+      if (!rmaNo) throw createApiError("RECEIPT_PREPARATION_INVALID", "缺少必填字段：rmaNo", 400);
+      let order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
+      if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到本地签收准备记录", 404);
+      const ownsOrder = [order.operatorId, order.technicianId]
+        .map((value) => String(value || "").trim())
+        .includes(String(user.userId || "").trim());
+      if (!ownsOrder && user.role !== USER_ROLES.ADMIN) {
+        throw createApiError("RECLOUD_RECEIPT_RETRY_FORBIDDEN", "只能重试自己的瑞云签收工单", 403);
+      }
+      if (order.recloudReceiptResult?.skipped === true) {
+        order = await receiptStore.resetFalseSkippedRecloudReceipt(rmaNo, user);
+      } else if (order.recloudReceiptConfirmedAt) {
+        throw createApiError("RECLOUD_RECEIPT_ALREADY_CONFIRMED", "瑞云签收已经确认，禁止重复提交", 409);
+      }
+      if (order.recloudReceiptSyncStatus === "RESULT_UNKNOWN") {
+        throw createApiError("RECLOUD_RECEIPT_RECONCILIATION_REQUIRED", "瑞云签收结果未知，请先人工核对", 409);
+      }
+      const queued = scheduleRecloudReceiptSync(order, user, crypto.randomUUID());
+      return res.json({
+        success: true,
+        data: {
+          rmaNo,
+          queued,
+          message: queued ? "瑞云签收已进入安全重试" : "当前没有可重试的瑞云签收任务",
         },
       });
     } catch (error) { return next(error); }
