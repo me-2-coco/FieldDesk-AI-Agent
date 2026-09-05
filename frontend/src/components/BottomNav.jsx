@@ -32,10 +32,16 @@ function BottomNav({
           className={
             page === item.page
               ? "active"
-              : workflowLocked && ["home", "repair"].includes(item.page) ? "workflow-locked" : ""
+              : workflowLocked && item.page === "home"
+                ? "workflow-locked"
+                : workflowLocked && item.page === "repair" ? "workflow-resume" : ""
           }
-          aria-disabled={workflowLocked && ["home", "repair"].includes(item.page)}
-          title={workflowLocked && ["home", "repair"].includes(item.page) ? "当前工单处理完成或暂存后才能返回" : ""}
+          aria-disabled={workflowLocked && item.page === "home"}
+          title={workflowLocked
+            ? item.page === "home"
+              ? "当前工单处理完成或暂存后才能返回首页"
+              : item.page === "repair" ? "返回当前工单操作进度" : ""
+            : ""}
           onClick={() => {
             if (item.page === "home" && supervisionUnreadCount > 0 && onOpenSupervision) {
               onOpenSupervision()

@@ -62,9 +62,10 @@ test("a held order records reason, remark, holder, progress and Recloud sync res
   assert.equal(confirmed.timeline.at(-1).type, "RECLOUD_HOLD_CONFIRMED");
 });
 
-test("technician navigation exposes a closed-loop lock and a six-way decision", async () => {
-  const [app, decision, navigation, tracking, completion, styles] = await Promise.all([
+test("technician navigation locks home but resumes the current order from the work-order button", async () => {
+  const [app, bottomNav, decision, navigation, tracking, completion, styles] = await Promise.all([
     fs.readFile(path.join(__dirname, "../frontend/src/App.jsx"), "utf8"),
+    fs.readFile(path.join(__dirname, "../frontend/src/components/BottomNav.jsx"), "utf8"),
     fs.readFile(path.join(__dirname, "../frontend/src/pages/RepairDecision.jsx"), "utf8"),
     fs.readFile(path.join(__dirname, "../frontend/src/shared/repairNavigation.js"), "utf8"),
     fs.readFile(path.join(__dirname, "../frontend/src/pages/MachineTracking.jsx"), "utf8"),
@@ -79,7 +80,12 @@ test("technician navigation exposes a closed-loop lock and a six-way decision", 
   }
   assert.match(completion, /const nextPage = "repairProcess"/);
   assert.doesNotMatch(styles, /\.treatment-option:last-child\{grid-column:1\/-1/);
-  assert.match(app, /当前工单必须先完成、弃修、调试、只检测、转寄总部或暂存/);
+  assert.match(app, /nextPage === "home"/);
+  assert.match(app, /nextPage === "repair"/);
+  assert.match(app, /resumePageForLocalWorkflow\(activeOrder\)/);
+  assert.match(bottomNav, /item\.page === "home"/);
+  assert.match(bottomNav, /item\.page === "repair" \? "workflow-resume"/);
+  assert.doesNotMatch(bottomNav, /\["home", "repair"\]\.includes/);
   assert.match(navigation, /isTechnicianWorkflowLocked/);
   assert.match(tracking, /查看全部进度/);
   assert.match(tracking, /机器在谁手里/);

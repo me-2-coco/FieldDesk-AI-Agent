@@ -3353,3 +3353,4 @@ background:#fafafa;
 .treatment-option[class*="treatment-option-"] .treatment-option-copy em{color:var(--treatment-accent)}
 .treatment-option[class*="treatment-option-"].is-selected{color:var(--treatment-accent);background:var(--treatment-bg);border-color:var(--treatment-accent);box-shadow:0 5px 14px var(--treatment-shadow)}
 .treatment-option[class*="treatment-option-"].is-selected .treatment-option-icon{background:var(--treatment-accent)}
+.bottom-nav button.workflow-resume{color:#1768e5;background:#edf5ff}.bottom-nav button.workflow-resume .bottom-nav-icon{opacity:1}

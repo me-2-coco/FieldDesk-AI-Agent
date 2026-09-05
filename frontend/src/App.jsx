@@ -270,13 +270,17 @@ function App() {
 
     setCurrentUser(latestUser)
 
-    if (
-      latestUser.role === USER_ROLES.TECHNICIAN
-      && ["home", "repair"].includes(nextPage)
-      && isTechnicianWorkflowLocked(getCurrentRepairOrder())
-    ) {
-      setPermissionMessage("当前工单必须先完成、弃修、调试、只检测、转寄总部或暂存，才能返回工单首页")
-      return
+    const activeOrder = getCurrentRepairOrder()
+    if (latestUser.role === USER_ROLES.TECHNICIAN && isTechnicianWorkflowLocked(activeOrder)) {
+      if (nextPage === "home") {
+        setPermissionMessage("当前工单必须先完成、弃修、调试、只检测、转寄总部或暂存，才能返回首页")
+        return
+      }
+      if (nextPage === "repair") {
+        setPermissionMessage("")
+        setPageState(resumePageForLocalWorkflow(activeOrder) || pageForRepairStatus(activeOrder.status))
+        return
+      }
     }
 
 
