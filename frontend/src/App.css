@@ -3211,6 +3211,39 @@ background:#fafafa;
 
 /* Account management and profile grouping */
 .account-editor-card label { margin-top: 10px !important; font-size: 11px !important; }
+.account-role-picker { margin: 14px 0 12px; padding: 0; border: 0; }
+.account-role-picker legend { margin-bottom: 9px; color: #56677f; font-size: 11px; font-weight: 800; }
+.account-role-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.account-role-option { position: relative; display: grid; grid-template-columns: 36px minmax(0, 1fr); align-items: center; gap: 9px; min-height: 76px; margin: 0; padding: 11px; overflow: hidden; color: #34465d; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; box-shadow: none; text-align: left; transition: transform .16s ease, border-color .16s ease, background .16s ease, box-shadow .16s ease; }
+.account-role-option:hover { transform: translateY(-1px); background: #fff; border-color: #b8c9df; box-shadow: 0 7px 18px rgba(40, 61, 88, .08); }
+.account-role-icon { display: grid; place-items: center; width: 36px; height: 36px; color: #5f7188; background: #edf1f6; border-radius: 11px; }
+.account-role-copy { min-width: 0; }
+.account-role-copy strong,.account-role-copy small { display: block; }
+.account-role-copy strong { margin-bottom: 3px; color: #2d4058; font-size: 11px; }
+.account-role-copy small { color: #8995a6; font-size: 8px; line-height: 1.45; }
+.account-role-check { position: absolute; top: 7px; right: 7px; display: grid; width: 18px; height: 18px; place-items: center; color: transparent; background: transparent; border-radius: 50%; font-size: 10px; }
+.account-role-option.is-selected { color: #1768e5; background: linear-gradient(145deg, #f2f7ff, #eaf3ff); border-color: #73a8f1; box-shadow: 0 7px 18px rgba(23, 104, 229, .13); }
+.account-role-option.is-selected .account-role-icon { color: #fff; background: linear-gradient(145deg, #1768e5, #4a91f5); box-shadow: 0 5px 12px rgba(23, 104, 229, .22); }
+.account-role-option.is-selected .account-role-check { color: #fff; background: #1768e5; }
+.account-role-option.is-selected .account-role-copy strong { color: #205b9e; }
+.account-role-option.wash.is-selected { background: linear-gradient(145deg, #effbff, #e6f8ff); border-color: #66b7dc; }
+.account-role-option.wash.is-selected .account-role-icon,.account-role-option.wash.is-selected .account-role-check { background: #2398c7; }
+.account-role-option.warehouse.is-selected { background: linear-gradient(145deg, #fff8ed, #fff2da); border-color: #e6a84e; }
+.account-role-option.warehouse.is-selected .account-role-icon,.account-role-option.warehouse.is-selected .account-role-check { background: #d88a18; }
+.account-role-option.warehouse.is-selected .account-role-copy strong { color: #9b6110; }
+.account-role-option.information.is-selected { background: linear-gradient(145deg, #f4f1ff, #eee9ff); border-color: #9d86e8; }
+.account-role-option.information.is-selected .account-role-icon,.account-role-option.information.is-selected .account-role-check { background: #7559cf; }
+.account-role-option.information.is-selected .account-role-copy strong { color: #6549bb; }
+.account-role-option.admin { grid-column: 1 / -1; }
+.account-role-option.admin.is-selected { background: linear-gradient(145deg, #f1f4f8, #e8edf4); border-color: #6d7d91; }
+.account-role-option.admin.is-selected .account-role-icon,.account-role-option.admin.is-selected .account-role-check { background: #40546d; }
+.account-role-option.admin.is-selected .account-role-copy strong { color: #34475f; }
+.account-role-option.legacy { grid-column: 1 / -1; }
+.account-id-editor { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; margin-top: 7px; overflow: hidden; background: #f7f9fc; border: 1px solid #dfe6ef; border-radius: 13px; }
+.account-id-editor:focus-within { background: #fff; border-color: #6ea8f8; box-shadow: 0 0 0 3px rgba(23, 104, 229, .1); }
+.account-id-editor > span { padding: 0 0 0 14px; color: #52647a; font-size: 13px; font-weight: 800; letter-spacing: .01em; }
+.account-id-editor > input { min-width: 0; margin: 0 !important; padding-left: 1px !important; background: transparent !important; border: 0 !important; box-shadow: none !important; font-weight: 800; }
+.account-id-hint { display: block; margin-top: 5px; color: #909bab; font-size: 8px; font-weight: 500; }
 .choice-fieldset { display: flex; gap: 8px; margin: 12px 0; padding: 0; border: 0; }
 .choice-fieldset legend { margin-bottom: 7px; color: #67758a; font-size: 11px; font-weight: 700; }
 .choice-fieldset label { display: flex !important; align-items: center; gap: 6px; min-width: 88px; margin: 0 !important; padding: 8px 10px; background: #f5f8fc; border: 1px solid #e2e7ef; border-radius: 10px; }

@@ -76,13 +76,17 @@ test("administrator can preconfigure a new technician to a Recloud fallback assi
 test("administrator creates managed FieldDesk accounts from 0005 with required roles and permissions", async () => {
   const store = new AccountStore({ backend: new MemoryDocumentBackend({ users: [] }) });
   const first = await store.createManagedAccount({ displayName: "测试甲", phone: "138 0013 8000", role: USER_ROLES.TECHNICIAN, repairSpecialties: ["扫地机"] }, admin);
-  const second = await store.createManagedAccount({ displayName: "测试乙", phone: "13900139000", role: USER_ROLES.WAREHOUSE }, admin);
+  const second = await store.createManagedAccount({ userId: "FieldDesk0010", displayName: "测试乙", phone: "13900139000", role: USER_ROLES.TECHNICIAN, repairSpecialties: ["洗地机"] }, admin);
+  const warehouseAccount = await store.createManagedAccount({ displayName: "测试库管", phone: "13600136000", role: USER_ROLES.WAREHOUSE }, admin);
   assert.equal(first.userId, "FieldDesk0005");
-  assert.equal(second.userId, "FieldDesk0006");
+  assert.equal(second.userId, "FieldDesk0010");
+  assert.equal(warehouseAccount.userId, "FieldDesk0011");
   assert.equal(first.initialPassword, "000000");
   assert.equal(first.phone, "13800138000");
   assert.equal(first.role, USER_ROLES.TECHNICIAN);
   assert.deepEqual(first.repairSpecialties, ["扫地机"]);
+  assert.deepEqual(second.repairSpecialties, ["洗地机"]);
+  await assert.rejects(() => store.createManagedAccount({ userId: "FieldDesk0010", displayName: "重复编号", phone: "13400134000", role: USER_ROLES.WAREHOUSE }, admin), { code: "ACCOUNT_USER_ID_EXISTS" });
   assert.equal(first.recloudAssigneeName, "测试甲");
   assert.equal((await store.findByCredentials("FieldDesk0005", "000000")).mustChangePassword, true);
   await store.changePassword("FieldDesk0005", "new-safe-password");
@@ -96,11 +100,15 @@ test("administrator creates managed FieldDesk accounts from 0005 with required r
   assert.throws(() => store.createManagedAccount({ displayName: "", phone: "13900139001", role: USER_ROLES.WAREHOUSE }, admin), { code: "ACCOUNT_DISPLAY_NAME_REQUIRED" });
   assert.throws(() => store.createManagedAccount({ displayName: "测试丙", phone: "123", role: USER_ROLES.WAREHOUSE }, admin), { code: "ACCOUNT_PHONE_INVALID" });
   assert.throws(() => store.createManagedAccount({ displayName: "测试丙", phone: "13700137000", role: USER_ROLES.TECHNICIAN }, admin), { code: "ACCOUNT_SPECIALTY_REQUIRED" });
-  assert.throws(() => store.createManagedAccount({ displayName: "测试丙", phone: "13700137000", role: USER_ROLES.ADMIN }, admin), { code: "ACCOUNT_ROLE_INVALID" });
-  assert.deepEqual(await store.delete(second.userId, admin), { userId: second.userId, displayName: "测试乙" });
-  assert.equal(await store.findByCredentials(second.userId, "000000"), null);
+  assert.throws(() => store.createManagedAccount({ displayName: "测试丙", phone: "13700137000", role: USER_ROLES.TECHNICIAN, repairSpecialties: ["扫地机", "洗地机"] }, admin), { code: "ACCOUNT_SPECIALTY_REQUIRED" });
+  assert.throws(() => store.createManagedAccount({ userId: "FieldDesk0004", displayName: "测试丙", phone: "13700137000", role: USER_ROLES.ADMIN }, admin), { code: "ACCOUNT_USER_ID_BELOW_MINIMUM" });
+  assert.deepEqual(await store.delete(warehouseAccount.userId, admin), { userId: warehouseAccount.userId, displayName: "测试库管" });
+  assert.equal(await store.findByCredentials(warehouseAccount.userId, "000000"), null);
   const third = await store.createManagedAccount({ displayName: "测试丙", phone: "13700137000", role: USER_ROLES.INFORMATION_CLERK }, admin);
-  assert.equal(third.userId, "FieldDesk0007");
+  assert.equal(third.userId, "FieldDesk0012");
+  const managedAdmin = await store.createManagedAccount({ displayName: "测试管理员", phone: "13500135000", role: USER_ROLES.ADMIN }, admin);
+  assert.equal(managedAdmin.userId, "FieldDesk0013");
+  assert.equal(managedAdmin.role, USER_ROLES.ADMIN);
   assert.throws(() => store.delete(admin.userId, admin), { code: "ACCOUNT_SELF_DELETE_FORBIDDEN" });
 });
 
@@ -154,6 +162,11 @@ test("production UI keeps access tokens in memory and exposes admin account mana
   assert.match(login, /登录密码/);
   assert.match(accounts, /账号管理/);
   assert.match(accounts, /编辑账号/);
+  assert.match(accounts, /扫地机师傅/);
+  assert.match(accounts, /洗地机师傅/);
+  assert.match(accounts, /管理账号、工单、库存与系统设置/);
+  assert.match(accounts, /aria-label="账号数字"/);
+  assert.doesNotMatch(accounts, /<label>登录密码/);
   assert.match(server, /\/api\/auth\/login/);
   assert.match(server, /\/api\/admin\/users/);
   assert.match(server, /Idempotency-Key/);

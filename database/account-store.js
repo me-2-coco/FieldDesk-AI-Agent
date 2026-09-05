@@ -9,7 +9,7 @@ const RECLOUD_ASSIGNMENT_MODES = new Set(["DIRECT", "FALLBACK"]);
 const MANAGED_ACCOUNT_PREFIX = "FieldDesk";
 const MANAGED_ACCOUNT_START_SEQUENCE = 5;
 const MANAGED_ACCOUNT_DEFAULT_PASSWORD = "000000";
-const MANAGED_ACCOUNT_ROLES = new Set([USER_ROLES.TECHNICIAN, USER_ROLES.WAREHOUSE, USER_ROLES.INFORMATION_CLERK]);
+const MANAGED_ACCOUNT_ROLES = new Set([USER_ROLES.ADMIN, USER_ROLES.TECHNICIAN, USER_ROLES.WAREHOUSE, USER_ROLES.INFORMATION_CLERK]);
 
 function nextManagedUserId(users) {
   const highestSequence = users.reduce((highest, user) => {
@@ -93,18 +93,24 @@ class AccountStore {
     const displayName = String(input.displayName || "").trim();
     const phone = normalizeTechnicianPhone(input.phone);
     const role = String(input.role || "").trim().toUpperCase();
+    const requestedUserId = String(input.userId || "").trim();
     const specialties = [...new Set(input.repairSpecialties || [])];
     if (!displayName) throw Object.assign(new Error("请填写姓名"), { code: "ACCOUNT_DISPLAY_NAME_REQUIRED", status: 400 });
     if (!/^1[3-9]\d{9}$/.test(phone)) throw Object.assign(new Error("请填写正确的11位手机号"), { code: "ACCOUNT_PHONE_INVALID", status: 400 });
     if (!MANAGED_ACCOUNT_ROLES.has(role)) throw Object.assign(new Error("请选择账号角色"), { code: "ACCOUNT_ROLE_INVALID", status: 400 });
+    if (requestedUserId && !/^FieldDesk\d{4,}$/.test(requestedUserId)) throw Object.assign(new Error("账号必须由 FieldDesk 加4位以上数字组成"), { code: "ACCOUNT_USER_ID_INVALID", status: 400 });
+    if (requestedUserId && Number(requestedUserId.slice(MANAGED_ACCOUNT_PREFIX.length)) < MANAGED_ACCOUNT_START_SEQUENCE) throw Object.assign(new Error("账号数字不能小于0005"), { code: "ACCOUNT_USER_ID_BELOW_MINIMUM", status: 400 });
     if (specialties.some((item) => !SPECIALTIES.has(item))) throw Object.assign(new Error("维修品类无效"), { code: "ACCOUNT_SPECIALTY_INVALID", status: 400 });
-    if (role === USER_ROLES.TECHNICIAN && specialties.length === 0) throw Object.assign(new Error("维修师傅至少选择一个维修权限"), { code: "ACCOUNT_SPECIALTY_REQUIRED", status: 400 });
+    if (role === USER_ROLES.TECHNICIAN && specialties.length !== 1) throw Object.assign(new Error("维修师傅必须且只能选择一个维修品类"), { code: "ACCOUNT_SPECIALTY_REQUIRED", status: 400 });
     if (role !== USER_ROLES.TECHNICIAN && specialties.length) throw Object.assign(new Error("库管和信息员不能配置维修权限"), { code: "ACCOUNT_SPECIALTY_FORBIDDEN", status: 400 });
     return this.backend.update((data) => {
+      const userId = requestedUserId || nextManagedUserId(data.users);
+      if (data.users.some((item) => item.userId === userId)) {
+        throw Object.assign(new Error("该 FieldDesk 账号已被使用，请更换后面的数字"), { code: "ACCOUNT_USER_ID_EXISTS", status: 409 });
+      }
       if (data.users.some((item) => !item.deletedAt && normalizeTechnicianPhone(item.phone) === phone)) {
         throw Object.assign(new Error("该手机号已创建 FieldDesk 账号"), { code: "ACCOUNT_PHONE_EXISTS", status: 409 });
       }
-      const userId = nextManagedUserId(data.users);
       const now = new Date().toISOString();
       const user = {
         userId,
@@ -174,10 +180,12 @@ class AccountStore {
   upsert(input, operator) {
     if (operator?.role !== USER_ROLES.ADMIN) throw Object.assign(new Error("只有管理员可以配置账号"), { code: "ACCOUNT_ADMIN_REQUIRED", status: 403 });
     const role = String(input.role || "");
+    const userId = String(input.userId || "").trim();
     if (!ROLES.has(role)) throw Object.assign(new Error("账号角色无效"), { code: "ACCOUNT_ROLE_INVALID", status: 400 });
     const specialties = [...new Set(input.repairSpecialties || [])];
     if (specialties.some((item) => !SPECIALTIES.has(item))) throw Object.assign(new Error("维修品类无效"), { code: "ACCOUNT_SPECIALTY_INVALID", status: 400 });
     if (role === USER_ROLES.TECHNICIAN && specialties.length === 0) throw Object.assign(new Error("维修师傅至少选择一个维修权限"), { code: "ACCOUNT_SPECIALTY_REQUIRED", status: 400 });
+    if (/^FieldDesk\d+$/.test(userId) && role === USER_ROLES.TECHNICIAN && specialties.length !== 1) throw Object.assign(new Error("正式维修账号必须且只能选择一个维修品类"), { code: "ACCOUNT_SPECIALTY_REQUIRED", status: 400 });
     if (role !== USER_ROLES.TECHNICIAN && specialties.length && role !== USER_ROLES.ADMIN) throw Object.assign(new Error("该角色不能配置维修品类"), { code: "ACCOUNT_SPECIALTY_FORBIDDEN", status: 400 });
     const recloudAssignmentMode = String(input.recloudAssignmentMode || "DIRECT").trim().toUpperCase();
     const recloudAssigneeName = String(input.recloudAssigneeName || "").trim();
@@ -187,7 +195,6 @@ class AccountStore {
       throw Object.assign(new Error("新员工暂未进入瑞云时，必须填写兜底负责人"), { code: "ACCOUNT_RECLOUD_FALLBACK_REQUIRED", status: 400 });
     }
     return this.backend.update((data) => {
-      const userId = String(input.userId || "").trim();
       const existing = data.users.find((item) => item.userId === userId);
       const password = input.password || input.accessToken;
       const tokenHash = password
