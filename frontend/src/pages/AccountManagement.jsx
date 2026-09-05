@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { AppIcon } from "../components/AppIcons.jsx"
-import { createAdminAccount, deleteAdminAccount, getAdminUsers, getNextAdminAccount, resetAdminAccountPassword, saveAdminUser } from "../shared/crmService.js"
+import { createAdminAccount, deleteAdminAccount, getAdminUsers, getCurrentFieldDeskUser, getNextAdminAccount, resetAdminAccountPassword, saveAdminUser } from "../shared/crmService.js"
 
 const EMPTY = { userId: "", displayName: "", phone: "", role: "", repairSpecialties: [], active: true, recloudAssignmentMode: "DIRECT", recloudAssigneeName: "", recloudFallbackAssigneeName: "" }
 
@@ -22,10 +22,11 @@ const ROLE_CHOICES = [
   { value: "TECHNICIAN_WASH", title: "洗地机师傅", description: "仅查看和处理洗地机工单", icon: "work", tone: "wash" },
   { value: "WAREHOUSE", title: "库管", description: "管理配件入库、发放与退还", icon: "warehouse", tone: "warehouse" },
   { value: "INFORMATION_CLERK", title: "信息员", description: "查看异常、进度与维修档案", icon: "records", tone: "information" },
-  { value: "ADMIN", title: "管理员", description: "管理账号、工单、库存与系统设置", icon: "accounts", tone: "admin" },
 ]
+const ADMIN_CHOICE = { value: "ADMIN", title: "管理员", description: "管理普通账号、工单、库存与系统设置", icon: "accounts", tone: "admin" }
 
 function roleDisplay(user) {
+  if (user.accountAuthority === "OWNER") return "负责人"
   if (user.role === "TECHNICIAN") return `${user.repairSpecialties?.[0] || "未配置"}师傅`
   if (user.role === "WAREHOUSE") return "库管"
   if (user.role === "INFORMATION_CLERK") return "信息员"
@@ -37,21 +38,23 @@ function AccountManagement({ setPage }) {
   const [nextAccount, setNextAccount] = useState("FieldDesk0005")
   const [accountSuffix, setAccountSuffix] = useState("0005")
   const [form, setForm] = useState(EMPTY)
+  const [currentProfile, setCurrentProfile] = useState(null)
   const [message, setMessage] = useState("")
 
   async function refresh() {
     try {
-      const [userList, next] = await Promise.all([getAdminUsers(), getNextAdminAccount()])
+      const [userList, next, profile] = await Promise.all([getAdminUsers(), getNextAdminAccount(), getCurrentFieldDeskUser()])
       setUsers(userList)
       setNextAccount(next.userId)
       setAccountSuffix(next.userId.replace(/^FieldDesk/, ""))
+      setCurrentProfile(profile)
     }
     catch (error) { setMessage(error.message) }
   }
   useEffect(() => {
     let active = true
-    Promise.all([getAdminUsers(), getNextAdminAccount()])
-      .then(([userList, next]) => { if (active) { setUsers(userList); setNextAccount(next.userId); setAccountSuffix(next.userId.replace(/^FieldDesk/, "")) } })
+    Promise.all([getAdminUsers(), getNextAdminAccount(), getCurrentFieldDeskUser()])
+      .then(([userList, next, profile]) => { if (active) { setUsers(userList); setNextAccount(next.userId); setAccountSuffix(next.userId.replace(/^FieldDesk/, "")); setCurrentProfile(profile) } })
       .catch((error) => { if (active) setMessage(error.message) })
     return () => { active = false }
   }, [])
@@ -71,8 +74,8 @@ function AccountManagement({ setPage }) {
   }
 
   function editUser(user) {
-    setForm({ userId: user.userId, displayName: user.displayName, phone: user.phone || "", role: user.role, repairSpecialties: user.repairSpecialties || [], active: user.active !== false, recloudAssignmentMode: user.recloudAssignmentMode || "DIRECT", recloudAssigneeName: user.recloudAssigneeName || "", recloudFallbackAssigneeName: user.recloudFallbackAssigneeName || "" })
-    setMessage("正在编辑账号角色和权限")
+    setForm({ userId: user.userId, displayName: user.displayName, phone: user.phone || "", role: user.role, accountAuthority: user.accountAuthority || "", repairSpecialties: user.repairSpecialties || [], active: user.active !== false, recloudAssignmentMode: user.recloudAssignmentMode || "DIRECT", recloudAssigneeName: user.recloudAssigneeName || "", recloudFallbackAssigneeName: user.recloudFallbackAssigneeName || "" })
+    setMessage(user.accountAuthority === "OWNER" ? "负责人账号受系统保护，仅可查看" : "正在编辑账号角色和权限")
   }
 
   async function removeUser() {
@@ -103,10 +106,10 @@ function AccountManagement({ setPage }) {
           ? <label>FieldDesk 账号<input value={form.userId} readOnly aria-readonly="true" /></label>
           : <label>FieldDesk 账号<div className="account-id-editor"><span>FieldDesk</span><input aria-label="账号数字" inputMode="numeric" value={accountSuffix} onChange={(event) => setAccountSuffix(event.target.value.replace(/\D/g, "").slice(0, 8))} onBlur={() => setAccountSuffix((value) => (value || nextAccount.replace(/^FieldDesk/, "")).padStart(4, "0"))} placeholder={nextAccount.replace(/^FieldDesk/, "")} required /></div><small className="account-id-hint">默认使用下一个编号，也可以手动修改后面的数字</small></label>}
         {!form.userId && <label>初始密码<input value="000000" readOnly aria-readonly="true" /></label>}
-        <label>姓名<input value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })} placeholder="请输入姓名" required /></label>
-        <label>电话<input type="tel" inputMode="numeric" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="请输入11位手机号" required /></label>
+        <label>姓名<input value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })} placeholder="请输入姓名" required disabled={form.accountAuthority === "OWNER"} /></label>
+        <label>电话<input type="tel" inputMode="numeric" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="请输入11位手机号" required disabled={form.accountAuthority === "OWNER"} /></label>
         <fieldset className="account-role-picker"><legend>账号角色与权限</legend><div className="account-role-grid">
-          {ROLE_CHOICES.map((choice) => <button type="button" key={choice.value} className={`account-role-option ${choice.tone} ${permissionValue(form) === choice.value ? "is-selected" : ""}`} aria-pressed={permissionValue(form) === choice.value} onClick={() => setForm({ ...form, ...permissionFields(choice.value) })}>
+          {[...ROLE_CHOICES, ...(currentProfile?.accountAuthority === "OWNER" ? [ADMIN_CHOICE] : [])].map((choice) => <button type="button" key={choice.value} disabled={form.accountAuthority === "OWNER"} className={`account-role-option ${choice.tone} ${permissionValue(form) === choice.value ? "is-selected" : ""}`} aria-pressed={permissionValue(form) === choice.value} onClick={() => setForm({ ...form, ...permissionFields(choice.value) })}>
             <span className="account-role-icon"><AppIcon name={choice.icon} size={20} /></span>
             <span className="account-role-copy"><strong>{choice.title}</strong><small>{choice.description}</small></span>
             <span className="account-role-check">✓</span>
@@ -120,10 +123,10 @@ function AccountManagement({ setPage }) {
             ? <label>瑞云姓名<input value={form.recloudAssigneeName} onChange={(event) => setForm({ ...form, recloudAssigneeName: event.target.value })} placeholder="留空则使用显示名称" /></label>
             : <label>兜底负责人<input value={form.recloudFallbackAssigneeName} onChange={(event) => setForm({ ...form, recloudFallbackAssigneeName: event.target.value })} placeholder="请输入瑞云中已存在的姓名" required /></label>}
         </fieldset>}
-        <label className="switch-row"><span>账号启用</span><input type="checkbox" checked={form.active} onChange={(event) => setForm({ ...form, active: event.target.checked })} /></label>
-        <div className="compact-action-row"><button type="submit">保存账号</button>{form.userId && <button type="button" className="secondary-btn" onClick={() => setForm(EMPTY)}>取消</button>}</div>
-        {form.userId && form.role !== "ADMIN" && <button type="button" className="secondary-btn" onClick={resetUserPassword}>重置密码为 000000</button>}
-        {form.userId && form.role !== "ADMIN" && <button type="button" className="account-delete-button" onClick={removeUser}>删除账号</button>}
+        {form.accountAuthority !== "OWNER" && <label className="switch-row"><span>账号启用</span><input type="checkbox" checked={form.active} onChange={(event) => setForm({ ...form, active: event.target.checked })} /></label>}
+        <div className="compact-action-row">{form.accountAuthority !== "OWNER" && <button type="submit">保存账号</button>}{form.userId && <button type="button" className="secondary-btn" onClick={() => setForm(EMPTY)}>取消</button>}</div>
+        {form.userId && form.accountAuthority !== "OWNER" && <button type="button" className="secondary-btn" onClick={resetUserPassword}>重置密码为 000000</button>}
+        {form.userId && form.accountAuthority !== "OWNER" && <button type="button" className="account-delete-button" onClick={removeUser}>删除账号</button>}
       </form>
     </div>
     <div className="card account-list-card"><div className="section-title-row"><div><small>账号目录</small><h2>正式账号</h2></div><span>{users.length} 个</span></div><div className="account-directory">{users.map((user) => <button type="button" className="account-directory-row" key={user.userId} onClick={() => editUser(user)}><span className="account-directory-avatar">{user.displayName.slice(0, 1)}</span><span><strong>{user.displayName}</strong><small>{user.userId} · {user.phone || "未填写电话"} · {roleDisplay(user)}</small></span><em className={user.active ? "active" : "disabled"}>{user.active ? "启用" : "停用"}</em><b>›</b></button>)}</div></div>

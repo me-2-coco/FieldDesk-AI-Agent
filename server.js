@@ -396,6 +396,9 @@ function createApp(
 
   app.post("/api/auth/login", async (req, res, next) => {
     try {
+      if (String(runtimeEnv.FIELDDESK_AUTH_MODE || "local") === "accounts") {
+        await accountStore.ensureBootstrap(runtimeEnv.FIELDDESK_BOOTSTRAP_ADMIN_TOKEN);
+      }
       const user = await accountStore.findByCredentials(req.body?.userId, req.body?.password);
       if (!user) return res.status(401).json({ success: false, code: "AUTH_INVALID_CREDENTIALS", message: "账号或密码错误，或账号已停用" });
       const sessionToken = crypto.randomBytes(32).toString("base64url");
@@ -410,6 +413,7 @@ function createApp(
         recloudAssigneeName: user.recloudAssigneeName || "",
         recloudFallbackAssigneeName: user.recloudFallbackAssigneeName || "",
         mustChangePassword: user.mustChangePassword === true,
+        accountAuthority: user.accountAuthority || "",
       } });
     } catch (error) { next(error); }
   });
@@ -425,7 +429,7 @@ function createApp(
       if (session && session.expiresAt <= Date.now()) accountSessions.delete(token);
       const user = session?.expiresAt > Date.now() ? await accountStore.findByUserId(session.userId) : await accountStore.findByToken(token);
       if (!user) return res.status(401).json({ success: false, code: "AUTH_REQUIRED", message: "账号认证失败" });
-      if (user.mustChangePassword === true && req.path !== "/api/auth/change-password") {
+      if (session && user.mustChangePassword === true && req.path !== "/api/auth/change-password") {
         return res.status(403).json({ success: false, code: "PASSWORD_CHANGE_REQUIRED", message: "请先修改初始密码" });
       }
       req.fieldDeskUser = user;
@@ -772,6 +776,7 @@ function createApp(
         recloudAssigneeName: user.recloudAssigneeName || "",
         recloudFallbackAssigneeName: user.recloudFallbackAssigneeName || "",
         mustChangePassword: user.mustChangePassword === true,
+        accountAuthority: user.accountAuthority || "",
       },
     });
   });
@@ -788,7 +793,7 @@ function createApp(
     try {
       const user = currentUserProvider(req);
       if (user.role !== USER_ROLES.ADMIN) throw createApiError("ACCOUNT_ADMIN_REQUIRED", "只有管理员可以查看账号", 403);
-      res.json({ success: true, data: await accountStore.list() });
+      res.json({ success: true, data: await accountStore.list(user) });
     } catch (error) { next(error); }
   });
 

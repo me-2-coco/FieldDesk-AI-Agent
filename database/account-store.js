@@ -10,6 +10,12 @@ const MANAGED_ACCOUNT_PREFIX = "FieldDesk";
 const MANAGED_ACCOUNT_START_SEQUENCE = 5;
 const MANAGED_ACCOUNT_DEFAULT_PASSWORD = "000000";
 const MANAGED_ACCOUNT_ROLES = new Set([USER_ROLES.ADMIN, USER_ROLES.TECHNICIAN, USER_ROLES.WAREHOUSE, USER_ROLES.INFORMATION_CLERK]);
+const OWNER_USER_ID = "FieldDesk0001";
+const OWNER_AUTHORITY = "OWNER";
+
+function isOwner(user) {
+  return user?.accountAuthority === OWNER_AUTHORITY && user?.userId === OWNER_USER_ID;
+}
 
 function nextManagedUserId(users) {
   const highestSequence = users.reduce((highest, user) => {
@@ -35,18 +41,22 @@ class AccountStore {
       initialValue: { users: [] },
     });
   }
-  ensureBootstrap(accessToken, displayName = "系统管理员") {
+  ensureBootstrap(accessToken, displayName = "负责人") {
     if (!accessToken) return Promise.resolve(false);
     return this.backend.update((data) => {
-      if (data.users.length) return false;
+      if (data.users.some((user) => isOwner(user))) return false;
       data.users.push({
-        userId: "ADMIN-BOOTSTRAP",
-        displayName,
+        userId: OWNER_USER_ID,
+        displayName: displayName || "负责人",
+        phone: "",
         role: USER_ROLES.ADMIN,
+        accountAuthority: OWNER_AUTHORITY,
         repairSpecialties: ["扫地机", "洗地机"],
         active: true,
         allowBearer: true,
         tokenHash: crypto.createHash("sha256").update(String(accessToken)).digest("hex"),
+        passwordHash: crypto.createHash("sha256").update(MANAGED_ACCOUNT_DEFAULT_PASSWORD).digest("hex"),
+        mustChangePassword: true,
         tokenExpiresAt: new Date(Date.now() + Math.min(168, Math.max(1, Number(process.env.FIELDDESK_SESSION_HOURS || 12))) * 3600_000).toISOString(),
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -54,9 +64,11 @@ class AccountStore {
       return true;
     });
   }
-  async list() {
+  async list(operator) {
     const data = await this.backend.read();
-    return data.users.filter((user) => !user.deletedAt).map(({ tokenHash, allowBearer, tokenExpiresAt, ...user }) => user);
+    return data.users
+      .filter((user) => !user.deletedAt && (!operator || isOwner(operator) || user.role !== USER_ROLES.ADMIN))
+      .map(({ tokenHash, passwordHash, allowBearer, tokenExpiresAt, ...user }) => user);
   }
   async getNextManagedUserId() {
     const data = await this.backend.read();
@@ -66,7 +78,7 @@ class AccountStore {
     const data = await this.backend.read();
     const user = data.users.find((item) => item.active !== false && item.userId === String(userId || "").trim());
     if (!user) return null;
-    const { tokenHash: ignored, allowBearer, tokenExpiresAt, ...safe } = user;
+    const { tokenHash: ignoredToken, passwordHash: ignoredPassword, allowBearer, tokenExpiresAt, ...safe } = user;
     return safe;
   }
   async findByToken(token) {
@@ -76,16 +88,16 @@ class AccountStore {
     const now = Date.now();
     const user = data.users.find((item) => item.active !== false && item.allowBearer !== false && item.tokenHash === tokenHash && (!item.tokenExpiresAt || Date.parse(item.tokenExpiresAt) > now));
     if (!user) return null;
-    const { tokenHash: ignored, ...safe } = user;
+    const { tokenHash: ignoredToken, passwordHash: ignoredPassword, ...safe } = user;
     return safe;
   }
   async findByCredentials(userId, password) {
     const normalizedUserId = String(userId || "").trim();
     const tokenHash = crypto.createHash("sha256").update(String(password || "")).digest("hex");
     const data = await this.backend.read();
-    const user = data.users.find((item) => item.active !== false && item.userId === normalizedUserId && item.tokenHash === tokenHash);
+    const user = data.users.find((item) => item.active !== false && item.userId === normalizedUserId && (item.passwordHash || item.tokenHash) === tokenHash);
     if (!user) return null;
-    const { tokenHash: ignored, ...safe } = user;
+    const { tokenHash: ignoredToken, passwordHash: ignoredPassword, ...safe } = user;
     return safe;
   }
   createManagedAccount(input, operator) {
@@ -98,6 +110,7 @@ class AccountStore {
     if (!displayName) throw Object.assign(new Error("请填写姓名"), { code: "ACCOUNT_DISPLAY_NAME_REQUIRED", status: 400 });
     if (!/^1[3-9]\d{9}$/.test(phone)) throw Object.assign(new Error("请填写正确的11位手机号"), { code: "ACCOUNT_PHONE_INVALID", status: 400 });
     if (!MANAGED_ACCOUNT_ROLES.has(role)) throw Object.assign(new Error("请选择账号角色"), { code: "ACCOUNT_ROLE_INVALID", status: 400 });
+    if (role === USER_ROLES.ADMIN && !isOwner(operator)) throw Object.assign(new Error("只有负责人可以创建管理员账号"), { code: "ACCOUNT_OWNER_REQUIRED", status: 403 });
     if (requestedUserId && !/^FieldDesk\d{4,}$/.test(requestedUserId)) throw Object.assign(new Error("账号必须由 FieldDesk 加4位以上数字组成"), { code: "ACCOUNT_USER_ID_INVALID", status: 400 });
     if (requestedUserId && Number(requestedUserId.slice(MANAGED_ACCOUNT_PREFIX.length)) < MANAGED_ACCOUNT_START_SEQUENCE) throw Object.assign(new Error("账号数字不能小于0005"), { code: "ACCOUNT_USER_ID_BELOW_MINIMUM", status: 400 });
     if (specialties.some((item) => !SPECIALTIES.has(item))) throw Object.assign(new Error("维修品类无效"), { code: "ACCOUNT_SPECIALTY_INVALID", status: 400 });
@@ -123,14 +136,15 @@ class AccountStore {
         recloudFallbackAssigneeName: "",
         active: true,
         allowBearer: false,
-        tokenHash: crypto.createHash("sha256").update(MANAGED_ACCOUNT_DEFAULT_PASSWORD).digest("hex"),
+        tokenHash: null,
+        passwordHash: crypto.createHash("sha256").update(MANAGED_ACCOUNT_DEFAULT_PASSWORD).digest("hex"),
         mustChangePassword: true,
         tokenExpiresAt: null,
         createdAt: now,
         updatedAt: now,
       };
       data.users.push(user);
-      const { tokenHash: ignored, ...safe } = user;
+      const { tokenHash: ignoredToken, passwordHash: ignoredPassword, ...safe } = user;
       return { ...safe, initialPassword: MANAGED_ACCOUNT_DEFAULT_PASSWORD };
     });
   }
@@ -142,7 +156,8 @@ class AccountStore {
     return this.backend.update((data) => {
       const index = data.users.findIndex((item) => item.userId === normalizedUserId && !item.deletedAt);
       if (index < 0) throw Object.assign(new Error("账号不存在"), { code: "ACCOUNT_NOT_FOUND", status: 404 });
-      if (data.users[index].role === USER_ROLES.ADMIN) throw Object.assign(new Error("管理员账号不能在这里删除"), { code: "ACCOUNT_ADMIN_DELETE_FORBIDDEN", status: 409 });
+      if (isOwner(data.users[index])) throw Object.assign(new Error("负责人账号不能删除"), { code: "ACCOUNT_OWNER_PROTECTED", status: 409 });
+      if (data.users[index].role === USER_ROLES.ADMIN && !isOwner(operator)) throw Object.assign(new Error("只有负责人可以删除管理员账号"), { code: "ACCOUNT_OWNER_REQUIRED", status: 403 });
       const removed = data.users[index];
       removed.active = false;
       removed.deletedAt = new Date().toISOString();
@@ -156,8 +171,9 @@ class AccountStore {
     return this.backend.update((data) => {
       const user = data.users.find((item) => item.userId === normalizedUserId && !item.deletedAt);
       if (!user) throw Object.assign(new Error("账号不存在"), { code: "ACCOUNT_NOT_FOUND", status: 404 });
-      if (user.role === USER_ROLES.ADMIN) throw Object.assign(new Error("管理员账号不能在这里重置"), { code: "ACCOUNT_ADMIN_RESET_FORBIDDEN", status: 409 });
-      user.tokenHash = crypto.createHash("sha256").update(MANAGED_ACCOUNT_DEFAULT_PASSWORD).digest("hex");
+      if (isOwner(user)) throw Object.assign(new Error("负责人账号不能由账号管理页重置"), { code: "ACCOUNT_OWNER_PROTECTED", status: 409 });
+      if (user.role === USER_ROLES.ADMIN && !isOwner(operator)) throw Object.assign(new Error("只有负责人可以重置管理员密码"), { code: "ACCOUNT_OWNER_REQUIRED", status: 403 });
+      user.passwordHash = crypto.createHash("sha256").update(MANAGED_ACCOUNT_DEFAULT_PASSWORD).digest("hex");
       user.mustChangePassword = true;
       user.updatedAt = new Date().toISOString();
       return { userId: user.userId, displayName: user.displayName, initialPassword: MANAGED_ACCOUNT_DEFAULT_PASSWORD };
@@ -171,7 +187,7 @@ class AccountStore {
     return this.backend.update((data) => {
       const user = data.users.find((item) => item.userId === normalizedUserId && !item.deletedAt && item.active !== false);
       if (!user) throw Object.assign(new Error("账号不存在或已停用"), { code: "ACCOUNT_NOT_FOUND", status: 404 });
-      user.tokenHash = crypto.createHash("sha256").update(password).digest("hex");
+      user.passwordHash = crypto.createHash("sha256").update(password).digest("hex");
       user.mustChangePassword = false;
       user.updatedAt = new Date().toISOString();
       return { userId: user.userId, displayName: user.displayName };
@@ -181,6 +197,7 @@ class AccountStore {
     if (operator?.role !== USER_ROLES.ADMIN) throw Object.assign(new Error("只有管理员可以配置账号"), { code: "ACCOUNT_ADMIN_REQUIRED", status: 403 });
     const role = String(input.role || "");
     const userId = String(input.userId || "").trim();
+    if (userId === OWNER_USER_ID) throw Object.assign(new Error("负责人账号和权限不能修改"), { code: "ACCOUNT_OWNER_PROTECTED", status: 409 });
     if (!ROLES.has(role)) throw Object.assign(new Error("账号角色无效"), { code: "ACCOUNT_ROLE_INVALID", status: 400 });
     const specialties = [...new Set(input.repairSpecialties || [])];
     if (specialties.some((item) => !SPECIALTIES.has(item))) throw Object.assign(new Error("维修品类无效"), { code: "ACCOUNT_SPECIALTY_INVALID", status: 400 });
@@ -196,17 +213,18 @@ class AccountStore {
     }
     return this.backend.update((data) => {
       const existing = data.users.find((item) => item.userId === userId);
+      if ((role === USER_ROLES.ADMIN || existing?.role === USER_ROLES.ADMIN) && !isOwner(operator)) throw Object.assign(new Error("只有负责人可以管理管理员账号及权限"), { code: "ACCOUNT_OWNER_REQUIRED", status: 403 });
       const password = input.password || input.accessToken;
-      const tokenHash = password
+      const passwordHash = password
         ? crypto.createHash("sha256").update(String(password)).digest("hex")
-        : existing?.tokenHash;
-      if (!userId || !input.displayName || !tokenHash) throw Object.assign(new Error("账号资料不完整"), { code: "ACCOUNT_FIELDS_REQUIRED", status: 400 });
-      const next = { userId, displayName: String(input.displayName).trim(), phone: normalizeTechnicianPhone(input.phone ?? existing?.phone), role, repairSpecialties: specialties, recloudAssignmentMode, recloudAssigneeName, recloudFallbackAssigneeName, active: input.active !== false, allowBearer: false, tokenHash, mustChangePassword: password ? true : existing?.mustChangePassword === true, tokenExpiresAt: null, updatedAt: new Date().toISOString() };
+        : existing?.passwordHash || existing?.tokenHash;
+      if (!userId || !input.displayName || !passwordHash) throw Object.assign(new Error("账号资料不完整"), { code: "ACCOUNT_FIELDS_REQUIRED", status: 400 });
+      const next = { userId, displayName: String(input.displayName).trim(), phone: normalizeTechnicianPhone(input.phone ?? existing?.phone), role, repairSpecialties: specialties, recloudAssignmentMode, recloudAssigneeName, recloudFallbackAssigneeName, active: input.active !== false, allowBearer: false, tokenHash: null, passwordHash, mustChangePassword: password ? true : existing?.mustChangePassword === true, tokenExpiresAt: null, updatedAt: new Date().toISOString() };
       if (existing) Object.assign(existing, next); else data.users.push({ ...next, createdAt: next.updatedAt });
-      const { tokenHash: ignored, ...safe } = next;
+      const { tokenHash: ignoredToken, passwordHash: ignoredPassword, ...safe } = next;
       return safe;
     });
   }
 }
 
-module.exports = { AccountStore, SPECIALTIES, MANAGED_ACCOUNT_PREFIX, MANAGED_ACCOUNT_DEFAULT_PASSWORD, nextManagedUserId };
+module.exports = { AccountStore, SPECIALTIES, MANAGED_ACCOUNT_PREFIX, MANAGED_ACCOUNT_DEFAULT_PASSWORD, OWNER_USER_ID, OWNER_AUTHORITY, nextManagedUserId };

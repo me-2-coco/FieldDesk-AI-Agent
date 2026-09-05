@@ -9,6 +9,7 @@ const { WorkCoordinationStore } = require("../database/work-coordination-store")
 const { USER_ROLES, getLocalCurrentUser } = require("../config/local-users");
 
 const admin = { userId: "ADMIN-1", displayName: "管理员", role: USER_ROLES.ADMIN };
+const owner = { userId: "FieldDesk0001", displayName: "负责人", role: USER_ROLES.ADMIN, accountAuthority: "OWNER" };
 const sweep = { userId: "TECH-S", displayName: "扫地机师傅", role: USER_ROLES.TECHNICIAN };
 const wash = { userId: "TECH-W", displayName: "洗地机师傅", role: USER_ROLES.TECHNICIAN };
 
@@ -47,7 +48,7 @@ test("administrator configures six account profiles and tokens stay private", as
     ["I", USER_ROLES.INFORMATION_CLERK, []],
   ];
   for (const [userId, role, repairSpecialties] of profiles) {
-    await store.upsert({ userId, displayName: userId, role, repairSpecialties, accessToken: `safe-${userId}` }, admin);
+    await store.upsert({ userId, displayName: userId, role, repairSpecialties, accessToken: `safe-${userId}` }, role === USER_ROLES.ADMIN ? owner : admin);
   }
   const users = await store.list();
   assert.equal(users.length, 6);
@@ -101,14 +102,20 @@ test("administrator creates managed FieldDesk accounts from 0005 with required r
   assert.throws(() => store.createManagedAccount({ displayName: "测试丙", phone: "123", role: USER_ROLES.WAREHOUSE }, admin), { code: "ACCOUNT_PHONE_INVALID" });
   assert.throws(() => store.createManagedAccount({ displayName: "测试丙", phone: "13700137000", role: USER_ROLES.TECHNICIAN }, admin), { code: "ACCOUNT_SPECIALTY_REQUIRED" });
   assert.throws(() => store.createManagedAccount({ displayName: "测试丙", phone: "13700137000", role: USER_ROLES.TECHNICIAN, repairSpecialties: ["扫地机", "洗地机"] }, admin), { code: "ACCOUNT_SPECIALTY_REQUIRED" });
-  assert.throws(() => store.createManagedAccount({ userId: "FieldDesk0004", displayName: "测试丙", phone: "13700137000", role: USER_ROLES.ADMIN }, admin), { code: "ACCOUNT_USER_ID_BELOW_MINIMUM" });
+  assert.throws(() => store.createManagedAccount({ userId: "FieldDesk0004", displayName: "测试丙", phone: "13700137000", role: USER_ROLES.ADMIN }, owner), { code: "ACCOUNT_USER_ID_BELOW_MINIMUM" });
   assert.deepEqual(await store.delete(warehouseAccount.userId, admin), { userId: warehouseAccount.userId, displayName: "测试库管" });
   assert.equal(await store.findByCredentials(warehouseAccount.userId, "000000"), null);
   const third = await store.createManagedAccount({ displayName: "测试丙", phone: "13700137000", role: USER_ROLES.INFORMATION_CLERK }, admin);
   assert.equal(third.userId, "FieldDesk0012");
-  const managedAdmin = await store.createManagedAccount({ displayName: "测试管理员", phone: "13500135000", role: USER_ROLES.ADMIN }, admin);
+  assert.throws(() => store.createManagedAccount({ displayName: "无权创建管理员", phone: "13500135001", role: USER_ROLES.ADMIN }, admin), { code: "ACCOUNT_OWNER_REQUIRED" });
+  const managedAdmin = await store.createManagedAccount({ displayName: "测试管理员", phone: "13500135000", role: USER_ROLES.ADMIN }, owner);
   assert.equal(managedAdmin.userId, "FieldDesk0013");
   assert.equal(managedAdmin.role, USER_ROLES.ADMIN);
+  assert.equal((await store.list(admin)).some((user) => user.userId === managedAdmin.userId), false);
+  assert.equal((await store.list(owner)).some((user) => user.userId === managedAdmin.userId), true);
+  await assert.rejects(() => store.upsert({ ...managedAdmin, role: USER_ROLES.INFORMATION_CLERK }, admin), { code: "ACCOUNT_OWNER_REQUIRED" });
+  const updatedAdmin = await store.upsert({ ...managedAdmin, displayName: "新管理员名称", role: USER_ROLES.ADMIN }, owner);
+  assert.equal(updatedAdmin.displayName, "新管理员名称");
   assert.throws(() => store.delete(admin.userId, admin), { code: "ACCOUNT_SELF_DELETE_FORBIDDEN" });
 });
 
@@ -118,6 +125,13 @@ test("production account mode can bootstrap one administrator without exposing t
   assert.equal(await store.ensureBootstrap("ignored-second-token"), false);
   const user = await store.findByToken("bootstrap-secret");
   assert.equal(user.role, USER_ROLES.ADMIN);
+  assert.equal(user.userId, "FieldDesk0001");
+  assert.equal(user.accountAuthority, "OWNER");
+  assert.equal((await store.findByCredentials("FieldDesk0001", "000000")).mustChangePassword, true);
+  assert.equal((await store.list(admin)).some((item) => item.userId === "FieldDesk0001"), false);
+  assert.equal((await store.list(owner)).some((item) => item.userId === "FieldDesk0001"), true);
+  assert.throws(() => store.upsert({ userId: "FieldDesk0001", displayName: "修改负责人", role: USER_ROLES.ADMIN }, owner), { code: "ACCOUNT_OWNER_PROTECTED" });
+  await assert.rejects(() => store.delete("FieldDesk0001", admin), { code: "ACCOUNT_OWNER_PROTECTED" });
   assert.doesNotMatch(JSON.stringify(await store.list()), /bootstrap-secret|tokenHash/);
 });
 
@@ -164,7 +178,7 @@ test("production UI keeps access tokens in memory and exposes admin account mana
   assert.match(accounts, /编辑账号/);
   assert.match(accounts, /扫地机师傅/);
   assert.match(accounts, /洗地机师傅/);
-  assert.match(accounts, /管理账号、工单、库存与系统设置/);
+  assert.match(accounts, /管理普通账号、工单、库存与系统设置/);
   assert.match(accounts, /aria-label="账号数字"/);
   assert.doesNotMatch(accounts, /<label>登录密码/);
   assert.match(server, /\/api\/auth\/login/);
