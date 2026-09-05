@@ -169,6 +169,37 @@ test("receipt preparation authorizes the local workflow from SN without checking
   assert.equal(result.data.authorization.productModelCode, "010201AA000656");
 });
 
+test("live receipt preparation persists the query snapshot without waiting for Recloud", async (t) => {
+  const store = await createTestStore(t);
+  const connector = {
+    openRecloud: async () => assert.fail("receipt preparation must not open Recloud"),
+    queryRmaByLogisticsNo: async () => assert.fail("receipt preparation must not query Recloud"),
+  };
+  const url = await startServer(t, connector, store, USERS.sweep, {
+    env: {
+      ...process.env,
+      DRY_RUN: "true",
+      RECLOUD_WRITE_ENABLED: "false",
+      RECLOUD_RECEIPT_WRITE_ENABLED: "true",
+    },
+  });
+
+  const { response, result } = await post(
+    url,
+    "/api/repairs/prepare-receipt",
+    validPayload({
+      recloudOrderStatus: "待签收",
+      recloudReceiptStatus: "待签收",
+      recloudReceiptRequired: true,
+    })
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(result.data.recloudOrderStatus, "待签收");
+  assert.equal(result.data.recloudReceiptStatus, "待签收");
+  assert.equal(result.data.recloudReceiptRequired, true);
+});
+
 test("SN-authorized receipt can continue the local workflow without a current Recloud project", async (t) => {
   const store = await createTestStore(t);
   const url = await startServer(

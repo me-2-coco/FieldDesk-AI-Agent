@@ -2090,29 +2090,24 @@ function createApp(
       const currentProjectCode = String(
         req.body?.currentProjectCode || req.body?.recloudProjectCode || ""
       ).trim();
-      let verifiedReceiptState = {
-        code: "UNKNOWN",
-        receiptRequired: null,
-        label: "状态待确认",
-        receiptSignedAt: "",
+      // The query screen already captured the remote receipt snapshot. Persist
+      // that snapshot locally and let the background worker re-query Recloud
+      // immediately before any write. This keeps technicians moving while the
+      // worker still prevents duplicate or mismatched receipt operations.
+      const reportedReceiptRequired = typeof req.body?.recloudReceiptRequired === "boolean"
+        ? req.body.recloudReceiptRequired
+        : null;
+      const verifiedReceiptState = {
+        code: reportedReceiptRequired === false ? "ALREADY_RECEIVED" : reportedReceiptRequired === true ? "RECEIPT_REQUIRED" : "UNKNOWN",
+        receiptRequired: reportedReceiptRequired,
+        label: String(req.body?.recloudReceiptStatus || "").trim() || "状态待后台确认",
+        receiptSignedAt: String(req.body?.recloudReceiptSignedAt || "").trim(),
       };
-      let verifiedRemoteDetail = {};
-      if (isRecloudReceiptWriteEnabled(runtimeEnv)) {
-        verifiedRemoteDetail = await withRecloud(connector, async (page) =>
-          connector.queryRmaByLogisticsNo(page, logisticsNo, { preserveDetailPage: false })
-        );
-        if (verifiedRemoteDetail.rmaNo && verifiedRemoteDetail.rmaNo !== rmaNo) {
-          throw createApiError("RECLOUD_RECEIPT_ORDER_MISMATCH", "瑞云查询结果与当前寄修单不一致", 409);
-        }
-        verifiedReceiptState = classifyRecloudReceiptState(verifiedRemoteDetail);
-        if (verifiedReceiptState.receiptRequired === null) {
-          throw createApiError(
-            "RECLOUD_RECEIPT_STATE_UNKNOWN",
-            "无法确认瑞云是否仍待签收，请刷新工单状态后重试",
-            409
-          );
-        }
-      }
+      const verifiedRemoteDetail = {
+        orderStatus: String(req.body?.recloudOrderStatus || "").trim(),
+        receiptStatus: verifiedReceiptState.label,
+        receiptSignedAt: verifiedReceiptState.receiptSignedAt,
+      };
       const data = await receiptStore.prepare({
         logisticsNo,
         rmaNo,

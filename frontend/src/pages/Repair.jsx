@@ -382,6 +382,11 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
         sn: normalizedSn,
         specialty,
         productLine: repairDetail.productLine || "",
+        currentProjectCode: repairDetail.projectCode || repairDetail.recloudProjectCode || "",
+        recloudOrderStatus: repairDetail.orderStatus || "",
+        recloudReceiptStatus: repairDetail.receiptStatus || repairDetail.receiptState?.label || "",
+        recloudReceiptSignedAt: repairDetail.receiptSignedAt || repairDetail.receiptState?.receiptSignedAt || "",
+        recloudReceiptRequired: repairDetail.receiptState?.receiptRequired,
         customerName: repairDetail.customer?.name || "",
         phoneMasked: repairDetail.customer?.phoneMasked || "",
         regionAddress: repairDetail.customer?.regionAddress || "",
@@ -406,15 +411,14 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
         setErrorMessage("瑞云当前仍待签收，请至少拍摄或选择一张签收照片/视频")
         return
       }
-      for (const attachment of receiptAttachments) {
-        if (attachment.uploaded) continue
+      await Promise.all(receiptAttachments.filter((attachment) => !attachment.uploaded).map(async (attachment) => {
         await uploadReceiptAttachment({
           rmaNo: repairDetail.rmaNo,
           name: attachment.name,
           mimeType: attachment.mimeType,
           data: await fileToDataUrl(attachment.file)
         })
-      }
+      }))
       const result = await completeLocalReceipt(repairDetail.rmaNo)
       const order = createRepairOrder({
         id: `RMA-${result.rmaNo}`,
@@ -817,7 +821,7 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
               返回工单
             </button>
             <button onClick={finishReceiptAndOpenParts} disabled={isSaving || !sn.trim()}>
-              {isSaving ? "正在核对..." : receiptAlreadyCompleted ? "核对项目号和 SN，继续" : "完成签收，选择处理方式"}
+              {isSaving ? "正在保存..." : receiptAlreadyCompleted ? "核对项目号和 SN，继续" : "完成签收，选择处理方式"}
             </button>
           </div>
         </div>
