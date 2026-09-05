@@ -201,6 +201,7 @@ test("audit records operator and outcome without credentials", async () => {
 test("production UI keeps access tokens in the browser session and exposes admin account management", async () => {
   const root = path.join(__dirname, "..");
   const crm = await fs.readFile(path.join(root, "frontend/src/shared/crmService.js"), "utf8");
+  const viteConfig = await fs.readFile(path.join(root, "frontend/vite.config.js"), "utf8");
   const login = await fs.readFile(path.join(root, "frontend/src/pages/Login.jsx"), "utf8");
   const accounts = await fs.readFile(path.join(root, "frontend/src/pages/AccountManagement.jsx"), "utf8");
   const server = await fs.readFile(path.join(root, "server.js"), "utf8");
@@ -209,6 +210,8 @@ test("production UI keeps access tokens in the browser session and exposes admin
   assert.match(crm, /fielddesk-auth-expired/);
   assert.match(crm, /X-FieldDesk-Local-User/);
   assert.doesNotMatch(crm, /localStorage.*TOKEN|localStorage.*token/);
+  assert.match(crm, /VITE_API_BASE_URL \|\| ""/);
+  assert.match(viteConfig, /'\/api': 'http:\/\/127\.0\.0\.1:3000'/);
   assert.match(login, /登录密码/);
   assert.match(accounts, /账号管理/);
   assert.match(accounts, /编辑账号/);
