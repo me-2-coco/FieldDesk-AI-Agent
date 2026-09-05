@@ -75,6 +75,17 @@ function App() {
   const [selectedInformationReportRmaNo, setSelectedInformationReportRmaNo] = useState("")
 
   useEffect(() => {
+    const handleExpiredSession = () => {
+      setAuthenticatedUser(null)
+      setIsLoggedIn(false)
+      setPageState("home")
+      setPermissionMessage("登录状态已失效，请重新登录")
+    }
+    window.addEventListener("fielddesk-auth-expired", handleExpiredSession)
+    return () => window.removeEventListener("fielddesk-auth-expired", handleExpiredSession)
+  }, [])
+
+  useEffect(() => {
     const canMonitorSync = isLoggedIn && currentUser?.role === USER_ROLES.ADMIN
     if (!canMonitorSync) {
       queueMicrotask(() => setSyncAttentionTasks([]))

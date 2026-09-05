@@ -27,6 +27,8 @@ function Profile({
   )
 
   const [message, setMessage] = useState("")
+  const [recloudMessage, setRecloudMessage] = useState("")
+  const [isSavingRecloudName, setIsSavingRecloudName] = useState(false)
   const canSetRecloudOperatorName = ["FieldDesk0001", "FieldDesk0004"].includes(currentUser.id)
   const [recloudOperatorName, setRecloudOperatorName] = useState(() => currentUser.recloudAssigneeName || (currentUser.id === "FieldDesk0004" ? currentUser.name : ""))
   const isTechnician = currentUser.role === USER_ROLES.TECHNICIAN
@@ -87,14 +89,18 @@ function Profile({
   async function saveRecloudOperatorName(event) {
     event.preventDefault()
     try {
+      setIsSavingRecloudName(true)
+      setRecloudMessage("")
       const profile = await updateRecloudOperatorName(recloudOperatorName)
       const updatedUser = { ...currentUser, name: profile.displayName, recloudAssigneeName: profile.recloudAssigneeName }
       setAuthenticatedUser(updatedUser)
       setCurrentUserState(updatedUser)
       onProfileChange?.(updatedUser)
-      setMessage(`瑞云操作姓名已更新为：${profile.recloudAssigneeName}`)
+      setRecloudMessage(`已保存：后续瑞云操作将使用“${profile.recloudAssigneeName}”`)
     } catch (error) {
-      setMessage(error.message)
+      setRecloudMessage(error.message)
+    } finally {
+      setIsSavingRecloudName(false)
     }
   }
 
@@ -212,7 +218,10 @@ function Profile({
         <p className="profile-section-description">两类工单都会使用这里的姓名匹配瑞云服务人员。</p>
         <form onSubmit={saveRecloudOperatorName}>
           <label>瑞云操作姓名<input value={recloudOperatorName} onChange={(event) => setRecloudOperatorName(event.target.value)} placeholder="请输入瑞云中的真实姓名" required /></label>
-          <button type="submit">保存瑞云姓名</button>
+          <button type="submit" disabled={isSavingRecloudName || !recloudOperatorName.trim()}>
+            {isSavingRecloudName ? "正在保存..." : "保存瑞云姓名"}
+          </button>
+          {recloudMessage && <p className="profile-inline-message" role="status">{recloudMessage}</p>}
         </form>
       </div>}
 

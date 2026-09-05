@@ -198,13 +198,15 @@ test("audit records operator and outcome without credentials", async () => {
   assert.doesNotMatch(JSON.stringify(record), /token|cookie|password/i);
 });
 
-test("production UI keeps access tokens in memory and exposes admin account management", async () => {
+test("production UI keeps access tokens in the browser session and exposes admin account management", async () => {
   const root = path.join(__dirname, "..");
   const crm = await fs.readFile(path.join(root, "frontend/src/shared/crmService.js"), "utf8");
   const login = await fs.readFile(path.join(root, "frontend/src/pages/Login.jsx"), "utf8");
   const accounts = await fs.readFile(path.join(root, "frontend/src/pages/AccountManagement.jsx"), "utf8");
   const server = await fs.readFile(path.join(root, "server.js"), "utf8");
   assert.match(crm, /Authorization: `Bearer/);
+  assert.match(crm, /sessionStorage\.setItem\(SESSION_TOKEN_KEY/);
+  assert.match(crm, /fielddesk-auth-expired/);
   assert.match(crm, /X-FieldDesk-Local-User/);
   assert.doesNotMatch(crm, /localStorage.*TOKEN|localStorage.*token/);
   assert.match(login, /登录密码/);

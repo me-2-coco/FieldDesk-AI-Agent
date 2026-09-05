@@ -1,10 +1,28 @@
 const API_BASE_URL = String(
   import.meta.env.VITE_API_BASE_URL || "http://localhost:3000"
 ).replace(/\/$/, "")
-let API_ACCESS_TOKEN = ""
+const SESSION_TOKEN_KEY = "fielddeskSessionToken"
+let API_ACCESS_TOKEN = typeof sessionStorage === "undefined"
+  ? ""
+  : String(sessionStorage.getItem(SESSION_TOKEN_KEY) || "")
 
 export function setApiAccessToken(value) {
   API_ACCESS_TOKEN = String(value || "")
+  if (typeof sessionStorage !== "undefined") {
+    if (API_ACCESS_TOKEN) sessionStorage.setItem(SESSION_TOKEN_KEY, API_ACCESS_TOKEN)
+    else sessionStorage.removeItem(SESSION_TOKEN_KEY)
+  }
+}
+
+function handleAuthenticationFailure(response, result) {
+  if (response.status !== 401 || result?.code !== "AUTH_REQUIRED") return
+  setApiAccessToken("")
+  if (typeof window !== "undefined") {
+    localStorage.removeItem("isLoggedIn")
+    window.dispatchEvent(new CustomEvent("fielddesk-auth-expired", {
+      detail: { message: "登录状态已失效，请重新登录" }
+    }))
+  }
 }
 
 export async function loginFieldDeskAccount(userId, password) {
@@ -67,6 +85,7 @@ async function request(path, body, { timeoutMs = 0, idempotencyKey = "" } = {}) 
   }
 
   const result = await response.json().catch(() => null)
+  handleAuthenticationFailure(response, result)
   if (!response.ok || !result?.success) {
     const error = new Error(
       result?.message || `CRM 请求失败（${response.status}）`
@@ -96,6 +115,7 @@ async function get(path, { timeoutMs = 0 } = {}) {
     if (timer) window.clearTimeout(timer)
   }
   const result = await response.json().catch(() => null)
+  handleAuthenticationFailure(response, result)
   if (!response.ok || !result?.success) {
     throw new Error(result?.message || `请求失败（${response.status}）`)
   }

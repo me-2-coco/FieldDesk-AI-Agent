@@ -1909,6 +1909,19 @@ button:active:not(:disabled) {
   text-align: center;
 }
 
+.profile-inline-message {
+  margin: 10px 2px 0;
+  padding: 10px 12px;
+  color: #245b9c;
+  background: #edf5ff;
+  border: 1px solid #cfe1fb;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+  text-align: left;
+}
+
 .profile-page .logout-button {
   min-height: 46px;
   margin-top: 2px;
