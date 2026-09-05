@@ -127,6 +127,52 @@ class AccountStore {
     const { tokenHash: ignoredToken, passwordHash: ignoredPassword, ...safe } = user;
     return safe;
   }
+  createSession(token, userId, expiresAt) {
+    const normalizedUserId = String(userId || "").trim();
+    const tokenHash = crypto.createHash("sha256").update(String(token || "")).digest("hex");
+    const expiry = new Date(expiresAt).toISOString();
+    return this.backend.update((data) => {
+      const now = Date.now();
+      const user = data.users.find((item) => item.userId === normalizedUserId && item.active !== false && !item.deletedAt);
+      if (!user) throw Object.assign(new Error("账号不存在或已停用"), { code: "ACCOUNT_NOT_FOUND", status: 404 });
+      const activeSessions = (data.sessions || []).filter((session) => Date.parse(session.expiresAt) > now);
+      const otherUserSessions = activeSessions.filter((session) => session.userId !== normalizedUserId);
+      const userSessions = activeSessions.filter((session) => session.userId === normalizedUserId).slice(-9);
+      data.sessions = [...otherUserSessions, ...userSessions, {
+        tokenHash,
+        userId: normalizedUserId,
+        expiresAt: expiry,
+        createdAt: new Date().toISOString(),
+      }];
+      return { userId: normalizedUserId, expiresAt: expiry };
+    });
+  }
+  async findSession(token) {
+    if (!token) return null;
+    const tokenHash = crypto.createHash("sha256").update(String(token)).digest("hex");
+    const data = await this.backend.read();
+    const session = (data.sessions || []).find((item) => (
+      item.tokenHash === tokenHash && Date.parse(item.expiresAt) > Date.now()
+    ));
+    return session ? { userId: session.userId, expiresAt: session.expiresAt } : null;
+  }
+  revokeSession(token) {
+    if (!token) return Promise.resolve(false);
+    const tokenHash = crypto.createHash("sha256").update(String(token)).digest("hex");
+    return this.backend.update((data) => {
+      const before = (data.sessions || []).length;
+      data.sessions = (data.sessions || []).filter((session) => session.tokenHash !== tokenHash);
+      return data.sessions.length !== before;
+    });
+  }
+  revokeSessionsForUser(userId) {
+    const normalizedUserId = String(userId || "").trim();
+    return this.backend.update((data) => {
+      const before = (data.sessions || []).length;
+      data.sessions = (data.sessions || []).filter((session) => session.userId !== normalizedUserId);
+      return before - data.sessions.length;
+    });
+  }
   createManagedAccount(input, operator) {
     if (operator?.role !== USER_ROLES.ADMIN) throw Object.assign(new Error("只有管理员可以创建账号"), { code: "ACCOUNT_ADMIN_REQUIRED", status: 403 });
     const displayName = String(input.displayName || "").trim();

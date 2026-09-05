@@ -70,6 +70,38 @@ const {
 } = require("./config/local-users");
 
 const SUPPORTED_REPAIR_SPECIALTIES = Object.freeze(["扫地机", "洗地机"]);
+const ACCOUNT_SESSION_COOKIE = "fielddesk_session";
+
+function readCookie(req, name) {
+  const encodedName = `${encodeURIComponent(name)}=`;
+  const item = String(req.headers.cookie || "")
+    .split(";")
+    .map((value) => value.trim())
+    .find((value) => value.startsWith(encodedName));
+  if (!item) return "";
+  try { return decodeURIComponent(item.slice(encodedName.length)); }
+  catch { return ""; }
+}
+
+function getAccountSessionToken(req) {
+  const cookieToken = readCookie(req, ACCOUNT_SESSION_COOKIE);
+  if (cookieToken) return cookieToken;
+  const authorization = String(req.headers.authorization || "");
+  if (authorization.startsWith("Bearer ")) return authorization.slice(7);
+  return "";
+}
+
+function accountSessionCookie(token, maxAgeSeconds, secure = false) {
+  const parts = [
+    `${ACCOUNT_SESSION_COOKIE}=${encodeURIComponent(token)}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    `Max-Age=${Math.max(0, Math.floor(maxAgeSeconds))}`,
+  ];
+  if (secure) parts.push("Secure");
+  return parts.join("; ");
+}
 
 function getOutOfWarrantyFeePolicy(order = {}) {
   const treatmentMode = String(order.treatmentMode || "REPAIR").trim() || "REPAIR";
@@ -382,13 +414,13 @@ function createApp(
   app.use("/api/auth", createRateLimiter({ windowMs: 15 * 60_000, limit: Number(runtimeEnv.LOGIN_RATE_LIMIT_PER_15_MINUTES || 10), code: "LOGIN_RATE_LIMITED" }));
   app.use(requestLogger(operationalLogger));
 
-  const accountSessions = new Map();
-  const accountSessionMs = Math.min(168, Math.max(1, Number(runtimeEnv.FIELDDESK_SESSION_HOURS || 12))) * 3600_000;
+  const accountSessionMs = Math.min(8760, Math.max(1, Number(runtimeEnv.FIELDDESK_SESSION_HOURS || 720))) * 3600_000;
 
   app.use((req, res, next) => {
     const origin = String(req.headers.origin || "");
     if (origin && !runtimeConfig.frontendOrigins.includes(origin)) return res.status(403).json({ success: false, code: "CORS_ORIGIN_DENIED", message: "来源不受信任" });
     if (origin) res.setHeader("Access-Control-Allow-Origin", origin);
+    if (origin) res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader("Vary", "Origin");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization,Idempotency-Key,X-FieldDesk-Local-User");
     res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
@@ -404,9 +436,14 @@ function createApp(
       const user = await accountStore.findByCredentials(req.body?.userId, req.body?.password);
       if (!user) return res.status(401).json({ success: false, code: "AUTH_INVALID_CREDENTIALS", message: "账号或密码错误，或账号已停用" });
       const sessionToken = crypto.randomBytes(32).toString("base64url");
-      accountSessions.set(sessionToken, { userId: user.userId, expiresAt: Date.now() + accountSessionMs });
-      res.json({ success: true, data: {
+      const expiresAt = Date.now() + accountSessionMs;
+      await accountStore.createSession(sessionToken, user.userId, expiresAt);
+      res.setHeader("Set-Cookie", accountSessionCookie(
         sessionToken,
+        accountSessionMs / 1000,
+        runtimeConfig.production || runtimeConfig.tls.enabled
+      ));
+      res.json({ success: true, data: {
         userId: user.userId,
         displayName: user.displayName,
         role: user.role,
@@ -420,16 +457,23 @@ function createApp(
     } catch (error) { next(error); }
   });
 
+  app.post("/api/auth/logout", async (req, res, next) => {
+    try {
+      const token = getAccountSessionToken(req);
+      await accountStore.revokeSession(token);
+      res.setHeader("Set-Cookie", accountSessionCookie("", 0, runtimeConfig.production || runtimeConfig.tls.enabled));
+      res.json({ success: true, data: { loggedOut: true } });
+    } catch (error) { next(error); }
+  });
+
   app.use(async (req, res, next) => {
     if (String(runtimeEnv.FIELDDESK_AUTH_MODE || "local") !== "accounts") return next();
     if (req.path === "/api/health") return next();
     try {
       await accountStore.ensureBootstrap(runtimeEnv.FIELDDESK_BOOTSTRAP_ADMIN_TOKEN);
-      const authorization = String(req.headers.authorization || "");
-      const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
-      const session = accountSessions.get(token);
-      if (session && session.expiresAt <= Date.now()) accountSessions.delete(token);
-      const user = session?.expiresAt > Date.now() ? await accountStore.findByUserId(session.userId) : await accountStore.findByToken(token);
+      const token = getAccountSessionToken(req);
+      const session = await accountStore.findSession(token);
+      const user = session ? await accountStore.findByUserId(session.userId) : await accountStore.findByToken(token);
       if (!user) return res.status(401).json({ success: false, code: "AUTH_REQUIRED", message: "账号认证失败" });
       if (session && user.mustChangePassword === true && req.path !== "/api/auth/change-password") {
         return res.status(403).json({ success: false, code: "PASSWORD_CHANGE_REQUIRED", message: "请先修改初始密码" });
@@ -871,7 +915,9 @@ function createApp(
   app.post("/api/admin/users", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      res.json({ success: true, data: await accountStore.upsert(req.body || {}, user) });
+      const data = await accountStore.upsert(req.body || {}, user);
+      if (data.active === false) await accountStore.revokeSessionsForUser(data.userId);
+      res.json({ success: true, data });
     } catch (error) { next(error); }
   });
 
@@ -885,7 +931,9 @@ function createApp(
   app.post("/api/admin/accounts/delete", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      res.json({ success: true, data: await accountStore.delete(req.body?.userId, user) });
+      const data = await accountStore.delete(req.body?.userId, user);
+      await accountStore.revokeSessionsForUser(data.userId);
+      res.json({ success: true, data });
     } catch (error) { next(error); }
   });
 
@@ -893,9 +941,7 @@ function createApp(
     try {
       const user = currentUserProvider(req);
       const data = await accountStore.resetPassword(req.body?.userId, user);
-      for (const [token, session] of accountSessions.entries()) {
-        if (session.userId === data.userId) accountSessions.delete(token);
-      }
+      await accountStore.revokeSessionsForUser(data.userId);
       res.json({ success: true, data });
     } catch (error) { next(error); }
   });

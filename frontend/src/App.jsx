@@ -36,6 +36,7 @@ import {
   getRecloudSyncTasks,
   getSupervisionInbox,
   getSupervisionMonitorStatus,
+  logoutFieldDeskAccount,
   setApiAccessToken
 } from "./shared/crmService.js"
 import {
@@ -194,6 +195,9 @@ function App() {
 
     setCurrentUser(user)
 
+    localStorage.setItem("isLoggedIn", "true")
+    localStorage.setItem("currentUserId", user.id)
+
     setIsLoggedIn(true)
 
     setPageState("home")
@@ -210,7 +214,9 @@ function App() {
 
 
 
-  function handleLogout() {
+  async function handleLogout() {
+
+    await logoutFieldDeskAccount().catch(() => {})
 
     localStorage.removeItem("isLoggedIn")
     setAuthenticatedUser(null)

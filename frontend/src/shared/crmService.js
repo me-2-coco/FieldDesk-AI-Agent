@@ -28,6 +28,7 @@ function handleAuthenticationFailure(response, result) {
 export async function loginFieldDeskAccount(userId, password) {
   const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ userId: String(userId || "").trim(), password: String(password || "") })
   }).catch(() => null)
@@ -36,6 +37,18 @@ export async function loginFieldDeskAccount(userId, password) {
   if (!response.ok || !result?.success) throw new Error(result?.message || "登录失败")
   setApiAccessToken(result.data.sessionToken)
   return result.data
+}
+
+export async function logoutFieldDeskAccount() {
+  try {
+    await fetch(`${API_BASE_URL}/api/auth/logout`, {
+      method: "POST",
+      credentials: "include",
+      headers: apiHeaders()
+    })
+  } finally {
+    setApiAccessToken("")
+  }
 }
 
 export async function changeFieldDeskPassword(newPassword) {
@@ -68,6 +81,7 @@ async function request(path, body, { timeoutMs = 0, idempotencyKey = "" } = {}) 
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       method: "POST",
+      credentials: "include",
       headers: {
         ...apiHeaders(),
         ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {})
@@ -103,6 +117,7 @@ async function get(path, { timeoutMs = 0 } = {}) {
   const timer = controller ? window.setTimeout(() => controller.abort(), timeoutMs) : null
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
+      credentials: "include",
       headers: apiHeaders(),
       ...(controller ? { signal: controller.signal } : {})
     })
@@ -123,7 +138,7 @@ async function get(path, { timeoutMs = 0 } = {}) {
 }
 
 export async function getSystemHealth() {
-  const response = await fetch(`${API_BASE_URL}/api/health`)
+  const response = await fetch(`${API_BASE_URL}/api/health`, { credentials: "include" })
   const result = await response.json().catch(() => null)
   if (!response.ok || !result?.success) throw new Error(result?.message || "无法读取系统运行模式")
   return result
@@ -131,7 +146,7 @@ export async function getSystemHealth() {
 
 async function downloadFile(path, fallbackName) {
   let response
-  try { response = await fetch(`${API_BASE_URL}${path}`, { headers: apiHeaders() }) }
+  try { response = await fetch(`${API_BASE_URL}${path}`, { credentials: "include", headers: apiHeaders() }) }
   catch { throw new Error("无法连接 FieldDesk 后端，请确认 API 已启动") }
   if (!response.ok) {
     const result = await response.json().catch(() => null)

@@ -61,7 +61,12 @@ const DEFAULT_USERS = [
 
 
 const DEFAULT_CURRENT_USER_ID = "USER-001"
-let authenticatedUser = null
+const AUTHENTICATED_USER_KEY = "fieldDeskAuthenticatedUser"
+let authenticatedUser = (() => {
+  if (typeof localStorage === "undefined") return null
+  try { return JSON.parse(localStorage.getItem(AUTHENTICATED_USER_KEY) || "null") }
+  catch { return null }
+})()
 
 
 function cloneData(data) {
@@ -163,6 +168,10 @@ export function getCurrentUser() {
 
 export function setAuthenticatedUser(user) {
   authenticatedUser = user || null
+  if (typeof localStorage !== "undefined") {
+    if (authenticatedUser) localStorage.setItem(AUTHENTICATED_USER_KEY, JSON.stringify(authenticatedUser))
+    else localStorage.removeItem(AUTHENTICATED_USER_KEY)
+  }
   return authenticatedUser
 }
 

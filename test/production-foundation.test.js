@@ -169,6 +169,20 @@ test("production account mode can bootstrap one administrator without exposing t
   assert.doesNotMatch(JSON.stringify(await store.list()), /bootstrap-secret|tokenHash/);
 });
 
+test("account sessions survive backend recreation and can be explicitly revoked", async () => {
+  const backend = new MemoryDocumentBackend({ users: [], sessions: [] });
+  const firstProcessStore = new AccountStore({ backend });
+  await firstProcessStore.ensureBootstrap("bootstrap-secret");
+  const expiresAt = Date.now() + 30 * 24 * 3600_000;
+  await firstProcessStore.createSession("persistent-session", "FieldDesk0001", expiresAt);
+
+  const restartedProcessStore = new AccountStore({ backend });
+  assert.equal((await restartedProcessStore.findSession("persistent-session")).userId, "FieldDesk0001");
+  assert.equal(await restartedProcessStore.findSession("wrong-session"), null);
+  assert.equal(await restartedProcessStore.revokeSession("persistent-session"), true);
+  assert.equal(await firstProcessStore.findSession("persistent-session"), null);
+});
+
 test("work locks isolate technicians and expire safely", async () => {
   let now = 1000;
   const store = new WorkCoordinationStore({ backend: new MemoryDocumentBackend({ locks: {}, idempotency: {}, audits: [] }), now: () => now });
@@ -207,6 +221,7 @@ test("production UI keeps access tokens in the browser session and exposes admin
   const server = await fs.readFile(path.join(root, "server.js"), "utf8");
   assert.match(crm, /Authorization: `Bearer/);
   assert.match(crm, /sessionStorage\.setItem\(SESSION_TOKEN_KEY/);
+  assert.match(crm, /credentials: "include"/);
   assert.match(crm, /fielddesk-auth-expired/);
   assert.match(crm, /X-FieldDesk-Local-User/);
   assert.doesNotMatch(crm, /localStorage.*TOKEN|localStorage.*token/);
@@ -221,6 +236,9 @@ test("production UI keeps access tokens in the browser session and exposes admin
   assert.match(accounts, /aria-label="账号数字"/);
   assert.doesNotMatch(accounts, /<label>登录密码/);
   assert.match(server, /\/api\/auth\/login/);
+  assert.match(server, /\/api\/auth\/logout/);
+  assert.match(server, /HttpOnly/);
+  assert.match(server, /accountStore\.createSession/);
   assert.match(server, /\/api\/admin\/users/);
   assert.match(server, /Idempotency-Key/);
   assert.match(server, /\/api\/orders\/lock/);
