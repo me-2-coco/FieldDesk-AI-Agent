@@ -8,7 +8,7 @@ const ROLES = new Set(Object.values(USER_ROLES));
 const RECLOUD_ASSIGNMENT_MODES = new Set(["DIRECT", "FALLBACK"]);
 const MANAGED_ACCOUNT_PREFIX = "FieldDesk";
 const MANAGED_ACCOUNT_START_SEQUENCE = 5;
-const MANAGED_ACCOUNT_DEFAULT_PASSWORD = "0000";
+const MANAGED_ACCOUNT_DEFAULT_PASSWORD = "000000";
 const MANAGED_ACCOUNT_ROLES = new Set([USER_ROLES.TECHNICIAN, USER_ROLES.WAREHOUSE, USER_ROLES.INFORMATION_CLERK]);
 
 function nextManagedUserId(users) {
@@ -160,7 +160,7 @@ class AccountStore {
   changePassword(userId, newPassword) {
     const normalizedUserId = String(userId || "").trim();
     const password = String(newPassword || "");
-    if (password === MANAGED_ACCOUNT_DEFAULT_PASSWORD) throw Object.assign(new Error("新密码不能继续使用初始密码0000"), { code: "ACCOUNT_PASSWORD_UNCHANGED", status: 400 });
+    if (password === MANAGED_ACCOUNT_DEFAULT_PASSWORD) throw Object.assign(new Error("新密码不能继续使用初始密码000000"), { code: "ACCOUNT_PASSWORD_UNCHANGED", status: 400 });
     if (password.length < 6) throw Object.assign(new Error("新密码至少需要6位"), { code: "ACCOUNT_PASSWORD_TOO_SHORT", status: 400 });
     return this.backend.update((data) => {
       const user = data.users.find((item) => item.userId === normalizedUserId && !item.deletedAt && item.active !== false);

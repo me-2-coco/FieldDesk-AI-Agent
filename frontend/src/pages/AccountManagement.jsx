@@ -61,10 +61,10 @@ function AccountManagement({ setPage }) {
   }
 
   async function resetUserPassword() {
-    if (!window.confirm(`确定把 ${form.userId}（${form.displayName}）的密码重置为 0000 吗？`)) return
+    if (!window.confirm(`确定把 ${form.userId}（${form.displayName}）的密码重置为 000000 吗？`)) return
     try {
       await resetAdminAccountPassword(form.userId)
-      setMessage("密码已重置为 0000；该用户下次登录必须修改密码")
+      setMessage("密码已重置为 000000；该用户下次登录必须修改密码")
     } catch (error) { setMessage(error.message) }
   }
 
@@ -75,7 +75,7 @@ function AccountManagement({ setPage }) {
       <p className="section-description">账号从 FieldDesk0005 开始按顺序生成；姓名、电话、角色和对应权限均为必填。</p>
       <form onSubmit={submit}>
         <label>FieldDesk 账号<input value={form.userId || nextAccount} readOnly aria-readonly="true" /></label>
-        {!form.userId && <label>初始密码<input value="0000" readOnly aria-readonly="true" /></label>}
+        {!form.userId && <label>初始密码<input value="000000" readOnly aria-readonly="true" /></label>}
         <label>姓名<input value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })} placeholder="请输入姓名" required /></label>
         <label>电话<input type="tel" inputMode="numeric" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="请输入11位手机号" required /></label>
         <label>账号角色<select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value, repairSpecialties: [] })} required>
@@ -95,7 +95,7 @@ function AccountManagement({ setPage }) {
         <label>登录密码<input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder={users.some((user) => user.userId === form.userId) ? "不修改可留空" : "设置登录密码"} autoComplete="new-password" required={!users.some((user) => user.userId === form.userId)} /></label>
         <label className="switch-row"><span>账号启用</span><input type="checkbox" checked={form.active} onChange={(event) => setForm({ ...form, active: event.target.checked })} /></label>
         <div className="compact-action-row"><button type="submit">保存账号</button>{form.userId && <button type="button" className="secondary-btn" onClick={() => setForm(EMPTY)}>取消</button>}</div>
-        {form.userId && form.role !== "ADMIN" && <button type="button" className="secondary-btn" onClick={resetUserPassword}>重置密码为 0000</button>}
+        {form.userId && form.role !== "ADMIN" && <button type="button" className="secondary-btn" onClick={resetUserPassword}>重置密码为 000000</button>}
         {form.userId && form.role !== "ADMIN" && <button type="button" className="account-delete-button" onClick={removeUser}>删除账号</button>}
       </form>
     </div>

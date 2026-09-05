@@ -168,7 +168,7 @@ function Login({ onLogin }) {
         {passwordChangeProfile && <div className="login-password-change">
           <strong>设置新密码</strong>
           <label htmlFor="login-new-password">新密码</label>
-          <input id="login-new-password" type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} onKeyDown={handleKeyDown} placeholder="至少6位，不能使用0000" autoComplete="new-password" />
+          <input id="login-new-password" type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} onKeyDown={handleKeyDown} placeholder="至少6位，不能使用000000" autoComplete="new-password" />
           <label htmlFor="login-confirm-password">确认新密码</label>
           <input id="login-confirm-password" type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} onKeyDown={handleKeyDown} placeholder="请再次输入新密码" autoComplete="new-password" />
           <button type="button" className="login-button" onClick={handlePasswordChange}>修改密码并进入系统</button>
