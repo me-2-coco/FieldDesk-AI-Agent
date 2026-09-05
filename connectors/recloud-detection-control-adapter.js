@@ -130,15 +130,27 @@ async function readRadioValue(item) {
 
 async function visibleCandidates(locator) {
   const candidates = [];
-  for (let index = 0; index < await locator.count(); index += 1) {
+  const count = Math.min(await locator.count(), 300);
+  const texts = await locator.allInnerTexts().catch(() => []);
+  for (let index = 0; index < count; index += 1) {
     const option = locator.nth(index);
     if (!await option.isVisible().catch(() => false)) continue;
+    const text = texts[index] || "";
     candidates.push({
-      text: () => option.innerText(),
+      text: async () => text,
       click: () => option.click({ timeout: 3000 }),
     });
   }
   return candidates;
+}
+
+async function clickDropdownInput(input) {
+  try {
+    await input.click({ timeout: 3000 });
+  } catch (error) {
+    if (!/intercepts pointer events/i.test(String(error?.message || ""))) throw error;
+    await input.click({ timeout: 3000, force: true });
+  }
 }
 
 async function chooseDropdownValue(page, item, value, key, searchable) {
@@ -150,7 +162,7 @@ async function chooseDropdownValue(page, item, value, key, searchable) {
   if (!expected) {
     if (searchable) await input.fill("");
     if (!await readSelectValue(item)) return;
-    await input.click({ timeout: 3000 });
+    await clickDropdownInput(input);
     const clear = item.locator(
       ".rt-xpc-picklist-clearicon:visible, .rt-picklist__clear:visible, " +
       ".rtxpc-select__clear:visible, .el-select__clear:visible, .rt-select__clear:visible"
@@ -161,7 +173,7 @@ async function chooseDropdownValue(page, item, value, key, searchable) {
     await clear.first().click({ timeout: 3000 });
     return;
   }
-  await input.click({ timeout: 3000 });
+  await clickDropdownInput(input);
   if (searchable && typeof input.fill === "function") {
     await input.fill(normalizeControlText(expected.split("/").at(-1)));
   }
@@ -238,6 +250,7 @@ module.exports = {
   uniqueExactCandidate,
   uniqueFullPathOrLeafCandidate,
   readSelectValue,
+  clickDropdownInput,
   chooseDropdownValue,
   createRecloudDetectionControlAdapter,
 };

@@ -2696,11 +2696,19 @@ function createApp(
       if (!order.inspectionUpdatedAt) throw createApiError("INSPECTION_REQUIRED", "请先完成检测", 409);
       const recloudWriteEnabled = isRecloudInspectionWriteEnabled(runtimeEnv);
       if (recloudWriteEnabled && !order.recloudDetectionConfirmedAt) {
+        if (["FAILED", "SYNCING"].includes(order.recloudDetectionSyncStatus)) {
+          const retryQueued = scheduleRecloudDetectionSync(order, currentUserProvider(req));
+          throw createApiError(
+            "RECLOUD_DETECTION_RETRY_QUEUED",
+            retryQueued
+              ? "瑞云检测同步已自动重试，请稍候再点击维修"
+              : "瑞云检测正在后台重试，请稍候再点击维修",
+            409
+          );
+        }
         throw createApiError(
           "RECLOUD_DETECTION_NOT_CONFIRMED",
-          order.recloudDetectionSyncStatus === "FAILED"
-            ? "瑞云检测同步失败，请先重试检测；尚未真实检测成功，不能进入维修"
-            : "瑞云检测仍在后台处理中；确认成功后才能进入维修",
+          "瑞云检测仍在后台处理中；确认成功后才能进入维修",
           409
         );
       }

@@ -5,6 +5,7 @@ const {
   uniqueExactCandidate,
   uniqueFullPathOrLeafCandidate,
   readSelectValue,
+  clickDropdownInput,
   chooseDropdownValue,
 } = require("../connectors/recloud-detection-control-adapter");
 
@@ -113,7 +114,7 @@ test("restoring an empty searchable value clears the selected tag, not only the 
   const input = {
     async count() { return 1; },
     async fill(value) { calls.push(["fill", value]); },
-    async click() { calls.push(["input-click"]); },
+    async click(options) { calls.push(["input-click", options]); },
   };
   const clear = {
     async count() { return 1; },
@@ -142,5 +143,20 @@ test("restoring an empty searchable value clears the selected tag, not only the 
 
   await chooseDropdownValue({ waitForTimeout: async () => {} }, item, "", "faultCategory", true);
   assert.equal(selected, "");
-  assert.deepEqual(calls, [["fill", ""], ["input-click"], ["clear-click"]]);
+  assert.deepEqual(calls, [["fill", ""], ["input-click", { timeout: 3000 }], ["clear-click"]]);
+});
+
+test("Recloud select retries with a forced click only when a selected tag intercepts the input", async () => {
+  const calls = [];
+  const input = {
+    async click(options) {
+      calls.push(options);
+      if (!options.force) throw new Error("element intercepts pointer events");
+    },
+  };
+  await clickDropdownInput(input);
+  assert.deepEqual(calls, [
+    { timeout: 3000 },
+    { timeout: 3000, force: true },
+  ]);
 });

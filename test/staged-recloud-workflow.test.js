@@ -68,6 +68,8 @@ test("Recloud detection and repair creation are separate explicit actions", asyn
   assert.match(server, /function scheduleRecloudServiceOrderSync[\s\S]*connector\.startRepair/);
   assert.match(server, /recloudRepairAdapterProvider[\s\S]*openExistingRepairServiceOrder/);
   assert.match(server, /app\.post\("\/api\/repairs\/inspection"[\s\S]*scheduleRecloudDetectionSync/);
+  assert.match(server, /\["FAILED", "SYNCING"\]\.includes\(order\.recloudDetectionSyncStatus\)[\s\S]*scheduleRecloudDetectionSync\(order/);
+  assert.match(server, /RECLOUD_DETECTION_RETRY_QUEUED/);
   assert.match(server, /app\.post\("\/api\/repairs\/start-repair"[\s\S]*scheduleRecloudServiceOrderSync/);
   assert.doesNotMatch(server, /代客户收件/);
 });
