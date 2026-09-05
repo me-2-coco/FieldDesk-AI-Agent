@@ -153,6 +153,10 @@ test("production account mode can bootstrap one administrator without exposing t
   assert.equal(user.userId, "FieldDesk0001");
   assert.equal(user.accountAuthority, "OWNER");
   assert.equal((await store.findByCredentials("FieldDesk0001", "000000")).mustChangePassword, true);
+  const recloudTestUser = await store.findByCredentials("FieldDesk0004", "000000");
+  assert.equal(recloudTestUser.accountPurpose, "RECLOUD_TECHNICIAN_TEST");
+  assert.deepEqual(recloudTestUser.repairSpecialties, ["扫地机", "洗地机"]);
+  assert.equal(recloudTestUser.mustChangePassword, true);
   assert.equal((await store.list(admin)).some((item) => item.userId === "FieldDesk0001"), false);
   assert.equal((await store.list(owner)).some((item) => item.userId === "FieldDesk0001"), true);
   assert.throws(() => store.upsert({ userId: "FieldDesk0001", displayName: "修改负责人", role: USER_ROLES.ADMIN }, owner), { code: "ACCOUNT_OWNER_PROTECTED" });

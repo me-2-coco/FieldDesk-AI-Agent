@@ -45,24 +45,50 @@ class AccountStore {
   ensureBootstrap(accessToken, displayName = "负责人") {
     if (!accessToken) return Promise.resolve(false);
     return this.backend.update((data) => {
-      if (data.users.some((user) => isOwner(user))) return false;
-      data.users.push({
-        userId: OWNER_USER_ID,
-        displayName: displayName || "负责人",
-        phone: "",
-        role: USER_ROLES.ADMIN,
-        accountAuthority: OWNER_AUTHORITY,
-        repairSpecialties: ["扫地机", "洗地机"],
-        active: true,
-        allowBearer: true,
-        tokenHash: crypto.createHash("sha256").update(String(accessToken)).digest("hex"),
-        passwordHash: crypto.createHash("sha256").update(MANAGED_ACCOUNT_DEFAULT_PASSWORD).digest("hex"),
-        mustChangePassword: true,
-        tokenExpiresAt: new Date(Date.now() + Math.min(168, Math.max(1, Number(process.env.FIELDDESK_SESSION_HOURS || 12))) * 3600_000).toISOString(),
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
-      return true;
+      const now = new Date().toISOString();
+      let changed = false;
+      if (!data.users.some((user) => isOwner(user))) {
+        data.users.push({
+          userId: OWNER_USER_ID,
+          displayName: displayName || "负责人",
+          phone: "",
+          role: USER_ROLES.ADMIN,
+          accountAuthority: OWNER_AUTHORITY,
+          repairSpecialties: ["扫地机", "洗地机"],
+          active: true,
+          allowBearer: true,
+          tokenHash: crypto.createHash("sha256").update(String(accessToken)).digest("hex"),
+          passwordHash: crypto.createHash("sha256").update(MANAGED_ACCOUNT_DEFAULT_PASSWORD).digest("hex"),
+          mustChangePassword: true,
+          tokenExpiresAt: new Date(Date.now() + Math.min(168, Math.max(1, Number(process.env.FIELDDESK_SESSION_HOURS || 12))) * 3600_000).toISOString(),
+          createdAt: now,
+          updatedAt: now,
+        });
+        changed = true;
+      }
+      if (!data.users.some((user) => user.userId === RECLOUD_TEST_USER_ID)) {
+        data.users.push({
+          userId: RECLOUD_TEST_USER_ID,
+          displayName: "瑞云测试师傅",
+          phone: "",
+          role: USER_ROLES.TECHNICIAN,
+          accountPurpose: "RECLOUD_TECHNICIAN_TEST",
+          repairSpecialties: ["扫地机", "洗地机"],
+          recloudAssignmentMode: "DIRECT",
+          recloudAssigneeName: "瑞云测试师傅",
+          recloudFallbackAssigneeName: "",
+          active: true,
+          allowBearer: false,
+          tokenHash: null,
+          passwordHash: crypto.createHash("sha256").update(MANAGED_ACCOUNT_DEFAULT_PASSWORD).digest("hex"),
+          mustChangePassword: true,
+          tokenExpiresAt: null,
+          createdAt: now,
+          updatedAt: now,
+        });
+        changed = true;
+      }
+      return changed;
     });
   }
   async list(operator) {
