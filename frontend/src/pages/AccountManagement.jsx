@@ -1,7 +1,15 @@
 import { useEffect, useState } from "react"
-import { getAdminUsers, saveAdminUser } from "../shared/crmService.js"
+import { createAdminTechnician, getAdminUsers, saveAdminUser } from "../shared/crmService.js"
 
-const EMPTY = { userId: "", displayName: "", role: "TECHNICIAN", repairSpecialties: [], password: "", active: true, recloudAssignmentMode: "DIRECT", recloudAssigneeName: "", recloudFallbackAssigneeName: "" }
+const EMPTY = { userId: "", displayName: "", phone: "", role: "TECHNICIAN", repairSpecialties: [], password: "", active: true, recloudAssignmentMode: "DIRECT", recloudAssigneeName: "", recloudFallbackAssigneeName: "" }
+
+function nextTechnicianAccount(users) {
+  const highest = users.reduce((current, user) => {
+    const match = /^FieldDesk(\d+)$/.exec(user.userId || "")
+    return match ? Math.max(current, Number(match[1])) : current
+  }, 0)
+  return `FieldDesk${String(highest + 1).padStart(4, "0")}`
+}
 
 function AccountManagement({ setPage }) {
   const [users, setUsers] = useState([])
@@ -29,15 +37,19 @@ function AccountManagement({ setPage }) {
   async function submit(event) {
     event.preventDefault()
     try {
-      await saveAdminUser(form)
+      const saved = form.userId
+        ? await saveAdminUser(form)
+        : await createAdminTechnician({ displayName: form.displayName, phone: form.phone })
       setForm(EMPTY)
-      setMessage("账号配置已保存")
+      setMessage(form.userId
+        ? "账号配置已保存"
+        : `账号创建成功：${saved.userId}，初始密码 ${saved.initialPassword}`)
       await refresh()
     } catch (error) { setMessage(error.message) }
   }
 
   function editUser(user) {
-    setForm({ userId: user.userId, displayName: user.displayName, role: user.role, repairSpecialties: user.repairSpecialties || [], password: "", active: user.active !== false, recloudAssignmentMode: user.recloudAssignmentMode || "DIRECT", recloudAssigneeName: user.recloudAssigneeName || "", recloudFallbackAssigneeName: user.recloudFallbackAssigneeName || "" })
+    setForm({ userId: user.userId, displayName: user.displayName, phone: user.phone || "", role: user.role, repairSpecialties: user.repairSpecialties || [], password: "", active: user.active !== false, recloudAssignmentMode: user.recloudAssignmentMode || "DIRECT", recloudAssigneeName: user.recloudAssigneeName || "", recloudFallbackAssigneeName: user.recloudFallbackAssigneeName || "" })
     setMessage("正在编辑账号；不填写新密码则保留原密码")
   }
 
@@ -45,11 +57,13 @@ function AccountManagement({ setPage }) {
     <div className="top-bar"><button className="arrow-back" onClick={() => setPage("home")}>←</button><div><small>账号与权限</small><h1>账号管理</h1></div></div>
     <div className="card account-editor-card">
       <div className="section-title-row"><div><small>账号配置</small><h2>{form.userId ? "编辑账号" : "新增账号"}</h2></div><span>仅管理员</span></div>
-      <p className="section-description">统一配置登录账号、角色和维修品类；密码不会显示或保存在浏览器中。</p>
+      <p className="section-description">新增师傅时只需填写姓名和电话，登录账号按顺序自动生成。</p>
       <form onSubmit={submit}>
-        <label>用户 ID<input value={form.userId} onChange={(event) => setForm({ ...form, userId: event.target.value })} placeholder="例如 USER-007" required /></label>
-        <label>显示名称<input value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })} placeholder="请输入姓名" required /></label>
-        <label>账号角色<select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value, repairSpecialties: [] })}>
+        <label>FieldDesk 账号<input value={form.userId || nextTechnicianAccount(users)} readOnly aria-readonly="true" /></label>
+        {!form.userId && <label>初始密码<input value="0000" readOnly aria-readonly="true" /></label>}
+        <label>师傅姓名<input value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })} placeholder="请输入师傅姓名" required /></label>
+        <label>师傅电话<input type="tel" inputMode="numeric" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="请输入11位手机号" required /></label>
+        {form.userId && <><label>账号角色<select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value, repairSpecialties: [] })}>
           <option value="ADMIN">管理员</option><option value="INFORMATION_CLERK">信息员</option><option value="WAREHOUSE">库房</option><option value="TECHNICIAN">维修师傅</option>
         </select></label>
         {(form.role === "TECHNICIAN" || form.role === "ADMIN") && <fieldset className="choice-fieldset"><legend>维修品类</legend>
@@ -64,10 +78,11 @@ function AccountManagement({ setPage }) {
         </fieldset>}
         <label>登录密码<input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder={users.some((user) => user.userId === form.userId) ? "不修改可留空" : "设置登录密码"} autoComplete="new-password" required={!users.some((user) => user.userId === form.userId)} /></label>
         <label className="switch-row"><span>账号启用</span><input type="checkbox" checked={form.active} onChange={(event) => setForm({ ...form, active: event.target.checked })} /></label>
+        </>}
         <div className="compact-action-row"><button type="submit">保存账号</button>{form.userId && <button type="button" className="secondary-btn" onClick={() => setForm(EMPTY)}>取消</button>}</div>
       </form>
     </div>
-    <div className="card account-list-card"><div className="section-title-row"><div><small>账号目录</small><h2>正式账号</h2></div><span>{users.length} 个</span></div><div className="account-directory">{users.map((user) => <button type="button" className="account-directory-row" key={user.userId} onClick={() => editUser(user)}><span className="account-directory-avatar">{user.displayName.slice(0, 1)}</span><span><strong>{user.displayName}</strong><small>{user.userId} · {user.role} · {user.repairSpecialties.join("/") || "无品类"}</small></span><em className={user.active ? "active" : "disabled"}>{user.active ? "启用" : "停用"}</em><b>›</b></button>)}</div></div>
+    <div className="card account-list-card"><div className="section-title-row"><div><small>账号目录</small><h2>正式账号</h2></div><span>{users.length} 个</span></div><div className="account-directory">{users.map((user) => <button type="button" className="account-directory-row" key={user.userId} onClick={() => editUser(user)}><span className="account-directory-avatar">{user.displayName.slice(0, 1)}</span><span><strong>{user.displayName}</strong><small>{user.userId} · {user.phone || "未填写电话"} · {user.role}</small></span><em className={user.active ? "active" : "disabled"}>{user.active ? "启用" : "停用"}</em><b>›</b></button>)}</div></div>
     {message && <p className="inline-status" role="status">{message}</p>}
   </div>
 }

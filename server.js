@@ -786,6 +786,13 @@ function createApp(
     } catch (error) { next(error); }
   });
 
+  app.post("/api/admin/technicians", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      res.status(201).json({ success: true, data: await accountStore.createTechnician(req.body || {}, user) });
+    } catch (error) { next(error); }
+  });
+
   app.post("/api/orders/lock", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);

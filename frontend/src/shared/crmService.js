@@ -392,3 +392,7 @@ export async function getAdminUsers() {
 export async function saveAdminUser(payload) {
   return request("/api/admin/users", payload)
 }
+
+export async function createAdminTechnician(payload) {
+  return request("/api/admin/technicians", payload)
+}

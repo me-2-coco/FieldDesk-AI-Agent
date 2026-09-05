@@ -6,6 +6,20 @@ const { USER_ROLES } = require("../config/local-users");
 const SPECIALTIES = new Set(["扫地机", "洗地机"]);
 const ROLES = new Set(Object.values(USER_ROLES));
 const RECLOUD_ASSIGNMENT_MODES = new Set(["DIRECT", "FALLBACK"]);
+const TECHNICIAN_ACCOUNT_PREFIX = "FieldDesk";
+const TECHNICIAN_DEFAULT_PASSWORD = "0000";
+
+function nextTechnicianUserId(users) {
+  const highestSequence = users.reduce((highest, user) => {
+    const match = new RegExp(`^${TECHNICIAN_ACCOUNT_PREFIX}(\\d+)$`).exec(String(user.userId || ""));
+    return match ? Math.max(highest, Number(match[1])) : highest;
+  }, 0);
+  return `${TECHNICIAN_ACCOUNT_PREFIX}${String(highestSequence + 1).padStart(4, "0")}`;
+}
+
+function normalizeTechnicianPhone(value) {
+  return String(value || "").replace(/[\s-]/g, "");
+}
 
 class AccountStore {
   constructor(options = {}) {
@@ -68,6 +82,39 @@ class AccountStore {
     const { tokenHash: ignored, ...safe } = user;
     return safe;
   }
+  createTechnician(input, operator) {
+    if (operator?.role !== USER_ROLES.ADMIN) throw Object.assign(new Error("只有管理员可以创建账号"), { code: "ACCOUNT_ADMIN_REQUIRED", status: 403 });
+    const displayName = String(input.displayName || "").trim();
+    const phone = normalizeTechnicianPhone(input.phone);
+    if (!displayName) throw Object.assign(new Error("请填写师傅姓名"), { code: "ACCOUNT_DISPLAY_NAME_REQUIRED", status: 400 });
+    if (!/^1[3-9]\d{9}$/.test(phone)) throw Object.assign(new Error("请填写正确的11位师傅手机号"), { code: "ACCOUNT_PHONE_INVALID", status: 400 });
+    return this.backend.update((data) => {
+      if (data.users.some((item) => normalizeTechnicianPhone(item.phone) === phone)) {
+        throw Object.assign(new Error("该手机号已创建 FieldDesk 账号"), { code: "ACCOUNT_PHONE_EXISTS", status: 409 });
+      }
+      const userId = nextTechnicianUserId(data.users);
+      const now = new Date().toISOString();
+      const user = {
+        userId,
+        displayName,
+        phone,
+        role: USER_ROLES.TECHNICIAN,
+        repairSpecialties: ["扫地机", "洗地机"],
+        recloudAssignmentMode: "DIRECT",
+        recloudAssigneeName: displayName,
+        recloudFallbackAssigneeName: "",
+        active: true,
+        allowBearer: false,
+        tokenHash: crypto.createHash("sha256").update(TECHNICIAN_DEFAULT_PASSWORD).digest("hex"),
+        tokenExpiresAt: null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      data.users.push(user);
+      const { tokenHash: ignored, ...safe } = user;
+      return { ...safe, initialPassword: TECHNICIAN_DEFAULT_PASSWORD };
+    });
+  }
   upsert(input, operator) {
     if (operator?.role !== USER_ROLES.ADMIN) throw Object.assign(new Error("只有管理员可以配置账号"), { code: "ACCOUNT_ADMIN_REQUIRED", status: 403 });
     const role = String(input.role || "");
@@ -90,7 +137,7 @@ class AccountStore {
         ? crypto.createHash("sha256").update(String(password)).digest("hex")
         : existing?.tokenHash;
       if (!userId || !input.displayName || !tokenHash) throw Object.assign(new Error("账号资料不完整"), { code: "ACCOUNT_FIELDS_REQUIRED", status: 400 });
-      const next = { userId, displayName: String(input.displayName).trim(), role, repairSpecialties: specialties, recloudAssignmentMode, recloudAssigneeName, recloudFallbackAssigneeName, active: input.active !== false, allowBearer: false, tokenHash, tokenExpiresAt: null, updatedAt: new Date().toISOString() };
+      const next = { userId, displayName: String(input.displayName).trim(), phone: normalizeTechnicianPhone(input.phone ?? existing?.phone), role, repairSpecialties: specialties, recloudAssignmentMode, recloudAssigneeName, recloudFallbackAssigneeName, active: input.active !== false, allowBearer: false, tokenHash, tokenExpiresAt: null, updatedAt: new Date().toISOString() };
       if (existing) Object.assign(existing, next); else data.users.push({ ...next, createdAt: next.updatedAt });
       const { tokenHash: ignored, ...safe } = next;
       return safe;
@@ -98,4 +145,4 @@ class AccountStore {
   }
 }
 
-module.exports = { AccountStore, SPECIALTIES };
+module.exports = { AccountStore, SPECIALTIES, TECHNICIAN_ACCOUNT_PREFIX, TECHNICIAN_DEFAULT_PASSWORD, nextTechnicianUserId };

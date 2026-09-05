@@ -73,6 +73,23 @@ test("administrator can preconfigure a new technician to a Recloud fallback assi
   }, admin), { code: "ACCOUNT_RECLOUD_FALLBACK_REQUIRED" });
 });
 
+test("administrator creates sequential FieldDesk technician accounts from only name and phone", async () => {
+  const store = new AccountStore({ backend: new MemoryDocumentBackend({ users: [] }) });
+  const first = await store.createTechnician({ displayName: "测试甲", phone: "138 0013 8000" }, admin);
+  const second = await store.createTechnician({ displayName: "测试乙", phone: "13900139000" }, admin);
+  assert.equal(first.userId, "FieldDesk0001");
+  assert.equal(second.userId, "FieldDesk0002");
+  assert.equal(first.initialPassword, "0000");
+  assert.equal(first.phone, "13800138000");
+  assert.equal(first.role, USER_ROLES.TECHNICIAN);
+  assert.deepEqual(first.repairSpecialties, ["扫地机", "洗地机"]);
+  assert.equal(first.recloudAssigneeName, "测试甲");
+  assert.equal((await store.findByCredentials("FieldDesk0001", "0000")).displayName, "测试甲");
+  await assert.rejects(() => store.createTechnician({ displayName: "重复", phone: "13800138000" }, admin), { code: "ACCOUNT_PHONE_EXISTS" });
+  assert.throws(() => store.createTechnician({ displayName: "", phone: "13900139001" }, admin), { code: "ACCOUNT_DISPLAY_NAME_REQUIRED" });
+  assert.throws(() => store.createTechnician({ displayName: "测试丙", phone: "123" }, admin), { code: "ACCOUNT_PHONE_INVALID" });
+});
+
 test("production account mode can bootstrap one administrator without exposing token", async () => {
   const store = new AccountStore({ backend: new MemoryDocumentBackend({ users: [] }) });
   assert.equal(await store.ensureBootstrap("bootstrap-secret"), true);
