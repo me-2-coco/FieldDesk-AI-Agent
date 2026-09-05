@@ -389,10 +389,18 @@ export async function getAdminUsers() {
   return get("/api/admin/users")
 }
 
+export async function getNextAdminAccount() {
+  return get("/api/admin/accounts/next")
+}
+
 export async function saveAdminUser(payload) {
   return request("/api/admin/users", payload)
 }
 
-export async function createAdminTechnician(payload) {
-  return request("/api/admin/technicians", payload)
+export async function createAdminAccount(payload) {
+  return request("/api/admin/accounts", payload)
+}
+
+export async function deleteAdminAccount(userId) {
+  return request("/api/admin/accounts/delete", { userId })
 }

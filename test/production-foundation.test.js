@@ -73,21 +73,28 @@ test("administrator can preconfigure a new technician to a Recloud fallback assi
   }, admin), { code: "ACCOUNT_RECLOUD_FALLBACK_REQUIRED" });
 });
 
-test("administrator creates sequential FieldDesk technician accounts from only name and phone", async () => {
+test("administrator creates managed FieldDesk accounts from 0005 with required roles and permissions", async () => {
   const store = new AccountStore({ backend: new MemoryDocumentBackend({ users: [] }) });
-  const first = await store.createTechnician({ displayName: "测试甲", phone: "138 0013 8000" }, admin);
-  const second = await store.createTechnician({ displayName: "测试乙", phone: "13900139000" }, admin);
-  assert.equal(first.userId, "FieldDesk0001");
-  assert.equal(second.userId, "FieldDesk0002");
+  const first = await store.createManagedAccount({ displayName: "测试甲", phone: "138 0013 8000", role: USER_ROLES.TECHNICIAN, repairSpecialties: ["扫地机"] }, admin);
+  const second = await store.createManagedAccount({ displayName: "测试乙", phone: "13900139000", role: USER_ROLES.WAREHOUSE }, admin);
+  assert.equal(first.userId, "FieldDesk0005");
+  assert.equal(second.userId, "FieldDesk0006");
   assert.equal(first.initialPassword, "0000");
   assert.equal(first.phone, "13800138000");
   assert.equal(first.role, USER_ROLES.TECHNICIAN);
-  assert.deepEqual(first.repairSpecialties, ["扫地机", "洗地机"]);
+  assert.deepEqual(first.repairSpecialties, ["扫地机"]);
   assert.equal(first.recloudAssigneeName, "测试甲");
-  assert.equal((await store.findByCredentials("FieldDesk0001", "0000")).displayName, "测试甲");
-  await assert.rejects(() => store.createTechnician({ displayName: "重复", phone: "13800138000" }, admin), { code: "ACCOUNT_PHONE_EXISTS" });
-  assert.throws(() => store.createTechnician({ displayName: "", phone: "13900139001" }, admin), { code: "ACCOUNT_DISPLAY_NAME_REQUIRED" });
-  assert.throws(() => store.createTechnician({ displayName: "测试丙", phone: "123" }, admin), { code: "ACCOUNT_PHONE_INVALID" });
+  assert.equal((await store.findByCredentials("FieldDesk0005", "0000")).displayName, "测试甲");
+  await assert.rejects(() => store.createManagedAccount({ displayName: "重复", phone: "13800138000", role: USER_ROLES.WAREHOUSE }, admin), { code: "ACCOUNT_PHONE_EXISTS" });
+  assert.throws(() => store.createManagedAccount({ displayName: "", phone: "13900139001", role: USER_ROLES.WAREHOUSE }, admin), { code: "ACCOUNT_DISPLAY_NAME_REQUIRED" });
+  assert.throws(() => store.createManagedAccount({ displayName: "测试丙", phone: "123", role: USER_ROLES.WAREHOUSE }, admin), { code: "ACCOUNT_PHONE_INVALID" });
+  assert.throws(() => store.createManagedAccount({ displayName: "测试丙", phone: "13700137000", role: USER_ROLES.TECHNICIAN }, admin), { code: "ACCOUNT_SPECIALTY_REQUIRED" });
+  assert.throws(() => store.createManagedAccount({ displayName: "测试丙", phone: "13700137000", role: USER_ROLES.ADMIN }, admin), { code: "ACCOUNT_ROLE_INVALID" });
+  assert.deepEqual(await store.delete(second.userId, admin), { userId: second.userId, displayName: "测试乙" });
+  assert.equal(await store.findByCredentials(second.userId, "0000"), null);
+  const third = await store.createManagedAccount({ displayName: "测试丙", phone: "13700137000", role: USER_ROLES.INFORMATION_CLERK }, admin);
+  assert.equal(third.userId, "FieldDesk0007");
+  assert.throws(() => store.delete(admin.userId, admin), { code: "ACCOUNT_SELF_DELETE_FORBIDDEN" });
 });
 
 test("production account mode can bootstrap one administrator without exposing token", async () => {

@@ -779,6 +779,14 @@ function createApp(
     } catch (error) { next(error); }
   });
 
+  app.get("/api/admin/accounts/next", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      if (user.role !== USER_ROLES.ADMIN) throw createApiError("ACCOUNT_ADMIN_REQUIRED", "只有管理员可以查看账号", 403);
+      res.json({ success: true, data: { userId: await accountStore.getNextManagedUserId() } });
+    } catch (error) { next(error); }
+  });
+
   app.post("/api/admin/users", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
@@ -786,10 +794,17 @@ function createApp(
     } catch (error) { next(error); }
   });
 
-  app.post("/api/admin/technicians", async (req, res, next) => {
+  app.post("/api/admin/accounts", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      res.status(201).json({ success: true, data: await accountStore.createTechnician(req.body || {}, user) });
+      res.status(201).json({ success: true, data: await accountStore.createManagedAccount(req.body || {}, user) });
+    } catch (error) { next(error); }
+  });
+
+  app.post("/api/admin/accounts/delete", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      res.json({ success: true, data: await accountStore.delete(req.body?.userId, user) });
     } catch (error) { next(error); }
   });
 

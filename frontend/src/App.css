@@ -3227,6 +3227,7 @@ background:#fafafa;
 .account-directory-row em.active { color: #167b5a; background: #e6f7f0; }
 .account-directory-row em.disabled { color: #a33c3c; background: #fff0f0; }
 .account-directory-row b { color: #9da7b5; }
+.account-delete-button { color: #b83232 !important; background: #fff1f1 !important; border: 1px solid #f2c7c7 !important; box-shadow: none !important; }
 .profile-account-details { padding: 0 !important; }
 .profile-account-details > summary { margin: 0 !important; padding: 16px; cursor: pointer; list-style: none; }
 .profile-account-details > summary::-webkit-details-marker { display: none; }
