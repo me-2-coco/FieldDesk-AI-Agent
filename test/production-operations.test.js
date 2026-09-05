@@ -5,7 +5,7 @@ const os = require("os");
 const path = require("path");
 const { validateRuntimeConfig } = require("../config/runtime-config");
 const { createRateLimiter, RotatingJsonLogger } = require("../services/operational-security");
-const { LocalRepairAttachmentStore } = require("../database/repair-attachment-store");
+const { LocalRepairAttachmentStore, DEFAULT_MAX_FILE_BYTES } = require("../database/repair-attachment-store");
 const { MemoryDocumentBackend } = require("../database/storage-backend");
 const { WorkCoordinationStore } = require("../database/work-coordination-store");
 
@@ -47,6 +47,12 @@ test("attachment storage enforces type, extension, file and capacity limits", as
   await store.save({ rmaNo: "RMA-1", name: "proof.png", mimeType: "image/png", data: Buffer.from("1234").toString("base64") });
   await assert.rejects(() => store.save({ rmaNo: "RMA-1", name: "proof.jpg", mimeType: "image/png", data: "MQ==" }), { code: "REPAIR_ATTACHMENT_INVALID" });
   await assert.rejects(() => store.save({ rmaNo: "RMA-1", name: "next.png", mimeType: "image/png", data: "MQ==" }), { code: "ATTACHMENT_STORAGE_LIMIT" });
+});
+
+test("attachment storage accepts compressed WebM video up to 100MB", async () => {
+  assert.equal(DEFAULT_MAX_FILE_BYTES, 100_000_000);
+  const store = new LocalRepairAttachmentStore("/tmp/not-used", { maxStorageBytes: 200_000_000 });
+  assert.equal(store.allowedMimeTypes.has("video/webm"), true);
 });
 
 test("deployment assets keep secrets and runtime data outside images and Git", async () => {

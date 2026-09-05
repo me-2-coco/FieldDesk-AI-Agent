@@ -18,6 +18,11 @@ import {
   updateRepairOrder
 } from "../shared/repairOrderStore.js"
 import { buildRepairMeasure } from "../shared/repairMeasure.js"
+import {
+  MAX_VIDEO_UPLOAD_BYTES,
+  compressVideoFile,
+  needsVideoCompression
+} from "../shared/videoCompression.js"
 
 const SPEECH_TEMPLATES = {
   "保内质保": [
@@ -56,6 +61,10 @@ const LOGISTICS_MODES = [
   { value: "ONE_WAY", label: "只收单边运费", multiplier: 1 },
   { value: "WAIVED", label: "运费全免", multiplier: 0 }
 ]
+
+function formatFileMb(bytes) {
+  return `${(Number(bytes || 0) / 1024 / 1024).toFixed(1)}MB`
+}
 
 function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -249,22 +258,41 @@ function RepairCompletion({ setPage }) {
     try {
       setBusy(true)
       setErrorMessage("")
-      const saved = []
       for (const file of files) {
         const supportedMedia = /^(image|video)\//.test(file.type)
         const supportedReport = isInspectionOnly && file.type === "application/pdf"
         if (!supportedMedia && !supportedReport) {
           throw new Error(isInspectionOnly ? "仅支持照片、视频和 PDF 检测报告" : "仅支持维修照片和视频")
         }
+        if (!String(file.type).startsWith("video/") && file.size > MAX_VIDEO_UPLOAD_BYTES) {
+          throw new Error(`${file.name} 为 ${formatFileMb(file.size)}，超过单文件100MB限制`)
+        }
+      }
+      const saved = []
+      for (const file of files) {
+        let uploadFile = file
+        if (needsVideoCompression(file)) {
+          let lastProgress = -1
+          setMessage(`视频 ${formatFileMb(file.size)}，正在自动压缩…`)
+          uploadFile = await compressVideoFile(file, {
+            onProgress(progress) {
+              if (progress === lastProgress) return
+              lastProgress = progress
+              setMessage(`正在压缩视频 ${progress}%，请勿关闭页面`)
+            }
+          })
+          setMessage(`视频已压缩为 ${formatFileMb(uploadFile.size)}，正在上传…`)
+        }
         const attachment = await uploadRepairAttachment({
           rmaNo: repairOrder.crmOrderNo,
-          name: file.name,
-          mimeType: file.type,
-          data: await fileToDataUrl(file)
+          name: uploadFile.name,
+          mimeType: uploadFile.type,
+          data: await fileToDataUrl(uploadFile)
         })
-        saved.push({ ...attachment, localPreviewFile: file })
+        saved.push({ ...attachment, localPreviewFile: uploadFile })
       }
       setAttachments((current) => [...current, ...saved])
+      setMessage(files.some(needsVideoCompression) ? "视频压缩并上传完成" : "附件上传完成")
     } catch (error) {
       setErrorMessage(error.message)
     } finally {

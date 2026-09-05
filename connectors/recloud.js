@@ -73,6 +73,15 @@ function normalizeText(value) {
   return String(value || "").trim();
 }
 
+function extractRepairServiceOrderCandidates(value) {
+  return [...new Set(String(value || "").match(/\bFWD[A-Z0-9-]{8,}\b/gi) || [])]
+    .map((item) => item.toUpperCase());
+}
+
+function exactVisibleText(value) {
+  return new RegExp(`^\\s*${String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`);
+}
+
 function inferProductType(text) {
   if (/扫地|扫拖|机器人/.test(text)) return "扫地机";
   if (/洗地/.test(text)) return "洗地机";
@@ -3515,6 +3524,13 @@ async function diagnoseReceiptTableStructure(page, options = {}) {
   } finally {
     clearTimeout(hardTimeout);
   }
+}
+
+async function hasVisibleReceiptAction(page) {
+  const actions = page
+    .locator("button:visible, a:visible, [role='button']:visible")
+    .filter({ hasText: /^\s*签收\s*$/ });
+  return await actions.count() > 0;
 }
 
 async function findPendingReceiptAction(page, logger = console, options = {}) {
@@ -9768,7 +9784,29 @@ async function startRepair(page, options = {}) {
   try {
     actionAttempted = true;
     await repairEntry.click({ timeout: options.clickTimeout || 5000 });
-    await page.waitForTimeout(800);
+    const readyDeadline = Date.now() + (options.actionTimeout || 15000);
+    let reassignButtonCount = 0;
+    let serviceReportTabCount = 0;
+    while (Date.now() < readyDeadline) {
+      reassignButtonCount = await page
+        .getByRole("button", { name: /^\s*改派\s*$/ })
+        .filter({ visible: true })
+        .count();
+      serviceReportTabCount = await page
+        .getByText("服务报告", { exact: true })
+        .filter({ visible: true })
+        .count();
+      if (reassignButtonCount === 1 && serviceReportTabCount === 1) break;
+      await page.waitForTimeout(200);
+    }
+  if (reassignButtonCount !== 1 || serviceReportTabCount !== 1) {
+      const readyError = new Error(
+        `瑞云维修服务单页面尚未就绪（改派 ${reassignButtonCount} 个，服务报告 ${serviceReportTabCount} 个）`
+      );
+      readyError.code = "RECLOUD_REPAIR_SERVICE_ORDER_PAGE_NOT_READY";
+      readyError.status = 502;
+      throw readyError;
+    }
   } catch (error) {
     if (actionAttempted) {
       error.code = "RECLOUD_REPAIR_START_RESULT_UNKNOWN";
@@ -9778,12 +9816,170 @@ async function startRepair(page, options = {}) {
     }
     throw error;
   }
+  const pageText = String(await page.locator("body").innerText({ timeout: 5000 }).catch(() => ""));
+  const serviceOrderCandidates = extractRepairServiceOrderCandidates(pageText);
   return {
     success: true,
     status: "SERVICE_ORDER_CREATED",
     serviceOrderCreated: true,
+    // 首次进入维修时顺手保存唯一服务单号。完工阶段可直接按服务单号
+    // 打开页面，避免再次用物流单号反查寄修单。
+    serviceOrderNo: serviceOrderCandidates.length === 1 ? serviceOrderCandidates[0] : "",
     recloudModified: true,
   };
+}
+
+async function openExistingRepairServiceOrder(page, context = {}, options = {}) {
+  assertRecloudAuthenticated(page);
+  const rmaNo = normalizeText(context.rmaNo).toUpperCase();
+  const logisticsNo = normalizeText(context.logisticsNo);
+  const expectedServiceOrderNo = normalizeText(context.serviceOrderNo).toUpperCase();
+  const timeout = Number(options.timeoutMs || DEFAULT_TIMEOUT);
+  const logger = options.logger || console;
+
+  if (!rmaNo) {
+    const error = new Error("缺少寄修单号，无法定位待完工维修单");
+    error.code = "RECLOUD_REPAIR_RMA_REQUIRED";
+    error.status = 400;
+    throw error;
+  }
+
+  const readBody = () => page.locator("body").innerText({ timeout: 5000 }).catch(() => "");
+  let bodyText = String(await readBody());
+  const currentCandidates = extractRepairServiceOrderCandidates(bodyText);
+  const currentServiceOrderNo = expectedServiceOrderNo || currentCandidates.find((item) => bodyText.includes(item));
+  const serviceReport = page.getByText("服务报告", { exact: true }).filter({ visible: true });
+  if (bodyText.includes(rmaNo) && currentServiceOrderNo && await serviceReport.count() === 1) {
+    return { rmaNo, serviceOrderNo: currentServiceOrderNo, alreadyOpen: true };
+  }
+
+  // 完工任务已记录唯一服务单号时，直接按该编号定位，避免再次通过物流号
+  // 反查寄修单的慢查询。打开后仍强制同时核对 RMA、服务单号和服务报告页签。
+  if (expectedServiceOrderNo) {
+    const repairOrdersMenu = page.getByText("寄修-维修单", { exact: true }).filter({ visible: true });
+    if (await repairOrdersMenu.count() !== 1) {
+      const error = new Error("无法唯一定位瑞云维修单入口");
+      error.code = "RECLOUD_REPAIR_ORDERS_MENU_AMBIGUOUS";
+      error.status = 502;
+      throw error;
+    }
+    await repairOrdersMenu.first().click({ timeout: 5000 });
+    const searchInput = page.getByPlaceholder("服务单号/反馈人/反馈电话/联系地址", { exact: true }).filter({ visible: true });
+    const searchDeadline = Date.now() + 5000;
+    while (Date.now() < searchDeadline && await searchInput.count() !== 1) {
+      await page.waitForTimeout?.(100);
+    }
+    if (await searchInput.count() !== 1) {
+      const error = new Error("瑞云维修单查询框发生变化");
+      error.code = "RECLOUD_REPAIR_SEARCH_INPUT_AMBIGUOUS";
+      error.status = 502;
+      throw error;
+    }
+    await searchInput.first().fill(expectedServiceOrderNo);
+    await searchInput.first().press("Enter");
+    const directMatches = page.locator("a.el-link:visible, a.rtxpc-link:visible")
+      .filter({ hasText: exactVisibleText(expectedServiceOrderNo) });
+    const matchDeadline = Date.now() + 10000;
+    while (Date.now() < matchDeadline && await directMatches.count() !== 1) {
+      await page.waitForTimeout?.(100);
+    }
+    if (await directMatches.count() !== 1) {
+      const error = new Error("瑞云中没有唯一匹配的维修服务单");
+      error.code = "RECLOUD_REPAIR_SERVICE_ORDER_MATCH_AMBIGUOUS";
+      error.status = 409;
+      throw error;
+    }
+    await directMatches.first().click({ timeout: 5000 });
+    const directDeadline = Date.now() + timeout;
+    while (Date.now() < directDeadline) {
+      bodyText = String(await readBody());
+      if (
+        bodyText.includes(rmaNo)
+        && bodyText.includes(expectedServiceOrderNo)
+        && await serviceReport.count() === 1
+      ) {
+        logger.info(`RECLOUD_REPAIR_ORDER_OPENED: rma=${rmaNo} serviceOrder=${expectedServiceOrderNo}`);
+        return { rmaNo, serviceOrderNo: expectedServiceOrderNo, alreadyOpen: false };
+      }
+      await page.waitForTimeout?.(250);
+    }
+    const error = new Error("瑞云维修服务单页面未通过 RMA 与服务单号复核");
+    error.code = "RECLOUD_REPAIR_SERVICE_ORDER_PAGE_NOT_READY";
+    error.status = 502;
+    throw error;
+  }
+
+  await queryRmaByLogisticsNo(page, logisticsNo || rmaNo, { preserveDetailPage: true });
+  logger.info(`RECLOUD_REPAIR_ORDER_OPEN: rma_detail_ready rma=${rmaNo}`);
+  bodyText = String(await readBody());
+  if (!bodyText.includes(rmaNo)) {
+    const error = new Error("瑞云查询结果不是待完工的对应寄修单");
+    error.code = "RECLOUD_REPAIR_RMA_MISMATCH";
+    error.status = 409;
+    throw error;
+  }
+
+  const candidates = expectedServiceOrderNo
+    ? [expectedServiceOrderNo]
+    : extractRepairServiceOrderCandidates(bodyText);
+  if (candidates.length !== 1) {
+    const error = new Error(candidates.length ? "寄修单关联了多个维修服务单，不能自动完工" : "寄修单尚未生成维修服务单");
+    error.code = candidates.length ? "RECLOUD_REPAIR_SERVICE_ORDER_AMBIGUOUS" : "RECLOUD_REPAIR_SERVICE_ORDER_NOT_FOUND";
+    error.status = 409;
+    error.serviceOrderCandidates = candidates;
+    throw error;
+  }
+  const serviceOrderNo = candidates[0];
+  logger.info(`RECLOUD_REPAIR_ORDER_OPEN: service_order_resolved serviceOrder=${serviceOrderNo}`);
+
+  let matches = page.locator("a.el-link:visible, a.rtxpc-link:visible").filter({ hasText: exactVisibleText(serviceOrderNo) });
+  logger.info(`RECLOUD_REPAIR_ORDER_OPEN: detail_link_count count=${await matches.count()}`);
+  if (await matches.count() !== 1) {
+    const repairOrdersMenu = page.getByText("寄修-维修单", { exact: true }).filter({ visible: true });
+    if (await repairOrdersMenu.count() !== 1) {
+      const error = new Error("无法唯一定位瑞云维修单入口");
+      error.code = "RECLOUD_REPAIR_ORDERS_MENU_AMBIGUOUS";
+      error.status = 502;
+      throw error;
+    }
+    await repairOrdersMenu.first().click({ timeout: 5000 });
+    logger.info("RECLOUD_REPAIR_ORDER_OPEN: repair_orders_menu_clicked");
+    await page.waitForTimeout?.(800);
+    const searchInput = page.getByPlaceholder("服务单号/反馈人/反馈电话/联系地址", { exact: true }).filter({ visible: true });
+    if (await searchInput.count() !== 1) {
+      const error = new Error("瑞云维修单查询框发生变化");
+      error.code = "RECLOUD_REPAIR_SEARCH_INPUT_AMBIGUOUS";
+      error.status = 502;
+      throw error;
+    }
+    await searchInput.first().fill(serviceOrderNo);
+    await searchInput.first().press("Enter");
+    await page.waitForTimeout?.(1200);
+    matches = page.locator("a.el-link:visible, a.rtxpc-link:visible").filter({ hasText: exactVisibleText(serviceOrderNo) });
+    logger.info(`RECLOUD_REPAIR_ORDER_OPEN: search_result_count count=${await matches.count()}`);
+  }
+  if (await matches.count() !== 1) {
+    const error = new Error("瑞云中没有唯一匹配的维修服务单");
+    error.code = "RECLOUD_REPAIR_SERVICE_ORDER_MATCH_AMBIGUOUS";
+    error.status = 409;
+    throw error;
+  }
+
+  await matches.first().click({ timeout: 5000 });
+  logger.info("RECLOUD_REPAIR_ORDER_OPEN: service_order_clicked");
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    bodyText = String(await readBody());
+    if (bodyText.includes(rmaNo) && bodyText.includes(serviceOrderNo) && await serviceReport.count() === 1) {
+      logger.info(`RECLOUD_REPAIR_ORDER_OPENED: rma=${rmaNo} serviceOrder=${serviceOrderNo}`);
+      return { rmaNo, serviceOrderNo, alreadyOpen: false };
+    }
+    await page.waitForTimeout?.(250);
+  }
+  const error = new Error("瑞云维修服务单页面未在规定时间内打开");
+  error.code = "RECLOUD_REPAIR_SERVICE_ORDER_PAGE_NOT_READY";
+  error.status = 502;
+  throw error;
 }
 
 async function inspectRepairForm(page, options = {}) {
@@ -11120,6 +11316,7 @@ module.exports = {
   toQueryError,
   scanSign,
   getRepairDetail,
+  hasVisibleReceiptAction,
   findPendingReceiptAction,
   findMappedReceiptControl,
   activateReceiptDetailTabs,
@@ -11150,6 +11347,8 @@ module.exports = {
   inspectDetectionForm,
   confirmDetection,
   startRepair,
+  extractRepairServiceOrderCandidates,
+  openExistingRepairServiceOrder,
   inspectRepairForm,
   logReceiptInspection,
   simulateReceiptForm,

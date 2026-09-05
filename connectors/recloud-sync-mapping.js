@@ -311,9 +311,15 @@ function buildNodePayload(order, nodeType) {
       dismantled: order.dismantled,
     },
     REPAIR_COMPLETED: {
+      serviceOrderNo:
+        order.recloudServiceOrderNo
+        || order.recloudRepairPreparation?.serviceOrderNo
+        || "",
       assignee: order.recloudRepairPreparation?.assignee || order.technicianName || order.operatorName,
       assignmentSource: order.recloudRepairPreparation?.assignmentSource || "",
       repairPreparationCompletedAt: order.recloudRepairPreparation?.completedAt || "",
+      repairPreparationStatus: order.recloudRepairPreparation?.status || "",
+      missingParts: compactParts(order.partsShortage?.parts || order.recloudRepairPreparation?.missingParts || []),
       treatmentMode: order.treatmentMode,
       faultLevel1: completion.faultLevel1,
       faultLevel2: completion.faultLevel2,

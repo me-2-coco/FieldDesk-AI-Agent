@@ -1165,7 +1165,7 @@ class JsonReceiptPreparationStore {
     return operation;
   }
 
-  async markRecloudServiceOrderConfirmed(rmaNo, operator = {}) {
+  async markRecloudServiceOrderConfirmed(rmaNo, operator = {}, input = {}) {
     const operation = this.writeQueue.then(async () => {
       const records = await this.readAll();
       const existing = records.find((record) => record.rmaNo === rmaNo);
@@ -1174,6 +1174,9 @@ class JsonReceiptPreparationStore {
       const timestamp = new Date().toISOString();
       const updated = {
         ...existing,
+        recloudServiceOrderNo:
+          normalizeRequired(input.serviceOrderNo)
+          || normalizeRequired(existing.recloudServiceOrderNo),
         recloudServiceOrderSyncStatus: "CONFIRMED",
         recloudServiceOrderCreatedAt: timestamp,
         recloudServiceOrderLastError: null,
@@ -1222,19 +1225,88 @@ class JsonReceiptPreparationStore {
       const existing = records.find((record) => record.rmaNo === rmaNo);
       if (!existing) throw Object.assign(new Error("未找到待维修工单"), { code: "RECEIPT_PREPARATION_NOT_FOUND", status: 404 });
       const timestamp = new Date().toISOString();
+      const missingParts = (Array.isArray(input.missingParts) ? input.missingParts : [])
+        .map((part) => ({
+          partCode: normalizeRequired(part?.partCode),
+          partName: normalizeRequired(part?.partName),
+          quantity: Number(part?.quantity || 0),
+          reason: normalizeRequired(part?.reason) || "瑞云库存不足",
+        }))
+        .filter((part) => part.partCode && part.quantity > 0);
+      const hasShortage = missingParts.length > 0;
       const updated = {
         ...existing,
         recloudRepairPreparation: {
           ...(existing.recloudRepairPreparation || {}),
-          status: "CONFIRMED",
+          assignee:
+            normalizeRequired(input.assignee)
+            || normalizeRequired(existing.recloudRepairPreparation?.assignee),
+          assignmentSource:
+            normalizeRequired(input.assignmentSource)
+            || normalizeRequired(existing.recloudRepairPreparation?.assignmentSource),
+          status: hasShortage ? "PARTS_SHORTAGE" : "CONFIRMED",
           completedAt: timestamp,
           completedSteps: Array.isArray(input.completedSteps) ? input.completedSteps : [],
+          missingParts,
+          failedAt: "",
+          lastError: null,
         },
+        partsShortage: hasShortage ? {
+          status: "PENDING_INFORMATION",
+          parts: missingParts,
+          detectedAt: existing.partsShortage?.detectedAt || timestamp,
+          updatedAt: timestamp,
+          resolvedAt: "",
+          resolvedBy: null,
+        } : existing.partsShortage || null,
         updatedAt: timestamp,
         timeline: [
           ...(existing.timeline || []),
-          timelineEvent("RECLOUD_REPAIR_PREPARATION_CONFIRMED", "瑞云已完成改派、保外转保内确认和配件添加", operator, timestamp),
+          timelineEvent(
+            hasShortage ? "RECLOUD_PARTS_SHORTAGE" : "RECLOUD_REPAIR_PREPARATION_CONFIRMED",
+            hasShortage
+              ? `瑞云库存缺件：${missingParts.map((part) => `${part.partName || part.partCode}×${part.quantity}`).join("、")}`
+              : "瑞云已完成改派、保外转保内确认和配件添加",
+            operator,
+            timestamp
+          ),
         ],
+      };
+      await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
+  async markPartsShortagePending(rmaNo, missingParts = [], operator = {}) {
+    return this.markRecloudRepairPreparationConfirmed(rmaNo, {
+      missingParts,
+      completedSteps: ["PARTS_SHORTAGE_RECORDED", "COMPLETE_CLICKED", "SUBMIT_SKIPPED_FOR_PARTS_SHORTAGE"],
+    }, operator);
+  }
+
+  async resolvePartsShortage(rmaNo, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing) throw Object.assign(new Error("未找到缺件工单"), { code: "RECEIPT_PREPARATION_NOT_FOUND", status: 404 });
+      if (!existing.partsShortage || existing.partsShortage.status === "RESOLVED") return existing;
+      const timestamp = new Date().toISOString();
+      const updated = {
+        ...existing,
+        partsShortage: {
+          ...existing.partsShortage,
+          status: "RESOLVED",
+          resolvedAt: timestamp,
+          updatedAt: timestamp,
+          resolvedBy: {
+            userId: normalizeRequired(operator.userId),
+            displayName: normalizeRequired(operator.displayName),
+          },
+        },
+        updatedAt: timestamp,
+        timeline: [...(existing.timeline || []), timelineEvent("RECLOUD_PARTS_SHORTAGE_RESOLVED", "信息员已在瑞云补件并提交", operator, timestamp)],
       };
       await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
       return updated;
@@ -1463,6 +1535,7 @@ class JsonReceiptPreparationStore {
     const allowedStatuses = new Set(["REPAIR_COMPLETED_PENDING_SHIPMENT", "SHIPPED_PENDING_COMPLETION"]);
     return records.filter((record) => {
       if (!allowedStatuses.has(record.status)) return false;
+      if (record.partsShortage?.status === "PENDING_INFORMATION") return false;
       return [roles.ADMIN, roles.INFORMATION_CLERK].includes(user.role);
     });
   }
@@ -1590,6 +1663,9 @@ class JsonReceiptPreparationStore {
       }
       if (existing.status !== "REPAIR_COMPLETED_PENDING_SHIPMENT") {
         throw Object.assign(new Error("仅维修完成待发货工单可以返件发货"), { code: "RETURN_SHIPMENT_NOT_ALLOWED", status: 409 });
+      }
+      if (existing.partsShortage?.status === "PENDING_INFORMATION") {
+        throw Object.assign(new Error("瑞云缺件尚未由信息员补录并提交，不能进入返件发货"), { code: "PARTS_SHORTAGE_PENDING", status: 409 });
       }
       const logisticsCompany = normalizeRequired(input.logisticsCompany);
       const trackingNo = normalizeRequired(input.trackingNo).toUpperCase();

@@ -9,9 +9,11 @@ const {
   createPhoneResponseListener,
   ensureScanPage,
   enterRmaQuery,
+  extractRepairServiceOrderCandidates,
   findRevealedPhone,
   findFeedbackPhoneRevealButton,
   getSelectAllShortcut,
+  hasVisibleReceiptAction,
   isRecloudLoginPage,
   isRevealPhoneEnabled,
   parseRmaDateTime,
@@ -22,6 +24,22 @@ const {
   selectCellByHeaderCoordinate,
   waitForRmaDetail,
 } = require("../connectors/recloud");
+
+test("extracts one exact FWD repair service order without unrelated order numbers", () => {
+  assert.deepEqual(
+    extractRepairServiceOrderCandidates("寄修单 JXTH202609031984 服务单 FWD2026090505706 FWD2026090505706"),
+    ["FWD2026090505706"]
+  );
+  assert.deepEqual(extractRepairServiceOrderCandidates("尚未生成维修服务单"), []);
+});
+
+test("receipt action detection distinguishes an absent button from a visible signing action", async () => {
+  const pageWithCount = (count) => ({
+    locator: () => ({ filter: () => ({ count: async () => count }) }),
+  });
+  assert.equal(await hasVisibleReceiptAction(pageWithCount(0)), false);
+  assert.equal(await hasVisibleReceiptAction(pageWithCount(1)), true);
+});
 const {
   RecloudQueryError,
   extractRmaNoFromTitle,

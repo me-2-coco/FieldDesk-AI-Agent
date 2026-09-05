@@ -34,7 +34,11 @@ const { JsonRecloudSyncDiagnosticsStore } = require("./database/recloud-sync-dia
 const { JsonRecloudRepairCheckpointStore } = require("./database/recloud-repair-checkpoint-store");
 const { JsonRecloudFaultCatalogStore } = require("./database/recloud-fault-catalog-store");
 const { RecloudSyncDiagnosticsService } = require("./services/recloud-sync-diagnostics-service");
-const { FeishuModelCatalog, getSnProjectMatch } = require("./connectors/feishu-model-catalog");
+const {
+  FeishuModelCatalog,
+  getSnProjectMatch,
+  projectCodeMatches,
+} = require("./connectors/feishu-model-catalog");
 const { FeishuPartsCatalog } = require("./connectors/feishu-parts-catalog");
 const { evaluateWarranty } = require("./services/warranty-policy");
 const localFaultMappings = require("./knowledge/fault_mapping.json").mappings || {};
@@ -73,6 +77,17 @@ const { hasBusinessRole, isBusinessRuleExempt } = require("./config/business-acc
 
 const SUPPORTED_REPAIR_SPECIALTIES = Object.freeze(["扫地机", "洗地机"]);
 const ACCOUNT_SESSION_COOKIE = "fielddesk_session";
+
+function resolvePersistedProjectAuthorization(modelAuthorization, currentProjectCode) {
+  if (!modelAuthorization?.projectCode || !currentProjectCode) return null;
+  return {
+    ...modelAuthorization,
+    status: projectCodeMatches(currentProjectCode, modelAuthorization.projectCode)
+      ? "MATCHED"
+      : "CHANGE_REQUIRED",
+    currentProjectCode,
+  };
+}
 
 function readCookie(req, name) {
   const encodedName = `${encodeURIComponent(name)}=`;
@@ -169,6 +184,10 @@ function isDryRun(env = process.env) {
 
 function isRecloudWriteEnabled(env = process.env) {
   return String(env.RECLOUD_WRITE_ENABLED ?? "false").toLowerCase() === "true";
+}
+
+function isRecloudCompletionWriteEnabled(env = process.env) {
+  return String(env.RECLOUD_COMPLETION_WRITE_ENABLED ?? "false").toLowerCase() === "true";
 }
 
 function isRecloudReceiptWriteEnabled(env = process.env) {
@@ -429,7 +448,7 @@ function createApp(
       ? createRecloudCommandExecutor({
           repairAdapterProvider: options.recloudRepairAdapterProvider,
           checkpointStore: options.recloudRepairCheckpointStore || new JsonRecloudRepairCheckpointStore(),
-          writeEnabled: !isDryRun(runtimeEnv) && isRecloudWriteEnabled(runtimeEnv),
+          writeEnabled: isRecloudCompletionWriteEnabled(runtimeEnv) || (!isDryRun(runtimeEnv) && isRecloudWriteEnabled(runtimeEnv)),
           submitReadyTimeoutMs: Number(runtimeEnv.RECLOUD_REPAIR_SUBMIT_READY_TIMEOUT_MS || 30_000),
           submitReadyPollIntervalMs: Number(runtimeEnv.RECLOUD_REPAIR_SUBMIT_READY_POLL_MS || 500),
         })
@@ -440,8 +459,21 @@ function createApp(
     options.recloudAdapter || createRecloudAdapter(runtimeEnv, {
       readinessProvider: syncDiagnostics,
       commandExecutor: recloudCommandExecutor,
-    })
+    }),
+    {
+      onRepairPartsShortage: async (task, result) => {
+        await receiptStore.markPartsShortagePending?.(task.rmaNo, result.missingParts || [], {
+          userId: "SYSTEM",
+          displayName: "FieldDesk 后台",
+        });
+      },
+    }
   );
+  if (typeof syncService.resumePendingTasks === "function") {
+    syncService.resumePendingTasks().catch((error) => {
+      console.error(`RECLOUD_SYNC_RESUME: failed ${error.code || "UNKNOWN"}`);
+    });
+  }
   const feishuModelCatalog = options.feishuModelCatalog || new FeishuModelCatalog({ env: runtimeEnv });
   const feishuPartsCatalog = options.feishuPartsCatalog || new FeishuPartsCatalog({ env: runtimeEnv });
   const faultCatalogStore = options.faultCatalogStore || new JsonRecloudFaultCatalogStore(options.faultCatalogFile);
@@ -450,7 +482,9 @@ function createApp(
   const app = express();
   const operationalLogger = options.operationalLogger || new RotatingJsonLogger({ directory: runtimeEnv.LOG_DIRECTORY, maxBytes: runtimeEnv.LOG_MAX_BYTES, retention: runtimeEnv.LOG_RETENTION_FILES });
   app.set("trust proxy", runtimeConfig.trustProxy);
-  app.use(express.json({ limit: runtimeEnv.REQUEST_BODY_LIMIT || "40mb" }));
+  // Attachments are sent one file per request as base64. A 100MB binary file
+  // expands to roughly 134MB in JSON, so leave enough headroom for the body.
+  app.use(express.json({ limit: runtimeEnv.REQUEST_BODY_LIMIT || "140mb" }));
   app.use(securityHeaders);
   app.use(createRateLimiter({ limit: Number(runtimeEnv.API_RATE_LIMIT_PER_MINUTE || 120) }));
   app.use("/api/auth", createRateLimiter({ windowMs: 15 * 60_000, limit: Number(runtimeEnv.LOGIN_RATE_LIMIT_PER_15_MINUTES || 10), code: "LOGIN_RATE_LIMITED" }));
@@ -632,13 +666,21 @@ function createApp(
           if (receiptNeedsSync) {
             try {
               const receiptState = classifyRecloudReceiptState(detail);
-              const receiptTarget = typeof connector.findMappedReceiptControl === "function"
+              // The page action is authoritative: some already-signed RMA
+              // details do not expose a stable status field to the parser. Do
+              // not enter the complex row mapper unless an actual “签收”
+              // action is visible; otherwise skip signing and continue project
+              // verification plus attachment upload.
+              const hasReceiptAction = typeof connector.hasVisibleReceiptAction === "function"
+                ? await connector.hasVisibleReceiptAction(page)
+                : receiptState.receiptRequired === true;
+              const receiptTarget = hasReceiptAction && typeof connector.findMappedReceiptControl === "function"
                 ? await connector.findMappedReceiptControl(page, {
                     logisticsNo: order.logisticsNo,
                     productLine: detail.productLine || detail.productType || order.productLine,
                     rowIndex: 1,
                   })
-                : receiptState.receiptRequired === true
+                : hasReceiptAction
                   ? { entry: null }
                   : null;
               if (!receiptTarget) {
@@ -723,9 +765,19 @@ function createApp(
               );
             }
             const currentProjectCode = detail.projectCode || productIdentity?.projectCode || "";
-            const projectAuthorization = typeof feishuModelCatalog.authorize === "function"
-              ? await feishuModelCatalog.authorize({ sn: order.sn, currentProjectCode })
-              : order.modelAuthorization;
+            // The SN was already authorized before the technician could finish
+            // FieldDesk receipt preparation. Reuse that persisted result when
+            // comparing the live Recloud project code. A second Feishu request
+            // here can stall an otherwise completed receipt and prevent its
+            // attachments from ever reaching the upload stage.
+            const cachedProjectAuthorization = resolvePersistedProjectAuthorization(
+              order.modelAuthorization,
+              currentProjectCode
+            );
+            const projectAuthorization = cachedProjectAuthorization
+              || (typeof feishuModelCatalog.authorize === "function"
+                ? await feishuModelCatalog.authorize({ sn: order.sn, currentProjectCode })
+                : order.modelAuthorization);
             if (projectAuthorization?.status === "CHANGE_REQUIRED") {
               if (typeof connector.correctRmaProjectModel !== "function") {
                 throw createApiError("RECLOUD_PROJECT_CORRECTION_UNAVAILABLE", "瑞云项目号需要修改，但修改功能不可用", 503);
@@ -900,13 +952,16 @@ function createApp(
             throw createApiError("RECLOUD_SERVICE_ORDER_NOT_CREATED", "瑞云未确认创建维修服务单", 502);
           }
           serviceOrderCreated = true;
-          await receiptStore.markRecloudServiceOrderConfirmed(rmaNo, operator);
+          await receiptStore.markRecloudServiceOrderConfirmed(rmaNo, operator, {
+            serviceOrderNo: result.serviceOrderNo,
+          });
           if (!options.recloudRepairPageAdapterFactory) {
             throw createApiError("RECLOUD_FIRST_ENTRY_ADAPTER_REQUIRED", "缺少首次进入服务单执行器，禁止退出后重新进入补改派", 502);
           }
           const adapter = options.recloudRepairPageAdapterFactory(page, {
             rmaNo,
             logisticsNo: order.logisticsNo,
+            sn: order.sn,
             payload: order.recloudRepairPreparation,
           });
           preparationResult = await orchestrateRepairStart({
@@ -920,7 +975,7 @@ function createApp(
         if (!liveResult?.serviceOrderCreated) {
           throw createApiError("RECLOUD_SERVICE_ORDER_NOT_CREATED", "瑞云未确认创建维修服务单", 502);
         }
-        if (preparationResult?.status !== "SUCCESS") {
+        if (!["SUCCESS", "PARTS_SHORTAGE"].includes(preparationResult?.status)) {
           throw createApiError("RECLOUD_REPAIR_PREPARATION_NOT_CONFIRMED", "瑞云改派、保外转保内或配件未全部确认", 502);
         }
         await receiptStore.markRecloudRepairPreparationConfirmed?.(rmaNo, preparationResult, operator);
@@ -956,6 +1011,7 @@ function createApp(
       receiptWriteEnabled: isRecloudReceiptWriteEnabled(runtimeEnv),
       inspectionWriteEnabled: isRecloudInspectionWriteEnabled(runtimeEnv),
       holdWriteEnabled: isRecloudHoldWriteEnabled(runtimeEnv),
+      completionWriteEnabled: isRecloudCompletionWriteEnabled(runtimeEnv),
     });
   });
 
@@ -3452,7 +3508,24 @@ function createApp(
   app.get("/api/repairs/local-orders", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      res.json({ success: true, data: await receiptStore.listOrdersForUser(user, USER_ROLES) });
+      const orders = await receiptStore.listOrdersForUser(user, USER_ROLES);
+      // Opening the FieldDesk workbench also heals a receipt whose Recloud
+      // sign action completed but whose background attachment phase was
+      // interrupted (for example by a stalled lookup or service restart).
+      // The uploader is filename-idempotent and the active set prevents
+      // duplicate concurrent work.
+      for (const order of orders) {
+        if (
+          order.recloudReceiptConfirmedAt
+          && Array.isArray(order.receiptAttachments)
+          && order.receiptAttachments.length > 0
+          && !order.recloudReceiptAttachmentConfirmedAt
+          && order.recloudReceiptAttachmentSyncStatus !== "RESULT_UNKNOWN"
+        ) {
+          scheduleRecloudReceiptSync(order, user, crypto.randomUUID());
+        }
+      }
+      res.json({ success: true, data: orders });
     } catch (error) { next(error); }
   });
 
@@ -3634,6 +3707,19 @@ function createApp(
     } catch (error) { next(error); }
   });
 
+  app.post("/api/information/parts-shortages/resolve", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      if (!hasBusinessRole(user, USER_ROLES.INFORMATION_CLERK, USER_ROLES.ADMIN)) {
+        throw createApiError("PARTS_SHORTAGE_RESOLVE_FORBIDDEN", "只有信息员或管理员可以确认瑞云缺件已补录并提交", 403);
+      }
+      const rmaNo = String(req.body?.rmaNo || "").trim();
+      if (!rmaNo) throw createApiError("PARTS_SHORTAGE_RMA_REQUIRED", "缺少寄修单号", 400);
+      const data = await receiptStore.resolvePartsShortage(rmaNo, user);
+      res.json({ success: true, data: { ...data, message: "缺件待办已完成，可以继续返件流程" } });
+    } catch (error) { next(error); }
+  });
+
   app.get("/api/information/repair-reports/:rmaNo", async (req, res, next) => {
     try {
       assertInformationReportAccess(currentUserProvider(req));
@@ -3696,6 +3782,15 @@ function createApp(
 
   app.use((error, req, res, next) => {
     if (res.headersSent) return next(error);
+    if (error?.type === "entity.too.large" || Number(error?.status) === 413) {
+      operationalLogger.write("error", { requestId: res.getHeader("X-Request-Id"), method: req.method, path: req.path, code: "REQUEST_BODY_TOO_LARGE", status: 413 });
+      return res.status(413).json({
+        success: false,
+        code: "REQUEST_BODY_TOO_LARGE",
+        message: "视频或照片超过 FieldDesk 单文件100MB限制；大视频请等待自动压缩后再上传",
+        missingFields: [],
+      });
+    }
     const loginRequired = error.code === "RECLOUD_LOGIN_REQUIRED";
     const errors = {
       RECLOUD_LOGIN_REQUIRED: {
@@ -3964,6 +4059,37 @@ if (require.main === module) {
     pendingReceiptStore,
     rmaQueryCacheStore,
     recloudRepairPageAdapterFactory: createRecloudRepairPageAdapter,
+    recloudRepairAdapterProvider: {
+      run: (task, work) => withRecloud(recloudConnector, async (page) => {
+        const operationStartedAt = Date.now();
+        const opened = await recloudConnector.openExistingRepairServiceOrder(page, {
+          rmaNo: task.rmaNo,
+          logisticsNo: task.logisticsNo,
+          serviceOrderNo: task.payload?.serviceOrderNo,
+        });
+        console.info(
+          `RECLOUD_REPAIR_TIMING: rma=${task.rmaNo} phase=open_service_order ms=${Date.now() - operationStartedAt} direct=${Boolean(task.payload?.serviceOrderNo)} alreadyOpen=${opened.alreadyOpen === true}`
+        );
+        const pageText = String(await page.locator("body").innerText().catch(() => ""));
+        if (!pageText.includes(String(task.rmaNo || ""))) {
+          const error = new Error("瑞云当前页面不是待完工的对应服务单");
+          error.code = "RECLOUD_REPAIR_ORDER_MISMATCH";
+          error.permanent = true;
+          throw error;
+        }
+        const workStartedAt = Date.now();
+        const result = await work(createRecloudRepairPageAdapter(page, {
+          rmaNo: task.rmaNo,
+          logisticsNo: task.logisticsNo,
+          sn: task.sn,
+          payload: task.payload,
+        }));
+        console.info(
+          `RECLOUD_REPAIR_TIMING: rma=${task.rmaNo} phase=complete_work ms=${Date.now() - workStartedAt} totalMs=${Date.now() - operationStartedAt}`
+        );
+        return result;
+      }, { background: true }),
+    },
   });
   const tlsOptions = loadTlsOptions(runtimeConfig);
   const server = tlsOptions ? https.createServer(tlsOptions, app) : http.createServer(app);
@@ -4011,6 +4137,7 @@ module.exports = {
   withRecloud,
   isDryRun,
   isRecloudWriteEnabled,
+  isRecloudCompletionWriteEnabled,
   isRecloudReceiptWriteEnabled,
   initializeRecloudSession,
   monitorEnabled,
@@ -4019,5 +4146,6 @@ module.exports = {
   getAllowedRepairSpecialties,
   getOutOfWarrantyFeePolicy,
   resolveReceiptSpecialty,
+  resolvePersistedProjectAuthorization,
   validateReceiptSn,
 };

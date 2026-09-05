@@ -62,6 +62,27 @@ test("command executor remains read-only unless real writes are explicitly enabl
   assert.deepEqual(calls, ["read"]);
 });
 
+test("command executor can keep the Recloud page lock for the full completion run", async () => {
+  const calls = [];
+  const adapter = remoteAdapter(calls);
+  const executor = createRecloudCommandExecutor({
+    writeEnabled: true,
+    repairAdapterProvider: {
+      async run(received, work) {
+        calls.push(`run:${received.rmaNo}`);
+        return work(adapter);
+      },
+    },
+  });
+  assert.equal(executor.isReady("repair"), true);
+  const result = await executor.syncRepairCompleted(task);
+  assert.equal(result.status, "SUCCESS");
+  assert.deepEqual(calls, [
+    "run:JXTH900001234", "read", "fields", "verify-fields", "read",
+    "complete", "wait", "submit:true",
+  ]);
+});
+
 test("command executor fails closed when the page adapter is not configured", async () => {
   const executor = createRecloudCommandExecutor({ writeEnabled: true });
   await assert.rejects(executor.syncRepairCompleted(task), {

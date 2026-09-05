@@ -53,6 +53,9 @@ test("完工页按处理方式显示质保标签，并使用紧凑收费卡片",
   assert.match(source, /logisticsChargeMode !== "WAIVED"/);
   assert.match(source, /if \(nextMode === "WAIVED"\) setOneWayLogisticsFee\(""\)/);
   assert.match(source, /选择全免后无需填写/);
+  assert.match(source, /needsVideoCompression/);
+  assert.match(source, /正在压缩视频/);
+  assert.match(source, /MAX_VIDEO_UPLOAD_BYTES/);
 });
 
 async function fixture(t) {

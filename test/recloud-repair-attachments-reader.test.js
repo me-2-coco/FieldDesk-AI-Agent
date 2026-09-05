@@ -22,10 +22,14 @@ test("repair attachment reader extracts only supported file cards", () => {
     "video.mp4",
     "24.11M |",
     "下载",
+    "compressed.webm",
+    "88.00M |",
+    "下载",
   ].join("\n"));
   assert.deepEqual(parsed.map((item) => [item.fileName, item.mimeType]), [
     ["finish.JPG", "image/jpeg"],
     ["video.mp4", "video/mp4"],
+    ["compressed.webm", "video/webm"],
   ]);
   assert.ok(parsed.every((item) => item.size > 0));
 });

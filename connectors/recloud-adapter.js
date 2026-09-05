@@ -49,6 +49,7 @@ class RealRecloudAdapter extends RecloudAdapter {
   }
 
   async assertReady(nodeKey) {
+    if (this.commandExecutor?.isReady?.(nodeKey) === true) return { status: "READY", source: "LIVE_EXECUTOR" };
     const diagnostic = await this.readinessProvider?.inspect?.(nodeKey);
     if (!diagnostic || diagnostic.status !== "READY") {
       throw Object.assign(new Error("瑞云同步节点诊断尚未完成"), {
@@ -84,7 +85,15 @@ class RealRecloudAdapter extends RecloudAdapter {
 function createRecloudAdapter(env = process.env, options = {}) {
   const dryRun = String(env.DRY_RUN || "true").toLowerCase() !== "false";
   const writeEnabled = String(env.RECLOUD_WRITE_ENABLED || "false").toLowerCase() === "true";
-  return dryRun || !writeEnabled ? new DryRunRecloudAdapter() : new RealRecloudAdapter(options);
+  const completionWriteEnabled = String(env.RECLOUD_COMPLETION_WRITE_ENABLED || "false").toLowerCase() === "true";
+  if (!dryRun && writeEnabled) return new RealRecloudAdapter(options);
+  if (completionWriteEnabled) {
+    const dry = new DryRunRecloudAdapter();
+    const real = new RealRecloudAdapter(options);
+    dry.syncRepairCompleted = (task) => real.syncRepairCompleted(task);
+    return dry;
+  }
+  return new DryRunRecloudAdapter();
 }
 
 module.exports = { RecloudAdapter, DryRunRecloudAdapter, RealRecloudAdapter, createRecloudAdapter };

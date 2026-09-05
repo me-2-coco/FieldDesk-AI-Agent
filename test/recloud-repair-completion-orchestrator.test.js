@@ -23,6 +23,7 @@ function remoteAdapter(initial = {}) {
   return {
     calls,
     async readRemoteState() { calls.push("read"); return { assignee, parts: [...parts], attachments: [...attachments] }; },
+    async readRemoteAttachments() { calls.push("read-attachments"); return [...attachments]; },
     async assignResponsible(plan) {
       calls.push(`assign:${plan.servicePerson}:${plan.action}:${plan.forbiddenAction}`);
       assignee = plan.servicePerson;
@@ -70,8 +71,8 @@ test("repair orchestrator clicks complete and stops immediately after final subm
   assert.equal(result.stoppedImmediatelyAfterSubmit, true);
   assert.equal(result.postSubmitActions, 0);
   assert.deepEqual(adapter.calls, [
-    "read", "fields", "verify-fields", "read",
-    "attachments:附件:附件（检测报告）", "read", "complete", "wait-submit-ready",
+    "read", "fields", "verify-fields", "read-attachments",
+    "attachments:附件:附件（检测报告）", "read-attachments", "complete", "wait-submit-ready",
     "submit:内部维修单自动审批（成都欣益）:提交:true",
   ]);
   assert.equal(checkpoints.at(-1).status, "SUCCESS");
@@ -96,13 +97,70 @@ test("repair orchestrator never retries assignment from the completion stage", a
   assert.equal(adapter.calls.some((call) => call.startsWith("parts:")), false);
 });
 
-test("repair orchestrator blocks completion when first-entry preparation was not confirmed", async () => {
+test("repair orchestrator reconciles an unconfirmed first-entry record from matching remote state", async () => {
   const adapter = remoteAdapter({ assignee: "唐张帅", parts: PAYLOAD.usedParts });
+  const result = await orchestrateRepairCompletion("ORDER-1", PAYLOAD, adapter, { writeEnabled: true });
+  assert.equal(result.status, "SUCCESS");
+  assert.ok(adapter.calls.some((call) => call.startsWith("submit:")));
+});
+
+test("repair orchestrator still blocks when an unconfirmed first-entry record differs remotely", async () => {
+  const adapter = remoteAdapter({ assignee: "其他师傅", parts: PAYLOAD.usedParts });
   await assert.rejects(
     orchestrateRepairCompletion("ORDER-1", PAYLOAD, adapter, { writeEnabled: true }),
-    { code: "RECLOUD_REPAIR_PREPARATION_REQUIRED", phase: "PREPARATION_VERIFY" }
+    { code: "RECLOUD_REPAIR_PREPARATION_ASSIGNEE_MISMATCH", phase: "PREPARATION_VERIFY" }
   );
   assert.deepEqual(adapter.calls, ["read"]);
+});
+
+test("repair orchestrator reports missing preparation parts distinctly", async () => {
+  const missingAdapter = remoteAdapter({ assignee: "唐张帅", parts: [] });
+  await assert.rejects(
+    orchestrateRepairCompletion("ORDER-MISSING", PAYLOAD, missingAdapter, { writeEnabled: true }),
+    { code: "RECLOUD_REPAIR_PREPARATION_PARTS_MISSING", phase: "PREPARATION_VERIFY" }
+  );
+});
+
+test("repair orchestrator recovers only missing parts for an explicitly failed preparation", async () => {
+  const adapter = remoteAdapter({ assignee: "唐张帅", parts: [] });
+  const result = await orchestrateRepairCompletion("ORDER-RECOVERY", PAYLOAD, adapter, {
+    writeEnabled: true,
+    allowPreparationRecovery: true,
+  });
+  assert.equal(result.status, "SUCCESS");
+  assert.equal(adapter.calls.some((call) => call.startsWith("assign:")), false);
+  assert.equal(adapter.calls.some((call) => call.startsWith("parts:")), true);
+  assert.equal(adapter.calls.some((call) => call.startsWith("submit:")), true);
+});
+
+test("repair orchestrator skips only an explicitly authorized missing part code", async () => {
+  const adapter = remoteAdapter({ assignee: "唐张帅", parts: [] });
+  const result = await orchestrateRepairCompletion("ORDER-AUTHORIZED-SKIP", PAYLOAD, adapter, {
+    writeEnabled: true,
+    authorizedSkippedPartCodes: ["PART-1"],
+  });
+  assert.equal(result.status, "SUCCESS");
+  assert.equal(result.completedSteps.includes("PARTS_VERIFIED_WITH_AUTHORIZED_SKIP"), true);
+  assert.equal(adapter.calls.some((call) => call.startsWith("parts:")), false);
+  assert.equal(adapter.calls.some((call) => call.startsWith("submit:")), true);
+});
+
+test("parts shortage confirms completion but never touches submit", async () => {
+  const adapter = remoteAdapter({ assignee: "唐张帅", parts: [] });
+  const missingParts = [{ ...PAYLOAD.usedParts[0], reason: "瑞云库存不足" }];
+  const result = await orchestrateRepairCompletion("ORDER-SHORTAGE", PAYLOAD, adapter, {
+    writeEnabled: true,
+    preparationCompleted: true,
+    missingParts,
+  });
+  assert.equal(result.status, "AWAITING_PARTS");
+  assert.equal(result.completeClicked, true);
+  assert.equal(result.finalConfirmClicked, false);
+  assert.equal(result.stoppedBeforeSubmit, true);
+  assert.deepEqual(result.missingParts, missingParts);
+  assert.equal(adapter.calls.includes("complete"), true);
+  assert.equal(adapter.calls.includes("wait-submit-ready"), false);
+  assert.equal(adapter.calls.some((call) => call.startsWith("submit:")), false);
 });
 
 test("repair orchestrator never submits when Recloud does not become submit-ready", async () => {

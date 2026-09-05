@@ -31,6 +31,15 @@ function detectOrderExceptions(order, options = {}) {
   const stalledAfterMs = Number(options.stalledAfterMs || 24 * 60 * 60 * 1000);
   const missingAttachmentIds = new Set(options.missingAttachmentIds || []);
   const exceptions = [];
+  if (order.partsShortage?.status === "PENDING_INFORMATION") {
+    const missingParts = Array.isArray(order.partsShortage.parts) ? order.partsShortage.parts : [];
+    const summary = missingParts.map((part) => `${part.partName || part.partCode}（${part.partCode}）×${Number(part.quantity || 0)}`).join("、");
+    exceptions.push({
+      ...baseException(order, "PARTS_SHORTAGE_PENDING", "HIGH", `瑞云库存缺件，已完工但未提交：${summary || "配件明细待确认"}`),
+      missingParts,
+      detectedAt: order.partsShortage.detectedAt || order.updatedAt || "",
+    });
+  }
   if (order.recloudReceiptSyncStatus === "RESULT_UNKNOWN") {
     exceptions.push(baseException(
       order,

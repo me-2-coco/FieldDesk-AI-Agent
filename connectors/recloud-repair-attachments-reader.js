@@ -1,6 +1,6 @@
 const path = require("path");
 
-const ATTACHMENT_NAME_PATTERN = /\.(?:jpe?g|png|webp|heic|mp4|mov|avi)$/i;
+const ATTACHMENT_NAME_PATTERN = /\.(?:jpe?g|png|webp|heic|mp4|mov|avi|webm)$/i;
 
 function parseDisplayedSize(value) {
   const match = String(value || "").trim().match(/^(\d+(?:\.\d+)?)\s*([KMGT]?)(?:I?B)?(?:\s*\|)?$/i);
@@ -14,7 +14,7 @@ function mimeTypeFromName(fileName) {
   return {
     ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
     ".webp": "image/webp", ".heic": "image/heic", ".mp4": "video/mp4",
-    ".mov": "video/quicktime", ".avi": "video/x-msvideo",
+    ".mov": "video/quicktime", ".avi": "video/x-msvideo", ".webm": "video/webm",
   }[extension] || "";
 }
 

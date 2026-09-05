@@ -10,6 +10,7 @@ const {
 const {
   createApp,
   normalizeMaskedPhone,
+  resolvePersistedProjectAuthorization,
   resolveReceiptSpecialty,
 } = require("../server");
 
@@ -835,6 +836,18 @@ test("receipt attachment sync reads project code from the SN-bound product row w
     return current?.recloudReceiptAttachmentSyncStatus;
   }, "CONFIRMED");
   assert.equal(uploaded, 1);
+});
+
+test("receipt attachment sync can compare Recloud with the persisted SN authorization", () => {
+  const authorization = resolvePersistedProjectAuthorization({
+    status: "SN_AUTHORIZED",
+    repairability: "SUPPORTED",
+    canContinue: true,
+    projectCode: "W2422",
+    productModelCode: "011101AA000087",
+  }, "H20 Ultra 旋锋版（W2422）");
+  assert.equal(authorization.status, "MATCHED");
+  assert.equal(authorization.currentProjectCode, "H20 Ultra 旋锋版（W2422）");
 });
 
 test("detection-stage Recloud order skips receipt but still corrects project and uploads attachments", async (t) => {

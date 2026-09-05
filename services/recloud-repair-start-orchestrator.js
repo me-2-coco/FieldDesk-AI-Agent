@@ -73,15 +73,30 @@ async function orchestrateRepairStart(payload, adapter, options = {}) {
       throw startError("缺少配件新增执行器", "RECLOUD_REPAIR_PART_WRITE_ADAPTER_INVALID", "PARTS");
     }
     assertRecloudOperationAllowed({ action: "直接输入编码", target: RECLOUD_WORK_ORDER_OPERATION_POLICY.partEntryTarget });
-    await adapter.addParts(partsPlan.additions, {
+    const addResult = await adapter.addParts(partsPlan.additions, {
       entryMode: RECLOUD_WORK_ORDER_OPERATION_POLICY.partEntryMode,
       target: RECLOUD_WORK_ORDER_OPERATION_POLICY.partEntryTarget,
       forbiddenAction: RECLOUD_WORK_ORDER_OPERATION_POLICY.forbiddenPartLookup,
     });
     remote = await adapter.readRemoteState();
     partsPlan = buildRecloudRepairPartsPlan(payload.usedParts, remote.parts);
-    if (!partsPlan.readyToAdd || partsPlan.additions.length) {
+    const reportedMissingParts = Array.isArray(addResult?.missingParts) ? addResult.missingParts : [];
+    const missingCodes = new Set(reportedMissingParts.map((part) => String(part.partCode || "").trim().toUpperCase()));
+    const onlyReportedShortagesRemain = partsPlan.additions.length > 0
+      && partsPlan.additions.every((part) => missingCodes.has(String(part.partCode || "").trim().toUpperCase()));
+    if (!partsPlan.readyToAdd || (partsPlan.additions.length && !onlyReportedShortagesRemain)) {
       throw startError("配件新增后远端复核失败", "RECLOUD_REPAIR_PART_POSTVERIFY_FAILED", "PARTS");
+    }
+    if (onlyReportedShortagesRemain) {
+      return {
+        status: "PARTS_SHORTAGE",
+        assignee: assignmentPlan.servicePerson,
+        assignmentSource: payload.assignmentSource || "",
+        warrantyConversionRequested: payload.warrantyConversionRequested === true,
+        partsVerified: false,
+        missingParts: reportedMissingParts,
+        completedSteps: ["ASSIGNEE_VERIFIED", "WARRANTY_CONVERSION_CONFIRMED", "PARTS_SHORTAGE_RECORDED"],
+      };
     }
   }
 

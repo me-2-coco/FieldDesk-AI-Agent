@@ -31,6 +31,7 @@ async function outboxFixture(t) {
 
 const ORDER = {
   id: "LOCAL-WORK-1", rmaNo: "RMA-MOCK-1", logisticsNo: "LOGISTICS-MOCK-1", sn: "SN-MOCK-1",
+  recloudServiceOrderNo: "FWD202609050001",
   remark: "洗地机", specialty: "洗地机", productLine: "洗地机",
   reportedFault: "用户反馈机器无法正常出水",
   receiptCompletedAt: "2026-08-03T01:00:00.000Z",
@@ -144,6 +145,29 @@ test("repair sync keeps dry-run ready and awaiting-confirm distinct from success
   assert.equal(awaiting.status, TASK_STATUS.AWAITING_FINAL_CONFIRM);
   assert.deepEqual(awaiting.completedSteps, ["PARTS_VERIFIED", "FIELDS_VERIFIED", "ATTACHMENTS_VERIFIED"]);
   assert.notEqual(awaiting.status, TASK_STATUS.SUCCESS);
+});
+
+test("parts-shortage completion stops before submit and notifies the information workflow", async (t) => {
+  const outbox = await outboxFixture(t);
+  const notices = [];
+  const service = new RecloudSyncService(outbox, {
+    async syncRepairCompleted() {
+      return {
+        status: "AWAITING_PARTS",
+        missingParts: [{ partCode: "P1", partName: "水泵", quantity: 1 }],
+        completedSteps: ["COMPLETE_CLICKED", "SUBMIT_SKIPPED_FOR_PARTS_SHORTAGE"],
+      };
+    },
+  }, {
+    scheduler: () => {},
+    onRepairPartsShortage: async (task, result) => notices.push({ task, result }),
+  });
+  const task = await service.enqueueOrderNode(ORDER, "REPAIR_COMPLETED", "SHORTAGE-RECORD");
+  const completed = await service.processTask(task.id);
+  assert.equal(completed.status, TASK_STATUS.SUCCESS);
+  assert.equal(completed.resultStatus, "AWAITING_PARTS");
+  assert.equal(completed.missingParts[0].partCode, "P1");
+  assert.equal(notices.length, 1);
 });
 
 test("repair manual review stores only safe conflict stage names", async (t) => {
@@ -375,7 +399,9 @@ test("receipt sync carries the exact project correction and repair always select
   assert.equal(receiptPlan.projectCorrection.action, "REPLACE");
   assert.equal(receiptPlan.projectCorrection.productModelCode, "010201AA000656");
   assert.equal(receiptPlan.canAutoConfirm, false);
-  const plan = buildRecloudRepairFormPlan(buildNodePayload(ORDER, "REPAIR_COMPLETED"));
+  const repairPayload = buildNodePayload(ORDER, "REPAIR_COMPLETED");
+  assert.equal(repairPayload.serviceOrderNo, "FWD202609050001");
+  const plan = buildRecloudRepairFormPlan(repairPayload);
   assert.equal(plan.safeWrites.find((field) => field.key === "troubleshooting").value, "否");
 });
 
@@ -400,6 +426,30 @@ test("adapter factory never selects real adapter when either safety switch block
   assert.ok(createRecloudAdapter({ DRY_RUN: "true", RECLOUD_WRITE_ENABLED: "true" }) instanceof DryRunRecloudAdapter);
   assert.ok(createRecloudAdapter({ DRY_RUN: "false", RECLOUD_WRITE_ENABLED: "false" }) instanceof DryRunRecloudAdapter);
   assert.ok(createRecloudAdapter({ DRY_RUN: "false", RECLOUD_WRITE_ENABLED: "true" }) instanceof RealRecloudAdapter);
+});
+
+test("completion-only switch keeps other Recloud nodes dry-run", async () => {
+  const calls = [];
+  const adapter = createRecloudAdapter({
+    DRY_RUN: "true",
+    RECLOUD_WRITE_ENABLED: "false",
+    RECLOUD_COMPLETION_WRITE_ENABLED: "true",
+  }, {
+    commandExecutor: {
+      isReady: (nodeKey) => nodeKey === "repair",
+      async syncRepairCompleted() { calls.push("repair"); return { status: "SUCCESS" }; },
+    },
+  });
+  const receipt = await adapter.syncReceipt({
+    nodeType: "RECEIPT",
+    idempotencyKey: "SCOPED-RECEIPT",
+    mappingVersion: MAPPING_VERSION,
+    payload: { sn: "W2458S53NCN7170529", remark: "洗地机", attachments: [{ id: "A" }] },
+  });
+  assert.equal(receipt.dryRun, true);
+  const repair = await adapter.syncRepairCompleted({ id: "SCOPED-REPAIR" });
+  assert.equal(repair.status, "SUCCESS");
+  assert.deepEqual(calls, ["repair"]);
 });
 
 test("real adapter blocks writes until the matching diagnostic node is ready", async () => {
@@ -465,6 +515,11 @@ test("real adapter still blocks a ready node when its command executor is absent
     retryable: false,
     safeCode: "RECLOUD_SYNC_COMMAND_NOT_IMPLEMENTED",
   });
+  assert.deepEqual(classifyError({ code: "RECLOUD_REPAIR_FAULT_ROW_AMBIGUOUS", phase: "FIELDS" }), {
+    category: "FIELDS",
+    retryable: true,
+    safeCode: "RECLOUD_REPAIR_FAULT_ROW_AMBIGUOUS",
+  });
 });
 
 test("failed tasks can be retried and permanent failures require manual review", async (t) => {
@@ -490,6 +545,24 @@ test("failed tasks can be retried and permanent failures require manual review",
   assert.equal(manual.status, TASK_STATUS.MANUAL_REVIEW);
   assert.equal(manual.lastError, "RECLOUD_SYNC_DIAGNOSTICS_NOT_READY");
   assert.equal(manual.errorCategory, "DIAGNOSTICS");
+});
+
+test("pending sync tasks resume after a backend restart", async (t) => {
+  const outbox = await outboxFixture(t);
+  const scheduled = [];
+  const service = new RecloudSyncService(outbox, new DryRunRecloudAdapter(), {
+    scheduler: (work) => scheduled.push(work),
+  });
+  await outbox.enqueue({
+    workOrderNo: ORDER.id,
+    rmaNo: ORDER.rmaNo,
+    nodeType: "RECEIPT",
+    localBusinessRecordId: "RESTART-1",
+    idempotencyKey: "RECEIPT:RESTART-1",
+    payload: buildNodePayload(ORDER, "RECEIPT"),
+  });
+  assert.equal(await service.resumePendingTasks(), 1);
+  assert.equal(scheduled.length, 1);
 });
 
 test("field mapping validates each node and state machine rejects invalid transitions", async (t) => {

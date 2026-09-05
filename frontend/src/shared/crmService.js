@@ -398,6 +398,10 @@ export async function getInformationExceptions() {
   return get("/api/information/exceptions", { timeoutMs: 10000 })
 }
 
+export async function resolveInformationPartsShortage(rmaNo) {
+  return request("/api/information/parts-shortages/resolve", { rmaNo })
+}
+
 export async function getInformationRepairReport(rmaNo) {
   return get(`/api/information/repair-reports/${encodeURIComponent(String(rmaNo || "").trim())}`, { timeoutMs: 3000 })
 }

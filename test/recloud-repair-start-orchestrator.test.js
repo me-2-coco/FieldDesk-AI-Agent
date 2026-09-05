@@ -53,6 +53,22 @@ test("repair click preparation dry-run never writes", async () => {
   assert.deepEqual(adapter.calls, ["assignee", "read"]);
 });
 
+test("repair preparation records explicit Recloud inventory shortage and continues", async () => {
+  const adapter = adapterFixture();
+  adapter.addParts = async (additions) => {
+    adapter.calls.push(`parts:${additions.length}`);
+    return { missingParts: additions.map((part) => ({ ...part, reason: "瑞云库存不足" })) };
+  };
+  const result = await orchestrateRepairStart({
+    assignee: "瑞云师傅",
+    warrantyConversionRequested: false,
+    usedParts: [{ partCode: "P-NO-STOCK", partName: "缺货配件", quantity: 1 }],
+  }, adapter, { writeEnabled: true });
+  assert.equal(result.status, "PARTS_SHORTAGE");
+  assert.equal(result.partsVerified, false);
+  assert.equal(result.missingParts[0].partCode, "P-NO-STOCK");
+});
+
 test("assignment finishes before any page-switching remote-state read", async () => {
   const adapter = adapterFixture();
   await orchestrateRepairStart({
@@ -65,4 +81,10 @@ test("repair assignment adapter never targets the dispatch action", () => {
   const source = fs.readFileSync(path.join(__dirname, "../connectors/recloud-repair-page-adapter.js"), "utf8");
   assert.doesNotMatch(source, /getByRole\([^\n]+name:\s*exactText\("派单"\)/);
   assert.match(source, /name:\s*exactText\("改派"\)/);
+  assert.match(source, /name:\s*exactText\("搜索"\)/);
+  assert.match(source, /locator\("\.common-span:visible"\)/);
+  assert.match(source, /name:\s*exactText\("确定"\)/);
+  assert.doesNotMatch(source, /if \(options\.requested !== true\) return/);
+  assert.match(source, /const choice = options\.requested === true \? "是" : "否"/);
+  assert.match(source, /filter\(\{ has: serialNumberCell \}\)/);
 });

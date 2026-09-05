@@ -53,6 +53,14 @@ async function waitForRemoteSubmitReady(adapter, options = {}) {
   );
 }
 
+async function readRemoteAttachments(adapter) {
+  if (typeof adapter.readRemoteAttachments === "function") {
+    return adapter.readRemoteAttachments();
+  }
+  const remote = await adapter.readRemoteState();
+  return remote.attachments || [];
+}
+
 function validateRemotePlans(formPlan, partsPlan, attachmentsPlan) {
   const reasons = [];
   if (!formPlan.readyToPrefill) reasons.push({ step: "FORM", reason: "MISSING_FIELDS", fields: formPlan.missingFields });
@@ -79,6 +87,18 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
   const formPlan = buildRecloudRepairFormPlan(payload);
   let partsPlan = buildRecloudRepairPartsPlan(payload.usedParts, remote.parts);
   let attachmentsPlan = buildRecloudRepairAttachmentsPlan(payload.attachments, remote.attachments);
+  const knownMissingParts = Array.isArray(options.missingParts) ? [...options.missingParts] : [];
+  const authorizedSkippedPartCodes = new Set(
+    [...(Array.isArray(options.authorizedSkippedPartCodes) ? options.authorizedSkippedPartCodes : []),
+      ...knownMissingParts.map((part) => part?.partCode)]
+      .map((value) => String(value || "").trim().toUpperCase())
+      .filter(Boolean)
+  );
+  const unapprovedMissingParts = () => partsPlan.additions.filter(
+    (part) => !authorizedSkippedPartCodes.has(String(part.partCode || "").trim().toUpperCase())
+  );
+  let skippedAuthorizedMissingParts = partsPlan.additions.length > 0
+    && unapprovedMissingParts().length === 0;
   const reviewReasons = validateRemotePlans(formPlan, partsPlan, attachmentsPlan);
   if (reviewReasons.length) {
     await saveCheckpoint(options.checkpointStore, {
@@ -111,14 +131,73 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
     };
   }
 
-  // 改派和配件只能在首次点击“维修”进入服务单时完成。完工任务可能在
-  // 服务单关闭后被重试，因此这里只允许复核，绝不重新改派或补加配件。
-  if (options.preparationCompleted !== true) {
-    throw orchestratorError(
-      "维修启动阶段尚未确认，禁止在完工阶段补改派或补加配件",
-      "RECLOUD_REPAIR_PREPARATION_REQUIRED",
-      "PREPARATION_VERIFY"
-    );
+  // 改派和配件只能在首次点击“维修”进入服务单时完成。若首次进入时
+  // FieldDesk 在最后的页面等待环节超时，但瑞云实际已保存成功，则允许
+  // 依据当前瑞云页面重新核对结果；这里只复核，绝不补改派或补加配件。
+  let preparationVerifiedByRemote = !assignmentRequired
+    && partsPlan.readyToAdd
+    && (partsPlan.additions.length === 0 || skippedAuthorizedMissingParts);
+  if (options.preparationCompleted !== true && !preparationVerifiedByRemote) {
+    if (assignmentRequired) {
+      throw orchestratorError(
+        "维修启动记录未确认，且瑞云当前负责人与 FieldDesk 不一致",
+        "RECLOUD_REPAIR_PREPARATION_ASSIGNEE_MISMATCH",
+        "PREPARATION_VERIFY"
+      );
+    }
+    if (!partsPlan.readyToAdd) {
+      throw orchestratorError(
+        "维修启动记录未确认，且瑞云当前配件明细与 FieldDesk 冲突",
+        "RECLOUD_REPAIR_PREPARATION_PARTS_CONFLICT",
+        "PREPARATION_VERIFY"
+      );
+    }
+    const recoveryAdditions = unapprovedMissingParts();
+    if (recoveryAdditions.length === 0) {
+      preparationVerifiedByRemote = true;
+    } else if (options.allowPreparationRecovery !== true) {
+      throw orchestratorError(
+        "维修启动记录未确认，且瑞云缺少 FieldDesk 已领用配件",
+        "RECLOUD_REPAIR_PREPARATION_PARTS_MISSING",
+        "PREPARATION_VERIFY"
+      );
+    }
+    if (!preparationVerifiedByRemote && typeof adapter.addParts !== "function") {
+      throw orchestratorError(
+        "缺少维修准备配件恢复执行器",
+        "RECLOUD_REPAIR_PREPARATION_PART_WRITE_ADAPTER_INVALID",
+        "PREPARATION_RECOVERY"
+      );
+    }
+    if (!preparationVerifiedByRemote) {
+      assertRecloudOperationAllowed({ action: "直接输入编码", target: RECLOUD_WORK_ORDER_OPERATION_POLICY.partEntryTarget });
+      const addResult = await adapter.addParts(recoveryAdditions, {
+        entryMode: RECLOUD_WORK_ORDER_OPERATION_POLICY.partEntryMode,
+        target: RECLOUD_WORK_ORDER_OPERATION_POLICY.partEntryTarget,
+        forbiddenAction: RECLOUD_WORK_ORDER_OPERATION_POLICY.forbiddenPartLookup,
+      });
+      remote = await adapter.readRemoteState();
+      for (const part of (Array.isArray(addResult?.missingParts) ? addResult.missingParts : [])) {
+        const code = String(part?.partCode || "").trim().toUpperCase();
+        if (code) authorizedSkippedPartCodes.add(code);
+        if (code && !knownMissingParts.some((item) => String(item?.partCode || "").trim().toUpperCase() === code)) {
+          knownMissingParts.push(part);
+        }
+      }
+      partsPlan = buildRecloudRepairPartsPlan(payload.usedParts, remote.parts);
+      skippedAuthorizedMissingParts = partsPlan.additions.length > 0
+        && unapprovedMissingParts().length === 0;
+      preparationVerifiedByRemote = partsPlan.readyToAdd
+        && (partsPlan.additions.length === 0 || skippedAuthorizedMissingParts)
+        && String(remote.assignee || "").trim() === assignmentPlan.servicePerson;
+      if (!preparationVerifiedByRemote) {
+        throw orchestratorError(
+          "补录维修配件后瑞云远端复核失败",
+          "RECLOUD_REPAIR_PREPARATION_PARTS_POSTVERIFY_FAILED",
+          "PREPARATION_RECOVERY"
+        );
+      }
+    }
   }
   if (assignmentRequired) {
     throw orchestratorError("维修启动阶段的负责人远端复核失败", "RECLOUD_REPAIR_PREPARATION_ASSIGNEE_MISMATCH", "PREPARATION_VERIFY");
@@ -126,10 +205,10 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
   completedSteps.push("ASSIGNEE_VERIFIED");
   await saveCheckpoint(options.checkpointStore, { orderKey, fingerprint, status: "RUNNING", completedSteps: [...completedSteps] });
 
-  if (!partsPlan.readyToAdd || partsPlan.additions.length) {
+  if (!partsPlan.readyToAdd || unapprovedMissingParts().length) {
     throw orchestratorError("维修启动阶段的配件远端复核失败", "RECLOUD_REPAIR_PREPARATION_PARTS_MISMATCH", "PREPARATION_VERIFY");
   }
-  completedSteps.push("PARTS_VERIFIED");
+  completedSteps.push(skippedAuthorizedMissingParts ? "PARTS_VERIFIED_WITH_AUTHORIZED_SKIP" : "PARTS_VERIFIED");
   await saveCheckpoint(options.checkpointStore, { orderKey, fingerprint, status: "RUNNING", completedSteps: [...completedSteps] });
 
   if (typeof adapter.applyRepairFields !== "function") {
@@ -142,9 +221,10 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
   completedSteps.push("FIELDS_VERIFIED");
   await saveCheckpoint(options.checkpointStore, { orderKey, fingerprint, status: "RUNNING", completedSteps: [...completedSteps] });
 
-  // 字段保存可能更新附件区域，上传前再次读取并重新规划。
-  remote = await adapter.readRemoteState();
-  attachmentsPlan = buildRecloudRepairAttachmentsPlan(payload.attachments, remote.attachments);
+  // 字段保存可能更新附件区域，上传前只重读附件。负责人和配件已在
+  // 上面完成远端复核，不再重复扫描整张服务单。
+  let remoteAttachments = await readRemoteAttachments(adapter);
+  attachmentsPlan = buildRecloudRepairAttachmentsPlan(payload.attachments, remoteAttachments);
   if (!attachmentsPlan.readyToUpload) {
     throw orchestratorError("附件上传前远端状态冲突", "RECLOUD_REPAIR_ATTACHMENT_PRECHECK_FAILED", "ATTACHMENTS");
   }
@@ -157,8 +237,8 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
       target: RECLOUD_WORK_ORDER_OPERATION_POLICY.attachmentTarget,
       forbiddenTarget: RECLOUD_WORK_ORDER_OPERATION_POLICY.forbiddenAttachmentTarget,
     });
-    remote = await adapter.readRemoteState();
-    attachmentsPlan = buildRecloudRepairAttachmentsPlan(payload.attachments, remote.attachments);
+    remoteAttachments = await readRemoteAttachments(adapter);
+    attachmentsPlan = buildRecloudRepairAttachmentsPlan(payload.attachments, remoteAttachments);
     if (!attachmentsPlan.readyToUpload || attachmentsPlan.additions.length) {
       throw orchestratorError("附件上传后远端复核失败", "RECLOUD_REPAIR_ATTACHMENT_POSTVERIFY_FAILED", "ATTACHMENTS");
     }
@@ -173,6 +253,21 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
   }
   await adapter.clickComplete();
   completedSteps.push("COMPLETE_CLICKED");
+  if (knownMissingParts.length) {
+    completedSteps.push("SUBMIT_SKIPPED_FOR_PARTS_SHORTAGE");
+    await saveCheckpoint(options.checkpointStore, {
+      orderKey, fingerprint, status: "AWAITING_PARTS", completedSteps: [...completedSteps], missingParts: knownMissingParts,
+    });
+    return {
+      status: "AWAITING_PARTS",
+      resumed,
+      completedSteps,
+      missingParts: knownMissingParts,
+      completeClicked: true,
+      finalConfirmClicked: false,
+      stoppedBeforeSubmit: true,
+    };
+  }
   await saveCheckpoint(options.checkpointStore, {
     orderKey, fingerprint, status: "WAITING_SUBMIT_READY", completedSteps: [...completedSteps],
   });

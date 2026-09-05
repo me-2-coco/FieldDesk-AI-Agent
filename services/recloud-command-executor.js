@@ -15,14 +15,51 @@ function createRecloudCommandExecutor(options = {}) {
   const checkpointStore = options.checkpointStore || null;
 
   return {
+    isReady(nodeKey) {
+      return nodeKey === "repair" && (
+        typeof repairAdapterProvider?.run === "function"
+        || typeof repairAdapterProvider?.open === "function"
+      );
+    },
+
     async syncRepairCompleted(task) {
       validateNodePayload("REPAIR_COMPLETED", task?.payload);
-      if (!repairAdapterProvider || typeof repairAdapterProvider.open !== "function") {
+      if (!repairAdapterProvider || (
+        typeof repairAdapterProvider.run !== "function"
+        && typeof repairAdapterProvider.open !== "function"
+      )) {
         throw commandError(
           "瑞云维修完工页面执行器尚未装配",
           "RECLOUD_REPAIR_PAGE_ADAPTER_NOT_CONFIGURED",
           { nodeKey: "repair" }
         );
+      }
+      const execute = async (adapter) => {
+        if (!adapter) {
+          throw commandError(
+            "无法打开瑞云维修完工页面执行器",
+            "RECLOUD_REPAIR_PAGE_ADAPTER_UNAVAILABLE",
+            { nodeKey: "repair" }
+          );
+        }
+        return orchestrateRepairCompletion(
+          task.rmaNo || task.workOrderNo,
+          task.payload,
+          adapter,
+          {
+            writeEnabled: options.writeEnabled === true,
+            checkpointStore,
+            submitReadyTimeoutMs: options.submitReadyTimeoutMs,
+            submitReadyPollIntervalMs: options.submitReadyPollIntervalMs,
+            preparationCompleted: Boolean(task.payload?.repairPreparationCompletedAt),
+            allowPreparationRecovery: task.payload?.repairPreparationStatus === "FAILED",
+            authorizedSkippedPartCodes: task.payload?.completionAuthorizedSkippedPartCodes || [],
+            missingParts: task.payload?.missingParts || [],
+          }
+        );
+      };
+      if (typeof repairAdapterProvider.run === "function") {
+        return repairAdapterProvider.run(task, execute);
       }
       const adapter = await repairAdapterProvider.open(task);
       if (!adapter) {
@@ -33,18 +70,7 @@ function createRecloudCommandExecutor(options = {}) {
         );
       }
       try {
-        return await orchestrateRepairCompletion(
-          task.rmaNo || task.workOrderNo,
-          task.payload,
-          adapter,
-          {
-            writeEnabled: options.writeEnabled === true,
-            checkpointStore,
-            submitReadyTimeoutMs: options.submitReadyTimeoutMs,
-            submitReadyPollIntervalMs: options.submitReadyPollIntervalMs,
-            preparationCompleted: Boolean(task.payload?.repairPreparationCompletedAt),
-          }
-        );
+        return await execute(adapter);
       } finally {
         if (typeof repairAdapterProvider.release === "function") {
           await repairAdapterProvider.release(adapter, task);

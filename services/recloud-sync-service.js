@@ -22,8 +22,18 @@ function classifyError(error) {
     RECLOUD_RATE_LIMITED: ["RATE_LIMIT", true],
     RECLOUD_NETWORK_ERROR: ["NETWORK", true],
   };
-  const [category, retryable] = classifications[error?.code] || ["UNKNOWN", true];
-  return { category, retryable, safeCode: classifications[error?.code] ? error.code : "RECLOUD_SYNC_FAILED" };
+  if (classifications[error?.code]) {
+    const [category, retryable] = classifications[error.code];
+    return { category, retryable, safeCode: error.code };
+  }
+  if (/^RECLOUD_REPAIR_[A-Z0-9_]+$/.test(String(error?.code || ""))) {
+    return {
+      category: String(error?.phase || "REPAIR").replace(/[^A-Z0-9_]/g, "").slice(0, 40) || "REPAIR",
+      retryable: error?.permanent !== true,
+      safeCode: error.code,
+    };
+  }
+  return { category: "UNKNOWN", retryable: true, safeCode: "RECLOUD_SYNC_FAILED" };
 }
 
 class RecloudSyncService {
@@ -32,6 +42,7 @@ class RecloudSyncService {
     this.adapter = adapter;
     this.maxRetries = options.maxRetries || 3;
     this.scheduler = options.scheduler || ((work) => setImmediate(work));
+    this.onRepairPartsShortage = options.onRepairPartsShortage || null;
   }
 
   async enqueueOrderNode(order, nodeType, localBusinessRecordId) {
@@ -52,6 +63,14 @@ class RecloudSyncService {
     return task;
   }
 
+  async resumePendingTasks() {
+    const tasks = (await this.outbox.readAll()).filter((task) => task.status === TASK_STATUS.PENDING);
+    for (const task of tasks) {
+      this.scheduler(() => this.processTask(task.id).catch(() => {}));
+    }
+    return tasks.length;
+  }
+
   async processTask(taskId) {
     const task = await this.outbox.get(taskId);
     if (!task || ![TASK_STATUS.PENDING, TASK_STATUS.FAILED].includes(task.status)) return task;
@@ -64,6 +83,18 @@ class RecloudSyncService {
     try {
       const result = await this.adapter[method](task);
       const resultStatus = String(result?.status || "");
+      if (task.nodeType === "REPAIR_COMPLETED" && resultStatus === "AWAITING_PARTS") {
+        if (typeof this.onRepairPartsShortage === "function") {
+          await this.onRepairPartsShortage(task, result);
+        }
+        return this.outbox.transition(task.id, TASK_STATUS.SUCCESS, {
+          lastError: "",
+          errorCategory: "",
+          resultStatus,
+          missingParts: Array.isArray(result.missingParts) ? result.missingParts : [],
+          completedSteps: Array.isArray(result.completedSteps) ? result.completedSteps.slice(0, 20) : [],
+        });
+      }
       if (task.nodeType === "REPAIR_COMPLETED" && resultStatus === "MANUAL_REVIEW") {
         return this.outbox.transition(task.id, TASK_STATUS.MANUAL_REVIEW, {
           lastError: "RECLOUD_REPAIR_MANUAL_REVIEW",
@@ -101,6 +132,10 @@ class RecloudSyncService {
     const nextStatus = error?.permanent || !classification.retryable || retryCount >= this.maxRetries
       ? TASK_STATUS.MANUAL_REVIEW
       : TASK_STATUS.FAILED;
+    console.error(
+      `RECLOUD_SYNC_TASK_FAILED: node=${task.nodeType} rma=${task.rmaNo} code=${error?.code || "UNKNOWN"} phase=${error?.phase || "UNKNOWN"}`,
+      JSON.stringify({ name: error?.name || "Error", message: String(error?.message || "").slice(0, 1000) })
+    );
     return this.outbox.transition(task.id, nextStatus, {
       retryCount,
       lastError: classification.safeCode,

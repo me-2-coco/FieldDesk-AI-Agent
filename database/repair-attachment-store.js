@@ -3,13 +3,14 @@ const path = require("path");
 const crypto = require("crypto");
 
 const DEFAULT_DIRECTORY = path.join(__dirname, "uploads", "repairs");
+const DEFAULT_MAX_FILE_BYTES = 100_000_000;
 
 class LocalRepairAttachmentStore {
   constructor(directory = DEFAULT_DIRECTORY, options = {}) {
     this.directory = directory;
-    this.maxFileBytes = Number(options.maxFileBytes || process.env.UPLOAD_MAX_FILE_BYTES || 25 * 1024 * 1024);
+    this.maxFileBytes = Number(options.maxFileBytes || process.env.UPLOAD_MAX_FILE_BYTES || DEFAULT_MAX_FILE_BYTES);
     this.maxStorageBytes = Number(options.maxStorageBytes || process.env.UPLOAD_MAX_STORAGE_BYTES || 5 * 1024 * 1024 * 1024);
-    this.allowedMimeTypes = new Set(options.allowedMimeTypes || ["image/jpeg", "image/png", "image/webp", "video/mp4", "video/quicktime", "application/pdf"]);
+    this.allowedMimeTypes = new Set(options.allowedMimeTypes || ["image/jpeg", "image/png", "image/webp", "video/mp4", "video/quicktime", "video/webm", "application/pdf"]);
   }
 
   async storageUsage(directory = this.directory) {
@@ -36,7 +37,8 @@ class LocalRepairAttachmentStore {
     const payload = content.includes(",") ? content.slice(content.indexOf(",") + 1) : content;
     const buffer = Buffer.from(payload, "base64");
     if (!buffer.length || buffer.length > this.maxFileBytes) {
-      throw Object.assign(new Error("附件为空或超过 25MB"), {
+      const maxFileMb = Math.floor(this.maxFileBytes / 1_000_000);
+      throw Object.assign(new Error(`附件为空或超过 ${maxFileMb}MB`), {
         code: "REPAIR_ATTACHMENT_INVALID", status: 400,
       });
     }
@@ -47,6 +49,7 @@ class LocalRepairAttachmentStore {
       "image/webp": new Set([".webp"]),
       "video/mp4": new Set([".mp4"]),
       "video/quicktime": new Set([".mov"]),
+      "video/webm": new Set([".webm"]),
       "application/pdf": new Set([".pdf"]),
     };
     const allowedExtensions = extensionsByType[type] || new Set();
@@ -81,4 +84,4 @@ class LocalRepairAttachmentStore {
   }
 }
 
-module.exports = { LocalRepairAttachmentStore, DEFAULT_DIRECTORY };
+module.exports = { LocalRepairAttachmentStore, DEFAULT_DIRECTORY, DEFAULT_MAX_FILE_BYTES };

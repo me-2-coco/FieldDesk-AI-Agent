@@ -36,6 +36,7 @@ import {
 import { hasBusinessRole } from "./shared/accountAccessPolicy.js"
 import {
   getRecloudSyncTasks,
+  getInformationExceptions,
   getSupervisionInbox,
   getSupervisionMonitorStatus,
   logoutFieldDeskAccount,
@@ -76,6 +77,7 @@ function App() {
   const [supervisionTargetRmaNo, setSupervisionTargetRmaNo] = useState("")
   const [supervisionMonitorWarning, setSupervisionMonitorWarning] = useState("")
   const [syncAttentionTasks, setSyncAttentionTasks] = useState([])
+  const [partsShortageNotices, setPartsShortageNotices] = useState([])
   const [selectedInformationReportRmaNo, setSelectedInformationReportRmaNo] = useState("")
 
   const currentRepairOrder = getCurrentRepairOrder()
@@ -207,6 +209,31 @@ function App() {
     }
   }, [isLoggedIn, currentUser?.id, currentUser?.role])
 
+  useEffect(() => {
+    const canReceivePartsShortage = isLoggedIn && currentUser?.role === USER_ROLES.INFORMATION_CLERK
+    if (!canReceivePartsShortage) {
+      queueMicrotask(() => setPartsShortageNotices([]))
+      return undefined
+    }
+    let active = true
+    let timer
+    const refresh = async () => {
+      try {
+        const items = await getInformationExceptions()
+        if (active) setPartsShortageNotices((items || []).filter((item) => item.type === "PARTS_SHORTAGE_PENDING"))
+      } catch {
+        // 通知接口短暂不可用时保留上次结果，下一轮自动重试。
+      } finally {
+        if (active) timer = window.setTimeout(refresh, 10000)
+      }
+    }
+    refresh()
+    return () => {
+      active = false
+      if (timer) window.clearTimeout(timer)
+    }
+  }, [isLoggedIn, currentUser?.id, currentUser?.role])
+
 
 
   function handleLogin(user) {
@@ -226,6 +253,7 @@ function App() {
     setLatestSupervision(null)
     setSupervisionMonitorWarning("")
     setSyncAttentionTasks([])
+    setPartsShortageNotices([])
 
   }
 
@@ -583,6 +611,21 @@ function App() {
             <small>人工复核、执行失败或等待最终确认</small>
           </span>
           <strong>{syncAttentionTasks.length > 99 ? "99+" : syncAttentionTasks.length}</strong>
+        </button>
+      )}
+
+      {currentUser?.role === USER_ROLES.INFORMATION_CLERK && partsShortageNotices.length > 0 && page !== "exceptionCenter" && (
+        <button
+          type="button"
+          className="global-sync-alert"
+          onClick={() => setPage("exceptionCenter")}
+          aria-label={`查看${partsShortageNotices.length}张瑞云缺件待办`}
+        >
+          <span>
+            <b>瑞云缺件待补录 · {partsShortageNotices[0]?.rmaNo || "待查看"}</b>
+            <small>{partsShortageNotices[0]?.message || "到货后补加配件并提交瑞云"}</small>
+          </span>
+          <strong>{partsShortageNotices.length > 99 ? "99+" : partsShortageNotices.length}</strong>
         </button>
       )}
 

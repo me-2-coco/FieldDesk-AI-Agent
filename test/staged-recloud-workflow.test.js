@@ -39,6 +39,22 @@ test("FieldDesk persists the required warranty, decision, parts, detection and r
   assert.equal(started.resumeStep, "repairCompletion");
   assert.equal(started.recloudRepairPreparation.assignee, "瑞云测试师傅");
   assert.equal(started.recloudRepairPreparation.status, "PENDING");
+
+  const serviceOrderConfirmed = await store.markRecloudServiceOrderConfirmed(
+    "STAGED-R",
+    TECH,
+    { serviceOrderNo: "FWD202609050001" }
+  );
+  assert.equal(serviceOrderConfirmed.recloudServiceOrderNo, "FWD202609050001");
+
+  const reconciled = await store.markRecloudRepairPreparationConfirmed("STAGED-R", {
+    assignee: "实际改派师傅",
+    assignmentSource: "MANUAL_RECONCILIATION",
+    completedSteps: ["ASSIGNEE_VERIFIED", "WARRANTY_CONVERSION_CONFIRMED", "PARTS_VERIFIED"],
+  }, TECH);
+  assert.equal(reconciled.recloudRepairPreparation.status, "CONFIRMED");
+  assert.equal(reconciled.recloudRepairPreparation.assignee, "实际改派师傅");
+  assert.equal(reconciled.recloudRepairPreparation.assignmentSource, "MANUAL_RECONCILIATION");
 });
 
 test("Recloud detection and repair creation are separate explicit actions", async () => {
@@ -47,8 +63,10 @@ test("Recloud detection and repair creation are separate explicit actions", asyn
   const detectionBlock = connector.slice(connector.indexOf("async function confirmDetection"), connector.indexOf("async function startRepair"));
   assert.doesNotMatch(detectionBlock, /waitForUniqueAction\(page, "维修"/);
   assert.match(connector, /async function startRepair[\s\S]*waitForUniqueAction\(page, "维修"/);
+  assert.match(connector, /async function startRepair[\s\S]*RECLOUD_REPAIR_SERVICE_ORDER_PAGE_NOT_READY/);
   assert.match(server, /function scheduleRecloudDetectionSync[\s\S]*connector\.confirmDetection/);
   assert.match(server, /function scheduleRecloudServiceOrderSync[\s\S]*connector\.startRepair/);
+  assert.match(server, /recloudRepairAdapterProvider[\s\S]*openExistingRepairServiceOrder/);
   assert.match(server, /app\.post\("\/api\/repairs\/inspection"[\s\S]*scheduleRecloudDetectionSync/);
   assert.match(server, /app\.post\("\/api\/repairs\/start-repair"[\s\S]*scheduleRecloudServiceOrderSync/);
   assert.doesNotMatch(server, /代客户收件/);
