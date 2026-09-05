@@ -19,6 +19,7 @@ const {
   parseRmaDateTime,
   parseRepairDetail,
   revealFeedbackPhone,
+  serialCellMatchesExpected,
   readProductLine,
   selectMatchingPhone,
   selectCellByHeaderCoordinate,
@@ -39,6 +40,13 @@ test("receipt action detection distinguishes an absent button from a visible sig
   });
   assert.equal(await hasVisibleReceiptAction(pageWithCount(0)), false);
   assert.equal(await hasVisibleReceiptAction(pageWithCount(1)), true);
+});
+
+test("truncated Recloud serial numbers match only a sufficiently long unique prefix", () => {
+  assert.equal(serialCellMatchesExpected("R2489X56HCNQ1...", "R2489X56HCNQ132701"), true);
+  assert.equal(serialCellMatchesExpected("R2489X56HCNQ1…", "r2489x56hcnq132701"), true);
+  assert.equal(serialCellMatchesExpected("R2485X56HCNQ1...", "R2489X56HCNQ132701"), false);
+  assert.equal(serialCellMatchesExpected("R248...", "R2489X56HCNQ132701"), false);
 });
 const {
   RecloudQueryError,
