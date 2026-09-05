@@ -9,7 +9,7 @@ import {
   USER_ROLES
 } from "../shared/userStore.js"
 import { AppIcon } from "../components/AppIcons.jsx"
-import { updateRecloudTestDisplayName } from "../shared/crmService.js"
+import { updateRecloudOperatorName } from "../shared/crmService.js"
 
 
 function Profile({
@@ -27,7 +27,8 @@ function Profile({
   )
 
   const [message, setMessage] = useState("")
-  const [testDisplayName, setTestDisplayName] = useState(() => currentUser.id === "FieldDesk0004" ? currentUser.name : "")
+  const canSetRecloudOperatorName = ["FieldDesk0001", "FieldDesk0004"].includes(currentUser.id)
+  const [recloudOperatorName, setRecloudOperatorName] = useState(() => currentUser.recloudAssigneeName || (currentUser.id === "FieldDesk0004" ? currentUser.name : ""))
   const isTechnician = currentUser.role === USER_ROLES.TECHNICIAN
   const isWarehouse = currentUser.role === USER_ROLES.WAREHOUSE
   const isInformationClerk = currentUser.role === USER_ROLES.INFORMATION_CLERK
@@ -83,15 +84,15 @@ function Profile({
     onLogout()
   }
 
-  async function saveTestDisplayName(event) {
+  async function saveRecloudOperatorName(event) {
     event.preventDefault()
     try {
-      const profile = await updateRecloudTestDisplayName(testDisplayName)
-      const updatedUser = { ...currentUser, name: profile.displayName }
+      const profile = await updateRecloudOperatorName(recloudOperatorName)
+      const updatedUser = { ...currentUser, name: profile.displayName, recloudAssigneeName: profile.recloudAssigneeName }
       setAuthenticatedUser(updatedUser)
       setCurrentUserState(updatedUser)
       onProfileChange?.(updatedUser)
-      setMessage(`瑞云测试姓名已更新为：${profile.displayName}`)
+      setMessage(`瑞云操作姓名已更新为：${profile.recloudAssigneeName}`)
     } catch (error) {
       setMessage(error.message)
     }
@@ -203,15 +204,15 @@ function Profile({
 
       </details>}
 
-      {currentUser.id === "FieldDesk0004" && <div className="card profile-section-card">
+      {canSetRecloudOperatorName && <div className="card profile-section-card">
         <div className="profile-section-heading">
-          <div><span>瑞云对接测试</span><h2>测试师傅姓名</h2></div>
+          <div><span>瑞云真实操作身份</span><h2>{currentUser.id === "FieldDesk0004" ? "测试师傅姓名" : "负责人瑞云姓名"}</h2></div>
           <small>扫地机 + 洗地机</small>
         </div>
-        <p className="profile-section-description">修改后，两类工单都会使用这个姓名识别瑞云负责人。</p>
-        <form onSubmit={saveTestDisplayName}>
-          <label>师傅姓名<input value={testDisplayName} onChange={(event) => setTestDisplayName(event.target.value)} placeholder="请输入瑞云中的师傅姓名" required /></label>
-          <button type="submit">保存测试姓名</button>
+        <p className="profile-section-description">两类工单都会使用这里的姓名匹配瑞云服务人员。</p>
+        <form onSubmit={saveRecloudOperatorName}>
+          <label>瑞云操作姓名<input value={recloudOperatorName} onChange={(event) => setRecloudOperatorName(event.target.value)} placeholder="请输入瑞云中的真实姓名" required /></label>
+          <button type="submit">保存瑞云姓名</button>
         </form>
       </div>}
 

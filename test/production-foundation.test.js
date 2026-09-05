@@ -138,10 +138,15 @@ test("FieldDesk0004 is a formal Recloud technician-name test account", async () 
   assert.equal(updated.displayName, "另一位师傅");
   assert.equal(updated.recloudAssigneeName, "另一位师傅");
   assert.equal(updated.recloudAssignmentMode, "DIRECT");
-  const selfUpdated = await store.updateRecloudTestName("FieldDesk0004", "刘成");
+  const selfUpdated = await store.updateRecloudOperatorName("FieldDesk0004", "刘成");
   assert.equal(selfUpdated.displayName, "刘成");
   assert.equal(selfUpdated.recloudAssigneeName, "刘成");
-  assert.throws(() => store.updateRecloudTestName("FieldDesk0005", "越权修改"), { code: "ACCOUNT_RECLOUD_TEST_REQUIRED" });
+  const ownerStore = new AccountStore({ backend: new MemoryDocumentBackend({ users: [] }) });
+  await ownerStore.ensureBootstrap("bootstrap-secret");
+  const ownerUpdated = await ownerStore.updateRecloudOperatorName("FieldDesk0001", "负责人本人");
+  assert.equal(ownerUpdated.displayName, "负责人");
+  assert.equal(ownerUpdated.recloudAssigneeName, "负责人本人");
+  assert.throws(() => store.updateRecloudOperatorName("FieldDesk0005", "越权修改"), { code: "ACCOUNT_RECLOUD_OPERATOR_NAME_FORBIDDEN" });
 });
 
 test("production account mode can bootstrap one administrator without exposing token", async () => {

@@ -24,8 +24,8 @@ export async function changeFieldDeskPassword(newPassword) {
   return request("/api/auth/change-password", { newPassword })
 }
 
-export async function updateRecloudTestDisplayName(displayName) {
-  return request("/api/auth/recloud-test-name", { displayName })
+export async function updateRecloudOperatorName(recloudAssigneeName) {
+  return request("/api/auth/recloud-operator-name", { recloudAssigneeName })
 }
 
 function apiHeaders() {

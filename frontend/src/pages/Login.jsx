@@ -25,7 +25,9 @@ function Login({ onLogin }) {
       name: profile.displayName,
       account: profile.userId,
       role: String(profile.role).toLowerCase(),
-      repairSpecialties: profile.repairSpecialties || []
+      repairSpecialties: profile.repairSpecialties || [],
+      accountAuthority: profile.accountAuthority || "",
+      recloudAssigneeName: profile.recloudAssigneeName || ""
     })
     onLogin(user)
   }

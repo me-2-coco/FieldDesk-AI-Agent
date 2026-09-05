@@ -227,20 +227,20 @@ class AccountStore {
       return { userId: user.userId, displayName: user.displayName };
     });
   }
-  updateRecloudTestName(userId, value) {
+  updateRecloudOperatorName(userId, value) {
     const normalizedUserId = String(userId || "").trim();
-    const displayName = String(value || "").trim();
-    if (normalizedUserId !== RECLOUD_TEST_USER_ID) throw Object.assign(new Error("只有 FieldDesk0004 可以使用测试姓名设置"), { code: "ACCOUNT_RECLOUD_TEST_REQUIRED", status: 403 });
-    if (!displayName) throw Object.assign(new Error("请填写要在瑞云中测试的师傅姓名"), { code: "ACCOUNT_DISPLAY_NAME_REQUIRED", status: 400 });
+    const recloudAssigneeName = String(value || "").trim();
+    if (![OWNER_USER_ID, RECLOUD_TEST_USER_ID].includes(normalizedUserId)) throw Object.assign(new Error("当前账号不能自行修改瑞云操作姓名"), { code: "ACCOUNT_RECLOUD_OPERATOR_NAME_FORBIDDEN", status: 403 });
+    if (!recloudAssigneeName) throw Object.assign(new Error("请填写瑞云中的操作人姓名"), { code: "ACCOUNT_RECLOUD_OPERATOR_NAME_REQUIRED", status: 400 });
     return this.backend.update((data) => {
-      const user = data.users.find((item) => item.userId === RECLOUD_TEST_USER_ID && !item.deletedAt && item.active !== false);
-      if (!user) throw Object.assign(new Error("FieldDesk0004 测试账号不存在或已停用"), { code: "ACCOUNT_NOT_FOUND", status: 404 });
-      user.displayName = displayName;
+      const user = data.users.find((item) => item.userId === normalizedUserId && !item.deletedAt && item.active !== false);
+      if (!user) throw Object.assign(new Error("账号不存在或已停用"), { code: "ACCOUNT_NOT_FOUND", status: 404 });
+      if (normalizedUserId === RECLOUD_TEST_USER_ID) user.displayName = recloudAssigneeName;
       user.recloudAssignmentMode = "DIRECT";
-      user.recloudAssigneeName = displayName;
+      user.recloudAssigneeName = recloudAssigneeName;
       user.recloudFallbackAssigneeName = "";
       user.updatedAt = new Date().toISOString();
-      return { userId: user.userId, displayName, recloudAssigneeName: displayName };
+      return { userId: user.userId, displayName: user.displayName, recloudAssigneeName };
     });
   }
   upsert(input, operator) {

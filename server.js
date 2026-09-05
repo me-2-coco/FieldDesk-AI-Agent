@@ -789,10 +789,10 @@ function createApp(
     } catch (error) { next(error); }
   });
 
-  app.post("/api/auth/recloud-test-name", async (req, res, next) => {
+  app.post("/api/auth/recloud-operator-name", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      res.json({ success: true, data: await accountStore.updateRecloudTestName(user.userId, req.body?.displayName) });
+      res.json({ success: true, data: await accountStore.updateRecloudOperatorName(user.userId, req.body?.recloudAssigneeName) });
     } catch (error) { next(error); }
   });
 
