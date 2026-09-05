@@ -6,6 +6,7 @@ const {
   parseRmaFieldPairs,
   selectProductLine,
 } = require("./recloud-rma-parser");
+const { classifyRecloudReceiptState } = require("./recloud-receipt-state");
 const {
   collectSafeFieldTitles,
   isDomDiagnosticsEnabled,
@@ -1176,9 +1177,7 @@ async function readPendingListRow(page, rmaNo, options = {}) {
 async function enrichRmaFromPendingList(page, detail, options = {}) {
   if (!detail?.rmaNo) return detail;
   let row = null;
-  if (!detail.productLine || !detail.productModel || !detail.productSerialNo) {
-    row = await readPendingListRow(page, detail.rmaNo, options).catch(() => null);
-  }
+  row = await readPendingListRow(page, detail.rmaNo, options).catch(() => null);
   const enriched = {
     ...detail,
     logisticsNo: detail.logisticsNo || row?.["取件物流单号"] || "",
@@ -1189,6 +1188,9 @@ async function enrichRmaFromPendingList(page, detail, options = {}) {
     productLine: detail.productLine || row?.["产品线"] || "",
     productModel: detail.productModel || row?.["产品名称"] || row?.["产品型号"] || "",
     pickupStatus: detail.pickupStatus || row?.["取件物流状态"] || "",
+    receiptSignedAt: detail.receiptSignedAt || row?.["取件物流签收时间"] || "",
+    orderStatus: detail.orderStatus || row?.["寄修单状态"] || row?.["工单状态"] || row?.["维修状态"] || "",
+    receiptStatus: detail.receiptStatus || row?.["签收状态"] || row?.["取件签收状态"] || "",
     customer: {
       ...(detail.customer || {}),
       name: detail.customer?.name || row?.["联系人"] || "",
@@ -1198,6 +1200,7 @@ async function enrichRmaFromPendingList(page, detail, options = {}) {
   if (!enriched.productLine) {
     enriched.productLine = inferProductLineFromCurrentOrder(enriched);
   }
+  enriched.receiptState = classifyRecloudReceiptState(enriched);
   return enriched;
 }
 

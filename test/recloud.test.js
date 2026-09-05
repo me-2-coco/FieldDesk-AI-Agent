@@ -30,6 +30,7 @@ const {
   extractProductLineFromHtml,
   selectProductLine,
 } = require("../connectors/recloud-rma-parser");
+const { classifyRecloudReceiptState } = require("../connectors/recloud-receipt-state");
 const {
   collectSafeFieldTitles,
   isDomDiagnosticsEnabled,
@@ -869,6 +870,31 @@ test("RMA detail parsing preserves the current Recloud project code", () => {
   });
 
   assert.equal(detail.projectCode, "W2458T");
+});
+
+test("RMA detail marks detection-stage orders as already received", () => {
+  const detail = parseRmaFieldPairs([
+    ["寄修单号", "JXTH9000000046"],
+    ["描述", "检测阶段测试"],
+    ["取件物流单号", "TEST-PICKUP-0046"],
+    ["寄修单状态", "检测中"],
+  ], "TEST-SCAN-0046");
+
+  assert.equal(detail.orderStatus, "检测中");
+  assert.equal(detail.receiptState.receiptRequired, false);
+  assert.equal(detail.receiptState.code, "ALREADY_RECEIVED");
+});
+
+test("receipt-state classifier requires signing only for explicit unsigned orders", () => {
+  assert.equal(classifyRecloudReceiptState({
+    pickupStatus: "已取件",
+    receiptSignedAt: "",
+  }).receiptRequired, true);
+  assert.equal(classifyRecloudReceiptState({
+    pickupStatus: "已取件",
+    receiptSignedAt: "2026-09-05 10:00:00",
+  }).receiptRequired, false);
+  assert.equal(classifyRecloudReceiptState({ orderStatus: "未知新状态" }).receiptRequired, null);
 });
 
 test("pending-list enrichment keeps the project number in the returned RMA detail", async () => {
@@ -1880,7 +1906,7 @@ test("enabled receive API uses the verified query path and confirms exactly once
     queryRmaByLogisticsNo: async (_page, logisticsNo) => {
       queryCount += 1;
       assert.equal(logisticsNo, "SF-REAL-1");
-      return { rmaNo: "JXTH-REAL-1", productType: "洗地机", productLine: "洗地机", sn: "" };
+      return { rmaNo: "JXTH-REAL-1", productType: "洗地机", productLine: "洗地机", sn: "", pickupStatus: "已取件" };
     },
     scanSign: async () => assert.fail("legacy scan path must not be used"),
     getRepairDetail: async () => assert.fail("legacy detail parser must not be used"),
@@ -1911,7 +1937,7 @@ test("enabled receive API uses the verified query path and confirms exactly once
   const result = await response.json();
   assert.equal(response.status, 200);
   assert.equal(result.data.receipt.confirmed, true);
-  assert.equal(queryCount, 1);
+  assert.equal(queryCount, 2);
   assert.equal(confirmCount, 1);
 });
 

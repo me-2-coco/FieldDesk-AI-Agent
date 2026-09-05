@@ -79,6 +79,7 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
     repairDetail?.productLine
   )
   const queriedLogisticsNo = repairDetail?.logisticsNo || repairDetail?.pickupLogisticsNo || ""
+  const receiptAlreadyCompleted = repairDetail?.receiptState?.receiptRequired === false
 
   function frontendStatusForLocalOrder(order, targetPage) {
     if (order.status === "COMPLETED") return REPAIR_STATUS.COMPLETED
@@ -366,10 +367,6 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
       setErrorMessage("请选择本单维修品类")
       return
     }
-    if (receiptAttachments.length === 0) {
-      setErrorMessage("请至少拍摄或选择一张签收照片/视频")
-      return
-    }
     if (
       ["扫地机", "洗地机"].includes(repairDetail.productLine) &&
       specialty !== repairDetail.productLine
@@ -397,6 +394,19 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
       if (!canContinueLocalWorkflow) {
         setReceiptStep("detail")
         setReceiptMessage(preparation.authorization?.reason || preparation.message || "当前机型不能在网点继续签收")
+        return
+      }
+      const verifiedReceiptRequired = preparation.recloudReceiptRequired !== false
+      if (verifiedReceiptRequired && receiptAttachments.length === 0) {
+        setRepairDetail((current) => ({
+          ...current,
+          receiptState: {
+            code: "RECEIPT_REQUIRED",
+            receiptRequired: true,
+            label: preparation.recloudReceiptStatus || "待签收"
+          }
+        }))
+        setErrorMessage("瑞云当前仍待签收，请至少拍摄或选择一张签收照片/视频")
         return
       }
       for (const attachment of receiptAttachments) {
@@ -690,6 +700,11 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
               <dd>{queriedLogisticsNo || "送修（无物流单号）"}</dd>
             </div>
           </dl>
+          {receiptAlreadyCompleted && (
+            <p className="receipt-status-message" role="status">
+              瑞云当前为“{repairDetail.receiptState.label}”，将跳过重复签收，直接核对项目号和机器 SN。
+            </p>
+          )}
           <div className="mobile-record-description compact-note">
             <span>报修描述</span>
             <p>{repairDetail.reportedFault || "未提供"}</p>
@@ -768,7 +783,7 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
             </p>
           )}
 
-          <section className="receipt-upload-section">
+          {!receiptAlreadyCompleted && <section className="receipt-upload-section">
             <div className="receipt-upload-heading">
               <div>
                 <strong>签收照片/视频</strong>
@@ -797,11 +812,13 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
                 onRemove={(attachmentId) => setReceiptAttachments((current) => current.filter((file) => file.id !== attachmentId))}
               />
             ) : <p className="receipt-upload-empty">到店签收时拍摄机器外观、包装及异常位置</p>}
-          </section>
+          </section>}
 
           <p className={receiptWriteEnabled ? "live-write-notice" : "dry-run-notice"}>
             {receiptWriteEnabled
-              ? "真实签收模式：完成后将同步签收到瑞云"
+              ? receiptAlreadyCompleted
+                ? "瑞云已越过签收阶段：本次不会重复签收"
+                : "真实签收模式：完成后将同步签收到瑞云"
               : "当前为演练模式，不会操作瑞云签收"}
           </p>
 
@@ -815,8 +832,8 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
             <button className="secondary-button" onClick={() => setReceiptStep("detail")}>
               返回工单
             </button>
-            <button onClick={finishReceiptAndOpenParts} disabled={isSaving || !sn.trim() || receiptAttachments.length === 0}>
-              {isSaving ? "正在完成签收..." : "完成签收，选择处理方式"}
+            <button onClick={finishReceiptAndOpenParts} disabled={isSaving || !sn.trim()}>
+              {isSaving ? "正在核对..." : receiptAlreadyCompleted ? "核对项目号和 SN，继续" : "完成签收，选择处理方式"}
             </button>
           </div>
         </div>

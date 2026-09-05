@@ -651,7 +651,7 @@ test("receipt-only live mode completes locally before confirming Recloud in the 
     queryRmaByLogisticsNo: async (_page, logisticsNo) => {
       queryCount += 1;
       assert.equal(logisticsNo, "TEST-LOGISTICS-1001");
-      return { rmaNo: "JXTH900001001", productLine: "扫地机" };
+      return { rmaNo: "JXTH900001001", productLine: "扫地机", pickupStatus: "已取件" };
     },
     confirmSign: async (_page, sn, productType, remark, options) => {
       confirmCount += 1;
@@ -691,7 +691,7 @@ test("receipt-only live mode completes locally before confirming Recloud in the 
     const current = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
     return current?.recloudReceiptSyncStatus;
   }, "CONFIRMED");
-  assert.equal(queryCount, 1);
+  assert.equal(queryCount, 2);
   assert.equal(confirmCount, 1);
   assert.equal(uploadCount, 1);
 
@@ -703,7 +703,7 @@ test("receipt-only live mode completes locally before confirming Recloud in the 
 
   const retried = await post(url, "/api/repairs/complete-local-receipt", { rmaNo: "JXTH900001001" });
   assert.equal(retried.response.status, 200);
-  assert.equal(queryCount, 1);
+  assert.equal(queryCount, 2);
   assert.equal(confirmCount, 1);
 });
 
@@ -718,7 +718,7 @@ test("live receipt confirms first and then uploads its FieldDesk photo exactly o
   const calls = [];
   const connector = {
     openRecloud: async () => ({ loginRequired: false, page: {} }),
-    queryRmaByLogisticsNo: async () => ({ rmaNo: "JXTH900001001", productLine: "扫地机" }),
+    queryRmaByLogisticsNo: async () => ({ rmaNo: "JXTH900001001", productLine: "扫地机", pickupStatus: "已取件" }),
     confirmSign: async () => {
       calls.push("receipt");
       return { confirmed: true, dryRun: false, message: "签收完成" };
@@ -764,6 +764,57 @@ test("live receipt confirms first and then uploads its FieldDesk photo exactly o
   assert.deepEqual(calls, ["receipt", "photo"]);
 });
 
+test("detection-stage Recloud order skips duplicate receipt confirmation", async (t) => {
+  const store = await createTestStore(t);
+  await store.prepare({
+    ...validPayload(),
+    recloudReceiptRequired: false,
+    recloudOrderStatus: "检测中",
+    operatorId: USERS.sweep.userId,
+    operatorName: USERS.sweep.displayName,
+  });
+  let confirmCount = 0;
+  let uploadCount = 0;
+  const connector = {
+    openRecloud: async () => ({ loginRequired: false, page: {} }),
+    queryRmaByLogisticsNo: async () => ({
+      rmaNo: "JXTH900001001",
+      productLine: "扫地机",
+      orderStatus: "检测中",
+    }),
+    confirmSign: async () => { confirmCount += 1; },
+    uploadRmaAttachments: async () => {
+      uploadCount += 1;
+      return { uploaded: ["receipt.jpg"], skipped: [] };
+    },
+  };
+  const url = await startServer(t, connector, store, USERS.sweep, {
+    receiptAttachmentStore: { read: async () => Buffer.from("test-photo") },
+    env: {
+      ...process.env,
+      DRY_RUN: "true",
+      RECLOUD_WRITE_ENABLED: "false",
+      RECLOUD_RECEIPT_WRITE_ENABLED: "true",
+    },
+  });
+
+  const completed = await post(url, "/api/repairs/complete-local-receipt", { rmaNo: "JXTH900001001" });
+  assert.equal(completed.response.status, 200);
+  await waitForValue(async () => {
+    const current = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
+    return current?.recloudReceiptSyncStatus;
+  }, "CONFIRMED");
+  await waitForValue(async () => {
+    const current = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
+    return current?.recloudReceiptAttachmentSyncStatus;
+  }, "CONFIRMED");
+  const saved = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
+  assert.equal(confirmCount, 0);
+  assert.equal(uploadCount, 0);
+  assert.equal(saved.recloudReceiptResult.skipped, true);
+  assert.equal(saved.timeline.some((item) => item.type === "RECLOUD_RECEIPT_ALREADY_COMPLETED"), true);
+});
+
 test("an already signed order can retry only its missing receipt photo", async (t) => {
   const store = await createTestStore(t);
   await store.prepare({
@@ -780,7 +831,7 @@ test("an already signed order can retry only its missing receipt photo", async (
   let uploadCount = 0;
   const connector = {
     openRecloud: async () => ({ loginRequired: false, page: {} }),
-    queryRmaByLogisticsNo: async () => ({ rmaNo: "JXTH900001001", productLine: "扫地机" }),
+    queryRmaByLogisticsNo: async () => ({ rmaNo: "JXTH900001001", productLine: "扫地机", pickupStatus: "已取件" }),
     confirmSign: async () => { confirmCount += 1; },
     uploadRmaAttachments: async () => {
       uploadCount += 1;
@@ -815,7 +866,7 @@ test("a failed background Recloud receipt does not block the local workflow", as
   });
   const connector = {
     openRecloud: async () => ({ loginRequired: false, page: {} }),
-    queryRmaByLogisticsNo: async () => ({ rmaNo: "JXTH900001001", productLine: "扫地机" }),
+    queryRmaByLogisticsNo: async () => ({ rmaNo: "JXTH900001001", productLine: "扫地机", pickupStatus: "已取件" }),
     confirmSign: async () => {
       throw Object.assign(new Error("瑞云签收失败"), { code: "RECLOUD_QUERY_TIMEOUT", status: 504 });
     },
@@ -852,7 +903,7 @@ test("an unknown background Recloud result enters reconciliation without blockin
   let confirmCount = 0;
   const connector = {
     openRecloud: async () => ({ loginRequired: false, page: {} }),
-    queryRmaByLogisticsNo: async () => ({ rmaNo: "JXTH900001001", productLine: "扫地机" }),
+    queryRmaByLogisticsNo: async () => ({ rmaNo: "JXTH900001001", productLine: "扫地机", pickupStatus: "已取件" }),
     confirmSign: async () => {
       confirmCount += 1;
       throw Object.assign(new Error("确认后连接中断"), {

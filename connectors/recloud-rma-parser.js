@@ -24,7 +24,13 @@ const FIELD_LABELS = {
   reportedFault: ["用户报修描述", "报修描述", "故障描述", "描述"],
   pickupLogisticsNo: ["取件物流单号", "取件运单号", "取件单号"],
   technicianName: ["服务人员", "维修师傅"],
+  orderStatus: ["寄修单状态", "工单状态", "维修状态", "当前状态"],
+  receiptStatus: ["签收状态", "取件签收状态"],
+  pickupStatus: ["取件物流状态"],
+  receiptSignedAt: ["取件物流签收时间", "签收时间"],
 };
+
+const { classifyRecloudReceiptState } = require("./recloud-receipt-state");
 
 class RecloudQueryError extends Error {
   constructor(code, message, options = {}) {
@@ -332,12 +338,27 @@ function parseRmaFieldPairs(pairs, logisticsNo = "", options = {}) {
       normalizedPairs,
       FIELD_LABELS.pickupLogisticsNo
     ),
+    ...(findFieldValue(normalizedPairs, FIELD_LABELS.orderStatus)
+      ? { orderStatus: findFieldValue(normalizedPairs, FIELD_LABELS.orderStatus) }
+      : {}),
+    ...(findFieldValue(normalizedPairs, FIELD_LABELS.receiptStatus)
+      ? { receiptStatus: findFieldValue(normalizedPairs, FIELD_LABELS.receiptStatus) }
+      : {}),
+    ...(findFieldValue(normalizedPairs, FIELD_LABELS.pickupStatus)
+      ? { pickupStatus: findFieldValue(normalizedPairs, FIELD_LABELS.pickupStatus) }
+      : {}),
+    ...(findFieldValue(normalizedPairs, FIELD_LABELS.receiptSignedAt)
+      ? { receiptSignedAt: findFieldValue(normalizedPairs, FIELD_LABELS.receiptSignedAt) }
+      : {}),
     productLine: normalizeText(options.productLine),
     ...(normalizeText(options.projectCode)
       ? { projectCode: normalizeText(options.projectCode) }
       : {}),
     readOnly: true,
   };
+
+  const receiptState = classifyRecloudReceiptState(detail);
+  if (receiptState.receiptRequired !== null) detail.receiptState = receiptState;
 
   const missingFields = [];
   if (!detail.rmaNo) missingFields.push("rmaNo");

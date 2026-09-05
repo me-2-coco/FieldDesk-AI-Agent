@@ -11,6 +11,7 @@ if (require.main === module) {
   }
 }
 const recloudConnector = require("./connectors/recloud");
+const { classifyRecloudReceiptState } = require("./connectors/recloud-receipt-state");
 const { normalizeSn, validateReceiptCompletion } = require("./database/receipt-preparation-store");
 const { createBusinessStores } = require("./database/business-store-factory");
 const { AccountStore } = require("./database/account-store");
@@ -497,10 +498,10 @@ function createApp(
     setImmediate(async () => {
       try {
         const result = await withRecloud(connector, async (page) => {
-          const detail = await connector.queryRmaByLogisticsNo(
+          let detail = await connector.queryRmaByLogisticsNo(
             page,
             order.logisticsNo,
-            { preserveDetailPage: true }
+            { preserveDetailPage: false }
           );
           if (detail.rmaNo && detail.rmaNo !== rmaNo) {
             throw createApiError(
@@ -510,44 +511,68 @@ function createApp(
             );
           }
           let receipt = null;
+          let remoteReceiptSkipped = false;
           if (receiptNeedsSync) {
-            await receiptStore.markRecloudReceiptSyncing(rmaNo, {
-              attemptId,
-              operator,
-            });
-            try {
-              receipt = await connector.confirmSign(
-                page,
-                order.sn,
-                detail.productType || detail.productLine || order.productLine,
-                order.remark || order.specialty,
-                {
-                  dryRun: false,
-                  logisticsNo: order.logisticsNo,
-                  productLine:
-                    detail.productLine || detail.productType || order.productLine,
-                }
-              );
-              if (!receipt?.confirmed) {
-                throw createApiError(
-                  "RECLOUD_RECEIPT_NOT_CONFIRMED",
-                  "瑞云未确认签收",
-                  502
-                );
-              }
+            const receiptState = classifyRecloudReceiptState(detail);
+            if (receiptState.receiptRequired === false) {
+              remoteReceiptSkipped = true;
               await receiptStore.markRecloudReceiptConfirmed(rmaNo, {
-                receipt,
+                skipped: true,
+                receipt: { confirmed: true, message: `瑞云当前为${receiptState.label}，无需重复签收` },
                 operator,
               });
-            } catch (error) {
-              await receiptStore.markRecloudReceiptFailed(rmaNo, {
-                code: error.code,
-                resultUnknown:
-                  error.resultUnknown === true ||
-                  error.code === "RECLOUD_RECEIPT_RESULT_UNKNOWN",
+            } else if (receiptState.receiptRequired !== true) {
+              throw createApiError(
+                "RECLOUD_RECEIPT_STATE_UNKNOWN",
+                "无法确认瑞云是否仍待签收，已停止操作以避免重复签收",
+                409
+              );
+            } else {
+              // 状态元数据来自待处理列表；写入前重新打开同一 RMA 详情，
+              // 让签收与后续附件上传始终发生在经过核对的当前工单页面。
+              detail = await connector.queryRmaByLogisticsNo(
+                page,
+                order.logisticsNo,
+                { preserveDetailPage: true }
+              );
+              await receiptStore.markRecloudReceiptSyncing(rmaNo, {
+                attemptId,
                 operator,
-              }).catch(() => {});
-              throw error;
+              });
+              try {
+                receipt = await connector.confirmSign(
+                  page,
+                  order.sn,
+                  detail.productType || detail.productLine || order.productLine,
+                  order.remark || order.specialty,
+                  {
+                    dryRun: false,
+                    logisticsNo: order.logisticsNo,
+                    productLine:
+                      detail.productLine || detail.productType || order.productLine,
+                  }
+                );
+                if (!receipt?.confirmed) {
+                  throw createApiError(
+                    "RECLOUD_RECEIPT_NOT_CONFIRMED",
+                    "瑞云未确认签收",
+                    502
+                  );
+                }
+                await receiptStore.markRecloudReceiptConfirmed(rmaNo, {
+                  receipt,
+                  operator,
+                });
+              } catch (error) {
+                await receiptStore.markRecloudReceiptFailed(rmaNo, {
+                  code: error.code,
+                  resultUnknown:
+                    error.resultUnknown === true ||
+                    error.code === "RECLOUD_RECEIPT_RESULT_UNKNOWN",
+                  operator,
+                }).catch(() => {});
+                throw error;
+              }
             }
           }
 
@@ -555,6 +580,18 @@ function createApp(
           if (attachmentsNeedSync) {
             await receiptStore.markRecloudReceiptAttachmentsSyncing(rmaNo);
             try {
+              if (remoteReceiptSkipped) {
+                attachmentResult = {
+                  uploaded: [],
+                  skipped: attachments.map((attachment) => attachment.name),
+                  reason: "瑞云已越过签收阶段",
+                };
+                await receiptStore.markRecloudReceiptAttachmentsConfirmed(rmaNo, {
+                  result: attachmentResult,
+                  operator,
+                });
+                return { receipt, attachmentResult };
+              }
               const hydrated = await Promise.all(attachments.map(async (attachment) => ({
                 ...attachment,
                 buffer: await receiptAttachmentStore.read(rmaNo, attachment),
@@ -1900,13 +1937,37 @@ function createApp(
 
     try {
       const data = await withRecloud(connector, async (page) => {
-        const detail = await connector.queryRmaByLogisticsNo(
+        let detail = await connector.queryRmaByLogisticsNo(
+          page,
+          logisticsNo,
+          { preserveDetailPage: false }
+        );
+        const sn = requestedSn || detail.sn;
+        if (!sn) throw new Error("CRM 工单没有 SN，请手动提供 SN");
+        const receiptState = classifyRecloudReceiptState(detail);
+        if (receiptState.receiptRequired === false) {
+          return {
+            ...detail,
+            sn,
+            receipt: {
+              confirmed: true,
+              skipped: true,
+              message: `瑞云当前为${receiptState.label}，已跳过重复签收`,
+            },
+          };
+        }
+        if (receiptState.receiptRequired !== true) {
+          throw createApiError(
+            "RECLOUD_RECEIPT_STATE_UNKNOWN",
+            "无法确认瑞云是否仍待签收，已停止操作以避免重复签收",
+            409
+          );
+        }
+        detail = await connector.queryRmaByLogisticsNo(
           page,
           logisticsNo,
           { preserveDetailPage: true }
         );
-        const sn = requestedSn || detail.sn;
-        if (!sn) throw new Error("CRM 工单没有 SN，请手动提供 SN");
         const receipt = await connector.confirmSign(
           page,
           sn,
@@ -1956,6 +2017,29 @@ function createApp(
       const currentProjectCode = String(
         req.body?.currentProjectCode || req.body?.recloudProjectCode || ""
       ).trim();
+      let verifiedReceiptState = {
+        code: "UNKNOWN",
+        receiptRequired: null,
+        label: "状态待确认",
+        receiptSignedAt: "",
+      };
+      let verifiedRemoteDetail = {};
+      if (isRecloudReceiptWriteEnabled(runtimeEnv)) {
+        verifiedRemoteDetail = await withRecloud(connector, async (page) =>
+          connector.queryRmaByLogisticsNo(page, logisticsNo, { preserveDetailPage: false })
+        );
+        if (verifiedRemoteDetail.rmaNo && verifiedRemoteDetail.rmaNo !== rmaNo) {
+          throw createApiError("RECLOUD_RECEIPT_ORDER_MISMATCH", "瑞云查询结果与当前寄修单不一致", 409);
+        }
+        verifiedReceiptState = classifyRecloudReceiptState(verifiedRemoteDetail);
+        if (verifiedReceiptState.receiptRequired === null) {
+          throw createApiError(
+            "RECLOUD_RECEIPT_STATE_UNKNOWN",
+            "无法确认瑞云是否仍待签收，请刷新工单状态后重试",
+            409
+          );
+        }
+      }
       const data = await receiptStore.prepare({
         logisticsNo,
         rmaNo,
@@ -1966,6 +2050,10 @@ function createApp(
         customerName: String(req.body?.customerName || "").trim(),
         reportedFault: String(req.body?.reportedFault || "").trim(),
         recloudProjectCode: currentProjectCode,
+        recloudOrderStatus: verifiedRemoteDetail.orderStatus || "",
+        recloudReceiptStatus: verifiedRemoteDetail.receiptStatus || verifiedReceiptState.label,
+        recloudReceiptSignedAt: verifiedRemoteDetail.receiptSignedAt || verifiedReceiptState.receiptSignedAt,
+        recloudReceiptRequired: verifiedReceiptState.receiptRequired,
         phoneMasked: normalizeMaskedPhone(req.body?.phoneMasked),
         regionAddress: String(req.body?.regionAddress || "").trim(),
         operatorId: currentUser.userId,

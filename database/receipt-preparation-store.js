@@ -40,7 +40,7 @@ function validateReceiptCompletion(existing) {
     error.status = 409;
     throw error;
   }
-  if (!(existing.receiptAttachments || []).length) {
+  if (existing.recloudReceiptRequired !== false && !(existing.receiptAttachments || []).length) {
     const error = new Error("请先拍摄并上传至少一张签收照片");
     error.code = "RECEIPT_ATTACHMENT_REQUIRED";
     error.status = 409;
@@ -68,6 +68,12 @@ function createReceiptPreparation(input, existing = null, now = new Date()) {
     remark: normalizeRequired(input.remark),
     productLine: normalizeRequired(input.productLine),
     recloudProjectCode: normalizeRequired(input.recloudProjectCode),
+    recloudOrderStatus: normalizeRequired(input.recloudOrderStatus),
+    recloudReceiptStatus: normalizeRequired(input.recloudReceiptStatus),
+    recloudReceiptSignedAt: normalizeRequired(input.recloudReceiptSignedAt),
+    recloudReceiptRequired: typeof input.recloudReceiptRequired === "boolean"
+      ? input.recloudReceiptRequired
+      : existing?.recloudReceiptRequired ?? null,
     customerName: normalizeRequired(input.customerName),
     regionAddress: normalizeRequired(input.regionAddress),
     reportedFault: normalizeRequired(input.reportedFault),
@@ -323,12 +329,18 @@ class JsonReceiptPreparationStore {
         recloudReceiptConfirmedAt: timestamp,
         recloudReceiptResult: {
           confirmed: true,
-          message: normalizeRequired(input.receipt?.message) || "签收完成",
+          skipped: input.skipped === true,
+          message: normalizeRequired(input.receipt?.message) || (input.skipped ? "瑞云已签收，跳过重复签收" : "签收完成"),
         },
         updatedAt: timestamp,
         timeline: [
           ...(existing.timeline || []),
-          timelineEvent("RECLOUD_RECEIPT_CONFIRMED", "瑞云签收完成", operator, timestamp),
+          timelineEvent(
+            input.skipped ? "RECLOUD_RECEIPT_ALREADY_COMPLETED" : "RECLOUD_RECEIPT_CONFIRMED",
+            input.skipped ? "瑞云已签收，FieldDesk 已跳过重复签收" : "瑞云签收完成",
+            operator,
+            timestamp
+          ),
         ],
       };
       await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
