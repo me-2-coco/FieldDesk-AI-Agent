@@ -7,7 +7,7 @@ function hasRecordedTime(value) {
   return Boolean(text && !["-", "--", "无", "未签收"].includes(text));
 }
 
-const AFTER_RECEIPT_PATTERN = /(已签收|检测|检修|维修|待报价|报价|待发货|待寄回|已发货|待完工|已完工|完成|关闭|结单)/;
+const AFTER_RECEIPT_PATTERN = /(已签收|无需签收|检测|检修|维修|待报价|报价|待发货|待寄回|已发货|待完工|已完工|完成|关闭|结单)/;
 const WAITING_RECEIPT_PATTERN = /(待签收|未签收)/;
 
 function classifyRecloudReceiptState(detail = {}) {

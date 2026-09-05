@@ -895,6 +895,7 @@ test("receipt-state classifier requires signing only for explicit unsigned order
     receiptSignedAt: "2026-09-05 10:00:00",
   }).receiptRequired, false);
   assert.equal(classifyRecloudReceiptState({ orderStatus: "未知新状态" }).receiptRequired, null);
+  assert.equal(classifyRecloudReceiptState({ receiptStatus: "无需签收" }).receiptRequired, false);
 });
 
 test("pending-list enrichment keeps the project number in the returned RMA detail", async () => {

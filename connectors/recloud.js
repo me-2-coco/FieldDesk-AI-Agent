@@ -1118,13 +1118,24 @@ async function readRmaDetail(page, logisticsNo = "", options = {}) {
   const textPairs = extractTextFieldPairs(bodyText);
   const projectCode = [...formItemPairs, ...textPairs]
     .find(([label]) => normalizeText(label).replace(/[：:]$/, "") === "项目号")?.[1] || "";
-  return parseRmaFieldPairs([...formItemPairs, ...textPairs], logisticsNo, {
+  const detail = parseRmaFieldPairs([...formItemPairs, ...textPairs], logisticsNo, {
     rmaNoFromTitle: extractRmaNoFromTitle(bodyText),
     allowFullPhone: revealPhoneEnabled,
     productLine,
     projectCode,
     requirePickupLogisticsNo: options.requirePickupLogisticsNo,
   });
+  if (!detail.receiptState && typeof page.getByText === "function") {
+    const receiptActions = page
+      .getByText("签收", { exact: true })
+      .filter({ visible: true });
+    const receiptActionCount = await receiptActions.count().catch(() => null);
+    if (receiptActionCount !== null) {
+      detail.receiptStatus = receiptActionCount > 0 ? "待签收" : "无需签收";
+      detail.receiptState = classifyRecloudReceiptState(detail);
+    }
+  }
+  return detail;
 }
 
 function inferProductLineFromCurrentOrder(detail = {}) {
