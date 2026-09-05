@@ -209,6 +209,7 @@ function resolveReceiptSpecialty(user, productLine, requestedSpecialty) {
     );
   }
 
+  if (recognizedProduct) return recognizedProduct;
   if (allowed.length === 1) return allowed[0];
 
   const requested = String(requestedSpecialty || "").trim();
@@ -2007,12 +2008,20 @@ function createApp(
 
     try {
       const currentUser = currentUserProvider(req);
+      const sn = validateReceiptSn(req.body?.sn, logisticsNo);
+      const authorization = typeof feishuModelCatalog.authorizeLocal === "function"
+        ? await feishuModelCatalog.authorizeLocal({ sn })
+        : typeof feishuModelCatalog.authorize === "function"
+          ? await feishuModelCatalog.authorize({ sn })
+        : await feishuModelCatalog.match({ sn, productLine });
+      const snProductLine = SUPPORTED_REPAIR_SPECIALTIES.includes(authorization.productLine)
+        ? authorization.productLine
+        : "";
       const specialty = resolveReceiptSpecialty(
         currentUser,
-        productLine,
+        snProductLine || productLine,
         req.body?.specialty
       );
-      const sn = validateReceiptSn(req.body?.sn, logisticsNo);
       const remark = specialty;
       const currentProjectCode = String(
         req.body?.currentProjectCode || req.body?.recloudProjectCode || ""
@@ -2046,7 +2055,7 @@ function createApp(
         sn,
         specialty,
         remark,
-        productLine: productLine || specialty,
+        productLine: snProductLine || productLine || specialty,
         customerName: String(req.body?.customerName || "").trim(),
         reportedFault: String(req.body?.reportedFault || "").trim(),
         recloudProjectCode: currentProjectCode,
@@ -2059,11 +2068,6 @@ function createApp(
         operatorId: currentUser.userId,
         operatorName: currentUser.displayName,
       });
-      const authorization = typeof feishuModelCatalog.authorizeLocal === "function"
-        ? await feishuModelCatalog.authorizeLocal({ sn })
-        : typeof feishuModelCatalog.authorize === "function"
-          ? await feishuModelCatalog.authorize({ sn })
-        : await feishuModelCatalog.match({ sn, productLine: productLine || specialty });
       const authorizedData = await receiptStore.markModelAuthorization(
         rmaNo,
         authorization,

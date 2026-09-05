@@ -363,11 +363,8 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
       setErrorMessage(snError)
       return
     }
-    if (!specialty) {
-      setErrorMessage("请选择本单维修品类")
-      return
-    }
     if (
+      specialty &&
       ["扫地机", "洗地机"].includes(repairDetail.productLine) &&
       specialty !== repairDetail.productLine
     ) {
@@ -759,22 +756,9 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
           </div>
 
           {!REPAIR_SPECIALTIES.includes(repairDetail.productLine) && specialtyGate.specialties.length > 1 ? (
-            <>
-              <label htmlFor="receipt-specialty">本单维修品类</label>
-              <select
-                id="receipt-specialty"
-                value={specialty}
-                onChange={(event) => {
-                  setSpecialty(event.target.value)
-                  setErrorMessage("")
-                }}
-              >
-                <option value="">请选择维修品类</option>
-                {specialtyGate.specialties.map((item) => (
-                  <option key={item} value={item}>{item}</option>
-                ))}
-              </select>
-            </>
+            <p className="receipt-readonly-remark">
+              维修品类：提交时根据机器 SN 自动识别
+            </p>
           ) : null}
 
           {specialty && (

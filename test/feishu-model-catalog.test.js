@@ -48,12 +48,13 @@ test("SN project matching keeps a non-zero numeric sixth character", () => {
 
 test("local receipt authorizes a dispatched model from SN without a Recloud project number", () => {
   const result = resolveLocalSnAuthorization([
-    { projectCode: "W2336", model: "H30", modelCode: "011101AA000024", repairFees: { 大修: 60, 中修: 40, 小修: 20 } },
+    { projectCode: "W2336", productLine: "扫地机", model: "H30", modelCode: "011101AA000024", repairFees: { 大修: 60, 中修: 40, 小修: 20 } },
   ], { sn: "W233603AMCN0120329" });
   assert.equal(result.status, "SN_AUTHORIZED");
   assert.equal(result.repairability, "SUPPORTED");
   assert.equal(result.canContinue, true);
   assert.equal(result.projectCode, "W2336");
+  assert.equal(result.productLine, "扫地机");
   assert.deepEqual(result.repairFees, { 大修: 60, 中修: 40, 小修: 20 });
 });
 

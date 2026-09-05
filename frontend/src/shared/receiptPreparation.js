@@ -36,7 +36,7 @@ export function getReceiptSpecialtyGate(user, productLine) {
   }
   return {
     specialties,
-    specialty: specialties.length === 1 ? specialties[0] : "",
+    specialty: product || (specialties.length === 1 ? specialties[0] : ""),
     error: ""
   }
 }

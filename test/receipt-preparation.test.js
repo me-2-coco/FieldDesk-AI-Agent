@@ -968,12 +968,23 @@ test("local preparation accepts only a safely masked phone", () => {
   assert.equal(normalizeMaskedPhone("13812341001*"), "");
 });
 
-test("dual-specialty account must select the order specialty", async (t) => {
+test("dual-specialty account derives the order specialty from SN", async (t) => {
   const store = await createTestStore(t);
   const url = await startServer(
     t,
     { openRecloud: async () => assert.fail("must not open Recloud") },
-    store
+    store,
+    USERS.dual,
+    {
+      feishuModelCatalog: {
+        authorizeLocal: async () => ({
+          repairability: "SUPPORTED",
+          status: "SN_AUTHORIZED",
+          canContinue: true,
+          productLine: "扫地机",
+        }),
+      },
+    }
   );
   const { response, result } = await post(
     url,
@@ -985,8 +996,9 @@ test("dual-specialty account must select the order specialty", async (t) => {
     })
   );
 
-  assert.equal(response.status, 400);
-  assert.match(result.message, /请选择本单维修品类/);
+  assert.equal(response.status, 200);
+  assert.equal(result.data.specialty, "扫地机");
+  assert.equal(result.data.productLine, "扫地机");
 });
 
 test("account without a specialty cannot prepare receipt", async (t) => {
@@ -1205,6 +1217,17 @@ test("frontend specialty gate accepts the signed-in lowercase technician role", 
       error: "",
     }
   );
+  assert.deepEqual(
+    helpers.getReceiptSpecialtyGate({
+      role: "technician",
+      repairSpecialties: ["扫地机", "洗地机"],
+    }, "扫地机"),
+    {
+      specialties: ["扫地机", "洗地机"],
+      specialty: "扫地机",
+      error: "",
+    }
+  );
 });
 
 test("frontend enables SN step, restores receipt progress and submits idempotently", async () => {
@@ -1218,6 +1241,8 @@ test("frontend enables SN step, restores receipt progress and submits idempotent
   assert.match(source, /当前为演练模式，不会操作瑞云签收/);
   assert.match(source, /mode=\{scannerMode\}/);
   assert.match(source, /重新扫码/);
+  assert.match(source, /根据机器 SN 自动识别/);
+  assert.doesNotMatch(source, /id="receipt-specialty"/);
   assert.match(source, /placeholder="请输入、扫描枪输入或使用摄像头扫描"/);
   assert.doesNotMatch(source, /currentProjectCode: repairDetail\.projectCode \|\| ""/);
   assert.doesNotMatch(source, /preparation\.authorization\?\.localWorkflowAllowed === true/);

@@ -174,6 +174,9 @@ function resolveLocalSnAuthorization(rows, input = {}) {
   const numericModelCodes = [...new Set(matches
     .map((row) => row.modelCode)
     .filter((code) => /^\d/.test(code)))];
+  const productLines = [...new Set(matches
+    .map((row) => normalize(row.productLine))
+    .filter(Boolean))];
   const repairFeeOptions = [...new Map(matches
     .filter((row) => row.repairFees)
     .map((row) => [JSON.stringify(row.repairFees), row.repairFees])).values()];
@@ -188,6 +191,7 @@ function resolveLocalSnAuthorization(rows, input = {}) {
     projectCode: snProject.projectCode,
     productModelCode: selectedCode,
     model: selectedRow?.model || "",
+    ...(productLines.length === 1 ? { productLine: productLines[0] } : {}),
     ...(repairFeeOptions.length === 1 ? { repairFees: repairFeeOptions[0] } : {}),
   };
 }
