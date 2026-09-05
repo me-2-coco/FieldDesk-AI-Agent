@@ -1086,6 +1086,87 @@ async function readProductLine(page, logger = console) {
   }
 }
 
+async function readRmaProductIdentity(page, options = {}) {
+  assertRecloudAuthenticated(page);
+  const expectedSn = normalizeText(options.sn).toUpperCase();
+  if (!expectedSn) return { sn: "", projectCode: "", productLine: "" };
+
+  // The RMA detail form does not expose 项目号 as a normal form field on every
+  // Recloud layout. Prepare the product/RMA tab, then bind the visible data row
+  // to its headers by coordinates. This also works with Recloud's split/fixed
+  // virtual tables where a DOM <tr> does not contain every displayed column.
+  await findMappedReceiptControl(page, {
+    logisticsNo: options.logisticsNo,
+    productLine: options.productLine,
+    rowIndex: 1,
+    actionTimeout: options.actionTimeout || 8000,
+  }).catch(() => null);
+
+  const scopes = typeof page.frames === "function"
+    ? [page, ...page.frames().filter((frame) => frame !== page.mainFrame?.())]
+    : [page];
+  for (const scope of scopes.slice(0, 6)) {
+    const identity = await scope.evaluate((input) => {
+      const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
+      const comparable = (value) => clean(value).replace(/\s+/g, "").toUpperCase();
+      const visible = (element) => {
+        const style = getComputedStyle(element);
+        const box = element.getBoundingClientRect();
+        return box.width > 0 && box.height > 0
+          && style.display !== "none" && style.visibility !== "hidden";
+      };
+      const headerSelector = "th, [role='columnheader'], .el-table__header .cell, .rtxpc-table__header, .vxe-header--column";
+      const cellSelector = "td, [role='cell'], [role='gridcell'], .el-table__cell, .rtxpc-table__cell, .vxe-body--column, [class*='table-cell'], [class*='grid-cell']";
+      const headers = [...document.querySelectorAll(headerSelector)]
+        .filter(visible)
+        .map((element) => ({ element, text: clean(element.innerText || element.textContent), box: element.getBoundingClientRect() }));
+      const serialHeaders = headers.filter((item) => item.text === "产品序列号");
+      const projectHeaders = headers.filter((item) => item.text === "项目号");
+      const productLineHeaders = headers.filter((item) => item.text === "产品线");
+      const cells = [...document.querySelectorAll(cellSelector)]
+        .filter(visible)
+        .map((element) => ({ text: clean(element.innerText || element.textContent), box: element.getBoundingClientRect() }));
+      const pickCell = (row, header) => row
+        .filter((cell) => {
+          const x = header.box.x + header.box.width / 2;
+          return cell.box.x <= x && cell.box.x + cell.box.width >= x;
+        })
+        .sort((left, right) => left.box.width - right.box.width)[0] || null;
+
+      for (const serialHeader of serialHeaders) {
+        const projectHeader = [...projectHeaders]
+          .sort((left, right) => Math.abs(left.box.y - serialHeader.box.y) - Math.abs(right.box.y - serialHeader.box.y))[0];
+        if (!projectHeader || Math.abs(projectHeader.box.y - serialHeader.box.y) > 20) continue;
+        const productLineHeader = [...productLineHeaders]
+          .sort((left, right) => Math.abs(left.box.y - serialHeader.box.y) - Math.abs(right.box.y - serialHeader.box.y))[0];
+        const candidates = cells.filter((cell) => cell.box.y > serialHeader.box.bottom - 2);
+        const rowCenters = [];
+        for (const cell of candidates) {
+          const center = cell.box.y + cell.box.height / 2;
+          if (!rowCenters.some((value) => Math.abs(value - center) <= 4)) rowCenters.push(center);
+        }
+        for (const center of rowCenters) {
+          const row = candidates.filter((cell) => Math.abs(cell.box.y + cell.box.height / 2 - center) <= 4);
+          const serialCell = pickCell(row, serialHeader);
+          if (!serialCell || comparable(serialCell.text) !== input.expectedSn) continue;
+          const projectCell = pickCell(row, projectHeader);
+          const productLineCell = productLineHeader && Math.abs(productLineHeader.box.y - serialHeader.box.y) <= 20
+            ? pickCell(row, productLineHeader)
+            : null;
+          return {
+            sn: clean(serialCell.text),
+            projectCode: clean(projectCell?.text),
+            productLine: clean(productLineCell?.text),
+          };
+        }
+      }
+      return null;
+    }, { expectedSn }).catch(() => null);
+    if (identity?.sn && identity?.projectCode) return identity;
+  }
+  return { sn: "", projectCode: "", productLine: "" };
+}
+
 function selectCellByHeaderCoordinate(headerBox, cells) {
   if (!headerBox) return "";
   const centerX = headerBox.x + headerBox.width / 2;
@@ -10672,7 +10753,21 @@ async function uploadRmaAttachments(page, attachments = [], options = {}) {
   if (!pending.length) return { uploaded: [], skipped: files.map((file) => file.name) };
 
   const card = await getRmaAttachmentCard(page);
-  const openButton = card.getByText(/^上传附件$/, { exact: true }).first();
+  const pageButtons = page.getByRole("button", { name: "上传附件", exact: true }).filter({ visible: true });
+  const pageButtonCount = await pageButtons.count();
+  const cardButtons = card.getByText(/^上传附件$/, { exact: true }).filter({ visible: true });
+  const cardButtonCount = await cardButtons.count();
+  const openButton = pageButtonCount === 1
+    ? pageButtons.first()
+    : pageButtonCount === 0 && cardButtonCount === 1
+      ? cardButtons.first()
+      : null;
+  if (!openButton) {
+    const error = new Error("瑞云附件入口不存在或不唯一");
+    error.code = "RECLOUD_RMA_ATTACHMENT_OPEN_BUTTON_AMBIGUOUS";
+    error.status = 409;
+    throw error;
+  }
   await openButton.waitFor({ state: "visible" });
   await openButton.click();
   const dialog = page.locator('.uploadDialog:visible').last();
@@ -11012,6 +11107,7 @@ module.exports = {
   waitForRmaDetail,
   readRmaDetail,
   readProductLine,
+  readRmaProductIdentity,
   selectCellByHeaderCoordinate,
   revealFeedbackPhone,
   queryRmaByLogisticsNo,

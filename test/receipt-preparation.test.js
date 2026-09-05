@@ -795,6 +795,48 @@ test("live receipt confirms first and then uploads its FieldDesk photo exactly o
   assert.deepEqual(calls, ["receipt", "photo"]);
 });
 
+test("receipt attachment sync reads project code from the SN-bound product row when the form field is empty", async (t) => {
+  const store = await createTestStore(t);
+  await store.prepare({
+    ...validPayload(),
+    operatorId: USERS.sweep.userId,
+    operatorName: USERS.sweep.displayName,
+  });
+  let uploaded = 0;
+  const connector = {
+    openRecloud: async () => ({ loginRequired: false, page: {} }),
+    queryRmaByLogisticsNo: async () => ({ rmaNo: "JXTH900001001", productLine: "扫地机", projectCode: "" }),
+    confirmSign: async () => ({ confirmed: true, message: "签收完成" }),
+    readRmaProductIdentity: async () => ({ sn: "TEST-SN-A1", projectCode: "R2502", productLine: "扫地机" }),
+    uploadRmaAttachments: async () => { uploaded += 1; return { uploaded: ["receipt.jpg"], skipped: [] }; },
+  };
+  const url = await startServer(t, connector, store, USERS.sweep, {
+    receiptAttachmentStore: { read: async () => Buffer.from("test-photo") },
+    feishuModelCatalog: {
+      authorize: async ({ currentProjectCode }) => ({
+        status: currentProjectCode === "R2502" ? "MATCHED" : "SN_AUTHORIZED",
+        repairability: "SUPPORTED",
+        currentProjectCode,
+        projectCode: "R2502",
+      }),
+    },
+    env: {
+      ...process.env,
+      DRY_RUN: "true",
+      RECLOUD_WRITE_ENABLED: "false",
+      RECLOUD_RECEIPT_WRITE_ENABLED: "true",
+    },
+  });
+
+  const completed = await post(url, "/api/repairs/complete-local-receipt", { rmaNo: "JXTH900001001" });
+  assert.equal(completed.response.status, 200);
+  await waitForValue(async () => {
+    const current = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
+    return current?.recloudReceiptAttachmentSyncStatus;
+  }, "CONFIRMED");
+  assert.equal(uploaded, 1);
+});
+
 test("detection-stage Recloud order skips receipt but still corrects project and uploads attachments", async (t) => {
   const store = await createTestStore(t);
   await store.prepare({

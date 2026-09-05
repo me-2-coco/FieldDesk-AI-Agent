@@ -707,8 +707,24 @@ function createApp(
                 409
               );
             }
+            const productIdentity = !detail.projectCode && typeof connector.readRmaProductIdentity === "function"
+              ? await connector.readRmaProductIdentity(page, {
+                  sn: order.sn,
+                  logisticsNo: order.logisticsNo,
+                  productLine: detail.productLine || detail.productType || order.productLine,
+                })
+              : null;
+            if (productIdentity?.sn
+              && productIdentity.sn.trim().toUpperCase() !== String(order.sn || "").trim().toUpperCase()) {
+              throw createApiError(
+                "RECLOUD_PRODUCT_SN_MISMATCH",
+                "瑞云产品序列号与 FieldDesk 扫描 SN 不一致，已停止后台操作",
+                409
+              );
+            }
+            const currentProjectCode = detail.projectCode || productIdentity?.projectCode || "";
             const projectAuthorization = typeof feishuModelCatalog.authorize === "function"
-              ? await feishuModelCatalog.authorize({ sn: order.sn, currentProjectCode: detail.projectCode || "" })
+              ? await feishuModelCatalog.authorize({ sn: order.sn, currentProjectCode })
               : order.modelAuthorization;
             if (projectAuthorization?.status === "CHANGE_REQUIRED") {
               if (typeof connector.correctRmaProjectModel !== "function") {
