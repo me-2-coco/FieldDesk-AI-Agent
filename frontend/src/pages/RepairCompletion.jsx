@@ -296,7 +296,10 @@ function RepairCompletion({ setPage }) {
       setPage("home")
       return
     }
-    const nextPage = skipsParts ? "repairDecision" : "repairProcess"
+    // Always return one page at a time. No-parts flows are:
+    // completion -> inspection -> treatment decision.
+    // Repair flows continue from inspection -> parts -> treatment decision.
+    const nextPage = "repairProcess"
     try {
       setBusy(true)
       setErrorMessage("")

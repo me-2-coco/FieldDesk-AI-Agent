@@ -63,15 +63,22 @@ test("a held order records reason, remark, holder, progress and Recloud sync res
 });
 
 test("technician navigation exposes a closed-loop lock and a six-way decision", async () => {
-  const [app, decision, navigation, tracking] = await Promise.all([
+  const [app, decision, navigation, tracking, completion, styles] = await Promise.all([
     fs.readFile(path.join(__dirname, "../frontend/src/App.jsx"), "utf8"),
     fs.readFile(path.join(__dirname, "../frontend/src/pages/RepairDecision.jsx"), "utf8"),
     fs.readFile(path.join(__dirname, "../frontend/src/shared/repairNavigation.js"), "utf8"),
     fs.readFile(path.join(__dirname, "../frontend/src/pages/MachineTracking.jsx"), "utf8"),
+    fs.readFile(path.join(__dirname, "../frontend/src/pages/RepairCompletion.jsx"), "utf8"),
+    fs.readFile(path.join(__dirname, "../frontend/src/App.css"), "utf8"),
   ]);
   assert.match(decision, /6 选 1/);
   assert.match(decision, /value: "ON_HOLD"/);
   assert.match(decision, /RECLOUD_HOLD_REASON_GROUPS/);
+  for (const tone of ["repair", "abandoned", "inspection", "debugging", "transfer", "hold"]) {
+    assert.match(decision, new RegExp(`tone: "${tone}"`));
+  }
+  assert.match(completion, /const nextPage = "repairProcess"/);
+  assert.doesNotMatch(styles, /\.treatment-option:last-child\{grid-column:1\/-1/);
   assert.match(app, /当前工单必须先完成、弃修、调试、只检测、转寄总部或暂存/);
   assert.match(navigation, /isTechnicianWorkflowLocked/);
   assert.match(tracking, /查看全部进度/);

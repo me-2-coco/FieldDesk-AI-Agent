@@ -5,12 +5,12 @@ import { getCurrentRepairOrder, REPAIR_STATUS, updateRepairOrder } from "../shar
 import { RECLOUD_HOLD_REASON_GROUPS } from "../data/recloudHoldReasons.js"
 
 const OPTIONS = [
-  { value: "REPAIR", title: "维修", badge: "需配件", description: "需要更换配件，下一步申请配件。", next: "申请配件" },
-  { value: "ABANDONED", title: "弃修", badge: "免配件", description: "用户不维修，下一步登记故障分类并完成检测。", next: "填写检测" },
-  { value: "INSPECTION_ONLY", title: "只检测不维修", badge: "检测报告", description: "不申请配件，下一步登记故障分类并完成检测。", next: "填写检测" },
-  { value: "DEBUGGING", title: "调试", badge: "免配件", description: "无硬件故障，下一步登记故障分类并完成检测。", next: "填写检测" },
-  { value: "TRANSFER_TO_HEADQUARTERS", title: "转寄总部", badge: "转总部", description: "网点不继续处理，登记后转寄总部。", next: "结束网点流程" },
-  { value: "ON_HOLD", title: "暂存", badge: "同步瑞云滞留", description: "待料、用户考虑或其他原因暂不能继续时使用。", next: "填写原因和备注" },
+  { value: "REPAIR", tone: "repair", title: "维修", badge: "需配件", description: "需要更换配件，下一步申请配件。", next: "申请配件" },
+  { value: "ABANDONED", tone: "abandoned", title: "弃修", badge: "免配件", description: "用户不维修，下一步登记故障分类并完成检测。", next: "填写检测" },
+  { value: "INSPECTION_ONLY", tone: "inspection", title: "只检测不维修", badge: "检测报告", description: "不申请配件，下一步登记故障分类并完成检测。", next: "填写检测" },
+  { value: "DEBUGGING", tone: "debugging", title: "调试", badge: "免配件", description: "无硬件故障，下一步登记故障分类并完成检测。", next: "填写检测" },
+  { value: "TRANSFER_TO_HEADQUARTERS", tone: "transfer", title: "转寄总部", badge: "转总部", description: "网点不继续处理，登记后转寄总部。", next: "结束网点流程" },
+  { value: "ON_HOLD", tone: "hold", title: "暂存", badge: "同步瑞云滞留", description: "待料、用户考虑或其他原因暂不能继续时使用。", next: "填写原因和备注" },
 ]
 
 function RepairDecision({ setPage }) {
@@ -84,7 +84,7 @@ function RepairDecision({ setPage }) {
       </div>
       <p className="treatment-choice-tip">选择后，系统会自动进入对应的下一步。</p>
       <div className="treatment-option-list">
-        {OPTIONS.map((option) => <button key={option.value} type="button" className={`treatment-option ${selected === option.value ? "is-selected" : ""}`} onClick={() => { setSelected(option.value); setErrorMessage("") }} aria-pressed={selected === option.value}>
+        {OPTIONS.map((option) => <button key={option.value} type="button" className={`treatment-option treatment-option-${option.tone} ${selected === option.value ? "is-selected" : ""}`} onClick={() => { setSelected(option.value); setErrorMessage("") }} aria-pressed={selected === option.value}>
           <span className="treatment-option-icon">{selected === option.value ? "✓" : ""}</span>
           <span className="treatment-option-copy">
             <span><strong>{option.title}</strong><small>{option.badge}</small></span>
