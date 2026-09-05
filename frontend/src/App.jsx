@@ -29,6 +29,7 @@ import BottomNav from "./components/BottomNav.jsx"
 import {
   canAccessPage,
   getCurrentUser,
+  isWorkflowRestrictedTechnician,
   setAuthenticatedUser,
   USER_ROLES
 } from "./shared/userStore.js"
@@ -77,18 +78,19 @@ function App() {
   const [selectedInformationReportRmaNo, setSelectedInformationReportRmaNo] = useState("")
 
   const currentRepairOrder = getCurrentRepairOrder()
-  const workflowLocked = currentUser?.role === USER_ROLES.TECHNICIAN
+  const workflowRestricted = isWorkflowRestrictedTechnician(currentUser)
+  const workflowLocked = workflowRestricted
     && isTechnicianWorkflowLocked(currentRepairOrder)
 
   useEffect(() => {
-    if (!isLoggedIn || currentUser?.role !== USER_ROLES.TECHNICIAN) return
+    if (!isLoggedIn || !workflowRestricted) return
     const activeOrder = getCurrentRepairOrder()
     if (!isTechnicianWorkflowLocked(activeOrder) || page !== "home") return
     queueMicrotask(() => {
       setPageState(resumePageForLocalWorkflow(activeOrder) || pageForRepairStatus(activeOrder.status))
       setPermissionMessage("当前工单尚未形成处理结果，请先完成或暂存本单")
     })
-  }, [isLoggedIn, currentUser?.role, page])
+  }, [isLoggedIn, workflowRestricted, page])
 
   useEffect(() => {
     const handleExpiredSession = () => {
@@ -271,7 +273,7 @@ function App() {
     setCurrentUser(latestUser)
 
     const activeOrder = getCurrentRepairOrder()
-    if (latestUser.role === USER_ROLES.TECHNICIAN && isTechnicianWorkflowLocked(activeOrder)) {
+    if (isWorkflowRestrictedTechnician(latestUser) && isTechnicianWorkflowLocked(activeOrder)) {
       if (nextPage === "home") {
         setPermissionMessage("当前工单必须先完成、弃修、调试、只检测、转寄总部或暂存，才能返回首页")
         return

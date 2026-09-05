@@ -62,9 +62,10 @@ test("a held order records reason, remark, holder, progress and Recloud sync res
   assert.equal(confirmed.timeline.at(-1).type, "RECLOUD_HOLD_CONFIRMED");
 });
 
-test("technician navigation locks home but resumes the current order from the work-order button", async () => {
-  const [app, bottomNav, decision, navigation, tracking, completion, styles] = await Promise.all([
+test("only ordinary technicians are workflow-restricted while owner admin and FieldDesk0004 are exempt", async () => {
+  const [app, userStore, bottomNav, decision, navigation, tracking, completion, styles] = await Promise.all([
     fs.readFile(path.join(__dirname, "../frontend/src/App.jsx"), "utf8"),
+    fs.readFile(path.join(__dirname, "../frontend/src/shared/userStore.js"), "utf8"),
     fs.readFile(path.join(__dirname, "../frontend/src/components/BottomNav.jsx"), "utf8"),
     fs.readFile(path.join(__dirname, "../frontend/src/pages/RepairDecision.jsx"), "utf8"),
     fs.readFile(path.join(__dirname, "../frontend/src/shared/repairNavigation.js"), "utf8"),
@@ -82,7 +83,10 @@ test("technician navigation locks home but resumes the current order from the wo
   assert.doesNotMatch(styles, /\.treatment-option:last-child\{grid-column:1\/-1/);
   assert.match(app, /nextPage === "home"/);
   assert.match(app, /nextPage === "repair"/);
+  assert.match(app, /isWorkflowRestrictedTechnician\(latestUser\)/);
   assert.match(app, /resumePageForLocalWorkflow\(activeOrder\)/);
+  assert.match(userStore, /user\?\.id !== "FieldDesk0004"/);
+  assert.match(userStore, /user\?\.accountAuthority !== "OWNER"/);
   assert.match(bottomNav, /item\.page === "home"/);
   assert.match(bottomNav, /item\.page === "repair" \? "workflow-resume"/);
   assert.doesNotMatch(bottomNav, /\["home", "repair"\]\.includes/);

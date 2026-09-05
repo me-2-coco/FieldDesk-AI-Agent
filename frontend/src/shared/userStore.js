@@ -222,6 +222,12 @@ export function isAdmin(user = getCurrentUser()) {
   return user.role === USER_ROLES.ADMIN
 }
 
+export function isWorkflowRestrictedTechnician(user = getCurrentUser()) {
+  return user?.role === USER_ROLES.TECHNICIAN
+    && user?.id !== "FieldDesk0004"
+    && user?.accountAuthority !== "OWNER"
+}
+
 
 export function canAccessPage(
   page,
