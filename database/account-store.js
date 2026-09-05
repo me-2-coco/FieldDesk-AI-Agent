@@ -118,6 +118,7 @@ class AccountStore {
         active: true,
         allowBearer: false,
         tokenHash: crypto.createHash("sha256").update(MANAGED_ACCOUNT_DEFAULT_PASSWORD).digest("hex"),
+        mustChangePassword: true,
         tokenExpiresAt: null,
         createdAt: now,
         updatedAt: now,
@@ -143,6 +144,33 @@ class AccountStore {
       return { userId: removed.userId, displayName: removed.displayName };
     });
   }
+  resetPassword(userId, operator) {
+    if (operator?.role !== USER_ROLES.ADMIN) throw Object.assign(new Error("只有管理员可以重置密码"), { code: "ACCOUNT_ADMIN_REQUIRED", status: 403 });
+    const normalizedUserId = String(userId || "").trim();
+    return this.backend.update((data) => {
+      const user = data.users.find((item) => item.userId === normalizedUserId && !item.deletedAt);
+      if (!user) throw Object.assign(new Error("账号不存在"), { code: "ACCOUNT_NOT_FOUND", status: 404 });
+      if (user.role === USER_ROLES.ADMIN) throw Object.assign(new Error("管理员账号不能在这里重置"), { code: "ACCOUNT_ADMIN_RESET_FORBIDDEN", status: 409 });
+      user.tokenHash = crypto.createHash("sha256").update(MANAGED_ACCOUNT_DEFAULT_PASSWORD).digest("hex");
+      user.mustChangePassword = true;
+      user.updatedAt = new Date().toISOString();
+      return { userId: user.userId, displayName: user.displayName, initialPassword: MANAGED_ACCOUNT_DEFAULT_PASSWORD };
+    });
+  }
+  changePassword(userId, newPassword) {
+    const normalizedUserId = String(userId || "").trim();
+    const password = String(newPassword || "");
+    if (password === MANAGED_ACCOUNT_DEFAULT_PASSWORD) throw Object.assign(new Error("新密码不能继续使用初始密码0000"), { code: "ACCOUNT_PASSWORD_UNCHANGED", status: 400 });
+    if (password.length < 6) throw Object.assign(new Error("新密码至少需要6位"), { code: "ACCOUNT_PASSWORD_TOO_SHORT", status: 400 });
+    return this.backend.update((data) => {
+      const user = data.users.find((item) => item.userId === normalizedUserId && !item.deletedAt && item.active !== false);
+      if (!user) throw Object.assign(new Error("账号不存在或已停用"), { code: "ACCOUNT_NOT_FOUND", status: 404 });
+      user.tokenHash = crypto.createHash("sha256").update(password).digest("hex");
+      user.mustChangePassword = false;
+      user.updatedAt = new Date().toISOString();
+      return { userId: user.userId, displayName: user.displayName };
+    });
+  }
   upsert(input, operator) {
     if (operator?.role !== USER_ROLES.ADMIN) throw Object.assign(new Error("只有管理员可以配置账号"), { code: "ACCOUNT_ADMIN_REQUIRED", status: 403 });
     const role = String(input.role || "");
@@ -166,7 +194,7 @@ class AccountStore {
         ? crypto.createHash("sha256").update(String(password)).digest("hex")
         : existing?.tokenHash;
       if (!userId || !input.displayName || !tokenHash) throw Object.assign(new Error("账号资料不完整"), { code: "ACCOUNT_FIELDS_REQUIRED", status: 400 });
-      const next = { userId, displayName: String(input.displayName).trim(), phone: normalizeTechnicianPhone(input.phone ?? existing?.phone), role, repairSpecialties: specialties, recloudAssignmentMode, recloudAssigneeName, recloudFallbackAssigneeName, active: input.active !== false, allowBearer: false, tokenHash, tokenExpiresAt: null, updatedAt: new Date().toISOString() };
+      const next = { userId, displayName: String(input.displayName).trim(), phone: normalizeTechnicianPhone(input.phone ?? existing?.phone), role, repairSpecialties: specialties, recloudAssignmentMode, recloudAssigneeName, recloudFallbackAssigneeName, active: input.active !== false, allowBearer: false, tokenHash, mustChangePassword: password ? true : existing?.mustChangePassword === true, tokenExpiresAt: null, updatedAt: new Date().toISOString() };
       if (existing) Object.assign(existing, next); else data.users.push({ ...next, createdAt: next.updatedAt });
       const { tokenHash: ignored, ...safe } = next;
       return safe;

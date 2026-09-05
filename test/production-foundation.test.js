@@ -84,7 +84,14 @@ test("administrator creates managed FieldDesk accounts from 0005 with required r
   assert.equal(first.role, USER_ROLES.TECHNICIAN);
   assert.deepEqual(first.repairSpecialties, ["扫地机"]);
   assert.equal(first.recloudAssigneeName, "测试甲");
-  assert.equal((await store.findByCredentials("FieldDesk0005", "0000")).displayName, "测试甲");
+  assert.equal((await store.findByCredentials("FieldDesk0005", "0000")).mustChangePassword, true);
+  await store.changePassword("FieldDesk0005", "new-safe-password");
+  assert.equal(await store.findByCredentials("FieldDesk0005", "0000"), null);
+  assert.equal((await store.findByCredentials("FieldDesk0005", "new-safe-password")).mustChangePassword, false);
+  const reset = await store.resetPassword("FieldDesk0005", admin);
+  assert.equal(reset.initialPassword, "0000");
+  assert.equal((await store.findByCredentials("FieldDesk0005", "0000")).mustChangePassword, true);
+  assert.throws(() => store.changePassword("FieldDesk0005", "0000"), { code: "ACCOUNT_PASSWORD_UNCHANGED" });
   await assert.rejects(() => store.createManagedAccount({ displayName: "重复", phone: "13800138000", role: USER_ROLES.WAREHOUSE }, admin), { code: "ACCOUNT_PHONE_EXISTS" });
   assert.throws(() => store.createManagedAccount({ displayName: "", phone: "13900139001", role: USER_ROLES.WAREHOUSE }, admin), { code: "ACCOUNT_DISPLAY_NAME_REQUIRED" });
   assert.throws(() => store.createManagedAccount({ displayName: "测试丙", phone: "123", role: USER_ROLES.WAREHOUSE }, admin), { code: "ACCOUNT_PHONE_INVALID" });

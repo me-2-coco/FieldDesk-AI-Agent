@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { createAdminAccount, deleteAdminAccount, getAdminUsers, getNextAdminAccount, saveAdminUser } from "../shared/crmService.js"
+import { createAdminAccount, deleteAdminAccount, getAdminUsers, getNextAdminAccount, resetAdminAccountPassword, saveAdminUser } from "../shared/crmService.js"
 
 const EMPTY = { userId: "", displayName: "", phone: "", role: "", repairSpecialties: [], password: "", active: true, recloudAssignmentMode: "DIRECT", recloudAssigneeName: "", recloudFallbackAssigneeName: "" }
 
@@ -60,6 +60,14 @@ function AccountManagement({ setPage }) {
     } catch (error) { setMessage(error.message) }
   }
 
+  async function resetUserPassword() {
+    if (!window.confirm(`确定把 ${form.userId}（${form.displayName}）的密码重置为 0000 吗？`)) return
+    try {
+      await resetAdminAccountPassword(form.userId)
+      setMessage("密码已重置为 0000；该用户下次登录必须修改密码")
+    } catch (error) { setMessage(error.message) }
+  }
+
   return <div className="page account-management-page">
     <div className="top-bar"><button className="arrow-back" onClick={() => setPage("home")}>←</button><div><small>账号与权限</small><h1>账号管理</h1></div></div>
     <div className="card account-editor-card">
@@ -87,6 +95,7 @@ function AccountManagement({ setPage }) {
         <label>登录密码<input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder={users.some((user) => user.userId === form.userId) ? "不修改可留空" : "设置登录密码"} autoComplete="new-password" required={!users.some((user) => user.userId === form.userId)} /></label>
         <label className="switch-row"><span>账号启用</span><input type="checkbox" checked={form.active} onChange={(event) => setForm({ ...form, active: event.target.checked })} /></label>
         <div className="compact-action-row"><button type="submit">保存账号</button>{form.userId && <button type="button" className="secondary-btn" onClick={() => setForm(EMPTY)}>取消</button>}</div>
+        {form.userId && form.role !== "ADMIN" && <button type="button" className="secondary-btn" onClick={resetUserPassword}>重置密码为 0000</button>}
         {form.userId && form.role !== "ADMIN" && <button type="button" className="account-delete-button" onClick={removeUser}>删除账号</button>}
       </form>
     </div>

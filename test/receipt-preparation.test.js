@@ -1073,6 +1073,7 @@ test("current-user API exposes only the server-side account profile", async (t) 
     recloudAssignmentMode: "DIRECT",
     recloudAssigneeName: "",
     recloudFallbackAssigneeName: "",
+    mustChangePassword: false,
   });
   assert.equal("password" in result.data, false);
 });

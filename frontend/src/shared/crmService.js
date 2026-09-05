@@ -20,6 +20,10 @@ export async function loginFieldDeskAccount(userId, password) {
   return result.data
 }
 
+export async function changeFieldDeskPassword(newPassword) {
+  return request("/api/auth/change-password", { newPassword })
+}
+
 function apiHeaders() {
   const localUserId =
     typeof localStorage === "undefined"
@@ -403,4 +407,8 @@ export async function createAdminAccount(payload) {
 
 export async function deleteAdminAccount(userId) {
   return request("/api/admin/accounts/delete", { userId })
+}
+
+export async function resetAdminAccountPassword(userId) {
+  return request("/api/admin/accounts/reset-password", { userId })
 }

@@ -2010,6 +2010,10 @@ button:active:not(:disabled) {
   margin-top: 16px;
 }
 
+.login-password-change { margin-top: 18px; padding: 16px; background: #f4f8ff; border: 1px solid #d8e7fb; border-radius: 14px; }
+.login-password-change > strong { display: block; margin-bottom: 12px; color: #245b9c; text-align: center; }
+.login-password-change input { background: #fff; }
+
 .login-message {
   margin-top: 13px;
   color: #1677ff;

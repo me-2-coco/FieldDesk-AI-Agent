@@ -409,6 +409,7 @@ function createApp(
         recloudAssignmentMode: user.recloudAssignmentMode || "DIRECT",
         recloudAssigneeName: user.recloudAssigneeName || "",
         recloudFallbackAssigneeName: user.recloudFallbackAssigneeName || "",
+        mustChangePassword: user.mustChangePassword === true,
       } });
     } catch (error) { next(error); }
   });
@@ -424,6 +425,9 @@ function createApp(
       if (session && session.expiresAt <= Date.now()) accountSessions.delete(token);
       const user = session?.expiresAt > Date.now() ? await accountStore.findByUserId(session.userId) : await accountStore.findByToken(token);
       if (!user) return res.status(401).json({ success: false, code: "AUTH_REQUIRED", message: "账号认证失败" });
+      if (user.mustChangePassword === true && req.path !== "/api/auth/change-password") {
+        return res.status(403).json({ success: false, code: "PASSWORD_CHANGE_REQUIRED", message: "请先修改初始密码" });
+      }
       req.fieldDeskUser = user;
       next();
     } catch (error) { next(error); }
@@ -767,8 +771,17 @@ function createApp(
         recloudAssignmentMode: user.recloudAssignmentMode || "DIRECT",
         recloudAssigneeName: user.recloudAssigneeName || "",
         recloudFallbackAssigneeName: user.recloudFallbackAssigneeName || "",
+        mustChangePassword: user.mustChangePassword === true,
       },
     });
+  });
+
+  app.post("/api/auth/change-password", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      await accountStore.changePassword(user.userId, req.body?.newPassword);
+      res.json({ success: true, data: { changed: true } });
+    } catch (error) { next(error); }
   });
 
   app.get("/api/admin/users", async (req, res, next) => {
@@ -805,6 +818,17 @@ function createApp(
     try {
       const user = currentUserProvider(req);
       res.json({ success: true, data: await accountStore.delete(req.body?.userId, user) });
+    } catch (error) { next(error); }
+  });
+
+  app.post("/api/admin/accounts/reset-password", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      const data = await accountStore.resetPassword(req.body?.userId, user);
+      for (const [token, session] of accountSessions.entries()) {
+        if (session.userId === data.userId) accountSessions.delete(token);
+      }
+      res.json({ success: true, data });
     } catch (error) { next(error); }
   });
 
