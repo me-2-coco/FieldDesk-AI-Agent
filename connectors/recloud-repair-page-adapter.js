@@ -2,6 +2,7 @@ const { inspectCurrentAssignee, locateUniqueTargetTechnicianRow } = require("./r
 const { openRepairPartAddDialog } = require("./recloud-repair-part-dialog");
 const { readExistingRepairParts } = require("./recloud-repair-parts-reader");
 const { readExistingRepairAttachments } = require("./recloud-repair-attachments-reader");
+const { createRecloudRepairControlAdapter, normalizeRepairControlValue } = require("./recloud-repair-control-adapter");
 const path = require("path");
 const crypto = require("crypto");
 
@@ -408,6 +409,22 @@ function createRecloudRepairPageAdapter(page, context = {}) {
 
     async applyRepairFields(plan) {
       await openServiceReport(page);
+      const report = await uniqueVisible(
+        page.getByRole("tabpanel", { name: exactText("服务报告") }).filter({ visible: true }),
+        "瑞云服务报告区域不唯一",
+        "RECLOUD_REPAIR_REPORT_AMBIGUOUS",
+        "FIELDS"
+      );
+      const directControls = createRecloudRepairControlAdapter(page, report);
+      for (const field of plan.safeWrites.filter((item) => ["customerPaidAmount", "logisticsAmount", "primaryRemark"].includes(item.key))) {
+        const expected = normalizeRepairControlValue(field.value, field.key === "primaryRemark" ? "PICKLIST" : "NUMBER");
+        const current = await directControls.read(field.key);
+        if (current !== expected) await directControls.write(field.key, field.value);
+        const confirmed = await directControls.read(field.key);
+        if (confirmed !== expected) {
+          throw adapterError(`瑞云维修字段 ${field.target} 写入后复核失败`, "RECLOUD_REPAIR_DIRECT_FIELD_POSTVERIFY_FAILED", "FIELDS");
+        }
+      }
       const serialNumber = String(context.sn || "").trim().toUpperCase();
       const fault = context.payload || {};
       const value = String(plan.safeWrites.find((item) => item.key === "repairMeasure")?.value || "").trim();
@@ -449,6 +466,17 @@ function createRecloudRepairPageAdapter(page, context = {}) {
 
     async verifyRepairFields(plan) {
       await openServiceReport(page);
+      const report = await uniqueVisible(
+        page.getByRole("tabpanel", { name: exactText("服务报告") }).filter({ visible: true }),
+        "瑞云服务报告区域不唯一",
+        "RECLOUD_REPAIR_REPORT_AMBIGUOUS",
+        "FIELDS"
+      );
+      const directControls = createRecloudRepairControlAdapter(page, report);
+      for (const field of plan.safeWrites.filter((item) => ["customerPaidAmount", "logisticsAmount", "primaryRemark"].includes(item.key))) {
+        const expected = normalizeRepairControlValue(field.value, field.key === "primaryRemark" ? "PICKLIST" : "NUMBER");
+        if (await directControls.read(field.key) !== expected) return false;
+      }
       const expected = String(plan.safeWrites.find((item) => item.key === "repairMeasure")?.value || "").trim();
       const rows = page.getByRole("row")
         .filter({ hasText: String(context.sn || "").trim().toUpperCase() })

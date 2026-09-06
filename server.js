@@ -68,6 +68,8 @@ const { resolveRecloudTechnician } = require("./services/recloud-technician-mapp
 const {
   assessRecloudInspectionControlMapping,
   buildRecloudInspectionFormPlan,
+  buildNodePayload,
+  MAPPING_VERSION,
 } = require("./connectors/recloud-sync-mapping");
 const {
   USER_ROLES,
@@ -467,6 +469,10 @@ function createApp(
           userId: "SYSTEM",
           displayName: "FieldDesk 后台",
         });
+      },
+      refreshTaskPayload: async (task) => {
+        const order = (await receiptStore.readAll()).find((item) => item.rmaNo === task.rmaNo);
+        return order ? { payload: buildNodePayload(order, task.nodeType), mappingVersion: MAPPING_VERSION } : null;
       },
     }
   );

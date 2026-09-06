@@ -1,4 +1,4 @@
-const MAPPING_VERSION = "v12";
+const MAPPING_VERSION = "v13";
 const { buildProjectCorrectionPlan } = require("../services/recloud-project-correction-rules");
 
 const NODE_REQUIRED_FIELDS = Object.freeze({
@@ -44,6 +44,7 @@ const RECLOUD_REPAIR_FIELD_TARGETS = Object.freeze({
   partsCostAmount: { target: "配件费用合计", status: "SYSTEM_CALCULATED" },
   customerPaidAmount: { target: "客户实际支付金额", status: "CONFIRMED" },
   logisticsAmount: { target: "快递金额", status: "CONFIRMED" },
+  primaryRemark: { target: "一级备注", status: "CONFIRMED" },
   personalizedLogisticsAmount: { target: "快递金额（个性化）", status: "EXCLUDED" },
   attachments: { target: "附件", status: "CONFIRMED" },
   detectionReportAttachments: { target: "附件（检测报告）", status: "EXCLUDED" },
@@ -62,16 +63,18 @@ function compactParts(parts) {
   })).filter((part) => part.partCode && part.quantity > 0);
 }
 
-function compactPricing(pricing) {
+function compactPricing(pricing, warrantyStatus = "") {
   if (!pricing || typeof pricing !== "object") return null;
+  const normalizedWarranty = normalizeWarrantyForRecloud(warrantyStatus);
   return {
-    warrantyStatus: String(pricing.status || "").trim(),
+    warrantyStatus: normalizedWarranty === "保外" ? "OUT_OF_WARRANTY" : normalizedWarranty === "保内" ? "IN_WARRANTY" : String(pricing.status || "").trim(),
     highestRepairLevel: String(pricing.highestLevel || "").trim(),
     partsFee: Number(pricing.partsFee || 0),
     repairFee: Number(pricing.fee || 0),
     oneWayLogisticsFee: Number(pricing.oneWayLogisticsFee || 0),
     roundTripLogisticsFee: Number(pricing.logisticsFee || 0),
     totalFee: Number(pricing.totalFee || 0),
+    primaryRemark: String(pricing.primaryRemark || "").trim(),
   };
 }
 
@@ -216,6 +219,7 @@ function buildRecloudRepairFormPlan(payload = {}) {
     { key: "highestRepairLevel", target: RECLOUD_REPAIR_FIELD_TARGETS.highestRepairLevel.target, value: String(pricing.highestRepairLevel || "").trim() },
     { key: "customerPaidAmount", target: RECLOUD_REPAIR_FIELD_TARGETS.customerPaidAmount.target, value: isOutOfWarranty ? Number(pricing.totalFee || 0) : null },
     { key: "logisticsAmount", target: RECLOUD_REPAIR_FIELD_TARGETS.logisticsAmount.target, value: isOutOfWarranty ? Number(pricing.roundTripLogisticsFee || 0) : null },
+    { key: "primaryRemark", target: RECLOUD_REPAIR_FIELD_TARGETS.primaryRemark.target, value: isOutOfWarranty ? String(pricing.primaryRemark || "").trim() : null },
     { key: "attachments", target: RECLOUD_REPAIR_FIELD_TARGETS.attachments.target, value: Array.isArray(payload.attachments) ? payload.attachments : [] },
     { key: "troubleshooting", target: RECLOUD_REPAIR_FIELD_TARGETS.troubleshooting.target, value: "否" },
   ].filter((field) => field.value !== "" && field.value !== null && field.value !== undefined && (!Array.isArray(field.value) || field.value.length));
@@ -331,7 +335,7 @@ function buildNodePayload(order, nodeType) {
       attachments: completion.attachments || [],
       attachmentTarget: "REPAIR_ORDER_ATTACHMENT",
       usedParts: compactParts(completion.usedParts),
-      pricing: compactPricing(completion.pricing),
+      pricing: compactPricing(completion.pricing, completion.responsibilityType || order.technicianWarranty),
       attachmentCount: Array.isArray(completion.attachments) ? completion.attachments.length : 0,
       completedAt: completion.submittedAt,
     },

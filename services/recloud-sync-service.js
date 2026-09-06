@@ -43,6 +43,7 @@ class RecloudSyncService {
     this.maxRetries = options.maxRetries || 3;
     this.scheduler = options.scheduler || ((work) => setImmediate(work));
     this.onRepairPartsShortage = options.onRepairPartsShortage || null;
+    this.refreshTaskPayload = options.refreshTaskPayload || null;
   }
 
   async enqueueOrderNode(order, nodeType, localBusinessRecordId) {
@@ -149,7 +150,15 @@ class RecloudSyncService {
     if (![TASK_STATUS.FAILED, TASK_STATUS.MANUAL_REVIEW, TASK_STATUS.READY_DRY_RUN].includes(task.status)) {
       throw Object.assign(new Error("仅失败、待人工处理或演练就绪任务可以重新执行"), { code: "SYNC_TASK_RETRY_NOT_ALLOWED", status: 409 });
     }
-    const pending = await this.outbox.transition(taskId, TASK_STATUS.PENDING, { lastError: "", errorCategory: "" });
+    const refreshed = typeof this.refreshTaskPayload === "function"
+      ? await this.refreshTaskPayload(task)
+      : null;
+    const pending = await this.outbox.transition(taskId, TASK_STATUS.PENDING, {
+      lastError: "",
+      errorCategory: "",
+      ...(refreshed?.payload ? { payload: refreshed.payload } : {}),
+      ...(refreshed?.mappingVersion ? { mappingVersion: refreshed.mappingVersion } : {}),
+    });
     this.scheduler(() => this.processTask(taskId).catch(() => {}));
     return pending;
   }

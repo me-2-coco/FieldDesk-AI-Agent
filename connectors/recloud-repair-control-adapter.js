@@ -4,6 +4,7 @@ const DIRECT_REPAIR_FIELDS = Object.freeze({
   highestRepairLevel: { control: "TEXT", target: RECLOUD_REPAIR_FIELD_TARGETS.highestRepairLevel.target },
   customerPaidAmount: { control: "NUMBER", target: RECLOUD_REPAIR_FIELD_TARGETS.customerPaidAmount.target },
   logisticsAmount: { control: "NUMBER", target: RECLOUD_REPAIR_FIELD_TARGETS.logisticsAmount.target },
+  primaryRemark: { control: "PICKLIST", target: RECLOUD_REPAIR_FIELD_TARGETS.primaryRemark.target },
 });
 
 function normalizeRepairControlValue(value, control = "TEXT") {
@@ -63,6 +64,22 @@ async function locateUniqueRepairInput(item, key) {
   return controls.first();
 }
 
+async function readSelectedPicklistValue(item, input) {
+  const values = await item.locator([
+    ".rt-picklist__tags .rt-tag-text:visible",
+    ".rtxpc-select__tags .rt-tag-text:visible",
+    ".el-select__tags .el-tag__content:visible",
+    ".rt-select__selected-value:visible",
+    ".el-select__selected-item:visible",
+  ].join(", ")).allInnerTexts().catch(() => []);
+  const selected = [...new Set(values.map((value) => String(value || "").replace(/\s+/g, " ").trim()).filter(Boolean))];
+  if (selected.length > 1) {
+    throw repairControlError("瑞云维修下拉字段存在多个已选值", "RECLOUD_REPAIR_PICKLIST_VALUE_AMBIGUOUS", "PICKLIST");
+  }
+  if (selected.length === 1) return selected[0];
+  return normalizeRepairControlValue(await input.inputValue().catch(() => ""), "PICKLIST");
+}
+
 function createRecloudRepairControlAdapter(page, scope, options = {}) {
   function definitionFor(key) {
     const definition = DIRECT_REPAIR_FIELDS[key];
@@ -84,12 +101,31 @@ function createRecloudRepairControlAdapter(page, scope, options = {}) {
       const definition = definitionFor(key);
       const item = await locateUniqueRepairFormItem(scope, definition, key);
       const input = await locateUniqueRepairInput(item, key);
+      if (definition.control === "PICKLIST") return readSelectedPicklistValue(item, input);
       return normalizeRepairControlValue(await input.inputValue(), definition.control);
     },
     async write(key, value) {
       const definition = definitionFor(key);
       const item = await locateUniqueRepairFormItem(scope, definition, key);
       const input = await locateUniqueRepairInput(item, key);
+      if (definition.control === "PICKLIST") {
+        await input.click({ timeout: 3000 });
+        await page.waitForTimeout?.(150);
+        const options = page.locator(
+          ".rtxpc-select-dropdown__item:visible, .el-select-dropdown__item:visible, [role='option']:visible"
+        ).filter({ hasText: exactTextPattern(value) });
+        const optionCount = await options.count();
+        if (optionCount !== 1) {
+          throw repairControlError(
+            `维修字段 ${key} 缺少唯一选项：${value}`,
+            "RECLOUD_REPAIR_PICKLIST_OPTION_AMBIGUOUS",
+            key
+          );
+        }
+        await options.first().click({ timeout: 3000 });
+        await page.waitForTimeout?.(50);
+        return;
+      }
       if (!await input.isEditable().catch(() => false)) {
         throw repairControlError(
           `维修字段 ${key} 当前不可编辑`,
@@ -132,6 +168,7 @@ module.exports = {
   normalizeRepairControlValue,
   locateUniqueRepairFormItem,
   locateUniqueRepairInput,
+  readSelectedPicklistValue,
   inspectDirectRepairControls,
   createRecloudRepairControlAdapter,
 };

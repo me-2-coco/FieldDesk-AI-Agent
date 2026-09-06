@@ -547,6 +547,21 @@ test("failed tasks can be retried and permanent failures require manual review",
   assert.equal(manual.errorCategory, "DIAGNOSTICS");
 });
 
+test("retry refreshes a stale task payload with the current mapping", async (t) => {
+  const outbox = await outboxFixture(t);
+  const service = new RecloudSyncService(outbox, {
+    async syncReceipt() { throw new Error("retry fixture"); },
+  }, {
+    scheduler: () => {},
+    refreshTaskPayload: async () => ({ payload: { current: true }, mappingVersion: "v-current" }),
+  });
+  const task = await service.enqueueOrderNode(ORDER, "RECEIPT", "REFRESH-RETRY-1");
+  await service.processTask(task.id);
+  const pending = await service.retry(task.id);
+  assert.deepEqual(pending.payload, { current: true });
+  assert.equal(pending.mappingVersion, "v-current");
+});
+
 test("pending sync tasks resume after a backend restart", async (t) => {
   const outbox = await outboxFixture(t);
   const scheduled = [];
@@ -595,6 +610,8 @@ test("repair mapping confirms observed Recloud columns and blocks ambiguous fee 
   });
   assert.equal(RECLOUD_REPAIR_FIELD_TARGETS.logisticsAmount.target, "快递金额");
   assert.equal(RECLOUD_REPAIR_FIELD_TARGETS.logisticsAmount.status, "CONFIRMED");
+  assert.equal(RECLOUD_REPAIR_FIELD_TARGETS.primaryRemark.target, "一级备注");
+  assert.equal(RECLOUD_REPAIR_FIELD_TARGETS.primaryRemark.status, "CONFIRMED");
   assert.equal(RECLOUD_REPAIR_FIELD_TARGETS.personalizedLogisticsAmount.status, "EXCLUDED");
 });
 
@@ -612,6 +629,7 @@ test("repair form plan only pre-fills confirmed customer-facing fields", () => {
         oneWayLogisticsFee: 61,
         logisticsFee: 122,
         totalFee: 447,
+        primaryRemark: "无减免",
       },
     },
   }, "REPAIR_COMPLETED");
@@ -624,6 +642,7 @@ test("repair form plan only pre-fills confirmed customer-facing fields", () => {
   assert.equal("partsRetailAmount" in writes, false);
   assert.equal(writes.customerPaidAmount, 447);
   assert.equal(writes.logisticsAmount, 122);
+  assert.equal(writes.primaryRemark, "无减免");
   assert.equal(writes.attachments.length, 1);
   assert.equal("warrantyConversion" in writes, false);
   assert.deepEqual(plan.requiredActions, [{

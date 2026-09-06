@@ -4,6 +4,7 @@ const {
   DIRECT_REPAIR_FIELDS,
   normalizeRepairControlValue,
   locateUniqueRepairInput,
+  readSelectedPicklistValue,
 } = require("../connectors/recloud-repair-control-adapter");
 
 function itemWithControls(count) {
@@ -18,11 +19,12 @@ function itemWithControls(count) {
   };
 }
 
-test("repair direct field map contains only the three observed service-report inputs", () => {
+test("repair direct field map contains the observed service-report inputs", () => {
   assert.deepEqual(Object.keys(DIRECT_REPAIR_FIELDS).sort(), [
-    "customerPaidAmount", "highestRepairLevel", "logisticsAmount",
+    "customerPaidAmount", "highestRepairLevel", "logisticsAmount", "primaryRemark",
   ]);
   assert.equal(DIRECT_REPAIR_FIELDS.logisticsAmount.target, "快递金额");
+  assert.equal(DIRECT_REPAIR_FIELDS.primaryRemark.target, "一级备注");
 });
 
 test("repair numeric controls normalize separators and blank placeholders", () => {
@@ -40,4 +42,14 @@ test("repair input locator requires exactly one visible control", async () => {
   await assert.rejects(locateUniqueRepairInput(itemWithControls(2), "logisticsAmount"), {
     code: "RECLOUD_REPAIR_CONTROL_AMBIGUOUS", fieldKey: "logisticsAmount",
   });
+});
+
+test("repair picklist reads the visible selected tag instead of the empty search input", async () => {
+  const item = {
+    locator() {
+      return { async allInnerTexts() { return [" 无减免 "]; } };
+    },
+  };
+  const input = { async inputValue() { return ""; } };
+  assert.equal(await readSelectedPicklistValue(item, input), "无减免");
 });
