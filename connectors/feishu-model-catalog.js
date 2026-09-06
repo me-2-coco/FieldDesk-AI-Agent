@@ -66,9 +66,16 @@ function parseModelRows(values = []) {
   })).filter((row) => row.model && row.modelCode && row.projectCode);
 }
 
-function getSnProjectMatch(sn) {
+function getSnProjectMatch(sn, rows = []) {
   const prefix = comparable(sn).slice(0, 6);
   if (prefix.length < 6) return { projectCode: "", comparisonLength: 0 };
+  const knownProjectCodes = [...new Set(rows.flatMap((row) =>
+    normalize(row?.projectCode).toUpperCase().match(/[A-Z]\d{4}[A-Z0-9]?/g) || []
+  ))].map(comparableProjectCode).filter(Boolean).sort((left, right) => right.length - left.length);
+  const knownMatch = knownProjectCodes.find((projectCode) => comparable(sn).startsWith(projectCode));
+  if (knownMatch) {
+    return { projectCode: knownMatch, comparisonLength: knownMatch.length };
+  }
   return prefix[5] === "0"
     ? { projectCode: prefix.slice(0, 5), comparisonLength: 5 }
     : { projectCode: prefix, comparisonLength: 6 };
@@ -85,7 +92,7 @@ function projectCodeMatches(value, expected) {
 }
 
 function resolveProjectModel(rows, input = {}) {
-  const snProject = getSnProjectMatch(input.sn);
+  const snProject = getSnProjectMatch(input.sn, rows);
   if (!snProject.projectCode) return { status: "INVALID_SN", canContinue: false, correctionLookupRequired: false };
   const currentProjectCode = comparableProjectCode(input.currentProjectCode);
   const matches = rows.filter((row) => projectCodeMatches(row.projectCode, snProject.projectCode));
@@ -149,7 +156,7 @@ function resolveProjectModel(rows, input = {}) {
 }
 
 function resolveLocalSnAuthorization(rows, input = {}) {
-  const snProject = getSnProjectMatch(input.sn);
+  const snProject = getSnProjectMatch(input.sn, rows);
   if (!snProject.projectCode) {
     return {
       status: "INVALID_SN",

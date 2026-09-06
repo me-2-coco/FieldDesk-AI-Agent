@@ -46,6 +46,23 @@ test("SN project matching keeps a non-zero numeric sixth character", () => {
   assert.deepEqual(getSnProjectMatch("W22118123456"), { projectCode: "W22118", comparisonLength: 6 });
 });
 
+test("SN project matching prefers a five-character project code present in the model sheet", () => {
+  const rows = [
+    { projectCode: "R2508" },
+    { projectCode: "R2508X" },
+  ];
+  assert.deepEqual(getSnProjectMatch("R25088594CN0079633", rows), { projectCode: "R2508", comparisonLength: 5 });
+});
+
+test("local receipt authorizes R2508 instead of treating the sixth SN character as project code", () => {
+  const result = resolveLocalSnAuthorization([
+    { projectCode: "R2508", productLine: "扫地机", model: "S50 Pro", modelCode: "010204AA000701", repairFees: { 大修: 80, 中修: 70, 小修: 50 } },
+  ], { sn: "R25088594CN0079633" });
+  assert.equal(result.status, "SN_AUTHORIZED");
+  assert.equal(result.repairability, "SUPPORTED");
+  assert.equal(result.projectCode, "R2508");
+});
+
 test("local receipt authorizes a dispatched model from SN without a Recloud project number", () => {
   const result = resolveLocalSnAuthorization([
     { projectCode: "W2336", productLine: "扫地机", model: "H30", modelCode: "011101AA000024", repairFees: { 大修: 60, 中修: 40, 小修: 20 } },

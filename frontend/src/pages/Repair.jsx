@@ -156,6 +156,19 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
           : "已恢复到签收确认步骤，SN 和已上传照片均已保留")
         return true
       }
+      if (localOrder.status === "TRANSFER_TO_HEADQUARTERS_PENDING") {
+        setRepairDetail({ ...result, localWorkflow: localOrder })
+        setSn("")
+        setSpecialty(localOrder.specialty || localOrder.productLine || result.productLine || "")
+        setReceiptAttachments((localOrder.receiptAttachments || []).map((attachment) => ({
+          ...attachment,
+          uploaded: true
+        })))
+        setReceiptStep("form")
+        setErrorMessage("")
+        setReceiptMessage("上次机型校验未通过，请重新扫描或录入机器 SN 复核")
+        return true
+      }
       const targetPage = resumePageForLocalWorkflow(localOrder)
       if (!targetPage) {
         setRepairDetail({ ...result, localWorkflow: localOrder })
