@@ -339,6 +339,15 @@ test("receipt cannot enter inspection before a receipt photo is uploaded", async
   assert.equal((await store.completeReceipt(prepared.rmaNo, USERS.sweep)).status, "RECEIVED_PENDING_INSPECTION");
 });
 
+test("an already signed Recloud order still requires FieldDesk receipt attachments", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "fielddesk-signed-receipt-photo-test-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const store = new JsonReceiptPreparationStore(path.join(directory, "orders.json"));
+  const prepared = await store.prepare(validPayload({ recloudReceiptRequired: false }));
+  await store.markModelAuthorization(prepared.rmaNo, { repairability: "SUPPORTED", status: "MATCHED" }, USERS.sweep);
+  await assert.rejects(store.completeReceipt(prepared.rmaNo, USERS.sweep), { code: "RECEIPT_ATTACHMENT_REQUIRED" });
+});
+
 test("unsupported model is recorded for headquarters transfer and cannot enter inspection", async (t) => {
   const store = await createTestStore(t);
   const prepared = await store.prepare(validPayload({ rmaNo: "JXTH-UNSUPPORTED-1", sn: "W99990123456" }));

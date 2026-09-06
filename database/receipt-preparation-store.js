@@ -41,7 +41,9 @@ function validateReceiptCompletion(existing) {
     error.status = 409;
     throw error;
   }
-  if (existing.recloudReceiptRequired !== false && !(existing.receiptAttachments || []).length) {
+  // “瑞云已签收”只表示不需要再次点击签收按钮。项目号核对和
+  // FieldDesk 签收附件仍是每张工单都必须完成的独立步骤。
+  if (!(existing.receiptAttachments || []).length) {
     const error = new Error("请先拍摄并上传至少一张签收照片");
     error.code = "RECEIPT_ATTACHMENT_REQUIRED";
     error.status = 409;

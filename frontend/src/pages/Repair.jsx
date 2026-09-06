@@ -398,17 +398,15 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
         setReceiptMessage(preparation.authorization?.reason || preparation.message || "当前机型不能在网点继续签收")
         return
       }
-      const verifiedReceiptRequired = preparation.recloudReceiptRequired !== false
-      if (verifiedReceiptRequired && receiptAttachments.length === 0) {
+      if (receiptAttachments.length === 0) {
         setRepairDetail((current) => ({
           ...current,
           receiptState: {
-            code: "RECEIPT_REQUIRED",
-            receiptRequired: true,
-            label: preparation.recloudReceiptStatus || "待签收"
+            ...current.receiptState,
+            label: preparation.recloudReceiptStatus || current.receiptState?.label || "待核对"
           }
         }))
-        setErrorMessage("瑞云当前仍待签收，请至少拍摄或选择一张签收照片/视频")
+        setErrorMessage("每张工单都必须至少拍摄或选择一张签收照片/视频；瑞云已签收时只跳过签收按钮，不跳过附件")
         return
       }
       await Promise.all(receiptAttachments.filter((attachment) => !attachment.uploaded).map(async (attachment) => {
@@ -771,7 +769,7 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
             </p>
           )}
 
-          {!receiptAlreadyCompleted && <section className="receipt-upload-section">
+          <section className="receipt-upload-section">
             <div className="receipt-upload-heading">
               <div>
                 <strong>签收照片/视频</strong>
@@ -800,7 +798,7 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
                 onRemove={(attachmentId) => setReceiptAttachments((current) => current.filter((file) => file.id !== attachmentId))}
               />
             ) : <p className="receipt-upload-empty">到店签收时拍摄机器外观、包装及异常位置</p>}
-          </section>}
+          </section>
 
           <p className={receiptWriteEnabled ? "live-write-notice" : "dry-run-notice"}>
             {receiptWriteEnabled

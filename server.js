@@ -363,13 +363,14 @@ async function withRecloud(connector, operation, options = {}) {
     withRecloud.queues.set(connector, coordinator);
   }
   const foreground = options.background !== true;
-  const channel = foreground ? "foreground" : "background";
+  const priority = foreground || options.priority === true;
+  const channel = String(options.channel || (foreground ? "foreground" : "background"));
   let state = coordinator.channels.get(channel);
   if (!state) {
     state = { tail: Promise.resolve() };
     coordinator.channels.set(channel, state);
   }
-  if (foreground) coordinator.foregroundWaiting += 1;
+  if (priority) coordinator.foregroundWaiting += 1;
   const previous = state.tail;
   const current = previous.catch(() => {}).then(async () => {
     const session = await connector.openRecloud({ channel });
@@ -382,7 +383,7 @@ async function withRecloud(connector, operation, options = {}) {
       shouldYield: () => options.background === true && coordinator.foregroundWaiting > 0,
     });
   }).finally(() => {
-    if (foreground) coordinator.foregroundWaiting = Math.max(0, coordinator.foregroundWaiting - 1);
+    if (priority) coordinator.foregroundWaiting = Math.max(0, coordinator.foregroundWaiting - 1);
   });
   state.tail = current;
   return current;
@@ -616,7 +617,7 @@ function createApp(
             reason: order.hold.reason,
             remark: order.hold.remark,
           }, { writeEnabled: true });
-        });
+        }, { background: true, channel: "business-write", priority: true });
         await receiptStore.markRecloudHoldConfirmed(rmaNo, result, operator);
       } catch (error) {
         await receiptStore.markRecloudHoldFailed(rmaNo, error, operator).catch(() => {});
@@ -843,7 +844,7 @@ function createApp(
             }
           }
           return { receipt, attachmentResult };
-        }, { background: true });
+        }, { background: true, channel: "business-write", priority: true });
         return result;
       } catch (error) {
         console.error(
@@ -897,7 +898,7 @@ function createApp(
             dryRun: false,
             writeEnabled: true,
           });
-        }, { background: true });
+        }, { background: true, channel: "business-write", priority: true });
         if (!liveResult?.confirmed) {
           throw createApiError("RECLOUD_DETECTION_NOT_CONFIRMED", "瑞云未确认检测", 502);
         }
@@ -971,7 +972,7 @@ function createApp(
             usedParts: order.recloudRepairPreparation?.usedParts || [],
           }, adapter, { writeEnabled: true });
           return result;
-        }, { background: true });
+        }, { background: true, channel: "business-write", priority: true });
         if (!liveResult?.serviceOrderCreated) {
           throw createApiError("RECLOUD_SERVICE_ORDER_NOT_CREATED", "瑞云未确认创建维修服务单", 502);
         }
@@ -2659,10 +2660,12 @@ function createApp(
         await enqueueRecloudNode(data, "INSPECTION_COMPLETED", data.inspectionUpdatedAt || data.id);
       }
       const recloudPrefillPlan = buildRecloudInspectionFormPlan({
+        treatmentMode: data.treatmentMode,
         faultCategory: data.faultCategory,
         warrantyStatus: data.technicianWarranty,
         detectionResult: data.detectionResult,
         reportedFault: data.reportedFault,
+        faultContent: data.faultContent || (data.treatmentMode === "REPAIR" ? "故障复现" : ""),
       });
       return res.json({
         success: true,

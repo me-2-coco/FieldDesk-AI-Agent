@@ -13,7 +13,7 @@ const {
   isLoginAutofillEnabled,
   readPasswordFromKeychain,
 } = require("../connectors/recloud-session");
-const { initializeRecloudSession } = require("../server");
+const { initializeRecloudSession, withRecloud } = require("../server");
 const {
   hasCrmReadyMarker,
   runLoginInitialization,
@@ -750,4 +750,36 @@ test("backend startup initializes once and logs only a safe failure code", async
     "RECLOUD_SESSION: failed RECLOUD_AUTO_LOGIN_FAILED"
   );
   assert.doesNotMatch(logs.join("\n"), new RegExp(credentialMarker));
+});
+
+test("business writes use a separate priority channel and make background reads yield", async () => {
+  const channels = [];
+  let releaseBackground;
+  let backgroundQueue;
+  const connector = {
+    async openRecloud({ channel }) {
+      channels.push(channel);
+      return { loginRequired: false, page: { channel } };
+    },
+  };
+  const backgroundStarted = new Promise((resolve) => {
+    releaseBackground = resolve;
+  });
+  const background = withRecloud(connector, async (_page, queue) => {
+    backgroundQueue = queue;
+    await backgroundStarted;
+    return "background-complete";
+  }, { background: true });
+
+  while (!backgroundQueue) await new Promise((resolve) => setImmediate(resolve));
+  const businessWrite = withRecloud(
+    connector,
+    async (page) => page.channel,
+    { background: true, channel: "business-write", priority: true }
+  );
+  assert.equal(backgroundQueue.shouldYield(), true);
+  assert.equal(await businessWrite, "business-write");
+  releaseBackground();
+  assert.equal(await background, "background-complete");
+  assert.deepEqual(channels.sort(), ["background", "business-write"]);
 });
