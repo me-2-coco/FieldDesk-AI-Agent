@@ -62,6 +62,11 @@ const LOGISTICS_MODES = [
   { value: "WAIVED", label: "运费全免", multiplier: 0 }
 ]
 
+const DISCOUNT_SCOPES = [
+  { value: "ORDER_TOTAL", label: "整体打折", description: "配件费、维修费和运费一起打折" },
+  { value: "SERVICE_ONLY", label: "配件＋维修费打折", description: "配件费和维修费打折，运费保持原价" }
+]
+
 function formatFileMb(bytes) {
   return `${(Number(bytes || 0) / 1024 / 1024).toFixed(1)}MB`
 }
@@ -95,6 +100,9 @@ function RepairCompletion({ setPage }) {
   const [pricing, setPricing] = useState(null)
   const [oneWayLogisticsFee, setOneWayLogisticsFee] = useState("")
   const [logisticsChargeMode, setLogisticsChargeMode] = useState("ROUND_TRIP")
+  const [discountEnabled, setDiscountEnabled] = useState(false)
+  const [discountScope, setDiscountScope] = useState("ORDER_TOTAL")
+  const [discountRate, setDiscountRate] = useState("")
   const [faultLevel1, setFaultLevel1] = useState("")
   const [faultLevel2, setFaultLevel2] = useState("")
   const [faultLevel3, setFaultLevel3] = useState("")
@@ -155,6 +163,11 @@ function RepairCompletion({ setPage }) {
         setAttachments(combined)
         setOneWayLogisticsFee(draftLogisticsMode === "WAIVED" ? "" : draftLogisticsFee)
         setLogisticsChargeMode(draftLogisticsMode)
+        setDiscountEnabled(draft.discountEnabled === true || draft.pricing?.discountEnabled === true)
+        setDiscountScope(draft.discountScope || draft.pricing?.discountScope || "ORDER_TOTAL")
+        setDiscountRate((draft.discountEnabled === true || draft.pricing?.discountEnabled === true)
+          ? String(draft.discountRate || draft.pricing?.discountRate || "")
+          : "")
       }
       if (!draft) {
         setSpeechTemplate(presetTemplate)
@@ -191,6 +204,8 @@ function RepairCompletion({ setPage }) {
   const logisticsFeeNumber = Number(oneWayLogisticsFee)
   const hasValidOutOfWarrantyFee = oneWayLogisticsFee !== "" && Number.isFinite(logisticsFeeNumber) && logisticsFeeNumber >= 0
   const hasValidOptionalOutOfWarrantyFee = oneWayLogisticsFee === "" || hasValidOutOfWarrantyFee
+  const discountRateNumber = Number(discountRate)
+  const hasValidDiscount = !discountEnabled || (discountRate !== "" && Number.isFinite(discountRateNumber) && discountRateNumber > 0 && discountRateNumber < 10)
   const technicianAttachments = attachments.filter((item) => item.source !== "WARRANTY_CONVERSION_APPROVAL")
   const hasInspectionReport = technicianAttachments.some((item) => item.mimeType === "application/pdf")
   const hasInspectionMedia = technicianAttachments.some((item) => /^(image|video)\//.test(item.mimeType || ""))
@@ -198,7 +213,7 @@ function RepairCompletion({ setPage }) {
   const conversionReady = warrantyConversion?.requested !== true || warrantyConversion?.status === "APPROVED"
   const canSubmitCompletion = hasRequiredAttachment && conversionReady && (
     !isOutOfWarranty
-    || (pricing?.canPrice && (requiresLogisticsFee ? hasValidOutOfWarrantyFee : logisticsChargeMode === "WAIVED" || hasValidOptionalOutOfWarrantyFee))
+    || (pricing?.canPrice && hasValidDiscount && (requiresLogisticsFee ? hasValidOutOfWarrantyFee : logisticsChargeMode === "WAIVED" || hasValidOptionalOutOfWarrantyFee))
   )
   const submitButtonLabel = !conversionReady
     ? "等待信息员上传转保凭证"
@@ -210,14 +225,25 @@ function RepairCompletion({ setPage }) {
       ? "保外费用待核对"
       : requiresLogisticsFee && !hasValidOutOfWarrantyFee
         ? "请填写单程物流费"
+        : discountEnabled && !hasValidDiscount
+          ? "请输入大于0且小于10的折数"
         : isOutOfWarranty && !hasValidOptionalOutOfWarrantyFee
           ? "单程物流费格式不正确"
         : "提交完工"
   const displayedLogisticsFee = Number(oneWayLogisticsFee || 0) * logisticsMode.multiplier
+  const originalServiceFee = Number(pricing?.subtotal || 0)
+  const originalTotalFee = originalServiceFee + displayedLogisticsFee
+  const discountMultiplier = discountEnabled && hasValidDiscount ? discountRateNumber / 10 : 1
+  const displayedTotalFee = discountEnabled && hasValidDiscount
+    ? discountScope === "ORDER_TOTAL"
+      ? Number((originalTotalFee * discountMultiplier).toFixed(2))
+      : Number((originalServiceFee * discountMultiplier + displayedLogisticsFee).toFixed(2))
+    : Number(originalTotalFee.toFixed(2))
+  const displayedDiscountAmount = Number((originalTotalFee - displayedTotalFee).toFixed(2))
   const primaryRemark = logisticsChargeMode === "ROUND_TRIP" ? "无减免" : "申请运费减免"
   const secondaryRemark = logisticsChargeMode === "WAIVED"
-    ? `配件费${Number(pricing?.partsFee || 0)}元，维修费${Number(pricing?.fee || 0)}元，运费全免，合计：${Number(pricing?.subtotal || 0).toFixed(2)}元`
-    : `配件费${Number(pricing?.partsFee || 0)}元，维修费${Number(pricing?.fee || 0)}元，${logisticsChargeMode === "ONE_WAY" ? "单边" : "来回"}运费${displayedLogisticsFee.toFixed(2)}元，合计：${(Number(pricing?.subtotal || 0) + displayedLogisticsFee).toFixed(2)}元`
+    ? `配件费${Number(pricing?.partsFee || 0)}元，维修费${Number(pricing?.fee || 0)}元，运费全免，${discountEnabled && hasValidDiscount ? `${discountRateNumber}折优惠${displayedDiscountAmount.toFixed(2)}元，` : ""}合计：${displayedTotalFee.toFixed(2)}元`
+    : `配件费${Number(pricing?.partsFee || 0)}元，维修费${Number(pricing?.fee || 0)}元，${logisticsChargeMode === "ONE_WAY" ? "单边" : "来回"}运费${displayedLogisticsFee.toFixed(2)}元，${discountEnabled && hasValidDiscount ? `${discountScope === "ORDER_TOTAL" ? "整体" : "配件及维修费"}${discountRateNumber}折优惠${displayedDiscountAmount.toFixed(2)}元，` : ""}合计：${displayedTotalFee.toFixed(2)}元`
 
   const payload = () => ({
     rmaNo: repairOrder.crmOrderNo,
@@ -225,7 +251,10 @@ function RepairCompletion({ setPage }) {
     responsibilityType, detectionResult, speechTemplate, repairMeasure,
     attachments: attachments.map(persistedAttachment),
     oneWayLogisticsFee: logisticsChargeMode === "WAIVED" ? "" : oneWayLogisticsFee,
-    logisticsChargeMode
+    logisticsChargeMode,
+    discountEnabled,
+    discountScope,
+    discountRate: discountEnabled ? discountRate : ""
   })
 
   async function save(submit) {
@@ -427,7 +456,7 @@ function RepairCompletion({ setPage }) {
             <div ref={pricingSummaryRef} className={`pricing-summary compact-pricing-summary ${isDebugging ? "debugging-pricing-summary" : ""} ${!pricing?.canPrice ? "pricing-needs-review" : ""}`}>
               <div className="pricing-summary-head">
                 <div><span>保外费用明细</span><strong>{isDebugging ? "调试费用（选填）" : "完工前请核对"}</strong></div>
-                <b>{pricing?.canPrice ? `合计 ¥${(Number(pricing.subtotal || 0) + displayedLogisticsFee).toFixed(2)}` : "合计待核价"}</b>
+                <b>{pricing?.canPrice ? `应收 ¥${displayedTotalFee.toFixed(2)}` : "合计待核价"}</b>
               </div>
               {!isDebugging && <div className="pricing-stat-grid fee-detail-grid">
                 <div><span>维修等级</span><strong>{pricing?.highestLevel || "待确认"}</strong></div>
@@ -452,9 +481,48 @@ function RepairCompletion({ setPage }) {
                   </label>
                 ))}
               </fieldset>
+              {requiresOutOfWarrantyFee && <section className={`discount-panel ${discountEnabled ? "is-enabled" : ""}`}>
+                <fieldset className="discount-toggle-options">
+                  <legend>是否打折</legend>
+                  <label>
+                    <input type="radio" name="discount-enabled" checked={!discountEnabled} onChange={() => {
+                      setDiscountEnabled(false)
+                      setDiscountScope("ORDER_TOTAL")
+                      setDiscountRate("")
+                    }} disabled={completedDetail} />
+                    不打折
+                  </label>
+                  <label>
+                    <input type="radio" name="discount-enabled" checked={discountEnabled} onChange={() => {
+                      setDiscountEnabled(true)
+                      setDiscountScope("ORDER_TOTAL")
+                    }} disabled={completedDetail} />
+                    打折
+                  </label>
+                </fieldset>
+                {discountEnabled && <div className="discount-details">
+                  <fieldset className="discount-scope-options">
+                    <legend>打折方案</legend>
+                    {DISCOUNT_SCOPES.map((item) => <label key={item.value}>
+                      <input type="radio" name="discount-scope" value={item.value} checked={discountScope === item.value} onChange={(event) => setDiscountScope(event.target.value)} disabled={completedDetail} />
+                      <span><strong>{item.label}</strong><small>{item.description}</small></span>
+                    </label>)}
+                  </fieldset>
+                  <div className="pricing-fee-field discount-rate-field">
+                    <label htmlFor="discount-rate"><span>折扣</span><em>必填</em></label>
+                    <div className="discount-rate-input">
+                      <input id="discount-rate" type="number" min="0.1" max="9.9" step="0.1" value={discountRate} onChange={(event) => setDiscountRate(event.target.value)} placeholder="例如 5.5" required disabled={completedDetail} />
+                      <span>折</span>
+                    </div>
+                    {!hasValidDiscount && <p className="discount-error">请输入大于 0 且小于 10 的折数</p>}
+                  </div>
+                </div>}
+              </section>}
               <div className="pricing-calculation-row">
                 <span>{logisticsMode.label}<strong>¥{displayedLogisticsFee.toFixed(2)}</strong></span>
-                <span>计费方式<strong>{logisticsMode.multiplier > 0 ? `单程 × ${logisticsMode.multiplier}` : "全免"}</strong></span>
+                <span>费用原价<strong>¥{originalTotalFee.toFixed(2)}</strong></span>
+                {discountEnabled && hasValidDiscount && <span>折扣优惠<strong>-¥{displayedDiscountAmount.toFixed(2)}</strong></span>}
+                <span>最终应收<strong>¥{displayedTotalFee.toFixed(2)}</strong></span>
               </div>
               {pricing?.canPrice && <details className="pricing-remarks">
                 <summary>查看费用备注</summary>

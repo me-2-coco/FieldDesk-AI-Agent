@@ -42,3 +42,48 @@ test("未知运费方式停止计算", () => {
     { code: "LOGISTICS_CHARGE_MODE_INVALID" }
   );
 });
+
+test("整体打折默认将配件费维修费和运费一起折算", () => {
+  const result = resolveRepairCharge({
+    partsFee: 40,
+    repairFee: 60,
+    oneWayLogisticsFee: 10,
+    logisticsChargeMode: "ROUND_TRIP",
+    discountEnabled: true,
+    discountScope: "ORDER_TOTAL",
+    discountRate: 5.5,
+  });
+  assert.equal(result.originalTotalFee, 120);
+  assert.equal(result.discountAmount, 54);
+  assert.equal(result.totalFee, 66);
+  assert.equal(result.discountScopeLabel, "整体打折");
+  assert.match(result.secondaryRemark, /整体费用原价120元，按5.5折优惠54元/);
+});
+
+test("维修费用打折后再加原价运费", () => {
+  const result = resolveRepairCharge({
+    partsFee: 40,
+    repairFee: 60,
+    oneWayLogisticsFee: 10,
+    logisticsChargeMode: "ROUND_TRIP",
+    discountEnabled: true,
+    discountScope: "SERVICE_ONLY",
+    discountRate: 3,
+  });
+  assert.equal(result.discountedServiceFee, 30);
+  assert.equal(result.logisticsFee, 20);
+  assert.equal(result.discountAmount, 70);
+  assert.equal(result.totalFee, 50);
+  assert.match(result.secondaryRemark, /运费不打折/);
+});
+
+test("启用打折后拒绝无效折数和未知方案", () => {
+  assert.throws(
+    () => resolveRepairCharge({ discountEnabled: true, discountRate: 10 }),
+    { code: "DISCOUNT_RATE_INVALID" }
+  );
+  assert.throws(
+    () => resolveRepairCharge({ discountEnabled: true, discountRate: 5, discountScope: "UNKNOWN" }),
+    { code: "DISCOUNT_SCOPE_INVALID" }
+  );
+});

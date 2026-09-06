@@ -3272,6 +3272,11 @@ function createApp(
       const logisticsChargeMode = isOutOfWarranty
         ? String(req.body?.logisticsChargeMode || "ROUND_TRIP").trim()
         : "NOT_CHARGED";
+      const discountEnabled = isOutOfWarranty && req.body?.discountEnabled === true;
+      const discountScope = discountEnabled
+        ? String(req.body?.discountScope || "ORDER_TOTAL").trim()
+        : "ORDER_TOTAL";
+      const discountRate = discountEnabled ? req.body?.discountRate : 10;
       const rawOneWayLogisticsFee = req.body?.oneWayLogisticsFee;
       const logisticsFeeIsWaived = logisticsChargeMode === "WAIVED";
       if (submit && requiresOutOfWarrantyFee && !logisticsFeeIsWaived && (rawOneWayLogisticsFee === "" || rawOneWayLogisticsFee === null || rawOneWayLogisticsFee === undefined)) {
@@ -3302,9 +3307,12 @@ function createApp(
             repairFee: repairPricing.fee,
             oneWayLogisticsFee,
             logisticsChargeMode,
+            discountEnabled,
+            discountScope,
+            discountRate,
           });
         } catch (error) {
-          if (["LOGISTICS_FEE_INVALID", "LOGISTICS_CHARGE_MODE_INVALID"].includes(error.code)) {
+          if (["LOGISTICS_FEE_INVALID", "LOGISTICS_CHARGE_MODE_INVALID", "DISCOUNT_RATE_INVALID", "DISCOUNT_SCOPE_INVALID"].includes(error.code)) {
             throw createApiError(error.code, error.message, 400);
           }
           throw error;
@@ -3319,6 +3327,10 @@ function createApp(
               oneWayLogisticsFee,
               logisticsFee: null,
               logisticsMultiplier: null,
+              discountEnabled,
+              discountScope,
+              discountRate: discountEnabled ? Number(discountRate) : 10,
+              discountAmount: null,
               totalFee: null,
               primaryRemark: null,
               secondaryRemark: null,
@@ -3332,6 +3344,7 @@ function createApp(
             status: "IN_WARRANTY", canPrice: true, partsFee: 0, fee: 0,
             logisticsChargeMode: "NOT_CHARGED", oneWayLogisticsFee: 0,
             logisticsFee: 0, logisticsMultiplier: 0, subtotal: 0, totalFee: 0,
+            discountEnabled: false, discountScope: "ORDER_TOTAL", discountRate: 10, discountAmount: 0,
             primaryRemark: null, secondaryRemark: null, logisticsSource: "NOT_CHARGED",
           };
       const confirmedFaultPath = String(order.faultCategory || "").split(/[|/]/).map((item) => item.trim()).filter(Boolean);
@@ -3359,6 +3372,9 @@ function createApp(
           logisticsChargeMode: pricing.logisticsChargeMode,
           oneWayLogisticsFee,
           logisticsFee: pricing.logisticsFee,
+          discountEnabled: pricing.discountEnabled,
+          discountScope: pricing.discountScope,
+          discountRate: pricing.discountRate,
           primaryRemark: pricing.primaryRemark,
           secondaryRemark: pricing.secondaryRemark,
           pricing,
