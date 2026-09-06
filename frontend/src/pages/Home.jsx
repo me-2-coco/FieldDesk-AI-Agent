@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { getLocalRepairOrders, getShippingOrders, getTechnicianWorkloads, getWarrantyConversionRequests } from "../shared/crmService.js"
+import { getLocalRepairOrders, getShippingOrders, getSystemHealth, getTechnicianWorkloads, getWarrantyConversionRequests } from "../shared/crmService.js"
 import { findRepairOrderByCrmOrderNo, getCurrentRepairOrder, REPAIR_STATUS, saveCurrentRepairOrder } from "../shared/repairOrderStore.js"
 import { pageForRepairStatus, repairStatusForLocalWorkflow, resumePageForLocalWorkflow } from "../shared/repairNavigation.js"
 import { USER_ROLES } from "../shared/userStore.js"
@@ -40,11 +40,26 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
   const [statStartDate, setStatStartDate] = useState(() => `${localDateKey(new Date()).slice(0, 7)}-01`)
   const [statEndDate, setStatEndDate] = useState(() => localDateKey(new Date()))
   const [detailStatus, setDetailStatus] = useState("")
+  const [liveSyncEnabled, setLiveSyncEnabled] = useState(null)
   const isTechnician = currentUser?.role === USER_ROLES.TECHNICIAN
   const isWarehouse = currentUser?.role === USER_ROLES.WAREHOUSE
   const isAdmin = currentUser?.role === USER_ROLES.ADMIN
   const isInformationClerk = currentUser?.role === USER_ROLES.INFORMATION_CLERK
   const nextPage = pageForRepairStatus(order?.status)
+
+  useEffect(() => {
+    let active = true
+    getSystemHealth().then((health) => {
+      if (!active) return
+      setLiveSyncEnabled(Boolean(
+        health.receiptWriteEnabled
+        || health.inspectionWriteEnabled
+        || health.holdWriteEnabled
+        || health.completionWriteEnabled
+      ))
+    }).catch(() => active && setLiveSyncEnabled(null))
+    return () => { active = false }
+  }, [])
 
   const restoreLocalOrder = useCallback((workflow, targetPage = resumePageForLocalWorkflow(workflow)) => {
     const restoredParts = workflow.repairCompletion?.usedParts?.length
@@ -73,6 +88,7 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
       level3Fault: workflow.faultCategory || "",
       treatmentMode: workflow.treatmentMode || "",
       treatmentLabel: workflow.treatmentLabel || "",
+      inspectionFaultOutcome: workflow.inspectionFaultOutcome || "",
       resumeStep: targetPage,
       specialty: workflow.specialty || workflow.productLine || "",
       receiptRemark: workflow.remark || "",
@@ -86,9 +102,9 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
         ? repairStatusForLocalWorkflow(workflow.status)
         : targetPage === "repairCompletion"
           ? REPAIR_STATUS.REPAIRING
-        : targetPage === "repairProcess"
-          ? REPAIR_STATUS.INSPECTION_COMPLETE
-          : repairStatusForLocalWorkflow(workflow.status),
+          : targetPage === "repairProcess" && workflow.faultCategory
+            ? REPAIR_STATUS.INSPECTION_COMPLETE
+            : repairStatusForLocalWorkflow(workflow.status),
       createdAt: workflow.createdAt || "",
       completedAt: workflow.completedAt || ""
     })
@@ -428,7 +444,8 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
       </div>
     </div>}
 
-    <p className="dry-run-notice">当前保持演练模式，本地业务操作不会写入瑞云。</p>
+    {liveSyncEnabled === false && <p className="dry-run-notice">当前保持演练模式，本地业务操作不会写入瑞云。</p>}
+    {liveSyncEnabled === true && <p className="dry-run-notice">瑞云实时同步已开启，任务将在后台执行并自动重试。</p>}
   </div>
 }
 

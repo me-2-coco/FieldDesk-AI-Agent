@@ -1112,17 +1112,18 @@ async function readRmaProductIdentity(page, options = {}) {
   if (!expectedSn) return { sn: "", projectCode: "", productLine: "" };
 
   // The RMA detail form does not expose 项目号 as a normal form field on every
-  // Recloud layout. Prepare the product/RMA tab, then bind the visible data row
-  // to its headers by coordinates. This also works with Recloud's split/fixed
-  // virtual tables where a DOM <tr> does not contain every displayed column.
-  await findMappedReceiptControl(page, {
-    logisticsNo: options.logisticsNo,
-    productLine: options.productLine,
-    rowIndex: 1,
-    actionTimeout: options.actionTimeout || 8000,
-  }).catch(() => null);
-
-  const scopes = typeof page.frames === "function"
+  // Recloud layout. Activate only the product tab, then bind the visible data
+  // row to its headers by coordinates. Do not call the receipt-control mapper:
+  // after signing there is no “签收” button, and that mapper can reset the page
+  // back to the scanner before project verification and attachment upload.
+  let scopes = typeof page.frames === "function"
+    ? [page, ...page.frames().filter((frame) => frame !== page.mainFrame?.())]
+    : [page];
+  for (const scope of scopes.slice(0, 6)) {
+    await activateReceiptDetailTabs(scope, page, options.logger || console).catch(() => null);
+  }
+  await page.waitForTimeout?.(300);
+  scopes = typeof page.frames === "function"
     ? [page, ...page.frames().filter((frame) => frame !== page.mainFrame?.())]
     : [page];
   for (const scope of scopes.slice(0, 6)) {
@@ -9715,12 +9716,16 @@ async function confirmDetection(page, payload = {}, options = {}) {
   }
 
   const detectionEntry = await waitForUniqueAction(page, "检测", options.actionTimeout || 10000);
+  logRecloudStage("detection_entry_ready", options.logger);
   await detectionEntry.click({ timeout: options.clickTimeout || 5000 });
+  logRecloudStage("detection_entry_clicked", options.logger);
   const dialog = page.locator(".rt-dialog__wrapper:visible, .el-dialog__wrapper:visible, [role='dialog']:visible").last();
   await dialog.waitFor({ state: "visible", timeout: options.dialogTimeout || 10000 });
+  logRecloudStage("detection_dialog_ready", options.logger);
   const controls = createRecloudDetectionControlAdapter(page, dialog);
   const fieldsWritten = [];
   for (const write of plan.safeWrites) {
+    logRecloudStage(`detection_write_${write.key}_start`, options.logger);
     await controls.write(write.key, write.value);
     const actual = await controls.read(write.key);
     const expected = String(write.value || "").replace(/\s+/g, " ").trim();
@@ -9737,6 +9742,7 @@ async function confirmDetection(page, payload = {}, options = {}) {
       throw error;
     }
     fieldsWritten.push(write.key);
+    logRecloudStage(`detection_write_${write.key}_confirmed`, options.logger);
   }
 
   // Only match the actual button element. Combining role and text locators also
@@ -9754,8 +9760,10 @@ async function confirmDetection(page, payload = {}, options = {}) {
   let confirmationAttempted = false;
   try {
     confirmationAttempted = true;
+    logRecloudStage("detection_confirm_start", options.logger);
     await confirmButtons.first().click({ timeout: 5000 });
     await dialog.waitFor({ state: "hidden", timeout: options.confirmTimeout || 10000 });
+    logRecloudStage("detection_confirmed", options.logger);
   } catch (error) {
     if (confirmationAttempted && await dialog.isVisible().catch(() => false)) {
       const validationMessages = [...new Set((await dialog.locator(

@@ -22,7 +22,7 @@ function remoteAdapter(initial = {}) {
   const calls = [];
   return {
     calls,
-    async readRemoteState() { calls.push("read"); return { assignee, parts: [...parts], attachments: [...attachments] }; },
+    async readRemoteState() { calls.push("read"); return { assignee, parts: [...parts], attachments: [...attachments], completed: initial.completed === true }; },
     async readRemoteAttachments() { calls.push("read-attachments"); return [...attachments]; },
     async assignResponsible(plan) {
       calls.push(`assign:${plan.servicePerson}:${plan.action}:${plan.forbiddenAction}`);
@@ -76,6 +76,43 @@ test("repair orchestrator clicks complete and stops immediately after final subm
     "submit:内部维修单自动审批（成都欣益）:提交:true",
   ]);
   assert.equal(checkpoints.at(-1).status, "SUCCESS");
+});
+
+test("repair orchestrator tolerates delayed Recloud field visibility", async () => {
+  const adapter = remoteAdapter({ assignee: "唐张帅", parts: PAYLOAD.usedParts });
+  let verificationCount = 0;
+  adapter.verifyRepairFields = async () => {
+    adapter.calls.push("verify-fields");
+    verificationCount += 1;
+    return verificationCount === 3;
+  };
+  adapter.waitForTimeout = async () => adapter.calls.push("wait-fields");
+  const result = await orchestrateRepairCompletion("ORDER-DELAYED-FIELDS", PAYLOAD, adapter, {
+    writeEnabled: true,
+    preparationCompleted: true,
+    fieldVerificationIntervalMs: 1,
+  });
+  assert.equal(result.status, "SUCCESS");
+  assert.equal(verificationCount, 3);
+  assert.equal(adapter.calls.filter((call) => call === "wait-fields").length, 2);
+});
+
+test("repair orchestrator updates fields but does not resubmit an already completed Recloud order", async () => {
+  const adapter = remoteAdapter({
+    assignee: "唐张帅",
+    parts: PAYLOAD.usedParts,
+    attachments: PAYLOAD.attachments,
+    completed: true,
+  });
+  const result = await orchestrateRepairCompletion("ORDER-CORRECTION", PAYLOAD, adapter, {
+    writeEnabled: true,
+    preparationCompleted: true,
+  });
+  assert.equal(result.status, "SUCCESS");
+  assert.equal(result.remoteAlreadyCompleted, true);
+  assert.equal(adapter.calls.includes("fields"), true);
+  assert.equal(adapter.calls.includes("complete"), false);
+  assert.equal(adapter.calls.some((call) => call.startsWith("submit:")), false);
 });
 
 test("repair orchestrator skips reassignment only when the responsible technician already matches", async () => {
@@ -161,6 +198,27 @@ test("parts shortage confirms completion but never touches submit", async () => 
   assert.equal(adapter.calls.includes("complete"), true);
   assert.equal(adapter.calls.includes("wait-submit-ready"), false);
   assert.equal(adapter.calls.some((call) => call.startsWith("submit:")), false);
+});
+
+test("an out-of-stock whitelisted logistics box is skipped and completion still submits", async () => {
+  const optionalBox = {
+    partCode: "20020100011511",
+    partName: "售后通用主机物流箱",
+    quantity: 1,
+    reason: "瑞云库存不足",
+  };
+  const payload = { ...PAYLOAD, usedParts: [optionalBox] };
+  const adapter = remoteAdapter({ assignee: "唐张帅", parts: [] });
+  const result = await orchestrateRepairCompletion("ORDER-OPTIONAL-BOX", payload, adapter, {
+    writeEnabled: true,
+    preparationCompleted: true,
+    missingParts: [optionalBox],
+  });
+  assert.equal(result.status, "SUCCESS");
+  assert.equal(result.completedSteps.includes("OPTIONAL_OUT_OF_STOCK_PARTS_SKIPPED"), true);
+  assert.equal(adapter.calls.includes("complete"), true);
+  assert.equal(adapter.calls.includes("wait-submit-ready"), true);
+  assert.equal(adapter.calls.some((call) => call.startsWith("submit:")), true);
 });
 
 test("repair orchestrator never submits when Recloud does not become submit-ready", async () => {

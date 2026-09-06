@@ -150,6 +150,33 @@ test("completion validates required fields and moves to pending shipment", async
   assert.equal(completed.repairCompletion.operatorId, USER.userId);
 });
 
+test("submitted out-of-warranty completion can persist a corrected fee remark without reopening work", async (t) => {
+  const { receiptStore } = await fixture(t);
+  await receiptStore.saveInspection("TEST-RMA", {
+    inspectionResult: "维修",
+    faultCategory: "产品质量|无法启动|电源模块不良",
+    technicianWarranty: "保外",
+  }, USER);
+  await receiptStore.saveRepairCompletion("TEST-RMA", {
+    faultLevel1: "产品质量", faultLevel2: "无法启动", faultLevel3: "电源模块不良",
+    responsibilityType: "保外维修", detectionResult: "维修",
+    repairMeasure: "更换配件后测试正常",
+    attachments: [{ id: "SAFE-ATTACHMENT", name: "repair.jpg" }],
+    pricing: { partsFee: 249, fee: 70, primaryRemark: "无减免" },
+  }, USER, true);
+  const corrected = await receiptStore.updateRepairCompletionPricing("TEST-RMA", {
+    partsFee: 249, fee: 70, logisticsFee: 64, totalFee: 306.4,
+    discountEnabled: true, discountRate: 8,
+    primaryRemark: "申请折扣减免",
+    secondaryRemark: "配件费249元，维修费70元，运费64元，合计383元，8折后费用合计306.4元",
+  }, ADMIN);
+  assert.equal(corrected.status, "REPAIR_COMPLETED_PENDING_SHIPMENT");
+  assert.equal(corrected.repairCompletion.submittedAt !== null, true);
+  assert.equal(corrected.repairCompletion.primaryRemark, "申请折扣减免");
+  assert.equal(corrected.repairCompletion.secondaryRemark, "配件费249元，维修费70元，运费64元，合计383元，8折后费用合计306.4元");
+  assert.equal(corrected.timeline.at(-1).type, "REPAIR_PRICING_CORRECTED");
+});
+
 test("admin can restore a treated order to decision while preserving receipt ownership and history", async (t) => {
   const { receiptStore } = await fixture(t);
   await receiptStore.saveTreatmentDecision("TEST-RMA", {
@@ -246,9 +273,11 @@ test("inspection-only completion requires a PDF inspection report", async (t) =>
   const { receiptStore } = await fixture(t);
   await receiptStore.saveTreatmentDecision("TEST-RMA", {
     treatmentMode: "INSPECTION_ONLY",
+    inspectionFaultOutcome: "FAULT_REPRODUCED",
     detectionResult: "只检测不维修",
     technicianWarranty: "保内",
   }, USER);
+  assert.equal((await receiptStore.readAll()).find((item) => item.rmaNo === "TEST-RMA").faultContent, "故障复现");
   await receiptStore.saveInspection("TEST-RMA", {
     inspectionResult: "只检测不维修",
     faultCategory: "产品质量|无法启动|电源模块不良",
@@ -330,6 +359,10 @@ test("frontend completion page reuses confirmed fault and includes warranty, med
   assert.match(source, /保存草稿/);
   assert.match(source, /提交完工/);
   assert.match(source, /canSubmitCompletion/);
+  assert.match(source, /getRepairPreparationStatus/);
+  assert.match(source, /recloudRepairPreparationCanComplete === true/);
+  assert.match(source, /瑞云配件同步恢复中/);
+  assert.match(source, /瑞云配件正在同步/);
   assert.match(source, /保外费用待核对/);
   assert.match(source, /请填写单程物流费/);
   assert.match(source, /保外调试费用选填/);
@@ -339,7 +372,7 @@ test("frontend completion page reuses confirmed fault and includes warranty, med
   assert.match(partsSource, /const backPage = "repairDecision"/);
   assert.match(source, /requiresOutOfWarrantyFee/);
   assert.match(source, /disabled=\{busy \|\| !canSubmitCompletion\}/);
-  assert.doesNotMatch(source, /recloud|瑞云.*fetch/i);
+  assert.doesNotMatch(source, /fetch\s*\(/i);
   const serverSource = await fs.readFile(path.join(__dirname, "../server.js"), "utf8");
   assert.match(serverSource, /\/api\/repairs\/completion\/attachments/);
   assert.ok(serverSource.includes('/api/repairs/:rmaNo/attachments/:category/:attachmentId'));
@@ -367,9 +400,23 @@ test("frontend exposes six treatment choices including headquarters transfer and
   assert.match(decisionSource, /transferToHeadquarters/);
   assert.match(decisionSource, /6 选 1/);
   assert.match(decisionSource, /RECLOUD_HOLD_REASON_GROUPS/);
+  assert.match(decisionSource, /故障复现/);
+  assert.match(decisionSource, /无故障/);
+  assert.match(decisionSource, /FAULT_REPRODUCED/);
+  assert.match(decisionSource, /NO_FAULT/);
   const serverSource = await fs.readFile(path.join(__dirname, "../server.js"), "utf8");
   assert.match(serverSource, /ABANDONED: \{ label: "弃修", detectionResult: "弃修", nextStep: "repairProcess" \}/);
   assert.match(completionSource, /application\/pdf/);
   assert.match(completionSource, /检测报告与照片\/视频/);
   assert.match(completionSource, /保内检测/);
+});
+
+test("every treatment enters a Recloud service order and only repair prepares parts", async () => {
+  const processSource = await fs.readFile(path.join(__dirname, "../frontend/src/pages/RepairProcess.jsx"), "utf8");
+  const serverSource = await fs.readFile(path.join(__dirname, "../server.js"), "utf8");
+  assert.match(processSource, /RECLOUD_SERVICE_ORDER_MODES = new Set\(\["REPAIR", "DEBUGGING", "ABANDONED", "INSPECTION_ONLY"\]\)/);
+  assert.match(processSource, /RECLOUD_SERVICE_ORDER_MODES\.has\(repairOrder\.treatmentMode\)/);
+  assert.match(serverSource, /\["REPAIR", "DEBUGGING", "ABANDONED", "INSPECTION_ONLY"\]\.includes\(order\.treatmentMode\)/);
+  assert.match(serverSource, /const appliedParts = order\.treatmentMode === "REPAIR"/);
+  assert.match(serverSource, /const usedParts = order\.treatmentMode === "REPAIR"/);
 });

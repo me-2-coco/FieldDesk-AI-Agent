@@ -16,6 +16,7 @@ const OPTIONS = [
 function RepairDecision({ setPage }) {
   const [repairOrder, setRepairOrder] = useState(() => getCurrentRepairOrder())
   const [selected, setSelected] = useState(repairOrder.treatmentMode || "")
+  const [inspectionFaultOutcome, setInspectionFaultOutcome] = useState(repairOrder.inspectionFaultOutcome || "")
   const [busy, setBusy] = useState(false)
   const [errorMessage, setErrorMessage] = useState("")
   const [holdCategory, setHoldCategory] = useState(
@@ -28,6 +29,9 @@ function RepairDecision({ setPage }) {
 
   async function continueFlow() {
     if (!selected) return setErrorMessage("请选择这台机器接下来如何处理")
+    if (selected === "INSPECTION_ONLY" && !inspectionFaultOutcome) {
+      return setErrorMessage("请选择检测结果：故障复现或无故障")
+    }
     try {
       setBusy(true)
       setErrorMessage("")
@@ -37,10 +41,12 @@ function RepairDecision({ setPage }) {
           holdCategory: selected === "ON_HOLD" ? holdCategory : "",
           holdReason: selected === "ON_HOLD" ? holdReason : "",
           holdRemark: selected === "ON_HOLD" ? holdRemark : "",
+          inspectionFaultOutcome: selected === "INSPECTION_ONLY" ? inspectionFaultOutcome : "",
         })
       const updated = updateRepairOrder({
         treatmentMode: result.treatmentMode || selected,
         treatmentLabel: result.treatmentLabel || OPTIONS.find((item) => item.value === selected)?.title,
+        inspectionFaultOutcome: result.inspectionFaultOutcome || (selected === "INSPECTION_ONLY" ? inspectionFaultOutcome : ""),
         inspectionResult: result.detectionResult,
         warrantyType: result.technicianWarranty || repairOrder.warrantyType,
         hold: result.hold || repairOrder.hold,
@@ -84,7 +90,7 @@ function RepairDecision({ setPage }) {
       </div>
       <p className="treatment-choice-tip">选择后，系统会自动进入对应的下一步。</p>
       <div className="treatment-option-list">
-        {OPTIONS.map((option) => <button key={option.value} type="button" className={`treatment-option treatment-option-${option.tone} ${selected === option.value ? "is-selected" : ""}`} onClick={() => { setSelected(option.value); setErrorMessage("") }} aria-pressed={selected === option.value}>
+        {OPTIONS.map((option) => <button key={option.value} type="button" className={`treatment-option treatment-option-${option.tone} ${selected === option.value ? "is-selected" : ""}`} onClick={() => { setSelected(option.value); if (option.value !== "INSPECTION_ONLY") setInspectionFaultOutcome(""); setErrorMessage("") }} aria-pressed={selected === option.value}>
           <span className="treatment-option-icon">{selected === option.value ? "✓" : ""}</span>
           <span className="treatment-option-copy">
             <span><strong>{option.title}</strong><small>{option.badge}</small></span>
@@ -93,6 +99,18 @@ function RepairDecision({ setPage }) {
           </span>
         </button>)}
       </div>
+      {selected === "INSPECTION_ONLY" && <div className="inspection-outcome-card">
+        <div className="inspection-outcome-heading"><span>只检测不维修 · 检测结果</span><strong>必选</strong></div>
+        <p>该选择会直接对应瑞云检测里的“故障内容”。</p>
+        <div className="inspection-outcome-options">
+          <button type="button" className={inspectionFaultOutcome === "FAULT_REPRODUCED" ? "is-selected" : ""} onClick={() => { setInspectionFaultOutcome("FAULT_REPRODUCED"); setErrorMessage("") }}>
+            <i>{inspectionFaultOutcome === "FAULT_REPRODUCED" ? "✓" : ""}</i><span><b>故障复现</b><small>瑞云选择“故障复现”</small></span>
+          </button>
+          <button type="button" className={inspectionFaultOutcome === "NO_FAULT" ? "is-selected" : ""} onClick={() => { setInspectionFaultOutcome("NO_FAULT"); setErrorMessage("") }}>
+            <i>{inspectionFaultOutcome === "NO_FAULT" ? "✓" : ""}</i><span><b>无故障</b><small>瑞云选择“未复现”</small></span>
+          </button>
+        </div>
+      </div>}
       {selected === "ON_HOLD" && <div className="hold-form-card">
         <div className="hold-form-heading"><span>暂存登记</span><strong>将同步到瑞云“滞留”</strong></div>
         <label htmlFor="hold-category">滞处理分类 <em>必选</em></label>
@@ -110,7 +128,7 @@ function RepairDecision({ setPage }) {
         <small>{holdRemark.length}/5000 · 原因和备注会按原内容同步到瑞云</small>
       </div>}
       {errorMessage && <p className="error-message">{errorMessage}</p>}
-      <button className="primary-btn" onClick={continueFlow} disabled={busy || !selected || (selected === "ON_HOLD" && (!holdCategory || !holdReason || !holdRemark.trim()))}>
+      <button className="primary-btn" onClick={continueFlow} disabled={busy || !selected || (selected === "INSPECTION_ONLY" && !inspectionFaultOutcome) || (selected === "ON_HOLD" && (!holdCategory || !holdReason || !holdRemark.trim()))}>
         {busy ? "正在保存处理方式..." : selected ? `确认${OPTIONS.find((item) => item.value === selected)?.title}并继续` : "请先选择处理方式"}
       </button>
     </section>

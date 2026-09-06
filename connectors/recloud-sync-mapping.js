@@ -1,5 +1,6 @@
-const MAPPING_VERSION = "v13";
+const MAPPING_VERSION = "v14";
 const { buildProjectCorrectionPlan } = require("../services/recloud-project-correction-rules");
+const { resolveFaultContent } = require("../services/inspection-form-rules");
 
 const NODE_REQUIRED_FIELDS = Object.freeze({
   RECEIPT: ["sn", "remark", "attachments"],
@@ -45,6 +46,7 @@ const RECLOUD_REPAIR_FIELD_TARGETS = Object.freeze({
   customerPaidAmount: { target: "客户实际支付金额", status: "CONFIRMED" },
   logisticsAmount: { target: "快递金额", status: "CONFIRMED" },
   primaryRemark: { target: "一级备注", status: "CONFIRMED" },
+  secondaryRemark: { target: "二级备注", status: "CONFIRMED" },
   personalizedLogisticsAmount: { target: "快递金额（个性化）", status: "EXCLUDED" },
   attachments: { target: "附件", status: "CONFIRMED" },
   detectionReportAttachments: { target: "附件（检测报告）", status: "EXCLUDED" },
@@ -74,7 +76,10 @@ function compactPricing(pricing, warrantyStatus = "") {
     oneWayLogisticsFee: Number(pricing.oneWayLogisticsFee || 0),
     roundTripLogisticsFee: Number(pricing.logisticsFee || 0),
     totalFee: Number(pricing.totalFee || 0),
+    discountEnabled: pricing.discountEnabled === true,
+    discountRate: Number(pricing.discountRate || 10),
     primaryRemark: String(pricing.primaryRemark || "").trim(),
+    secondaryRemark: String(pricing.secondaryRemark || "").trim(),
   };
 }
 
@@ -94,7 +99,7 @@ function buildRecloudInspectionFormPlan(payload = {}) {
     detectionResult: String(payload.detectionResult || payload.inspectionResult || "").trim(),
     productFunctionDecision: String(payload.productFunctionDecision || "功能问题").trim(),
     originalConsumables: "是",
-    faultContent: String(payload.faultContent || (payload.treatmentMode === "REPAIR" ? "故障复现" : "")).trim(),
+    faultContent: String(payload.faultContent || resolveFaultContent(payload)).trim(),
   };
   const requiredFields = skipsFaultCategory
     ? ["warrantyStatus", "detectionResult", "faultContent"]
@@ -220,6 +225,7 @@ function buildRecloudRepairFormPlan(payload = {}) {
     { key: "customerPaidAmount", target: RECLOUD_REPAIR_FIELD_TARGETS.customerPaidAmount.target, value: isOutOfWarranty ? Number(pricing.totalFee || 0) : null },
     { key: "logisticsAmount", target: RECLOUD_REPAIR_FIELD_TARGETS.logisticsAmount.target, value: isOutOfWarranty ? Number(pricing.roundTripLogisticsFee || 0) : null },
     { key: "primaryRemark", target: RECLOUD_REPAIR_FIELD_TARGETS.primaryRemark.target, value: isOutOfWarranty ? String(pricing.primaryRemark || "").trim() : null },
+    { key: "secondaryRemark", target: RECLOUD_REPAIR_FIELD_TARGETS.secondaryRemark.target, value: isOutOfWarranty ? String(pricing.secondaryRemark || "").trim() : null },
     { key: "attachments", target: RECLOUD_REPAIR_FIELD_TARGETS.attachments.target, value: Array.isArray(payload.attachments) ? payload.attachments : [] },
     { key: "troubleshooting", target: RECLOUD_REPAIR_FIELD_TARGETS.troubleshooting.target, value: "否" },
   ].filter((field) => field.value !== "" && field.value !== null && field.value !== undefined && (!Array.isArray(field.value) || field.value.length));
@@ -300,7 +306,7 @@ function buildNodePayload(order, nodeType) {
     INSPECTION_COMPLETED: {
       treatmentMode: order.treatmentMode,
       reportedFault: order.reportedFault,
-      faultContent: order.faultContent || (order.treatmentMode === "REPAIR" ? "故障复现" : ""),
+      faultContent: order.faultContent || resolveFaultContent(order),
       inspectionResult: order.inspectionResult,
       inspectionRemark: order.inspectionRemark,
       inspectionCompletedAt: order.inspectionUpdatedAt,
@@ -315,6 +321,8 @@ function buildNodePayload(order, nodeType) {
       dismantled: order.dismantled,
     },
     REPAIR_COMPLETED: {
+      technicianId: order.technicianId || order.operatorId || "",
+      technicianName: order.technicianName || order.operatorName || "",
       serviceOrderNo:
         order.recloudServiceOrderNo
         || order.recloudRepairPreparation?.serviceOrderNo

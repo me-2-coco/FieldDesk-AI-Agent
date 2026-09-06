@@ -66,6 +66,10 @@ test("Recloud detection and repair creation are separate explicit actions", asyn
   assert.match(connector, /async function startRepair[\s\S]*RECLOUD_REPAIR_SERVICE_ORDER_PAGE_NOT_READY/);
   assert.match(server, /function scheduleRecloudDetectionSync[\s\S]*connector\.confirmDetection/);
   assert.match(server, /function scheduleRecloudServiceOrderSync[\s\S]*connector\.startRepair/);
+  assert.match(server, /recoveringPreparation[\s\S]*openExistingRepairServiceOrder/);
+  assert.match(server, /recoveredExistingServiceOrder:\s*true/);
+  assert.match(server, /app\.get\("\/api\/repairs\/my-sync-alerts"[\s\S]*intercepts pointer events[\s\S]*scheduleRecloudServiceOrderSync\(order, user\)/);
+  assert.match(server, /RECLOUD_WARRANTY_CONVERSION_BUTTON_AMBIGUOUS/);
   assert.match(server, /recloudRepairAdapterProvider[\s\S]*openExistingRepairServiceOrder/);
   assert.match(server, /app\.post\("\/api\/repairs\/inspection"[\s\S]*scheduleRecloudDetectionSync/);
   assert.match(server, /\["FAILED", "SYNCING"\]\.includes\(order\.recloudDetectionSyncStatus\)[\s\S]*scheduleRecloudDetectionSync\(order/);

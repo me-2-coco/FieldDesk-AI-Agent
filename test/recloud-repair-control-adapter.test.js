@@ -21,10 +21,11 @@ function itemWithControls(count) {
 
 test("repair direct field map contains the observed service-report inputs", () => {
   assert.deepEqual(Object.keys(DIRECT_REPAIR_FIELDS).sort(), [
-    "customerPaidAmount", "highestRepairLevel", "logisticsAmount", "primaryRemark",
+    "customerPaidAmount", "highestRepairLevel", "logisticsAmount", "primaryRemark", "secondaryRemark",
   ]);
   assert.equal(DIRECT_REPAIR_FIELDS.logisticsAmount.target, "快递金额");
   assert.equal(DIRECT_REPAIR_FIELDS.primaryRemark.target, "一级备注");
+  assert.equal(DIRECT_REPAIR_FIELDS.secondaryRemark.target, "二级备注");
 });
 
 test("repair numeric controls normalize separators and blank placeholders", () => {

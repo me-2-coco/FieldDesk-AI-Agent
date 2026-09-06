@@ -5,6 +5,7 @@ const DIRECT_REPAIR_FIELDS = Object.freeze({
   customerPaidAmount: { control: "NUMBER", target: RECLOUD_REPAIR_FIELD_TARGETS.customerPaidAmount.target },
   logisticsAmount: { control: "NUMBER", target: RECLOUD_REPAIR_FIELD_TARGETS.logisticsAmount.target },
   primaryRemark: { control: "PICKLIST", target: RECLOUD_REPAIR_FIELD_TARGETS.primaryRemark.target },
+  secondaryRemark: { control: "TEXT", target: RECLOUD_REPAIR_FIELD_TARGETS.secondaryRemark.target },
 });
 
 function normalizeRepairControlValue(value, control = "TEXT") {

@@ -6,6 +6,7 @@ import AttachmentPreviewList from "../components/AttachmentPreviewList.jsx"
 import {
   downloadRepairAttachment,
   getRepairCompletionContext,
+  getRepairPreparationStatus,
   getRepairSyncOrderStatus,
   saveRepairCompletionDraft,
   saveRepairResumeStep,
@@ -117,6 +118,7 @@ function RepairCompletion({ setPage }) {
   const [busy, setBusy] = useState(false)
   const [contextLoading, setContextLoading] = useState(true)
   const [syncStatus, setSyncStatus] = useState(null)
+  const [repairSyncState, setRepairSyncState] = useState(null)
   const [warrantyConversion, setWarrantyConversion] = useState(repairOrder.manufacturerWarrantyConversion || null)
   const pricingSummaryRef = useRef(null)
 
@@ -187,6 +189,29 @@ function RepairCompletion({ setPage }) {
     return () => { active = false }
   }, [repairOrder.crmOrderNo])
 
+  useEffect(() => {
+    if (treatmentMode !== "REPAIR") return undefined
+    let active = true
+    let timer = null
+    const refresh = async () => {
+      try {
+        const status = await getRepairPreparationStatus(repairOrder.crmOrderNo)
+        if (!active) return
+        setRepairSyncState(status)
+        if (status.recloudWriteEnabled === true && status.recloudRepairPreparationCanComplete !== true) {
+          timer = window.setTimeout(refresh, 1000)
+        }
+      } catch {
+        if (active) timer = window.setTimeout(refresh, 1500)
+      }
+    }
+    refresh()
+    return () => {
+      active = false
+      if (timer) window.clearTimeout(timer)
+    }
+  }, [repairOrder.crmOrderNo, treatmentMode])
+
   const partsText = usedParts.length
     ? usedParts.map((part) => `${part.partName}×${part.quantity}（${part.repairLevel || "等级待确认"}）`).join("、")
     : "无实际更换配件"
@@ -211,11 +236,20 @@ function RepairCompletion({ setPage }) {
   const hasInspectionMedia = technicianAttachments.some((item) => /^(image|video)\//.test(item.mimeType || ""))
   const hasRequiredAttachment = isInspectionOnly ? hasInspectionReport && hasInspectionMedia : technicianAttachments.length > 0
   const conversionReady = warrantyConversion?.requested !== true || warrantyConversion?.status === "APPROVED"
-  const canSubmitCompletion = hasRequiredAttachment && conversionReady && (
+  const preparationReady = treatmentMode !== "REPAIR"
+    || repairSyncState?.recloudWriteEnabled === false
+    || repairSyncState?.recloudRepairPreparationCanComplete === true
+  const canSubmitCompletion = preparationReady && hasRequiredAttachment && conversionReady && (
     !isOutOfWarranty
     || (pricing?.canPrice && hasValidDiscount && (requiresLogisticsFee ? hasValidOutOfWarrantyFee : logisticsChargeMode === "WAIVED" || hasValidOptionalOutOfWarrantyFee))
   )
-  const submitButtonLabel = !conversionReady
+  const submitButtonLabel = !preparationReady
+    ? repairSyncState?.recloudRepairPreparationStatus === "FAILED"
+      ? "瑞云配件同步恢复中"
+      : repairSyncState
+        ? "瑞云配件正在同步"
+        : "正在核对瑞云维修状态"
+    : !conversionReady
     ? "等待信息员上传转保凭证"
     : !hasRequiredAttachment
     ? isInspectionOnly
@@ -240,10 +274,12 @@ function RepairCompletion({ setPage }) {
       : Number((originalServiceFee * discountMultiplier + displayedLogisticsFee).toFixed(2))
     : Number(originalTotalFee.toFixed(2))
   const displayedDiscountAmount = Number((originalTotalFee - displayedTotalFee).toFixed(2))
-  const primaryRemark = logisticsChargeMode === "ROUND_TRIP" ? "无减免" : "申请运费减免"
-  const secondaryRemark = logisticsChargeMode === "WAIVED"
-    ? `配件费${Number(pricing?.partsFee || 0)}元，维修费${Number(pricing?.fee || 0)}元，运费全免，${discountEnabled && hasValidDiscount ? `${discountRateNumber}折优惠${displayedDiscountAmount.toFixed(2)}元，` : ""}合计：${displayedTotalFee.toFixed(2)}元`
-    : `配件费${Number(pricing?.partsFee || 0)}元，维修费${Number(pricing?.fee || 0)}元，${logisticsChargeMode === "ONE_WAY" ? "单边" : "来回"}运费${displayedLogisticsFee.toFixed(2)}元，${discountEnabled && hasValidDiscount ? `${discountScope === "ORDER_TOTAL" ? "整体" : "配件及维修费"}${discountRateNumber}折优惠${displayedDiscountAmount.toFixed(2)}元，` : ""}合计：${displayedTotalFee.toFixed(2)}元`
+  const formatMoney = (value) => String(Number(Number(value || 0).toFixed(2)))
+  const primaryRemark = discountEnabled && hasValidDiscount ? "申请折扣减免" : "无减免"
+  const feeDetails = `配件费${formatMoney(pricing?.partsFee)}元，维修费${formatMoney(pricing?.fee)}元，运费${formatMoney(displayedLogisticsFee)}元，合计${formatMoney(originalTotalFee)}元`
+  const secondaryRemark = discountEnabled && hasValidDiscount
+    ? `${feeDetails}，${formatMoney(discountRateNumber)}折后费用合计${formatMoney(displayedTotalFee)}元`
+    : feeDetails
 
   const payload = () => ({
     rmaNo: repairOrder.crmOrderNo,

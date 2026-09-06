@@ -264,9 +264,24 @@ export async function uploadWarrantyConversionProof(payload) {
   return request("/api/information/warranty-conversions/attachments", payload)
 }
 
-export async function startRepair(rmaNo) {
+export async function startRepair(rmaNo, attemptVersion = "not-started") {
   const normalizedRmaNo = String(rmaNo || "").trim()
-  return request("/api/repairs/start-repair", { rmaNo: normalizedRmaNo }, { idempotencyKey: `repair-start:${normalizedRmaNo}` })
+  const normalizedAttempt = String(attemptVersion || "not-started").trim().replace(/[^A-Za-z0-9:._-]/g, "-").slice(0, 80)
+  return request("/api/repairs/start-repair", { rmaNo: normalizedRmaNo }, {
+    idempotencyKey: `repair-start:${normalizedRmaNo}:${normalizedAttempt}`
+  })
+}
+
+export async function getRepairSyncStatus(rmaNo) {
+  return get(`/api/repairs/${encodeURIComponent(String(rmaNo || "").trim())}/sync-status`, { timeoutMs: 3000 })
+}
+
+export async function getMyRepairSyncAlerts() {
+  return get("/api/repairs/my-sync-alerts", { timeoutMs: 3000 })
+}
+
+export async function getRepairPreparationStatus(rmaNo) {
+  return get(`/api/repairs/${encodeURIComponent(String(rmaNo || "").trim())}/sync-status`, { timeoutMs: 3000 })
 }
 
 export async function searchRecloudFaultCategories(payload) {

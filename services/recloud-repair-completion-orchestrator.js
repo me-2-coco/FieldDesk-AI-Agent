@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const { buildRecloudRepairFormPlan } = require("../connectors/recloud-sync-mapping");
 const { buildRecloudRepairPartsPlan } = require("./recloud-repair-parts-plan");
 const { buildRecloudRepairAttachmentsPlan } = require("./recloud-repair-attachments-plan");
+const { isOptionalWhenOutOfStockPart } = require("./recloud-optional-parts-policy");
 const {
   RECLOUD_WORK_ORDER_OPERATION_POLICY,
   buildRecloudAssignmentPlan,
@@ -88,6 +89,7 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
   let partsPlan = buildRecloudRepairPartsPlan(payload.usedParts, remote.parts);
   let attachmentsPlan = buildRecloudRepairAttachmentsPlan(payload.attachments, remote.attachments);
   const knownMissingParts = Array.isArray(options.missingParts) ? [...options.missingParts] : [];
+  const blockingMissingParts = () => knownMissingParts.filter((part) => !isOptionalWhenOutOfStockPart(part));
   const authorizedSkippedPartCodes = new Set(
     [...(Array.isArray(options.authorizedSkippedPartCodes) ? options.authorizedSkippedPartCodes : []),
       ...knownMissingParts.map((part) => part?.partCode)]
@@ -215,7 +217,23 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
     throw orchestratorError("缺少维修字段执行器", "RECLOUD_REPAIR_FIELD_WRITE_ADAPTER_INVALID", "FIELDS");
   }
   await adapter.applyRepairFields(formPlan);
-  if (typeof adapter.verifyRepairFields !== "function" || !await adapter.verifyRepairFields(formPlan)) {
+  let repairFieldsVerified = false;
+  if (typeof adapter.verifyRepairFields === "function") {
+    const verificationAttempts = Math.max(1, Number(options.fieldVerificationAttempts || 5));
+    const verificationIntervalMs = Math.max(0, Number(options.fieldVerificationIntervalMs || 500));
+    for (let attempt = 0; attempt < verificationAttempts; attempt += 1) {
+      repairFieldsVerified = await adapter.verifyRepairFields(formPlan);
+      if (repairFieldsVerified) break;
+      if (attempt + 1 < verificationAttempts && verificationIntervalMs > 0) {
+        if (typeof adapter.waitForTimeout === "function") {
+          await adapter.waitForTimeout(verificationIntervalMs);
+        } else {
+          await new Promise((resolve) => setTimeout(resolve, verificationIntervalMs));
+        }
+      }
+    }
+  }
+  if (!repairFieldsVerified) {
     throw orchestratorError("维修字段远端复核失败", "RECLOUD_REPAIR_FIELD_POSTVERIFY_FAILED", "FIELDS");
   }
   completedSteps.push("FIELDS_VERIFIED");
@@ -248,26 +266,42 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
     orderKey, fingerprint, status: "READY_TO_COMPLETE", completedSteps: [...completedSteps],
   });
 
+  if (remote.completed === true) {
+    completedSteps.push("REMOTE_ALREADY_COMPLETED");
+    await saveCheckpoint(options.checkpointStore, {
+      orderKey, fingerprint, status: "SUCCESS", completedSteps: [...completedSteps],
+    });
+    return {
+      status: "SUCCESS",
+      resumed,
+      completedSteps,
+      finalConfirmClicked: false,
+      remoteAlreadyCompleted: true,
+      recloudModified: true,
+    };
+  }
+
   if (typeof adapter.clickComplete !== "function") {
     throw orchestratorError("缺少瑞云完工按钮执行器", "RECLOUD_REPAIR_COMPLETE_ADAPTER_INVALID", "COMPLETE");
   }
   await adapter.clickComplete();
   completedSteps.push("COMPLETE_CLICKED");
-  if (knownMissingParts.length) {
+  if (blockingMissingParts().length) {
     completedSteps.push("SUBMIT_SKIPPED_FOR_PARTS_SHORTAGE");
     await saveCheckpoint(options.checkpointStore, {
-      orderKey, fingerprint, status: "AWAITING_PARTS", completedSteps: [...completedSteps], missingParts: knownMissingParts,
+      orderKey, fingerprint, status: "AWAITING_PARTS", completedSteps: [...completedSteps], missingParts: blockingMissingParts(),
     });
     return {
       status: "AWAITING_PARTS",
       resumed,
       completedSteps,
-      missingParts: knownMissingParts,
+      missingParts: blockingMissingParts(),
       completeClicked: true,
       finalConfirmClicked: false,
       stoppedBeforeSubmit: true,
     };
   }
+  if (knownMissingParts.length) completedSteps.push("OPTIONAL_OUT_OF_STOCK_PARTS_SKIPPED");
   await saveCheckpoint(options.checkpointStore, {
     orderKey, fingerprint, status: "WAITING_SUBMIT_READY", completedSteps: [...completedSteps],
   });

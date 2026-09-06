@@ -547,6 +547,59 @@ test("failed tasks can be retried and permanent failures require manual review",
   assert.equal(manual.errorCategory, "DIAGNOSTICS");
 });
 
+test("transient failures retry automatically with backoff until success", async (t) => {
+  const outbox = await outboxFixture(t);
+  const scheduledRetries = [];
+  let attempts = 0;
+  const service = new RecloudSyncService(outbox, {
+    async syncReceipt() {
+      attempts += 1;
+      if (attempts < 2) {
+        throw Object.assign(new Error("瑞云数据仍在刷新"), { code: "RECLOUD_NETWORK_ERROR" });
+      }
+      return { status: "SUCCESS" };
+    },
+  }, {
+    scheduler: () => {},
+    retryDelaysMs: [25, 50],
+    retryScheduler: (work, delayMs) => scheduledRetries.push({ work, delayMs }),
+  });
+  const task = await service.enqueueOrderNode(ORDER, "RECEIPT", "AUTO-RETRY-1");
+  const failed = await service.processTask(task.id);
+  assert.equal(failed.status, TASK_STATUS.FAILED);
+  assert.deepEqual(scheduledRetries.map((item) => item.delayMs), [25]);
+  await scheduledRetries[0].work();
+  assert.equal((await outbox.get(task.id)).status, TASK_STATUS.SUCCESS);
+  assert.equal(attempts, 2);
+});
+
+test("automatic retry refreshes a stale task payload before running again", async (t) => {
+  const outbox = await outboxFixture(t);
+  const scheduledRetries = [];
+  const seenPayloads = [];
+  let attempts = 0;
+  const service = new RecloudSyncService(outbox, {
+    async syncReceipt(task) {
+      seenPayloads.push(task.payload);
+      attempts += 1;
+      if (attempts === 1) throw Object.assign(new Error("temporary"), { code: "RECLOUD_NETWORK_ERROR" });
+      return { status: "SUCCESS" };
+    },
+  }, {
+    scheduler: () => {},
+    retryDelaysMs: [1],
+    retryScheduler: (work) => scheduledRetries.push(work),
+    refreshTaskPayload: async () => ({ payload: { current: true }, mappingVersion: "v-current" }),
+  });
+  const task = await service.enqueueOrderNode(ORDER, "RECEIPT", "AUTO-REFRESH-1");
+  await service.processTask(task.id);
+  await scheduledRetries[0]();
+  const completed = await outbox.get(task.id);
+  assert.equal(completed.status, TASK_STATUS.SUCCESS);
+  assert.deepEqual(seenPayloads[1], { current: true });
+  assert.equal(completed.mappingVersion, "v-current");
+});
+
 test("retry refreshes a stale task payload with the current mapping", async (t) => {
   const outbox = await outboxFixture(t);
   const service = new RecloudSyncService(outbox, {
@@ -576,6 +629,27 @@ test("pending sync tasks resume after a backend restart", async (t) => {
     idempotencyKey: "RECEIPT:RESTART-1",
     payload: buildNodePayload(ORDER, "RECEIPT"),
   });
+  assert.equal(await service.resumePendingTasks(), 1);
+  assert.equal(scheduled.length, 1);
+});
+
+test("retryable failed tasks also resume after a backend restart", async (t) => {
+  const outbox = await outboxFixture(t);
+  const scheduled = [];
+  const service = new RecloudSyncService(outbox, new DryRunRecloudAdapter(), {
+    scheduler: (work) => scheduled.push(work),
+    maxRetries: 3,
+  });
+  const task = await outbox.enqueue({
+    workOrderNo: ORDER.id,
+    rmaNo: ORDER.rmaNo,
+    nodeType: "RECEIPT",
+    localBusinessRecordId: "RESTART-FAILED-1",
+    idempotencyKey: "RECEIPT:RESTART-FAILED-1",
+    payload: buildNodePayload(ORDER, "RECEIPT"),
+  });
+  await outbox.transition(task.id, TASK_STATUS.PROCESSING);
+  await outbox.transition(task.id, TASK_STATUS.FAILED, { retryCount: 1 });
   assert.equal(await service.resumePendingTasks(), 1);
   assert.equal(scheduled.length, 1);
 });
@@ -612,6 +686,8 @@ test("repair mapping confirms observed Recloud columns and blocks ambiguous fee 
   assert.equal(RECLOUD_REPAIR_FIELD_TARGETS.logisticsAmount.status, "CONFIRMED");
   assert.equal(RECLOUD_REPAIR_FIELD_TARGETS.primaryRemark.target, "一级备注");
   assert.equal(RECLOUD_REPAIR_FIELD_TARGETS.primaryRemark.status, "CONFIRMED");
+  assert.equal(RECLOUD_REPAIR_FIELD_TARGETS.secondaryRemark.target, "二级备注");
+  assert.equal(RECLOUD_REPAIR_FIELD_TARGETS.secondaryRemark.status, "CONFIRMED");
   assert.equal(RECLOUD_REPAIR_FIELD_TARGETS.personalizedLogisticsAmount.status, "EXCLUDED");
 });
 
@@ -630,6 +706,7 @@ test("repair form plan only pre-fills confirmed customer-facing fields", () => {
         logisticsFee: 122,
         totalFee: 447,
         primaryRemark: "无减免",
+        secondaryRemark: "配件费255元，维修费70元，运费122元，合计447元",
       },
     },
   }, "REPAIR_COMPLETED");
@@ -643,6 +720,7 @@ test("repair form plan only pre-fills confirmed customer-facing fields", () => {
   assert.equal(writes.customerPaidAmount, 447);
   assert.equal(writes.logisticsAmount, 122);
   assert.equal(writes.primaryRemark, "无减免");
+  assert.equal(writes.secondaryRemark, "配件费255元，维修费70元，运费122元，合计447元");
   assert.equal(writes.attachments.length, 1);
   assert.equal("warrantyConversion" in writes, false);
   assert.deepEqual(plan.requiredActions, [{

@@ -613,13 +613,19 @@ test("live detection saves locally and responds before Recloud finishes in the b
   assert.equal(inspected.response.status, 200);
   assert.equal(inspected.result.data.status, "INSPECTION_COMPLETED_PENDING_REPAIR");
   assert.equal(inspected.result.data.recloudDetectionSyncStatus, "PENDING");
-  assert.match(inspected.result.data.message, /可立即进入下一步/);
+  assert.match(inspected.result.data.message, /可继续处理其他工单/);
   await waitForValue(() => confirmCount, 1);
   releaseConfirmation();
   await waitForValue(async () => {
     const current = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
     return current?.recloudDetectionSyncStatus;
   }, "CONFIRMED");
+  const statusResponse = await fetch(`${url}/api/repairs/JXTH900001001/sync-status`);
+  const statusResult = await statusResponse.json();
+  assert.equal(statusResponse.status, 200);
+  assert.equal(statusResult.data.recloudWriteEnabled, true);
+  assert.equal(statusResult.data.recloudDetectionSyncStatus, "CONFIRMED");
+  assert.equal(statusResult.data.recloudServiceOrderAttemptedAt, "");
 });
 
 test("a failed Recloud detection remains a background failure and does not roll back FieldDesk", async (t) => {
@@ -670,6 +676,84 @@ test("a failed Recloud detection remains a background failure and does not roll 
   assert.equal(saved.resumeStep, "repairProcess");
   assert.equal(saved.faultCategory, "产品质量 / 离线 / 电池包不良");
   assert.equal(saved.recloudDetectionLastError.code, "RECLOUD_DETECTION_OPTION_AMBIGUOUS");
+});
+
+test("a hung detection is isolated and another order still reaches Recloud", async (t) => {
+  const store = await createTestStore(t);
+  for (const [rmaNo, sn] of [
+    ["JXTH900001001", "W24480531TEST0001"],
+    ["JXTH900001002", "W24480531TEST0002"],
+  ]) {
+    await store.prepare({
+      ...validPayload({ rmaNo, logisticsNo: `TEST-${rmaNo}`, sn }),
+      operatorId: USERS.sweep.userId,
+      operatorName: USERS.sweep.displayName,
+      remark: "扫地机",
+    });
+    await store.completeReceipt(rmaNo, USERS.sweep);
+    await store.saveWarrantyDecision(rmaNo, { technicianWarranty: "保内" }, USERS.sweep);
+    await store.saveTreatmentDecision(rmaNo, { treatmentMode: "REPAIR", technicianWarranty: "保内" }, USERS.sweep);
+    await store.applyPart(rmaNo, { code: "13703", name: "售后电池包组件", stock: 10 }, 1, USERS.sweep);
+    await store.confirmParts(rmaNo, USERS.sweep);
+  }
+
+  let confirmationCount = 0;
+  let releaseFirstConfirmation;
+  const firstConfirmationGate = new Promise((resolve) => {
+    releaseFirstConfirmation = resolve;
+  });
+  const connector = {
+    openRecloud: async ({ channel }) => ({
+      loginRequired: false,
+      page: { channel, close: async () => {} },
+    }),
+    queryRmaByLogisticsNo: async (_page, logisticsNo) => ({
+      rmaNo: logisticsNo.replace("TEST-", ""),
+    }),
+    confirmDetection: async () => {
+      confirmationCount += 1;
+      if (confirmationCount === 1) {
+        await firstConfirmationGate;
+        return { confirmed: true };
+      }
+      return { confirmed: true };
+    },
+  };
+  const url = await startServer(t, connector, store, USERS.sweep, {
+    env: {
+      ...process.env,
+      DRY_RUN: "true",
+      RECLOUD_WRITE_ENABLED: "false",
+      RECLOUD_INSPECTION_WRITE_ENABLED: "true",
+      RECLOUD_BUSINESS_WRITE_CONCURRENCY: "2",
+      RECLOUD_BUSINESS_WRITE_TIMEOUT_MS: "30",
+    },
+  });
+
+  for (const rmaNo of ["JXTH900001001", "JXTH900001002"]) {
+    const inspected = await post(url, "/api/repairs/inspection", {
+      rmaNo,
+      inspectionResult: "",
+      faultCategory: "产品质量 / 离线 / 电池包不良",
+      faultCategoryConfirmed: true,
+      technicianWarranty: "保内",
+    });
+    assert.equal(inspected.response.status, 200);
+  }
+
+  await waitForValue(async () => {
+    const records = await store.readAll();
+    return records.find((item) => item.rmaNo === "JXTH900001002")?.recloudDetectionSyncStatus;
+  }, "CONFIRMED");
+  await waitForValue(async () => {
+    const records = await store.readAll();
+    return records.find((item) => item.rmaNo === "JXTH900001001")?.recloudDetectionSyncStatus;
+  }, "CONFIRMED", 4000);
+  releaseFirstConfirmation();
+  const first = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
+  assert.equal(first.recloudDetectionSyncStatus, "CONFIRMED");
+  assert.equal(first.recloudDetectionLastError, null);
+  assert.ok(confirmationCount >= 3);
 });
 
 test("receipt-only live mode completes locally before confirming Recloud in the background", async (t) => {
@@ -796,6 +880,8 @@ test("live receipt confirms first and then uploads its FieldDesk photo exactly o
 
   const saved = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
   assert.equal(saved.recloudReceiptSyncStatus, "CONFIRMED");
+  assert.equal(saved.recloudProjectVerificationStatus, "CONFIRMED");
+  assert.ok(saved.recloudProjectVerificationConfirmedAt);
   assert.equal(saved.recloudReceiptAttachmentSyncStatus, "CONFIRMED");
   assert.ok(saved.recloudReceiptAttachmentConfirmedAt);
 
@@ -803,6 +889,35 @@ test("live receipt confirms first and then uploads its FieldDesk photo exactly o
   assert.equal(retried.response.status, 200);
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.deepEqual(calls, ["receipt", "photo"]);
+});
+
+test("the assigned technician receives a safe alert for a stalled or failed Recloud stage", async (t) => {
+  const store = await createTestStore(t);
+  const prepared = await store.prepare({
+    ...validPayload(),
+    operatorId: USERS.dual.userId,
+    operatorName: USERS.dual.displayName,
+  });
+  await store.writeAll([{
+    ...prepared,
+    status: "RECEIVED_PENDING_INSPECTION",
+    technicianId: USERS.dual.userId,
+    recloudProjectVerificationStatus: "FAILED",
+    recloudProjectVerificationLastError: {
+      code: "RECLOUD_PROJECT_VERIFICATION_REQUIRED",
+      message: "项目号核对失败，系统正在自动重试",
+      at: new Date().toISOString(),
+    },
+  }]);
+  const url = await startServer(t, { openRecloud: async () => ({ loginRequired: false, page: {} }) }, store, USERS.dual);
+  const response = await fetch(`${url}/api/repairs/my-sync-alerts`);
+  const result = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(result.data.length, 1);
+  assert.equal(result.data[0].userId, USERS.dual.userId);
+  assert.equal(result.data[0].stage, "PROJECT");
+  assert.doesNotMatch(JSON.stringify(result.data[0]), /stack|password|token/i);
 });
 
 test("receipt attachment sync reads project code from the SN-bound product row when the form field is empty", async (t) => {
@@ -845,6 +960,13 @@ test("receipt attachment sync reads project code from the SN-bound product row w
     return current?.recloudReceiptAttachmentSyncStatus;
   }, "CONFIRMED");
   assert.equal(uploaded, 1);
+});
+
+test("project identity reader does not depend on the receipt button after signing", async () => {
+  const source = await fs.readFile(path.join(__dirname, "../connectors/recloud.js"), "utf8");
+  const block = source.slice(source.indexOf("async function readRmaProductIdentity"), source.indexOf("function selectCellByHeaderCoordinate"));
+  assert.match(block, /activateReceiptDetailTabs/);
+  assert.doesNotMatch(block, /findMappedReceiptControl/);
 });
 
 test("receipt attachment sync can compare Recloud with the persisted SN authorization", () => {
@@ -1430,6 +1552,7 @@ test("frontend enables SN step, restores receipt progress and submits idempotent
   assert.match(source, /recloudReceiptSyncStatus === "RESULT_UNKNOWN"/);
   assert.match(source, /attachment\.uploaded/);
   assert.match(source, /validateReceiptSn\(localOrder\.sn, localOrder\.logisticsNo/);
+  assert.match(source, /repairDetail\?\.pickupLogisticsNo \|\| repairDetail\?\.logisticsNo/);
   assert.match(source, /returnedSnInvalid \? "" : result\.productSerialNo/);
   assert.match(source, /localWorkflowInvalid \? null : result\.localWorkflow/);
   assert.match(
@@ -1474,6 +1597,10 @@ test("inspection page shows the required local order fields", async () => {
   assert.match(source, /返回添加配件/);
   assert.match(source, /navigateToSavedStep\("partsApplication"\)/);
   assert.match(source, /saveRepairResumeStep/);
+  assert.match(source, /getRepairSyncStatus/);
+  assert.match(source, /瑞云检测处理中/);
+  assert.match(source, /等待管理员核验/);
+  assert.match(source, /window\.setTimeout\(refresh, 1000\)/);
   assert.match(source, /inspectionIsSaved/);
   assert.match(source, /repairOrder\.level3Fault && repairOrder\.warrantyType/);
   assert.match(source, /\{inspectionIsSaved[\s\S]*\? "已检测"/);

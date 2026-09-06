@@ -87,4 +87,20 @@ test("repair assignment adapter never targets the dispatch action", () => {
   assert.doesNotMatch(source, /if \(options\.requested !== true\) return/);
   assert.match(source, /const choice = options\.requested === true \? "是" : "否"/);
   assert.match(source, /filter\(\{ has: serialNumberCell \}\)/);
+  assert.match(source, /isOptionalWhenOutOfStockPart/);
+  assert.match(source, /for \(let attempt = 0; attempt < 3/);
+  assert.match(source, /通用物流箱无库存规则跳过/);
+});
+
+test("warranty conversion skips the one-shot action when the product row is already in warranty", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../connectors/recloud-repair-page-adapter.js"), "utf8");
+  assert.match(source, /productRowValues\.includes\("保内"\)/);
+  assert.match(source, /alreadyInWarranty:\s*true/);
+});
+
+test("every service-order read path closes blocking model notices before continuing", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../connectors/recloud-repair-page-adapter.js"), "utf8");
+  assert.match(source, /async readAssignee\(\) \{\s*await dismissBlockingRepairMessageBoxes\(page\)/);
+  assert.match(source, /async readRemoteState\(\) \{\s*await dismissBlockingRepairMessageBoxes\(page\)/);
+  assert.match(source, /async readRemoteAttachments\(\) \{\s*await dismissBlockingRepairMessageBoxes\(page\)/);
 });

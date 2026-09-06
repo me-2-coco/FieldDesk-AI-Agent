@@ -35,6 +35,7 @@ import {
 } from "./shared/userStore.js"
 import { hasBusinessRole } from "./shared/accountAccessPolicy.js"
 import {
+  getMyRepairSyncAlerts,
   getRecloudSyncTasks,
   getInformationExceptions,
   getSupervisionInbox,
@@ -77,6 +78,7 @@ function App() {
   const [supervisionTargetRmaNo, setSupervisionTargetRmaNo] = useState("")
   const [supervisionMonitorWarning, setSupervisionMonitorWarning] = useState("")
   const [syncAttentionTasks, setSyncAttentionTasks] = useState([])
+  const [mySyncAlerts, setMySyncAlerts] = useState([])
   const [partsShortageNotices, setPartsShortageNotices] = useState([])
   const [selectedInformationReportRmaNo, setSelectedInformationReportRmaNo] = useState("")
 
@@ -105,6 +107,30 @@ function App() {
     window.addEventListener("fielddesk-auth-expired", handleExpiredSession)
     return () => window.removeEventListener("fielddesk-auth-expired", handleExpiredSession)
   }, [])
+
+  useEffect(() => {
+    if (!isLoggedIn) {
+      queueMicrotask(() => setMySyncAlerts([]))
+      return undefined
+    }
+    let active = true
+    let timer
+    const refreshMySyncAlerts = async () => {
+      try {
+        const alerts = await getMyRepairSyncAlerts()
+        if (active) setMySyncAlerts(Array.isArray(alerts) ? alerts : [])
+      } catch {
+        // 监测接口瞬时失败时保留上一条提醒，下一轮继续恢复。
+      } finally {
+        if (active) timer = window.setTimeout(refreshMySyncAlerts, 3000)
+      }
+    }
+    refreshMySyncAlerts()
+    return () => {
+      active = false
+      if (timer) window.clearTimeout(timer)
+    }
+  }, [isLoggedIn, currentUser?.id])
 
   useEffect(() => {
     const canMonitorSync = isLoggedIn && hasBusinessRole(currentUser, USER_ROLES.ADMIN)
@@ -596,6 +622,21 @@ function App() {
             <small>{String(latestSupervision?.originalContent || "点击查看督办内容").slice(0, 28)}</small>
           </span>
           <strong>{supervisionUnreadCount > 99 ? "99+" : supervisionUnreadCount}</strong>
+        </button>
+      )}
+
+      {mySyncAlerts.length > 0 && (
+        <button
+          type="button"
+          className="global-operation-alert"
+          onClick={() => openRepairOrderFromSyncTask(mySyncAlerts[0]?.rmaNo)}
+          aria-label={`账号${String(currentUser?.id || "").replace(/^FieldDesk/, "")}有${mySyncAlerts.length}条工单同步异常`}
+        >
+          <span>
+            <b>{String(currentUser?.id || "").replace(/^FieldDesk/, "")} · {mySyncAlerts[0]?.stageLabel}异常</b>
+            <small>{mySyncAlerts[0]?.rmaNo} · {mySyncAlerts[0]?.message}</small>
+          </span>
+          <strong>{mySyncAlerts.length > 99 ? "99+" : mySyncAlerts.length}</strong>
         </button>
       )}
 

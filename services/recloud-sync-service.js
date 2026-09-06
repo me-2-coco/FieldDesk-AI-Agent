@@ -42,6 +42,14 @@ class RecloudSyncService {
     this.adapter = adapter;
     this.maxRetries = options.maxRetries || 3;
     this.scheduler = options.scheduler || ((work) => setImmediate(work));
+    this.retryDelaysMs = Array.isArray(options.retryDelaysMs) && options.retryDelaysMs.length
+      ? options.retryDelaysMs.map((value) => Math.max(0, Number(value) || 0))
+      : [1000, 3000, 10000];
+    this.retryScheduler = options.retryScheduler || ((work, delayMs) => {
+      const timer = setTimeout(work, delayMs);
+      timer.unref?.();
+      return timer;
+    });
     this.onRepairPartsShortage = options.onRepairPartsShortage || null;
     this.refreshTaskPayload = options.refreshTaskPayload || null;
   }
@@ -65,7 +73,10 @@ class RecloudSyncService {
   }
 
   async resumePendingTasks() {
-    const tasks = (await this.outbox.readAll()).filter((task) => task.status === TASK_STATUS.PENDING);
+    const tasks = (await this.outbox.readAll()).filter((task) =>
+      task.status === TASK_STATUS.PENDING
+      || (task.status === TASK_STATUS.FAILED && Number(task.retryCount || 0) < this.maxRetries)
+    );
     for (const task of tasks) {
       this.scheduler(() => this.processTask(task.id).catch(() => {}));
     }
@@ -73,8 +84,20 @@ class RecloudSyncService {
   }
 
   async processTask(taskId) {
-    const task = await this.outbox.get(taskId);
+    let task = await this.outbox.get(taskId);
     if (!task || ![TASK_STATUS.PENDING, TASK_STATUS.FAILED].includes(task.status)) return task;
+    // A retry may happen minutes after the task was first queued.  Always rebuild
+    // failed-task payloads from the current order so recovery sees preparation,
+    // attachments and fee changes made after the original attempt.
+    if (task.status === TASK_STATUS.FAILED && typeof this.refreshTaskPayload === "function") {
+      const refreshed = await this.refreshTaskPayload(task);
+      if (refreshed?.payload || refreshed?.mappingVersion) {
+        task = await this.outbox.update(task.id, {
+          ...(refreshed?.payload ? { payload: refreshed.payload } : {}),
+          ...(refreshed?.mappingVersion ? { mappingVersion: refreshed.mappingVersion } : {}),
+        });
+      }
+    }
     await this.outbox.transition(task.id, TASK_STATUS.PROCESSING, { lastError: "", errorCategory: "" });
     const method = NODE_METHODS[task.nodeType];
     if (!method || typeof this.adapter[method] !== "function") {
@@ -127,7 +150,7 @@ class RecloudSyncService {
     }
   }
 
-  fail(task, error) {
+  async fail(task, error) {
     const retryCount = Number(task.retryCount || 0) + 1;
     const classification = classifyError(error);
     const nextStatus = error?.permanent || !classification.retryable || retryCount >= this.maxRetries
@@ -137,11 +160,16 @@ class RecloudSyncService {
       `RECLOUD_SYNC_TASK_FAILED: node=${task.nodeType} rma=${task.rmaNo} code=${error?.code || "UNKNOWN"} phase=${error?.phase || "UNKNOWN"}`,
       JSON.stringify({ name: error?.name || "Error", message: String(error?.message || "").slice(0, 1000) })
     );
-    return this.outbox.transition(task.id, nextStatus, {
+    const failed = await this.outbox.transition(task.id, nextStatus, {
       retryCount,
       lastError: classification.safeCode,
       errorCategory: classification.category,
     });
+    if (nextStatus === TASK_STATUS.FAILED) {
+      const delayMs = this.retryDelaysMs[Math.min(retryCount - 1, this.retryDelaysMs.length - 1)];
+      this.retryScheduler(() => this.processTask(task.id).catch(() => {}), delayMs);
+    }
+    return failed;
   }
 
   async retry(taskId) {
@@ -161,6 +189,10 @@ class RecloudSyncService {
     });
     this.scheduler(() => this.processTask(taskId).catch(() => {}));
     return pending;
+  }
+
+  async getTask(taskId) {
+    return this.outbox.get(taskId);
   }
 
   cancelOrderNodes(rmaNo, nodeTypes, options = {}) {

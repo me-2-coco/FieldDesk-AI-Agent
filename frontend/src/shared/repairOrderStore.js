@@ -186,6 +186,8 @@ function createDefaultOrder({
 
     treatmentLabel: "",
 
+    inspectionFaultOutcome: "",
+
     faultSystem: "",
 
     crmFault: "",
@@ -426,6 +428,9 @@ function normalizeOrder(order) {
 
     treatmentLabel:
       order.treatmentLabel || "",
+
+    inspectionFaultOutcome:
+      order.inspectionFaultOutcome || "",
 
     resumeStep:
       order.resumeStep || "",
@@ -900,6 +905,9 @@ export function createRepairOrder(
 
     treatmentLabel:
       fields.treatmentLabel || "",
+
+    inspectionFaultOutcome:
+      fields.inspectionFaultOutcome || "",
 
     specialty:
       fields.specialty || "",

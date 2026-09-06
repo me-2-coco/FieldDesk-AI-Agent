@@ -742,6 +742,37 @@ button:active:not(:disabled) {
   text-align: left;
 }
 
+.global-operation-alert {
+  position: fixed;
+  z-index: 90;
+  right: 18px;
+  bottom: 92px;
+  display: flex;
+  width: min(430px, calc(100vw - 28px));
+  min-height: 58px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  color: #7a3e00;
+  text-align: left;
+  border: 1px solid #f2ad35;
+  border-radius: 14px;
+  background: #fff4d6;
+  box-shadow: 0 12px 30px rgba(128, 72, 0, .2);
+}
+
+.global-operation-alert span { display: grid; gap: 3px; min-width: 0; }
+.global-operation-alert b { font-size: 13px; }
+.global-operation-alert small { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.global-operation-alert > strong { min-width: 28px; color: #fff; text-align: center; border-radius: 999px; background: #bd6500; }
+
+.recloud-stage-status { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 10px 0; }
+.recloud-stage-status span { padding: 7px 4px; color: #7b8798; font-size: 11px; text-align: center; border-radius: 9px; background: #f1f4f8; }
+.recloud-stage-status span.confirmed { color: #16794a; background: #e7f8ef; }
+.recloud-stage-status span.confirmed::before { content: "✓ "; }
+.recloud-stage-status span.pending::before { content: "… "; }
+
 .global-sync-alert span {
   display: grid;
   gap: 3px;
@@ -3343,6 +3374,7 @@ background:#fafafa;
 .repair-warranty-page .primary-btn{min-height:42px;margin:0;padding:8px 10px;border-radius:11px;font-size:13px}
 .repair-warranty-page .warranty-confirm-card .form-hint{margin:0!important;font-size:9px;line-height:1.45}
 .hold-form-card{margin:0 0 12px;padding:14px;background:linear-gradient(145deg,#fffaf0,#fff);border:1px solid #f4cf8b;border-radius:14px}.hold-form-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}.hold-form-heading span{color:#8b5a00;font-size:14px;font-weight:850}.hold-form-heading strong{padding:4px 7px;color:#9a6500;background:#fff0c7;border-radius:999px;font-size:9px}.hold-form-card label{display:block;margin:9px 0 5px;color:#46566d;font-size:11px;font-weight:800}.hold-form-card label em{color:#e5484d;font-size:9px;font-style:normal}.hold-form-card select,.hold-form-card textarea{width:100%;box-sizing:border-box;color:#24364d;background:#fff;border:1px solid #d8e0eb;border-radius:11px;font:inherit}.hold-form-card select{height:43px;padding:0 11px}.hold-form-card textarea{min-height:82px;padding:11px;resize:vertical}.hold-form-card>small{display:block;margin-top:6px;color:#8b96a7;font-size:9px;text-align:right}.bottom-nav button.workflow-locked{color:#aab3c0;background:#f5f7fa}.bottom-nav button.workflow-locked .bottom-nav-icon{opacity:.55}.machine-hold-detail{margin-top:10px;padding:10px;color:#704900;background:#fff7e6;border:1px solid #f4d08b;border-radius:11px}.machine-hold-detail p{margin:4px 0!important;color:#705b35!important;font-size:11px!important;text-align:left!important}.machine-hold-detail small{font-size:9px}.machine-progress-timeline{margin:12px 0 0;padding:0;list-style:none}.machine-progress-timeline li{position:relative;margin-left:5px;padding:0 0 11px 15px;border-left:2px solid #dbe8fa}.machine-progress-timeline li:before{content:"";position:absolute;left:-5px;top:3px;width:8px;height:8px;background:#2677e8;border:2px solid #fff;border-radius:50%;box-shadow:0 0 0 1px #9cc2f5}.machine-progress-timeline span,.machine-progress-timeline small{display:block}.machine-progress-timeline span{color:#31445d;font-size:11px;font-weight:750}.machine-progress-timeline small{margin-top:2px;color:#8b96a7;font-size:9px}
+.inspection-outcome-card{margin:0 0 12px;padding:14px;background:linear-gradient(145deg,#effaf9,#fff);border:1px solid #b9e2dd;border-radius:14px}.inspection-outcome-heading{display:flex;align-items:center;justify-content:space-between;gap:8px}.inspection-outcome-heading span{color:#236e68;font-size:13px;font-weight:850}.inspection-outcome-heading strong{padding:4px 7px;color:#b4232d;background:#fff0f1;border-radius:999px;font-size:9px}.inspection-outcome-card>p{margin:6px 0 10px!important;color:#66758a!important;font-size:10px!important;text-align:left!important}.inspection-outcome-options{display:grid;grid-template-columns:1fr 1fr;gap:8px}.inspection-outcome-options button{display:flex;align-items:center;gap:9px;min-height:58px;padding:10px;color:#31445d;background:#fff;border:1px solid #d8e4e3;border-radius:11px;text-align:left}.inspection-outcome-options button.is-selected{color:#237b73;background:#e9f8f6;border-color:#278f86}.inspection-outcome-options i{display:grid;flex:0 0 21px;place-items:center;width:21px;height:21px;color:#fff;background:#d7e0eb;border-radius:50%;font-size:11px;font-style:normal;font-weight:900}.inspection-outcome-options button.is-selected i{background:#278f86}.inspection-outcome-options span,.inspection-outcome-options small{display:block}.inspection-outcome-options b{font-size:12px}.inspection-outcome-options small{margin-top:3px;color:#7a8798;font-size:8px}@media(max-width:430px){.inspection-outcome-options{grid-template-columns:1fr}}
 .treatment-option-repair{--treatment-bg:#f2f7ff;--treatment-border:#cfe0fb;--treatment-accent:#2876df;--treatment-shadow:rgba(40,118,223,.14)}
 .treatment-option-abandoned{--treatment-bg:#fff5f5;--treatment-border:#f3d3d5;--treatment-accent:#cf5860;--treatment-shadow:rgba(207,88,96,.14)}
 .treatment-option-inspection{--treatment-bg:#effaf9;--treatment-border:#c8e9e5;--treatment-accent:#278f86;--treatment-shadow:rgba(39,143,134,.14)}

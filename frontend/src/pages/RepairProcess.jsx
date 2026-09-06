@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { saveInspection, saveRepairResumeStep, searchRecloudFaultCategories, startRepair } from "../shared/crmService.js"
+import { getRepairSyncStatus, saveInspection, saveRepairResumeStep, searchRecloudFaultCategories, startRepair } from "../shared/crmService.js"
 import SupervisionNoticeCard from "../components/SupervisionNoticeCard.jsx"
 import { rankFaultOptions } from "../shared/faultSearch.js"
 import {
@@ -8,6 +8,7 @@ import {
   updateRepairOrder
 } from "../shared/repairOrderStore.js"
 
+const RECLOUD_SERVICE_ORDER_MODES = new Set(["REPAIR", "DEBUGGING", "ABANDONED", "INSPECTION_ONLY"])
 
 function RepairProcess({ setPage }) {
 
@@ -27,8 +28,70 @@ function RepairProcess({ setPage }) {
   const [errorMessage, setErrorMessage] = useState("")
   const [isSaving, setIsSaving] = useState(false)
   const [recloudPrefillPlan, setRecloudPrefillPlan] = useState(null)
+  const [recloudWriteEnabled, setRecloudWriteEnabled] = useState(null)
+  const [detectionSyncStatus, setDetectionSyncStatus] = useState("NOT_STARTED")
+  const [receiptSyncStages, setReceiptSyncStages] = useState(null)
+  const [serviceOrderAttemptedAt, setServiceOrderAttemptedAt] = useState("not-started")
   const inspectionIsSaved = Boolean(repairOrder.level3Fault && repairOrder.warrantyType)
     || [REPAIR_STATUS.INSPECTION_COMPLETE, REPAIR_STATUS.REPAIRING].includes(repairOrder.status)
+
+  useEffect(() => {
+    if (!inspectionIsSaved) return undefined
+    let active = true
+    let timer
+    const refresh = async () => {
+      try {
+        const result = await getRepairSyncStatus(repairOrder.crmOrderNo)
+        if (!active) return
+        setRecloudWriteEnabled(result.recloudWriteEnabled === true)
+        setReceiptSyncStages(result)
+        const nextStatus = result.recloudDetectionSyncStatus || "NOT_STARTED"
+        setDetectionSyncStatus(nextStatus)
+        setServiceOrderAttemptedAt(result.recloudServiceOrderAttemptedAt || "not-started")
+        const failedReceiptStage = [
+          [result.recloudReceiptSyncStatus, "瑞云签收"],
+          [result.recloudProjectVerificationStatus, "项目号核对"],
+          [result.recloudReceiptAttachmentSyncStatus, "签收附件"],
+        ].find(([status]) => ["FAILED", "RESULT_UNKNOWN"].includes(status))
+        if (failedReceiptStage) {
+          setErrorMessage(`${failedReceiptStage[1]}异常，系统正在自动重试；本提醒会保留到恢复成功`)
+          timer = window.setTimeout(refresh, 1000)
+          return
+        }
+        if (result.recloudWriteEnabled !== true) {
+          setMessage("检测已保存，可以进入维修")
+          setErrorMessage("")
+          return
+        }
+        if (result.recloudDetectionConfirmedAt) {
+          setMessage("瑞云检测已确认，可以进入维修")
+          setErrorMessage("")
+          return
+        }
+        if (nextStatus === "RESULT_UNKNOWN") {
+          setErrorMessage("瑞云检测结果待核验，账号已收到异常提醒")
+          timer = window.setTimeout(refresh, 3000)
+          return
+        }
+        if (nextStatus === "FAILED") {
+          setErrorMessage("瑞云检测同步失败，账号已收到异常提醒，可点击重试检测同步")
+          timer = window.setTimeout(refresh, 3000)
+          return
+        }
+        setMessage(nextStatus === "PENDING" ? "瑞云检测正在排队" : "瑞云检测正在后台处理")
+        timer = window.setTimeout(refresh, 1000)
+      } catch (error) {
+        if (!active) return
+        setErrorMessage(error.message)
+        timer = window.setTimeout(refresh, 3000)
+      }
+    }
+    refresh()
+    return () => {
+      active = false
+      if (timer) window.clearTimeout(timer)
+    }
+  }, [inspectionIsSaved, repairOrder.crmOrderNo, repairOrder.treatmentMode])
 
   useEffect(() => {
     const keyword = faultCategory.trim()
@@ -95,9 +158,17 @@ function RepairProcess({ setPage }) {
       })
       setRepairOrder(updated)
       setRecloudPrefillPlan(result.recloudPrefillPlan || null)
+      setRecloudWriteEnabled(result.recloudWriteEnabled === true)
+      setDetectionSyncStatus(result.recloudDetectionSyncStatus || "NOT_STARTED")
       setMessage(result.message || "检测信息已保存到 FieldDesk")
     } catch (error) {
-      setErrorMessage(error.message)
+      if (error.code === "RECLOUD_DETECTION_RETRY_QUEUED") {
+        setDetectionSyncStatus("SYNCING")
+        setMessage(error.message)
+        setErrorMessage("")
+      } else {
+        setErrorMessage(error.message)
+      }
     } finally {
       setIsSaving(false)
     }
@@ -107,7 +178,7 @@ function RepairProcess({ setPage }) {
     try {
       setIsSaving(true)
       setErrorMessage("")
-      const result = await startRepair(repairOrder.crmOrderNo)
+      const result = await startRepair(repairOrder.crmOrderNo, serviceOrderAttemptedAt)
       const updated = updateRepairOrder({
         status: REPAIR_STATUS.REPAIRING,
         resumeStep: "repairCompletion",
@@ -209,6 +280,15 @@ function RepairProcess({ setPage }) {
         {errorMessage && <p className="error-message">{errorMessage}</p>}
         {message && <p role="status">{message}</p>}
 
+        {receiptSyncStages && (
+          <div className="recloud-stage-status" aria-label="瑞云同步进度">
+            <span className={receiptSyncStages.recloudReceiptConfirmedAt ? "confirmed" : "pending"}>签收</span>
+            <span className={receiptSyncStages.recloudProjectVerificationConfirmedAt ? "confirmed" : "pending"}>项目号</span>
+            <span className={receiptSyncStages.recloudReceiptAttachmentConfirmedAt ? "confirmed" : "pending"}>附件</span>
+            <span className={receiptSyncStages.recloudDetectionConfirmedAt ? "confirmed" : "pending"}>检测</span>
+          </div>
+        )}
+
         {recloudPrefillPlan && (
           <div className="recloud-review-card" aria-label="瑞云检测预填复核清单">
             <h3>瑞云预填复核清单</h3>
@@ -241,12 +321,26 @@ function RepairProcess({ setPage }) {
               {isSaving ? "正在检测..." : "检测"}
             </button>
           ) : null}
-          {inspectionIsSaved && repairOrder.treatmentMode === "REPAIR" && (
-            <button className="primary-btn" onClick={enterRepair} disabled={isSaving}>
-              {isSaving ? "正在进入维修..." : "维修"}
+          {inspectionIsSaved && RECLOUD_SERVICE_ORDER_MODES.has(repairOrder.treatmentMode) && (
+            <button
+              className="primary-btn"
+              onClick={enterRepair}
+              disabled={isSaving || recloudWriteEnabled === null || (recloudWriteEnabled === true && ["PENDING", "SYNCING", "RESULT_UNKNOWN"].includes(detectionSyncStatus))}
+            >
+              {isSaving
+                ? "正在进入维修..."
+                : recloudWriteEnabled === null
+                  ? "正在核对瑞云状态"
+                : detectionSyncStatus === "FAILED"
+                  ? "重试检测同步"
+                  : recloudWriteEnabled === true && ["PENDING", "SYNCING"].includes(detectionSyncStatus)
+                    ? "瑞云检测处理中"
+                    : detectionSyncStatus === "RESULT_UNKNOWN"
+                      ? "等待管理员核验"
+                      : repairOrder.treatmentMode === "REPAIR" ? "维修" : "进入处理结果"}
             </button>
           )}
-          {inspectionIsSaved && repairOrder.treatmentMode !== "REPAIR" && (
+          {inspectionIsSaved && !RECLOUD_SERVICE_ORDER_MODES.has(repairOrder.treatmentMode) && (
             <button className="primary-btn" onClick={() => navigateToSavedStep("repairCompletion")} disabled={isSaving}>
               进入处理结果
             </button>
@@ -254,7 +348,7 @@ function RepairProcess({ setPage }) {
         </div>
 
         <p className="dry-run-notice">
-          “检测”只完成瑞云寄修单检测；“维修”才创建瑞云维修服务单
+          “检测”完成瑞云寄修单检测；进入处理结果前会创建瑞云维修服务单并改派，仅维修方式添加配件
         </p>
       </div>
 

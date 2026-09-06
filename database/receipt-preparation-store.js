@@ -1,6 +1,7 @@
 const path = require("path");
 const crypto = require("crypto");
 const { JsonDocumentBackend } = require("./storage-backend");
+const { resolveFaultContent } = require("../services/inspection-form-rules");
 
 const ACTIVE_RECEIPT_STATUSES = new Set([
   "RECEIPT_PREPARED",
@@ -102,6 +103,16 @@ function createReceiptPreparation(input, existing = null, now = new Date()) {
     recloudReceiptConfirmedAt: existing?.recloudReceiptConfirmedAt || "",
     recloudReceiptResult: existing?.recloudReceiptResult || null,
     recloudReceiptLastError: existing?.recloudReceiptLastError || null,
+    recloudProjectVerificationStatus:
+      existing?.recloudProjectVerificationStatus || "NOT_STARTED",
+    recloudProjectVerificationAttemptedAt:
+      existing?.recloudProjectVerificationAttemptedAt || "",
+    recloudProjectVerificationConfirmedAt:
+      existing?.recloudProjectVerificationConfirmedAt || "",
+    recloudVerifiedProjectCode:
+      existing?.recloudVerifiedProjectCode || "",
+    recloudProjectVerificationLastError:
+      existing?.recloudProjectVerificationLastError || null,
     recloudReceiptAttachmentSyncStatus:
       existing?.recloudReceiptAttachmentSyncStatus || "NOT_STARTED",
     recloudReceiptAttachmentAttemptedAt:
@@ -436,7 +447,11 @@ class JsonReceiptPreparationStore {
     const operation = this.writeQueue.then(async () => {
       const records = await this.readAll();
       const existing = records.find((record) => record.rmaNo === rmaNo);
-      if (!existing || existing.recloudReceiptConfirmedAt) return existing;
+      if (
+        !existing ||
+        existing.recloudReceiptConfirmedAt ||
+        existing.recloudReceiptSyncStatus === "RESULT_UNKNOWN"
+      ) return existing;
       const timestamp = new Date().toISOString();
       const resultUnknown = input.resultUnknown === true;
       const updated = {
@@ -479,12 +494,42 @@ class JsonReceiptPreparationStore {
         });
       }
       if (existing.recloudReceiptAttachmentConfirmedAt) return existing;
+      // The uploader first reads existing filenames from the verified RMA and
+      // sends only missing files, so an interrupted/unknown attempt is safe to
+      // reconcile and resume without creating duplicate attachments.
       const timestamp = new Date().toISOString();
       const updated = {
         ...existing,
         recloudReceiptAttachmentSyncStatus: "SYNCING",
         recloudReceiptAttachmentAttemptedAt: timestamp,
         recloudReceiptAttachmentLastError: null,
+        updatedAt: timestamp,
+      };
+      await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
+  async markRecloudProjectVerification(rmaNo, status, input = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing) throw Object.assign(new Error("未找到本地签收准备记录"), { code: "RECEIPT_PREPARATION_NOT_FOUND", status: 404 });
+      const timestamp = new Date().toISOString();
+      const normalizedStatus = ["SYNCING", "CONFIRMED", "FAILED"].includes(status) ? status : "FAILED";
+      const updated = {
+        ...existing,
+        recloudProjectVerificationStatus: normalizedStatus,
+        recloudProjectVerificationAttemptedAt: existing.recloudProjectVerificationAttemptedAt || timestamp,
+        recloudProjectVerificationConfirmedAt: normalizedStatus === "CONFIRMED" ? timestamp : existing.recloudProjectVerificationConfirmedAt || "",
+        recloudVerifiedProjectCode: normalizedStatus === "CONFIRMED" ? normalizeRequired(input.projectCode) : existing.recloudVerifiedProjectCode || "",
+        recloudProjectVerificationLastError: normalizedStatus === "FAILED" ? {
+          code: normalizeRequired(input.code) || "RECLOUD_PROJECT_VERIFICATION_FAILED",
+          message: normalizeRequired(input.message) || "瑞云项目号核对失败，系统将自动重试",
+          at: timestamp,
+        } : null,
         updatedAt: timestamp,
       };
       await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
@@ -536,7 +581,11 @@ class JsonReceiptPreparationStore {
     const operation = this.writeQueue.then(async () => {
       const records = await this.readAll();
       const existing = records.find((record) => record.rmaNo === rmaNo);
-      if (!existing || existing.recloudReceiptAttachmentConfirmedAt) return existing;
+      if (
+        !existing ||
+        existing.recloudReceiptAttachmentConfirmedAt ||
+        existing.recloudReceiptAttachmentSyncStatus === "RESULT_UNKNOWN"
+      ) return existing;
       const timestamp = new Date().toISOString();
       const resultUnknown = input.resultUnknown === true;
       const updated = {
@@ -644,6 +693,7 @@ class JsonReceiptPreparationStore {
         ON_HOLD: "暂存",
       };
       if (!labels[treatmentMode]) throw Object.assign(new Error("请选择有效的维修处理方式"), { code: "TREATMENT_MODE_INVALID", status: 400 });
+      const inspectionFaultOutcome = normalizeRequired(input.inspectionFaultOutcome);
       const technicianWarranty = normalizeRequired(input.technicianWarranty) || existing.technicianWarranty || "";
       if (!technicianWarranty) {
         throw Object.assign(new Error("请先确认保修状态，再选择处理方式"), { code: "WARRANTY_STATUS_REQUIRED", status: 409 });
@@ -659,6 +709,14 @@ class JsonReceiptPreparationStore {
         ...existing,
         treatmentMode,
         treatmentLabel: labels[treatmentMode],
+        inspectionFaultOutcome: treatmentMode === "INSPECTION_ONLY" ? inspectionFaultOutcome : "",
+        faultContent: treatmentMode === "ON_HOLD"
+          ? existing.faultContent || ""
+          : resolveFaultContent({
+            treatmentMode,
+            inspectionFaultOutcome: treatmentMode === "INSPECTION_ONLY" ? inspectionFaultOutcome : "",
+            faultCategory: existing.faultCategory,
+          }),
         skipsParts,
         status: treatmentMode === "ON_HOLD"
           ? "ON_HOLD"
@@ -869,6 +927,15 @@ class JsonReceiptPreparationStore {
         detectionResult: normalizeRequired(input.detectionResult) || inspectionResult,
         inspectionAbnormal: "否",
         productFunctionDecision: normalizeRequired(input.productFunctionDecision) || "功能问题",
+        inspectionFaultOutcome: normalizeRequired(input.inspectionFaultOutcome)
+          || existing.inspectionFaultOutcome
+          || "",
+        faultContent: normalizeRequired(input.faultContent)
+          || resolveFaultContent({
+            treatmentMode: existing.treatmentMode,
+            inspectionFaultOutcome: normalizeRequired(input.inspectionFaultOutcome) || existing.inspectionFaultOutcome,
+            faultCategory: input.faultCategory,
+          }),
         originalConsumables: "是",
         consumableName: "",
         dismantled: "是",
@@ -952,7 +1019,11 @@ class JsonReceiptPreparationStore {
     const operation = this.writeQueue.then(async () => {
       const records = await this.readAll();
       const existing = records.find((record) => record.rmaNo === rmaNo);
-      if (!existing || existing.recloudDetectionConfirmedAt) return existing;
+      if (
+        !existing ||
+        existing.recloudDetectionConfirmedAt ||
+        existing.recloudDetectionSyncStatus === "RESULT_UNKNOWN"
+      ) return existing;
       const timestamp = new Date().toISOString();
       const resultUnknown = input.resultUnknown === true;
       const updated = {
@@ -966,6 +1037,34 @@ class JsonReceiptPreparationStore {
           at: timestamp,
         },
         updatedAt: timestamp,
+      };
+      await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
+  async resetRecloudDetectionAfterReconciliation(rmaNo, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing) throw Object.assign(new Error("未找到待检测工单"), { code: "RECEIPT_PREPARATION_NOT_FOUND", status: 404 });
+      if (existing.recloudDetectionConfirmedAt) return existing;
+      const timestamp = new Date().toISOString();
+      const updated = {
+        ...existing,
+        recloudDetectionSyncStatus: "FAILED",
+        recloudDetectionLastError: {
+          code: "RECLOUD_DETECTION_RETRY_APPROVED",
+          message: "已核对瑞云尚未完成检测，允许安全重试",
+          at: timestamp,
+        },
+        updatedAt: timestamp,
+        timeline: [
+          ...(existing.timeline || []),
+          timelineEvent("RECLOUD_DETECTION_RETRY_APPROVED", "已核对瑞云未检测，重新进入自动同步", operator, timestamp),
+        ],
       };
       await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
       return updated;
@@ -1199,7 +1298,11 @@ class JsonReceiptPreparationStore {
     const operation = this.writeQueue.then(async () => {
       const records = await this.readAll();
       const existing = records.find((record) => record.rmaNo === rmaNo);
-      if (!existing || existing.recloudServiceOrderCreatedAt) return existing;
+      if (
+        !existing ||
+        existing.recloudServiceOrderCreatedAt ||
+        existing.recloudServiceOrderSyncStatus === "RESULT_UNKNOWN"
+      ) return existing;
       const timestamp = new Date().toISOString();
       const resultUnknown = input.resultUnknown === true;
       const updated = {
@@ -1418,6 +1521,46 @@ class JsonReceiptPreparationStore {
         timeline: submit
           ? [...(existing.timeline || []), timelineEvent("REPAIR_COMPLETED", "维修完成", operator, timestamp)]
           : existing.timeline || [],
+      };
+      await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
+  async updateRepairCompletionPricing(rmaNo, pricing = {}, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing?.repairCompletion?.submittedAt) {
+        throw Object.assign(new Error("只有已提交的维修完工单可以更正费用备注"), {
+          code: "REPAIR_PRICING_CORRECTION_NOT_ALLOWED", status: 409,
+        });
+      }
+      if (existing.repairCompletion.responsibilityType !== "保外维修") {
+        throw Object.assign(new Error("只有保外维修单需要同步费用备注"), {
+          code: "REPAIR_PRICING_CORRECTION_NOT_REQUIRED", status: 409,
+        });
+      }
+      const timestamp = new Date().toISOString();
+      const updated = {
+        ...existing,
+        repairCompletion: {
+          ...existing.repairCompletion,
+          logisticsChargeMode: pricing.logisticsChargeMode,
+          oneWayLogisticsFee: pricing.oneWayLogisticsFee,
+          logisticsFee: pricing.logisticsFee,
+          discountEnabled: pricing.discountEnabled,
+          discountScope: pricing.discountScope,
+          discountRate: pricing.discountRate,
+          primaryRemark: normalizeRequired(pricing.primaryRemark),
+          secondaryRemark: normalizeRequired(pricing.secondaryRemark),
+          pricing: { ...(existing.repairCompletion.pricing || {}), ...pricing },
+          savedAt: timestamp,
+        },
+        updatedAt: timestamp,
+        timeline: [...(existing.timeline || []), timelineEvent("REPAIR_PRICING_CORRECTED", "保外费用备注已按规则更正", operator, timestamp)],
       };
       await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
       return updated;

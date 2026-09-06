@@ -30,6 +30,10 @@ function normalizeDiscountRate(enabled, value) {
   return Number(rate.toFixed(2));
 }
 
+function formatMoney(value) {
+  return String(Number(Number(value || 0).toFixed(2)));
+}
+
 function resolveRepairCharge({
   partsFee = 0,
   repairFee = 0,
@@ -72,17 +76,11 @@ function resolveRepairCharge({
   const totalFee = discountEnabled && normalizedDiscountScope === "ORDER_TOTAL"
     ? discountedBaseAmount
     : Number((discountedServiceFee + logisticsFee).toFixed(2));
-  const primaryRemark = logisticsChargeMode === "ROUND_TRIP" ? "无减免" : "申请运费减免";
-  const logisticsDescription = logisticsChargeMode === "ROUND_TRIP"
-    ? `来回运费${logisticsFee}元`
-    : logisticsChargeMode === "ONE_WAY"
-      ? `单边运费${logisticsFee}元（另一程减免）`
-      : `运费全免（单程参考${normalizedOneWayFee}元）`;
-  const discountDescription = discountEnabled
-    ? normalizedDiscountScope === "ORDER_TOTAL"
-      ? `整体费用原价${originalTotalFee}元，按${normalizedDiscountRate}折优惠${discountAmount}元`
-      : `配件及维修费原价${originalServiceFee}元，按${normalizedDiscountRate}折优惠${discountAmount}元，折后${discountedServiceFee}元，运费不打折`
-    : "不打折";
+  const primaryRemark = discountEnabled ? "申请折扣减免" : "无减免";
+  const feeDetails = `配件费${formatMoney(normalizedPartsFee)}元，维修费${formatMoney(normalizedRepairFee)}元，运费${formatMoney(logisticsFee)}元，合计${formatMoney(originalTotalFee)}元`;
+  const secondaryRemark = discountEnabled
+    ? `${feeDetails}，${formatMoney(normalizedDiscountRate)}折后费用合计${formatMoney(totalFee)}元`
+    : feeDetails;
 
   return {
     logisticsChargeMode,
@@ -101,7 +99,7 @@ function resolveRepairCharge({
     discountAmount,
     totalFee,
     primaryRemark,
-    secondaryRemark: `配件费${normalizedPartsFee}元，维修费${normalizedRepairFee}元，${discountDescription}，${logisticsDescription}，合计：${totalFee}元`,
+    secondaryRemark,
   };
 }
 

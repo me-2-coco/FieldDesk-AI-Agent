@@ -783,3 +783,73 @@ test("business writes use a separate priority channel and make background reads 
   assert.equal(await background, "background-complete");
   assert.deepEqual(channels.sort(), ["background", "business-write"]);
 });
+
+test("business write pool accepts twenty orders without exceeding its fixed limit", async () => {
+  const channels = [];
+  let active = 0;
+  let peak = 0;
+  const connector = {
+    async openRecloud({ channel }) {
+      channels.push(channel);
+      return { loginRequired: false, page: { channel } };
+    },
+  };
+  const jobs = Array.from({ length: 20 }, (_, index) => withRecloud(
+    connector,
+    async (page) => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active -= 1;
+      return `${index}:${page.channel}`;
+    },
+    { background: true, channel: "business-write", priority: true, concurrency: 5 }
+  ));
+
+  const results = await Promise.all(jobs);
+  assert.equal(results.length, 20);
+  assert.equal(peak, 5);
+  assert.equal(new Set(channels).size, 5);
+});
+
+test("a timed-out pooled write is quarantined while other workers keep processing", async () => {
+  let closedCount = 0;
+  const connector = {
+    async openRecloud({ channel }) {
+      return {
+        loginRequired: false,
+        page: { channel, close: async () => { closedCount += 1; } },
+      };
+    },
+  };
+  const hung = withRecloud(
+    connector,
+    async () => await new Promise(() => {}),
+    {
+      background: true,
+      channel: "business-write",
+      priority: true,
+      concurrency: 2,
+      timeoutMs: 20,
+      timeoutCode: "RECLOUD_TEST_WRITE_TIMEOUT",
+      resultUnknownOnTimeout: true,
+    }
+  );
+  const completed = withRecloud(
+    connector,
+    async (page) => `completed:${page.channel}`,
+    {
+      background: true,
+      channel: "business-write",
+      priority: true,
+      concurrency: 2,
+      timeoutMs: 100,
+    }
+  );
+
+  assert.match(await completed, /^completed:business-write:2$/);
+  await assert.rejects(hung, (error) => (
+    error.code === "RECLOUD_TEST_WRITE_TIMEOUT" && error.resultUnknown === true
+  ));
+  assert.equal(closedCount, 1);
+});

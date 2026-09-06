@@ -78,7 +78,7 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
     currentUser,
     repairDetail?.productLine
   )
-  const queriedLogisticsNo = repairDetail?.logisticsNo || repairDetail?.pickupLogisticsNo || ""
+  const queriedLogisticsNo = repairDetail?.pickupLogisticsNo || repairDetail?.logisticsNo || ""
   const receiptAlreadyCompleted = repairDetail?.receiptState?.receiptRequired === false
 
   function frontendStatusForLocalOrder(order, targetPage) {
