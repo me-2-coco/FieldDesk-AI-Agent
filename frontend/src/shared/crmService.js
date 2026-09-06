@@ -474,3 +474,23 @@ export async function deleteAdminAccount(userId) {
 export async function resetAdminAccountPassword(userId) {
   return request("/api/admin/accounts/reset-password", { userId })
 }
+
+export async function getPrintTerminals() {
+  return get("/api/admin/print/terminals")
+}
+
+export async function savePrintTerminal(payload) {
+  return request("/api/admin/print/terminals", payload)
+}
+
+export async function deletePrintTerminal(id) {
+  return request("/api/admin/print/terminals/delete", { id })
+}
+
+export async function queuePrintTest(terminalId) {
+  return request("/api/admin/print/jobs/test", { terminalId })
+}
+
+export async function retryPrintJob(jobId, terminalId = "") {
+  return request("/api/admin/print/jobs/retry", { jobId, terminalId })
+}

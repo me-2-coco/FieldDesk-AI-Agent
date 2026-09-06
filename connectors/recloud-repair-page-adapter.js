@@ -662,9 +662,27 @@ function createRecloudRepairPageAdapter(page, context = {}) {
       return false;
     },
 
-    async printOldPartLabels() {
-      // 标签打印是线下打印动作，不影响瑞云完工数据；由网点按需打印。
-      return { deferredToOutlet: true };
+    async printOldPartLabels(parts = []) {
+      if (!context.printJobStore) return { deferredToOutlet: true, jobs: [] };
+      const payload = context.payload || {};
+      const jobs = [];
+      for (const [index, part] of parts.entries()) {
+        jobs.push(await context.printJobStore.enqueue({
+          userId: payload.technicianId,
+          userName: payload.technicianName || payload.assignee,
+          documentType: "OLD_PART_LABEL",
+          title: `旧件标签 · ${String(part.partCode || part.code || "").trim() || index + 1}`,
+          rmaNo: context.rmaNo,
+          sn: context.sn,
+          partCode: part.partCode || part.code,
+          partName: part.partName || part.name,
+          quantity: part.quantity || 1,
+          copies: part.quantity || 1,
+          technicianName: payload.technicianName || payload.assignee,
+          idempotencyKey: `old-part-label:${context.rmaNo}:${String(part.partCode || part.code || "part").trim()}:${index}`,
+        }));
+      }
+      return { queued: true, jobs };
     },
 
     async clickSubmit(options = {}) {

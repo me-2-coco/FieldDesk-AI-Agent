@@ -161,6 +161,7 @@ function Profile({
           <div className="profile-management-grid">
             <button type="button" onClick={() => setPage("syncTasks")}><AppIcon name="sync" size={20} /><strong>瑞云同步</strong><span>查看任务</span></button>
             <button type="button" onClick={() => setPage("syncDiagnostics")}><AppIcon name="diagnostic" size={20} /><strong>同步检查</strong><span>运行诊断</span></button>
+            <button type="button" onClick={() => setPage("printManagement")}><AppIcon name="inventory" size={20} /><strong>打印终端</strong><span>共享打印</span></button>
             <button type="button" onClick={() => setPage("accountManagement")}><AppIcon name="accounts" size={20} /><strong>账号管理</strong><span>权限设置</span></button>
           </div>
         </div>

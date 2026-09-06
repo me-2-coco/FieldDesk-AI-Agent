@@ -292,6 +292,7 @@ export function canAccessPage(
   "warehouse",
   "syncTasks",
   "syncDiagnostics",
+  "printManagement",
   "accountManagement",
   "adminRepairRecovery",
   "machineTracking",

@@ -304,6 +304,7 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
       actions: [
         { page: "syncTasks", title: "瑞云同步", description: "任务、失败与人工复核", icon: "sync" },
         { page: "syncDiagnostics", title: "同步检查", description: "检查系统连接状态", icon: "diagnostic" },
+        { page: "printManagement", title: "打印终端", description: "共享打印机与任务队列", icon: "inventory" },
         { page: "accountManagement", title: "账号管理", description: "维护角色和权限", icon: "accounts" }
       ]
     }

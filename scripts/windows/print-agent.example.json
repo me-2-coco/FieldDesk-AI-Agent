@@ -1,0 +1,7 @@
+{
+  "apiBaseUrl": "https://fielddesk.example.com",
+  "terminalId": "从 FieldDesk 管理页面复制",
+  "terminalToken": "仅创建终端时显示一次",
+  "printerName": "XP-420B",
+  "pollSeconds": 2
+}

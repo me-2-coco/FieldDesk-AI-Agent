@@ -24,6 +24,7 @@ const { createRateLimiter, securityHeaders, RotatingJsonLogger, requestLogger } 
 const { LocalRepairAttachmentStore } = require("./database/repair-attachment-store");
 const { LocalShippingAttachmentStore } = require("./database/shipping-attachment-store");
 const { JsonRecloudSyncOutbox } = require("./database/recloud-sync-outbox");
+const { PrintJobStore } = require("./database/print-job-store");
 const { createRecloudAdapter } = require("./connectors/recloud-adapter");
 const { RecloudSyncService } = require("./services/recloud-sync-service");
 const { createRecloudCommandExecutor } = require("./services/recloud-command-executor");
@@ -548,6 +549,7 @@ function createApp(
     { allowedMimeTypes: ["image/jpeg", "image/png", "image/webp"] }
   );
   const shippingAttachmentStore = options.shippingAttachmentStore || new LocalShippingAttachmentStore();
+  const printJobStore = options.printJobStore || new PrintJobStore(options.printJobStoreOptions);
   const syncDiagnostics = options.syncDiagnostics || new RecloudSyncDiagnosticsService(
     options.syncDiagnosticsStore || new JsonRecloudSyncDiagnosticsStore()
   );
@@ -610,7 +612,7 @@ function createApp(
     if (origin) res.setHeader("Access-Control-Allow-Origin", origin);
     if (origin) res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader("Vary", "Origin");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization,Idempotency-Key,X-FieldDesk-Local-User");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization,Idempotency-Key,X-FieldDesk-Local-User,X-Print-Terminal-Id,X-Print-Terminal-Token");
     res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
     if (req.method === "OPTIONS") return res.sendStatus(204);
     next();
@@ -656,7 +658,7 @@ function createApp(
 
   app.use(async (req, res, next) => {
     if (String(runtimeEnv.FIELDDESK_AUTH_MODE || "local") !== "accounts") return next();
-    if (req.path === "/api/health") return next();
+    if (req.path === "/api/health" || req.path.startsWith("/api/print-agent/")) return next();
     try {
       await accountStore.ensureBootstrap(runtimeEnv.FIELDDESK_BOOTSTRAP_ADMIN_TOKEN);
       const token = getAccountSessionToken(req);
@@ -673,6 +675,7 @@ function createApp(
 
   app.use(async (req, res, next) => {
     if (req.method !== "POST") return next();
+    if (req.path.startsWith("/api/print-agent/")) return next();
     const user = currentUserProvider(req);
     const resourceId = String(req.body?.rmaNo || "").trim();
     try {
@@ -1260,6 +1263,136 @@ function createApp(
         accountAuthority: user.accountAuthority || "",
       },
     });
+  });
+
+  function requirePrintAdministrator(req) {
+    const user = currentUserProvider(req);
+    if (!hasBusinessRole(user, USER_ROLES.ADMIN)) {
+      throw createApiError("PRINT_ADMIN_REQUIRED", "只有负责人或管理员可以配置打印终端", 403);
+    }
+    return user;
+  }
+
+  async function authenticatePrintAgent(req) {
+    const terminal = await printJobStore.authenticate(
+      req.headers["x-print-terminal-id"],
+      req.headers["x-print-terminal-token"]
+    );
+    if (!terminal) throw createApiError("PRINT_AGENT_AUTH_INVALID", "打印终端认证失败", 401);
+    return terminal;
+  }
+
+  app.get("/api/print-agent/download/agent", (req, res) => {
+    res.download(path.join(__dirname, "scripts", "windows", "FieldDesk-Print-Agent.ps1"), "FieldDesk-Print-Agent.ps1");
+  });
+
+  app.get("/api/print-agent/download/installer", (req, res) => {
+    res.download(path.join(__dirname, "scripts", "windows", "Install-FieldDesk-Print-Agent.ps1"), "Install-FieldDesk-Print-Agent.ps1");
+  });
+
+  app.get("/api/admin/print/terminals", async (req, res, next) => {
+    try {
+      requirePrintAdministrator(req);
+      res.json({ success: true, data: { terminals: await printJobStore.list(), jobs: await printJobStore.listJobs(100) } });
+    } catch (error) { next(error); }
+  });
+
+  app.post("/api/admin/print/terminals", async (req, res, next) => {
+    try {
+      requirePrintAdministrator(req);
+      res.status(req.body?.id ? 200 : 201).json({ success: true, data: await printJobStore.saveTerminal(req.body || {}) });
+    } catch (error) { next(error); }
+  });
+
+  app.post("/api/admin/print/terminals/delete", async (req, res, next) => {
+    try {
+      requirePrintAdministrator(req);
+      res.json({ success: true, data: await printJobStore.deleteTerminal(req.body?.id) });
+    } catch (error) { next(error); }
+  });
+
+  app.post("/api/admin/print/jobs/test", async (req, res, next) => {
+    try {
+      const user = requirePrintAdministrator(req);
+      const terminalId = String(req.body?.terminalId || "").trim();
+      if (!terminalId) throw createApiError("PRINT_TERMINAL_REQUIRED", "请选择测试打印终端", 400);
+      const job = await printJobStore.enqueue({
+        terminalId,
+        allowAnyTerminal: true,
+        userId: user.userId,
+        userName: user.displayName,
+        documentType: "TEST_LABEL",
+        title: "FieldDesk 测试标签",
+        rmaNo: `TEST-${Date.now()}`,
+        sn: "XP-420B",
+        partCode: "FIELDDESK",
+        partName: "PRINT-TEST",
+        technicianName: user.displayName,
+        idempotencyKey: `print-test:${terminalId}:${Date.now()}`,
+      });
+      res.status(201).json({ success: true, data: job });
+    } catch (error) { next(error); }
+  });
+
+  app.post("/api/admin/print/jobs/retry", async (req, res, next) => {
+    try {
+      requirePrintAdministrator(req);
+      res.json({ success: true, data: await printJobStore.retry(req.body?.jobId, req.body?.terminalId) });
+    } catch (error) { next(error); }
+  });
+
+  app.post("/api/print/jobs", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      const job = await printJobStore.enqueue({
+        terminalId: req.body?.terminalId,
+        documentType: req.body?.documentType,
+        title: req.body?.title,
+        rmaNo: req.body?.rmaNo,
+        sn: req.body?.sn,
+        partCode: req.body?.partCode,
+        partName: req.body?.partName,
+        quantity: req.body?.quantity,
+        copies: req.body?.copies,
+        technicianName: user.displayName,
+        userId: user.userId,
+        userName: user.displayName,
+        allowAnyTerminal: hasBusinessRole(user, USER_ROLES.ADMIN),
+        idempotencyKey: String(req.headers["idempotency-key"] || req.body?.idempotencyKey || "").trim(),
+      });
+      res.status(201).json({ success: true, data: job });
+    } catch (error) { next(error); }
+  });
+
+  app.post("/api/print-agent/heartbeat", async (req, res, next) => {
+    try {
+      const terminal = await authenticatePrintAgent(req);
+      res.json({ success: true, data: await printJobStore.heartbeat(terminal.id, req.body || {}) });
+    } catch (error) { next(error); }
+  });
+
+  app.get("/api/print-agent/jobs/next", async (req, res, next) => {
+    try {
+      const terminal = await authenticatePrintAgent(req);
+      await printJobStore.heartbeat(terminal.id, {
+        agentVersion: req.headers["x-print-agent-version"],
+        computerName: req.headers["x-print-computer-name"],
+        printerName: terminal.printerName,
+      });
+      res.json({ success: true, data: await printJobStore.leaseNext(terminal.id) });
+    } catch (error) { next(error); }
+  });
+
+  app.post("/api/print-agent/jobs/complete", async (req, res, next) => {
+    try {
+      const terminal = await authenticatePrintAgent(req);
+      res.json({ success: true, data: await printJobStore.finish(
+        terminal.id,
+        req.body?.jobId,
+        req.body?.success === true,
+        req.body?.error
+      ) });
+    } catch (error) { next(error); }
   });
 
   app.post("/api/auth/change-password", async (req, res, next) => {
@@ -4417,6 +4550,14 @@ function createApp(
         status: 502,
         message: "演练期间检测并阻止了非预期写请求",
       },
+      PRINT_ADMIN_REQUIRED: { status: 403, message: "只有负责人或管理员可以配置打印终端" },
+      PRINT_AGENT_AUTH_INVALID: { status: 401, message: "打印终端认证失败" },
+      PRINT_TERMINAL_INVALID: { status: 400, message: error.message },
+      PRINT_TERMINAL_REQUIRED: { status: 400, message: "请选择测试打印终端" },
+      PRINT_TERMINAL_FORBIDDEN: { status: 403, message: "当前账号不能使用该打印终端" },
+      PRINT_TERMINAL_MEMBER_DUPLICATE: { status: 409, message: error.message },
+      PRINT_TERMINAL_NOT_FOUND: { status: 404, message: error.message },
+      PRINT_JOB_NOT_FOUND: { status: 404, message: "打印任务不存在" },
     };
     const mapped = errors[error.code];
     operationalLogger.write("error", { requestId: res.getHeader("X-Request-Id"), method: req.method, path: req.path, code: error.code || "INTERNAL_ERROR", status: mapped?.status || error.status || 502 });
@@ -4536,8 +4677,10 @@ if (require.main === module) {
       }
     ),
   });
+  const printJobStore = new PrintJobStore();
   const app = createApp(recloudConnector, businessStores.receiptStore, {
     businessStores,
+    printJobStore,
     supervisionMonitor,
     pendingReceiptStore,
     rmaQueryCacheStore,
@@ -4566,6 +4709,7 @@ if (require.main === module) {
           logisticsNo: task.logisticsNo,
           sn: task.sn,
           payload: task.payload,
+          printJobStore,
         }));
         console.info(
           `RECLOUD_REPAIR_TIMING: rma=${task.rmaNo} phase=complete_work ms=${Date.now() - workStartedAt} totalMs=${Date.now() - operationStartedAt}`

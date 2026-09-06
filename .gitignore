@@ -41,5 +41,6 @@ backups/
 *.sqlite-wal
 *.sqlite-shm
 certs/
+scripts/windows/print-agent.json
 
 .DS_Store
