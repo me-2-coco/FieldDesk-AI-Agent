@@ -278,12 +278,15 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
   }
   completedSteps.push("SUBMIT_READY");
 
-  const hasOldPartLabels = (payload.usedParts || []).some((part) => part?.returnRequired === true);
+  const isOutOfWarranty = String(payload.pricing?.warrantyStatus || "").trim() === "OUT_OF_WARRANTY"
+    || String(payload.responsibilityType || "").includes("保外");
+  const oldPartLabelParts = (payload.usedParts || []).filter((part) => part?.returnRequired === true);
+  const hasOldPartLabels = !isOutOfWarranty && oldPartLabelParts.length > 0;
   if (hasOldPartLabels) {
     if (typeof adapter.printOldPartLabels !== "function") {
       throw orchestratorError("缺少旧件标签打印执行器", "RECLOUD_OLD_PART_LABEL_ADAPTER_INVALID", "OLD_PART_LABELS");
     }
-    await adapter.printOldPartLabels(payload.usedParts.filter((part) => part?.returnRequired === true));
+    await adapter.printOldPartLabels(oldPartLabelParts);
     completedSteps.push("OLD_PART_LABELS_PRINTED");
   }
 

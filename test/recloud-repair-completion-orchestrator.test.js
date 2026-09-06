@@ -186,6 +186,22 @@ test("repair orchestrator prints required old-part labels before final submit", 
   assert.ok(adapter.calls.indexOf("labels:1") < adapter.calls.findIndex((item) => item.startsWith("submit:")));
 });
 
+test("out-of-warranty repair skips old-part labels even when parts require return", async () => {
+  const labelParts = PAYLOAD.usedParts.map((part) => ({ ...part, returnRequired: true }));
+  const adapter = remoteAdapter({ assignee: "唐张帅", parts: labelParts });
+  adapter.printOldPartLabels = async (parts) => adapter.calls.push(`labels:${parts.length}`);
+  const result = await orchestrateRepairCompletion("ORDER-OUT-OF-WARRANTY-LABEL", {
+    ...PAYLOAD,
+    responsibilityType: "保外维修",
+    pricing: { ...PAYLOAD.pricing, warrantyStatus: "OUT_OF_WARRANTY" },
+    usedParts: labelParts,
+  }, adapter, { writeEnabled: true, preparationCompleted: true });
+  assert.equal(result.status, "SUCCESS");
+  assert.equal(result.completedSteps.includes("OLD_PART_LABELS_PRINTED"), false);
+  assert.equal(adapter.calls.some((call) => call.startsWith("labels:")), false);
+  assert.equal(adapter.calls.some((call) => call.startsWith("submit:")), true);
+});
+
 test("repair orchestrator never trusts a checkpoint without rereading Recloud", async () => {
   const adapter = remoteAdapter();
   const first = await orchestrateRepairCompletion("ORDER-1", PAYLOAD, adapter, { writeEnabled: false });
