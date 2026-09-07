@@ -51,7 +51,12 @@ class RecloudSyncService {
       return timer;
     });
     this.onRepairPartsShortage = options.onRepairPartsShortage || null;
+    this.onInspectionOnlyAwaitingInformation = options.onInspectionOnlyAwaitingInformation || null;
     this.refreshTaskPayload = options.refreshTaskPayload || null;
+    this.canProcessTask = typeof options.canProcessTask === "function" ? options.canProcessTask : null;
+    this.dependencyPollMs = Math.max(250, Number(options.dependencyPollMs || 1000));
+    this.taskFilter = typeof options.taskFilter === "function" ? options.taskFilter : () => true;
+    this.staleProcessingMs = Number(options.staleProcessingMs || 45_000);
   }
 
   async enqueueOrderNode(order, nodeType, localBusinessRecordId) {
@@ -67,15 +72,35 @@ class RecloudSyncService {
       payload: buildNodePayload(order, nodeType),
     });
     if (task.status === TASK_STATUS.PENDING) {
-      this.scheduler(() => this.processTask(task.id).catch(() => {}));
+      if (this.taskFilter(task)) this.scheduler(() => this.processTask(task.id).catch(() => {}));
     }
     return task;
   }
 
   async resumePendingTasks() {
+    const allTasks = await this.outbox.readAll();
+    const now = Date.now();
+    const staleProcessingTasks = allTasks.filter((task) =>
+      this.taskFilter(task)
+      && task.status === TASK_STATUS.PROCESSING
+      && Number.isFinite(Date.parse(task.updatedAt))
+      && now - Date.parse(task.updatedAt) >= this.staleProcessingMs
+    );
+    for (const task of staleProcessingTasks) {
+      await this.outbox.transition(task.id, TASK_STATUS.MANUAL_REVIEW, {
+        lastError: "RECLOUD_SYNC_PROCESS_INTERRUPTED",
+        errorCategory: "RECOVERY",
+      });
+      await this.outbox.transition(task.id, TASK_STATUS.PENDING, {
+        lastError: "",
+        errorCategory: "",
+      });
+    }
     const tasks = (await this.outbox.readAll()).filter((task) =>
-      task.status === TASK_STATUS.PENDING
-      || (task.status === TASK_STATUS.FAILED && Number(task.retryCount || 0) < this.maxRetries)
+      this.taskFilter(task) && (
+        task.status === TASK_STATUS.PENDING
+        || (task.status === TASK_STATUS.FAILED && Number(task.retryCount || 0) < this.maxRetries)
+      )
     );
     for (const task of tasks) {
       this.scheduler(() => this.processTask(task.id).catch(() => {}));
@@ -86,6 +111,14 @@ class RecloudSyncService {
   async processTask(taskId) {
     let task = await this.outbox.get(taskId);
     if (!task || ![TASK_STATUS.PENDING, TASK_STATUS.FAILED].includes(task.status)) return task;
+    if (!this.taskFilter(task)) return task;
+    // Completion can be submitted in FieldDesk before the independent Recloud
+    // repair-preparation job has finished. Keep it pending without consuming a
+    // retry or opening a competing browser flow until that dependency is ready.
+    if (this.canProcessTask && !(await this.canProcessTask(task))) {
+      this.retryScheduler(() => this.processTask(task.id).catch(() => {}), this.dependencyPollMs);
+      return task;
+    }
     // A retry may happen minutes after the task was first queued.  Always rebuild
     // failed-task payloads from the current order so recovery sees preparation,
     // attachments and fee changes made after the original attempt.
@@ -116,6 +149,17 @@ class RecloudSyncService {
           errorCategory: "",
           resultStatus,
           missingParts: Array.isArray(result.missingParts) ? result.missingParts : [],
+          completedSteps: Array.isArray(result.completedSteps) ? result.completedSteps.slice(0, 20) : [],
+        });
+      }
+      if (task.nodeType === "REPAIR_COMPLETED" && resultStatus === "AWAITING_INFORMATION_CLERK") {
+        if (typeof this.onInspectionOnlyAwaitingInformation === "function") {
+          await this.onInspectionOnlyAwaitingInformation(task, result);
+        }
+        return this.outbox.transition(task.id, TASK_STATUS.SUCCESS, {
+          lastError: "",
+          errorCategory: "",
+          resultStatus,
           completedSteps: Array.isArray(result.completedSteps) ? result.completedSteps.slice(0, 20) : [],
         });
       }

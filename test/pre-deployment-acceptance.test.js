@@ -10,8 +10,11 @@ test("local workflow pages are routed and reachable from status-aware actions", 
   const app = await source("frontend/src/App.jsx");
   for (const page of ["repair", "repairWarranty", "repairDecision", "partsApplication", "repairProcess", "repairCompletion", "returnShipping"]) assert.match(app, new RegExp(`page === "${page}"`));
   const home = await source("frontend/src/pages/Home.jsx");
+  const styles = await source("frontend/src/App.css");
   const navigation = await source("frontend/src/shared/repairNavigation.js");
   for (const action of ["未完成维修", "待料", "维修已完成", "继续当前工单", "后台发货进度"]) assert.match(home, new RegExp(action));
+  assert.match(home, /className="home-work-order-scroll"/);
+  assert.match(styles, /\.home-work-order-scroll\{[^}]*max-height:min\(308px,46vh\)[^}]*overflow-y:auto/);
   assert.match(home, /pageForRepairStatus/);
   assert.match(navigation, /WAIT_INSPECTION[\s\S]*partsApplication/);
   assert.match(navigation, /INSPECTION_COMPLETE[\s\S]*repairCompletion/);
@@ -31,7 +34,7 @@ test("inspection parts and completion expose the current technician flow while s
   const repairWork = await source("frontend/src/pages/RepairWork.jsx");
   assert.doesNotMatch(repairWork, /实际维修记录/); assert.match(repairWork, /setPage\("repairProcess"\)/);
   const completion = await source("frontend/src/pages/RepairCompletion.jsx");
-  assert.match(completion, /提交完工/); assert.match(completion, /if \(submit\) setPage\("home"\)/); assert.doesNotMatch(completion, /进入返件发货/);
+  assert.match(completion, /提交完工/); assert.match(completion, /if \(submit\) setPage\("repair"\)/); assert.doesNotMatch(completion, /进入返件发货/);
   const shipping = await source("frontend/src/pages/ReturnShipping.jsx");
   assert.match(shipping, /仅供信息员和管理员查询/); assert.match(shipping, /未提供/);
 });
@@ -54,4 +57,11 @@ test("acceptance checklist preserves dry-run and covers every business node", as
   for (const node of ["到店查询", "签收准备", "检测登记", "配件申请", "维修完工", "返件发货", "管理员完结"]) assert.match(checklist, new RegExp(node));
   assert.match(checklist, /DRY_RUN=true/);
   assert.match(checklist, /不写瑞云/);
+});
+
+test("receipt completion idempotency is scoped to the scanned SN", async () => {
+  const crmService = await source("frontend/src/shared/crmService.js");
+  const repairPage = await source("frontend/src/pages/Repair.jsx");
+  assert.match(crmService, /receipt-confirm:\$\{normalizedRmaNo\}:\$\{normalizedAttempt\}/);
+  assert.match(repairPage, /completeLocalReceipt\(repairDetail\.rmaNo, normalizedSn\)/);
 });

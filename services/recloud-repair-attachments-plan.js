@@ -37,6 +37,8 @@ function normalizeDesiredAttachments(attachments) {
       size,
       mimeType: String(source?.mimeType || source?.type || "").trim().toLowerCase(),
       path: String(source?.path || "").trim(),
+      source: String(source?.source || "").trim(),
+      attachmentTarget: String(source?.attachmentTarget || "").trim(),
     });
   }
   return result;

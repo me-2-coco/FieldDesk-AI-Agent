@@ -73,10 +73,15 @@ test("warehouse can register a real catalog part and allocate it to a technician
   assert.deepEqual((await store.view(warehouse, roles)).transactions.slice(-3).map((item) => item.type), ["STOCK_RECEIVED", "PART_ALLOCATED", "PART_USED"]);
 });
 
-test("inventory pages expose role views and local-only operations", async () => {
+test("inventory pages expose Recloud stock lookup and role-local operations", async () => {
   const inventory = await fs.readFile(path.join(__dirname, "../frontend/src/pages/Inventory.jsx"), "utf8");
+  const crmService = await fs.readFile(path.join(__dirname, "../frontend/src/shared/crmService.js"), "utf8");
   const warehousePage = await fs.readFile(path.join(__dirname, "../frontend/src/pages/Warehouse.jsx"), "utf8");
-  assert.match(inventory, /总库库存（只读）/);
+  assert.match(inventory, /备件库存查询/);
+  assert.match(inventory, /仓库编码或配件编码/);
+  assert.match(inventory, /inventory-app-hero/);
+  assert.doesNotMatch(inventory, /配件领用完成，进入维修/);
+  assert.match(crmService, /api\/inventory\/recloud/);
   assert.match(inventory, /申请退还/);
   assert.match(inventory, /库存流水/);
   assert.match(warehousePage, /确认退还入总库/);
@@ -94,4 +99,5 @@ test("inventory API enforces technician and warehouse role boundaries", async ()
   assert.match(source, /hasBusinessRole\(user, USER_ROLES\.ADMIN, USER_ROLES\.WAREHOUSE\)/);
   assert.match(source, /INVENTORY_ACTION_FORBIDDEN/);
   assert.doesNotMatch(source, /confirmSign[\s\S]{0,100}api\/inventory/);
+  assert.match(source, /connector\.queryPartsInventory/);
 });

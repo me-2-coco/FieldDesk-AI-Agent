@@ -39,6 +39,22 @@ test("repair parts plan stops when Recloud contains an unplanned part", () => {
   assert.equal(plan.conflicts[0].reason, "UNPLANNED_EXISTING_PART");
 });
 
+test("repair parts plan permits a Recloud-added optional logistics box", () => {
+  const plan = buildRecloudRepairPartsPlan(
+    [{ partCode: "20020100030341", quantity: 1 }],
+    [
+      { partCode: "20020100030341", quantity: 1 },
+      { partCode: "20020100011509", partName: "售后通用中号物流箱", quantity: 1 },
+    ]
+  );
+  assert.equal(plan.readyToAdd, true);
+  assert.deepEqual(plan.conflicts, []);
+  assert.deepEqual(plan.skipped, [
+    { partCode: "20020100030341", quantity: 1, reason: "ALREADY_MATCHED" },
+    { partCode: "20020100011509", quantity: 1, reason: "OPTIONAL_EXISTING_PART" },
+  ]);
+});
+
 test("repair parts plan refuses duplicate existing rows", () => {
   assert.throws(() => buildRecloudRepairPartsPlan(
     [{ partCode: "PART-1", quantity: 2 }],

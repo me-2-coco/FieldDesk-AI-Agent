@@ -33,6 +33,7 @@ const {
 const { inspectRepairAttachmentPanel } = require("./recloud-repair-attachments-reader");
 const { inspectRepairExecutionControls } = require("./recloud-repair-execution-inspector");
 const { validateProjectCorrectionInput } = require("../services/recloud-project-correction-rules");
+const { queryRecloudPartsInventory } = require("./recloud-parts-inventory");
 
 const LOGIN_STATE = path.join(__dirname, "recloud-state.json");
 const RECLOUD_URL =
@@ -1109,7 +1110,7 @@ function serialCellMatchesExpected(visibleValue, expectedValue) {
 async function readRmaProductIdentity(page, options = {}) {
   assertRecloudAuthenticated(page);
   const expectedSn = normalizeText(options.sn).toUpperCase();
-  if (!expectedSn) return { sn: "", projectCode: "", productLine: "" };
+  if (!expectedSn) return { sn: "", projectCode: "", productLine: "", productModel: "", productName: "" };
 
   // The RMA detail form does not expose 项目号 as a normal form field on every
   // Recloud layout. Activate only the product tab, then bind the visible data
@@ -1143,6 +1144,8 @@ async function readRmaProductIdentity(page, options = {}) {
       const serialHeaders = headers.filter((item) => item.text === "产品序列号");
       const projectHeaders = headers.filter((item) => item.text === "项目号");
       const productLineHeaders = headers.filter((item) => item.text === "产品线");
+      const productModelHeaders = headers.filter((item) => item.text === "产品型号");
+      const productNameHeaders = headers.filter((item) => item.text === "产品名称");
       const cells = [...document.querySelectorAll(cellSelector)]
         .filter(visible)
         .map((element) => ({ text: clean(element.innerText || element.textContent), box: element.getBoundingClientRect() }));
@@ -1160,6 +1163,10 @@ async function readRmaProductIdentity(page, options = {}) {
         if (!projectHeader || Math.abs(projectHeader.box.y - serialHeader.box.y) > 20) continue;
         const productLineHeader = [...productLineHeaders]
           .sort((left, right) => Math.abs(left.box.y - serialHeader.box.y) - Math.abs(right.box.y - serialHeader.box.y))[0];
+        const productModelHeader = [...productModelHeaders]
+          .sort((left, right) => Math.abs(left.box.y - serialHeader.box.y) - Math.abs(right.box.y - serialHeader.box.y))[0];
+        const productNameHeader = [...productNameHeaders]
+          .sort((left, right) => Math.abs(left.box.y - serialHeader.box.y) - Math.abs(right.box.y - serialHeader.box.y))[0];
         const candidates = cells.filter((cell) => cell.box.y > serialHeader.box.bottom - 2);
         const rowCenters = [];
         for (const cell of candidates) {
@@ -1174,10 +1181,18 @@ async function readRmaProductIdentity(page, options = {}) {
           const productLineCell = productLineHeader && Math.abs(productLineHeader.box.y - serialHeader.box.y) <= 20
             ? pickCell(row, productLineHeader)
             : null;
+          const productModelCell = productModelHeader && Math.abs(productModelHeader.box.y - serialHeader.box.y) <= 20
+            ? pickCell(row, productModelHeader)
+            : null;
+          const productNameCell = productNameHeader && Math.abs(productNameHeader.box.y - serialHeader.box.y) <= 20
+            ? pickCell(row, productNameHeader)
+            : null;
           matches.push({
             sn: clean(serialCell.text),
             projectCode: clean(projectCell?.text),
             productLine: clean(productLineCell?.text),
+            productModel: clean(productModelCell?.text),
+            productName: clean(productNameCell?.text),
           });
         }
       }
@@ -1186,6 +1201,8 @@ async function readRmaProductIdentity(page, options = {}) {
           item.sn === candidate.sn
           && item.projectCode === candidate.projectCode
           && item.productLine === candidate.productLine
+          && item.productModel === candidate.productModel
+          && item.productName === candidate.productName
         ) === index
       );
       return unique;
@@ -1196,7 +1213,7 @@ async function readRmaProductIdentity(page, options = {}) {
     );
     if (matches.length === 1) return matches[0];
   }
-  return { sn: "", projectCode: "", productLine: "" };
+  return { sn: "", projectCode: "", productLine: "", productModel: "", productName: "" };
 }
 
 function selectCellByHeaderCoordinate(headerBox, cells) {
@@ -1732,7 +1749,8 @@ async function queryRmaByPhone(page, phone, options = {}) {
         customer: {
           name: row["联系人"] || "",
           phoneMasked: normalizedPhone,
-          regionAddress: [row["所属省份"], row["所属城市"]].filter(Boolean).join(" / "),
+          regionAddress: [row["所属省份"], row["所属城市"], row["所属区县"], row["详细地址"] || row["客户地址"]].filter(Boolean).join(" / "),
+          customerAddress: [row["所属省份"], row["所属城市"], row["所属区县"], row["详细地址"] || row["客户地址"]].filter(Boolean).join(" / "),
         },
         phoneMasked: normalizedPhone,
         phoneVerified: true,
@@ -1896,6 +1914,7 @@ async function readPendingReceiptOrders(page, options = {}) {
       order.phone = detail?.customer?.phoneMasked || detail?.phoneMasked || order.phone;
       order.customerName = detail?.customer?.name || order.customerName;
       order.regionAddress = detail?.customer?.regionAddress || order.regionAddress || '';
+      order.customerAddress = detail?.customer?.customerAddress || detail?.customer?.regionAddress || order.customerAddress || order.regionAddress || '';
       order.reportedFault = detail?.reportedFault || order.reportedFault;
       order.sn = detail?.productSerialNo || order.sn;
       order.productLine = detail?.productLine || order.productLine;
@@ -1997,7 +2016,8 @@ async function readRecentRmaOrders(page, options = {}) {
         logisticsNo: row["取件物流单号"] || "",
         phone: row["联系电话"] || "",
         customerName: row["联系人"] || "",
-        regionAddress: [row["所属省份"], row["所属城市"]].filter(Boolean).join(" / "),
+        regionAddress: [row["所属省份"], row["所属城市"], row["所属区县"], row["详细地址"] || row["客户地址"]].filter(Boolean).join(" / "),
+        customerAddress: [row["所属省份"], row["所属城市"], row["所属区县"], row["详细地址"] || row["客户地址"]].filter(Boolean).join(" / "),
         reportedFault: "",
         sn: row["产品序列号"] || "",
         productLine: row["产品线"] || "",
@@ -2028,6 +2048,7 @@ async function readRecentRmaOrders(page, options = {}) {
       order.phone = detail?.customer?.phoneMasked || detail?.phoneMasked || order.phone;
       order.customerName = detail?.customer?.name || order.customerName;
       order.regionAddress = detail?.customer?.regionAddress || order.regionAddress;
+      order.customerAddress = detail?.customer?.customerAddress || detail?.customer?.regionAddress || order.customerAddress || order.regionAddress || '';
       order.reportedFault = detail?.reportedFault || order.reportedFault;
       order.sn = detail?.productSerialNo || order.sn;
       order.productLine = detail?.productLine || order.productLine;
@@ -9839,10 +9860,37 @@ async function startRepair(page, options = {}) {
     }
   } catch (error) {
     if (actionAttempted) {
-      error.code = "RECLOUD_REPAIR_START_RESULT_UNKNOWN";
-      error.status = 409;
-      error.resultUnknown = true;
-      error.message = "瑞云维修建单已触发但结果未能核实，禁止重复点击";
+      // A slow Recloud response can leave us on the RMA detail page with the
+      // original Repair button still present and no service-order reference.
+      // That is an authoritative "not created" state, so it is safe to retry.
+      // Only use RESULT_UNKNOWN after the page has moved away or exposes an
+      // ambiguous service-order state where another click could duplicate it.
+      const bodyText = String(await page.locator("body").innerText({ timeout: 5000 }).catch(() => ""));
+      const serviceOrderCandidates = extractRepairServiceOrderCandidates(bodyText);
+      const repairButtons = page
+        .getByRole("button", { name: /^\s*维修\s*$/ })
+        .filter({ visible: true });
+      const repairButtonCount = await repairButtons.count().catch(() => 0);
+      const serviceReportCount = await page
+        .getByText("服务报告", { exact: true })
+        .filter({ visible: true })
+        .count()
+        .catch(() => 0);
+      const definitelyNotCreated = repairButtonCount >= 1
+        && serviceReportCount === 0
+        && serviceOrderCandidates.length === 0;
+      if (definitelyNotCreated) {
+        error.code = "RECLOUD_REPAIR_START_NOT_CREATED";
+        error.status = 502;
+        error.resultUnknown = false;
+        error.retryable = true;
+        error.message = "瑞云仍停留在寄修单维修入口，维修服务单尚未创建，可安全重试";
+      } else {
+        error.code = "RECLOUD_REPAIR_START_RESULT_UNKNOWN";
+        error.status = 409;
+        error.resultUnknown = true;
+        error.message = "瑞云维修建单已触发但结果未能核实，禁止重复点击";
+      }
     }
     throw error;
   }
@@ -11089,7 +11137,7 @@ async function openRmaProductLookup(page, editDialog, productNameItem) {
       if (dialogCount > dialogCountBefore) {
         return dialogs.last();
       }
-      const searchInput = page.getByPlaceholder(/产品型号.*产品名称.*配件编码/).filter({ visible: true }).last();
+      const searchInput = page.getByPlaceholder(/产品型号.*(?:产品)?名称.*配件编码/).filter({ visible: true }).last();
       if (await searchInput.isVisible().catch(() => false)) {
         const ownerDialog = searchInput.locator('xpath=ancestor::*[@role="dialog" or contains(@class,"rt-dialog__wrapper")][1]');
         if (await ownerDialog.isVisible().catch(() => false)) return ownerDialog;
@@ -11128,6 +11176,101 @@ async function findExactProductLookupRow(lookupDialog, productModelCode) {
   return [...logicalRows.values()][0];
 }
 
+async function readProductLookupRowIdentity(row) {
+  const cells = row.locator("td:visible, [role='cell']:visible, [role='gridcell']:visible");
+  const texts = (await cells.allInnerTexts().catch(() => [])).map(normalizeText);
+  // The first visible cell can be the checkbox column. In the Recloud product
+  // lookup the following columns are project, model, name and product code.
+  const nonEmpty = texts.filter(Boolean);
+  const productModelCode = nonEmpty.find((value) => /^\d[A-Z0-9]{8,}$/i.test(value)) || "";
+  const codeIndex = nonEmpty.indexOf(productModelCode);
+  const projectCellText = codeIndex >= 3 ? nonEmpty[codeIndex - 3] : nonEmpty[0] || "";
+  const projectCode = projectCellText.match(/[A-Z]\d{4}[A-Z0-9]?/i)?.[0] || "";
+  return {
+    projectCode,
+    productModel: codeIndex >= 2 ? nonEmpty[codeIndex - 2] : "",
+    productName: codeIndex >= 1 ? nonEmpty[codeIndex - 1] : "",
+    productModelCode,
+    texts,
+  };
+}
+
+async function waitForRmaSelectedProduct(page, sn, selected, timeoutMs = 12_000) {
+  const deadline = Date.now() + timeoutMs;
+  let actual = null;
+  const compact = (value) => normalizeText(value).replace(/\s+/g, "").toUpperCase();
+  while (Date.now() < deadline) {
+    actual = await readRmaProductIdentity(page, { sn }).catch(() => null);
+    const projectMatches = projectTextMatchesCode(actual?.projectCode, selected.projectCode);
+    const modelMatches = !selected.productModel
+      || compact(actual?.productModel) === compact(selected.productModel);
+    const nameMatches = !selected.productName
+      || compact(actual?.productName) === compact(selected.productName);
+    if (projectMatches && modelMatches && nameMatches) return actual;
+    await page.waitForTimeout?.(250);
+  }
+  const error = new Error("按产品型号编码选择后，瑞云产品信息未能复核一致");
+  error.code = "RECLOUD_PROJECT_CORRECTION_POSTVERIFY_FAILED";
+  error.status = 409;
+  throw error;
+}
+
+async function waitForRmaEditDialogIdentity(editDialog, sn, timeoutMs = 12_000) {
+  const snInput = editDialog.getByRole("textbox", { name: "产品序列号" }).first();
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const currentSn = normalizeText(await snInput.inputValue().catch(() => ""));
+    const bodyText = normalizeText(await editDialog.innerText().catch(() => ""));
+    if (currentSn === normalizeText(sn) && /产品名称/.test(bodyText) && /产品型号/.test(bodyText)) return;
+    await editDialog.page().waitForTimeout(200);
+  }
+  const error = new Error("瑞云产品编辑窗口加载超时，后台将自动重试");
+  error.code = "RECLOUD_PROJECT_EDIT_DIALOG_NOT_READY";
+  error.status = 409;
+  throw error;
+}
+
+function projectTextMatchesCode(value, expectedProjectCode) {
+  const text = normalizeText(value).replace(/\s+/g, "").toUpperCase();
+  const expected = normalizeText(expectedProjectCode).replace(/\s+/g, "").toUpperCase();
+  if (!text || !expected) return false;
+  if (text === expected) return true;
+  const escaped = expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^A-Z0-9])${escaped}([^A-Z0-9]|$)`).test(text);
+}
+
+async function locateRmaProjectCell(productRow, projectCode) {
+  const exact = productRow.getByText(projectCode, { exact: true }).filter({ visible: true });
+  if (await exact.count() > 0) return exact.first();
+  const cells = productRow.locator(
+    "td:visible, [role='cell']:visible, [role='gridcell']:visible, .el-table__cell:visible, [class*='grid-cell']:visible"
+  );
+  const texts = await cells.allInnerTexts().catch(() => []);
+  const matchingIndexes = texts
+    .map((text, index) => projectTextMatchesCode(text, projectCode) ? index : -1)
+    .filter((index) => index >= 0);
+  if (matchingIndexes.length > 0) return cells.nth(matchingIndexes[0]);
+  const error = new Error(`SN 所在产品行未找到项目号 ${projectCode}`);
+  error.code = "RECLOUD_PROJECT_CURRENT_CELL_NOT_FOUND";
+  error.status = 409;
+  throw error;
+}
+
+async function waitForRmaProjectCode(page, sn, expectedProjectCode, timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs;
+  let lastIdentity = null;
+  while (Date.now() < deadline) {
+    lastIdentity = await readRmaProductIdentity(page, { sn }).catch(() => null);
+    if (projectTextMatchesCode(lastIdentity?.projectCode, expectedProjectCode)) return lastIdentity;
+    await page.waitForTimeout?.(250);
+  }
+  const error = new Error(`项目号修改后未能复核为 ${expectedProjectCode}`);
+  error.code = "RECLOUD_PROJECT_CORRECTION_POSTVERIFY_FAILED";
+  error.status = 409;
+  error.actualProjectCode = normalizeText(lastIdentity?.projectCode);
+  throw error;
+}
+
 async function waitForNestedDialogToClose(page, visibleCountBeforeClose, timeoutMs = 30_000) {
   const dialogSelector = '.rt-dialog__wrapper:visible, [role="dialog"]:visible';
   const deadline = Date.now() + timeoutMs;
@@ -11150,21 +11293,21 @@ async function correctRmaProjectModel(page, input = {}, options = {}) {
 
   const productRow = page.locator("tr:visible").filter({ hasText: values.sn }).first();
   await productRow.waitFor({ state: "visible" });
-  const projectCell = productRow.getByText(values.currentProjectCode, { exact: true }).first();
-  await projectCell.waitFor({ state: "visible" });
+  const projectCell = await locateRmaProjectCell(productRow, values.currentProjectCode);
   await projectCell.dblclick();
 
   const editDialog = page.locator('.rt-dialog__wrapper:visible, [role="dialog"]:visible').last();
   await editDialog.waitFor({ state: "visible" });
+  await waitForRmaEditDialogIdentity(editDialog, values.sn);
   const productNameItem = editDialog
-    .locator('.rt-form-item, .el-form-item, [class*="form-item"]')
+    .locator('.rt-form-item, .el-form-item, .rtxpc-form-item')
     .filter({ hasText: /产品名称/ })
     .first();
   await productNameItem.waitFor({ state: "visible" });
   const lookupDialog = await openRmaProductLookup(page, editDialog, productNameItem);
   await lookupDialog.waitFor({ state: "visible" });
   const searchInput = await firstVisible([
-    lookupDialog.getByPlaceholder(/产品型号.*产品名称.*配件编码/),
+    lookupDialog.getByPlaceholder(/产品型号.*(?:产品)?名称.*配件编码/),
     lookupDialog.locator('input[type="text"]:visible').last(),
   ]);
   if (!searchInput) throw new Error("产品查找弹窗中未找到搜索框");
@@ -11172,6 +11315,17 @@ async function correctRmaProjectModel(page, input = {}, options = {}) {
   await searchInput.press("Enter");
 
   const resultRow = await findExactProductLookupRow(lookupDialog, values.productModelCode);
+  const selectedIdentity = await readProductLookupRowIdentity(resultRow);
+  if (
+    normalizeText(selectedIdentity.productModelCode).toUpperCase()
+      !== normalizeText(values.productModelCode).toUpperCase()
+    || !selectedIdentity.projectCode
+  ) {
+    const error = new Error(`瑞云查找结果与产品型号编码 ${values.productModelCode} 不一致`);
+    error.code = "RECLOUD_PROJECT_PRODUCT_RESULT_MISMATCH";
+    error.status = 409;
+    throw error;
+  }
   const checkbox = resultRow.locator('input[type="checkbox"]:visible, [role="checkbox"]:visible').first();
   if (!await checkbox.isVisible().catch(() => false)) {
     const error = new Error(`产品型号编码 ${values.productModelCode} 的勾选框不可用`);
@@ -11205,8 +11359,16 @@ async function correctRmaProjectModel(page, input = {}, options = {}) {
     .last();
   await saveButton.click();
   await editDialog.waitFor({ state: "hidden" });
-  await productRow.getByText(values.expectedProjectCode, { exact: true }).first().waitFor({ state: "visible" });
-  return { success: true, changed: true, dryRun: false, ...values, message: "项目号修改完成" };
+  const actualIdentity = await waitForRmaSelectedProduct(page, values.sn, selectedIdentity);
+  return {
+    success: true,
+    changed: !projectTextMatchesCode(values.currentProjectCode, actualIdentity.projectCode),
+    dryRun: false,
+    selectedProjectCode: selectedIdentity.projectCode,
+    verifiedProjectCode: actualIdentity.projectCode,
+    ...values,
+    message: `已按网点派单机型表的产品型号编码 ${values.productModelCode} 完成修改并复核`,
+  };
 }
 
 function findRmaFieldItem(scope, labelPattern) {
@@ -11417,6 +11579,7 @@ module.exports = {
   queryRmaByLogisticsNo,
   queryRmaByPhone,
   queryRmaByIdentifier,
+  queryPartsInventory: queryRecloudPartsInventory,
   selectAllRmaListView,
   enterAllRmaPhoneQuery,
   readPendingReceiptOrders,
@@ -11469,6 +11632,7 @@ module.exports = {
   readRmaAttachments,
   uploadRmaAttachments,
   validateProjectCorrectionInput,
+  projectTextMatchesCode,
   correctRmaProjectModel,
   readRmaHoldReasonOptions,
   submitRmaHold,

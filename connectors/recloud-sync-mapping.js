@@ -1,4 +1,4 @@
-const MAPPING_VERSION = "v14";
+const MAPPING_VERSION = "v16";
 const { buildProjectCorrectionPlan } = require("../services/recloud-project-correction-rules");
 const { resolveFaultContent } = require("../services/inspection-form-rules");
 
@@ -49,7 +49,7 @@ const RECLOUD_REPAIR_FIELD_TARGETS = Object.freeze({
   secondaryRemark: { target: "二级备注", status: "CONFIRMED" },
   personalizedLogisticsAmount: { target: "快递金额（个性化）", status: "EXCLUDED" },
   attachments: { target: "附件", status: "CONFIRMED" },
-  detectionReportAttachments: { target: "附件（检测报告）", status: "EXCLUDED" },
+  detectionReportAttachments: { target: "附件（检测报告）", status: "CONFIRMED_FOR_INSPECTION_ONLY" },
   warrantyConversion: { target: "保外转保内", status: "REQUIRED_ONCE", control: "ONE_SHOT_BUTTON" },
   troubleshooting: { target: "是否是排障问题", status: "CONFIRMED" },
 });
@@ -218,14 +218,15 @@ function buildRecloudRepairFormPlan(payload = {}) {
   const pricing = payload.pricing || {};
   const parts = compactParts(payload.usedParts);
   const isOutOfWarranty = pricing.warrantyStatus === "OUT_OF_WARRANTY";
+  const writesFeeRemarks = isOutOfWarranty || String(payload.treatmentMode || "").trim() === "ABANDONED";
   const safeWrites = [
     { key: "repairMeasure", target: RECLOUD_REPAIR_FIELD_TARGETS.repairMeasure.target, value: String(payload.repairMeasure || "").trim() },
     { key: "usedParts", target: RECLOUD_REPAIR_FIELD_TARGETS.usedParts.target, value: parts },
     { key: "highestRepairLevel", target: RECLOUD_REPAIR_FIELD_TARGETS.highestRepairLevel.target, value: String(pricing.highestRepairLevel || "").trim() },
     { key: "customerPaidAmount", target: RECLOUD_REPAIR_FIELD_TARGETS.customerPaidAmount.target, value: isOutOfWarranty ? Number(pricing.totalFee || 0) : null },
     { key: "logisticsAmount", target: RECLOUD_REPAIR_FIELD_TARGETS.logisticsAmount.target, value: isOutOfWarranty ? Number(pricing.roundTripLogisticsFee || 0) : null },
-    { key: "primaryRemark", target: RECLOUD_REPAIR_FIELD_TARGETS.primaryRemark.target, value: isOutOfWarranty ? String(pricing.primaryRemark || "").trim() : null },
-    { key: "secondaryRemark", target: RECLOUD_REPAIR_FIELD_TARGETS.secondaryRemark.target, value: isOutOfWarranty ? String(pricing.secondaryRemark || "").trim() : null },
+    { key: "primaryRemark", target: RECLOUD_REPAIR_FIELD_TARGETS.primaryRemark.target, value: writesFeeRemarks ? String(pricing.primaryRemark || "").trim() : null },
+    { key: "secondaryRemark", target: RECLOUD_REPAIR_FIELD_TARGETS.secondaryRemark.target, value: writesFeeRemarks ? String(pricing.secondaryRemark || "").trim() : null },
     { key: "attachments", target: RECLOUD_REPAIR_FIELD_TARGETS.attachments.target, value: Array.isArray(payload.attachments) ? payload.attachments : [] },
     { key: "troubleshooting", target: RECLOUD_REPAIR_FIELD_TARGETS.troubleshooting.target, value: "否" },
   ].filter((field) => field.value !== "" && field.value !== null && field.value !== undefined && (!Array.isArray(field.value) || field.value.length));

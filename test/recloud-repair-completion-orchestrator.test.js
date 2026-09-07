@@ -19,11 +19,24 @@ function remoteAdapter(initial = {}) {
   let assignee = initial.assignee || "";
   let parts = initial.parts || [];
   let attachments = initial.attachments || [];
+  let detectionReportAttachments = initial.detectionReportAttachments || [];
   const calls = [];
   return {
     calls,
-    async readRemoteState() { calls.push("read"); return { assignee, parts: [...parts], attachments: [...attachments], completed: initial.completed === true }; },
-    async readRemoteAttachments() { calls.push("read-attachments"); return [...attachments]; },
+    async readRemoteState() {
+      calls.push("read");
+      return {
+        assignee,
+        parts: [...parts],
+        attachments: [...attachments],
+        detectionReportAttachments: [...detectionReportAttachments],
+        completed: initial.completed === true,
+      };
+    },
+    async readRemoteAttachments({ target = "附件" } = {}) {
+      calls.push(`read-attachments:${target}`);
+      return target === "附件（检测报告）" ? [...detectionReportAttachments] : [...attachments];
+    },
     async assignResponsible(plan) {
       calls.push(`assign:${plan.servicePerson}:${plan.action}:${plan.forbiddenAction}`);
       assignee = plan.servicePerson;
@@ -35,8 +48,12 @@ function remoteAdapter(initial = {}) {
     async applyRepairFields() { calls.push("fields"); },
     async verifyRepairFields() { calls.push("verify-fields"); return true; },
     async uploadAttachments(plan, policy) {
-      calls.push(`attachments:${policy.target}:${policy.forbiddenTarget}`);
-      attachments = plan.additions.map((item) => ({ ...item }));
+      calls.push(`attachments:${policy.target}`);
+      if (policy.target === "附件（检测报告）") {
+        detectionReportAttachments = plan.additions.map((item) => ({ ...item }));
+      } else {
+        attachments = plan.additions.map((item) => ({ ...item }));
+      }
     },
     async clickComplete() { calls.push("complete"); },
     async waitForSubmitReady() { calls.push("wait-submit-ready"); return true; },
@@ -71,11 +88,45 @@ test("repair orchestrator clicks complete and stops immediately after final subm
   assert.equal(result.stoppedImmediatelyAfterSubmit, true);
   assert.equal(result.postSubmitActions, 0);
   assert.deepEqual(adapter.calls, [
-    "read", "fields", "verify-fields", "read-attachments",
-    "attachments:附件:附件（检测报告）", "read-attachments", "complete", "wait-submit-ready",
+    "read", "fields", "verify-fields", "read-attachments:附件",
+    "attachments:附件", "read-attachments:附件", "complete", "wait-submit-ready",
     "submit:内部维修单自动审批（成都欣益）:提交:true",
   ]);
   assert.equal(checkpoints.at(-1).status, "SUCCESS");
+});
+
+test("inspection-only ignores old generated reports and stops before submit for the information clerk", async () => {
+  const payload = {
+    ...PAYLOAD,
+    treatmentMode: "INSPECTION_ONLY",
+    usedParts: [],
+    attachments: [
+      PAYLOAD.attachments[0],
+      {
+        fileName: "检测报告-JXTH-1.pdf",
+        path: "/safe/检测报告-JXTH-1.pdf",
+        size: 32000,
+        mimeType: "application/pdf",
+        source: "INSPECTION_REPORT",
+        attachmentTarget: "DETECTION_REPORT_ATTACHMENT",
+      },
+    ],
+  };
+  const adapter = remoteAdapter({ assignee: "唐张帅", parts: [] });
+  const result = await orchestrateRepairCompletion("ORDER-INSPECTION-ONLY", payload, adapter, {
+    writeEnabled: true,
+    preparationCompleted: true,
+  });
+
+  assert.equal(result.status, "AWAITING_INFORMATION_CLERK");
+  assert.equal(result.completeClicked, true);
+  assert.equal(result.stoppedBeforeSubmit, true);
+  assert.equal(result.informationClerkAction, "开检测报告、上传检测报告、修改地址并提交");
+  assert.equal(adapter.calls.includes("attachments:附件"), true);
+  assert.equal(adapter.calls.includes("attachments:附件（检测报告）"), false);
+  assert.equal(adapter.calls.includes("complete"), true);
+  assert.equal(adapter.calls.includes("wait-submit-ready"), false);
+  assert.equal(adapter.calls.some((call) => call.startsWith("submit:")), false);
 });
 
 test("repair orchestrator tolerates delayed Recloud field visibility", async () => {
@@ -111,6 +162,25 @@ test("repair orchestrator updates fields but does not resubmit an already comple
   assert.equal(result.status, "SUCCESS");
   assert.equal(result.remoteAlreadyCompleted, true);
   assert.equal(adapter.calls.includes("fields"), true);
+  assert.equal(adapter.calls.includes("complete"), false);
+  assert.equal(adapter.calls.some((call) => call.startsWith("submit:")), false);
+});
+
+test("already completed inspection-only order still creates the information-clerk handoff", async () => {
+  const payload = { ...PAYLOAD, treatmentMode: "INSPECTION_ONLY", usedParts: [] };
+  const adapter = remoteAdapter({
+    assignee: "唐张帅",
+    parts: [],
+    attachments: PAYLOAD.attachments,
+    completed: true,
+  });
+  const result = await orchestrateRepairCompletion("ORDER-INSPECTION-RETRY", payload, adapter, {
+    writeEnabled: true,
+    preparationCompleted: true,
+  });
+  assert.equal(result.status, "AWAITING_INFORMATION_CLERK");
+  assert.equal(result.remoteAlreadyCompleted, true);
+  assert.equal(result.stoppedBeforeSubmit, true);
   assert.equal(adapter.calls.includes("complete"), false);
   assert.equal(adapter.calls.some((call) => call.startsWith("submit:")), false);
 });

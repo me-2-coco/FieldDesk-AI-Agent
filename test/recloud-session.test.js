@@ -853,3 +853,31 @@ test("a timed-out pooled write is quarantined while other workers keep processin
   ));
   assert.equal(closedCount, 1);
 });
+
+test("timed-out pooled writes are replaced so the fixed pool cannot be exhausted", async () => {
+  const connector = {
+    async openRecloud({ channel }) {
+      return { loginRequired: false, page: { channel, close: async () => {} } };
+    },
+  };
+  const timeoutOptions = {
+    background: true,
+    channel: "business-write-replacement",
+    priority: true,
+    concurrency: 2,
+    timeoutMs: 20,
+    timeoutCode: "RECLOUD_TEST_WRITE_TIMEOUT",
+  };
+  const hung = [1, 2].map(() => withRecloud(
+    connector,
+    async () => await new Promise(() => {}),
+    timeoutOptions
+  ));
+  await Promise.all(hung.map((job) => assert.rejects(job, { code: "RECLOUD_TEST_WRITE_TIMEOUT" })));
+  const completed = await withRecloud(
+    connector,
+    async (page) => page.channel,
+    { ...timeoutOptions, timeoutMs: 100 }
+  );
+  assert.match(completed, /^business-write-replacement:[34]$/);
+});

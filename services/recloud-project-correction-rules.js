@@ -7,8 +7,16 @@ function validateProjectCorrectionInput(input = {}) {
   const currentProjectCode = normalize(input.currentProjectCode);
   const expectedProjectCode = normalize(input.expectedProjectCode);
   const productModelCode = normalize(input.productModelCode);
-  if (!sn || !expectedProjectCode || !productModelCode) {
-    throw new Error("修改项目号前必须提供 SN、正确项目号和产品型号编码");
+  const missing = [
+    !sn && "SN",
+    !expectedProjectCode && "正确项目号",
+    !productModelCode && "产品型号编码",
+  ].filter(Boolean);
+  if (missing.length > 0) {
+    const error = new Error(`修改项目号缺少：${missing.join("、")}`);
+    error.code = "RECLOUD_PROJECT_CORRECTION_INPUT_MISSING";
+    error.missingFields = missing;
+    throw error;
   }
   if (!/^\d/.test(productModelCode)) {
     throw new Error("产品型号编码必须选择数字开头的编码");

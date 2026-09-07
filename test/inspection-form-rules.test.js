@@ -50,6 +50,26 @@ test("maps the three detection outcomes and maps tuning to no abnormality", () =
   assert.equal(tuning.faultContent, "未复现");
 });
 
+test("saved treatment mode overrides a stale frontend detection result", () => {
+  const base = { faultCategory: "产品质量 / 屏幕显示故障代码H2 / 电池包不良", technicianWarranty: "保外", snWarranty: "保外" };
+  assert.equal(buildInspectionFormDecision({
+    ...base,
+    treatmentMode: "ABANDONED",
+    detectionResult: "维修",
+  }).fields.detectionResult, "弃修");
+  assert.equal(buildInspectionFormDecision({
+    ...base,
+    treatmentMode: "INSPECTION_ONLY",
+    detectionResult: "维修",
+    inspectionFaultOutcome: "FAULT_REPRODUCED",
+  }).fields.detectionResult, "检测不维修");
+  assert.equal(buildInspectionFormDecision({
+    ...base,
+    treatmentMode: "DEBUGGING",
+    detectionResult: "弃修",
+  }).fields.detectionResult, "维修");
+});
+
 test("fault content follows treatment mode and inspection-only fault outcome", () => {
   assert.equal(resolveFaultContent({ treatmentMode: "REPAIR", faultCategory: "产品质量 / 不出水" }), "故障复现");
   assert.equal(resolveFaultContent({ treatmentMode: "ABANDONED", faultCategory: "产品质量 / 不出水" }), "故障复现");

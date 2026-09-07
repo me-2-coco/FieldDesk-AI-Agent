@@ -6,7 +6,6 @@ import AttachmentPreviewList from "../components/AttachmentPreviewList.jsx"
 import {
   downloadRepairAttachment,
   getRepairCompletionContext,
-  getRepairPreparationStatus,
   getRepairSyncOrderStatus,
   saveRepairCompletionDraft,
   saveRepairResumeStep,
@@ -108,7 +107,7 @@ function RepairCompletion({ setPage }) {
   const [faultLevel2, setFaultLevel2] = useState("")
   const [faultLevel3, setFaultLevel3] = useState("")
   const [responsibilityType, setResponsibilityType] = useState("")
-  const [detectionResult, setDetectionResult] = useState(repairOrder.inspectionResult || "维修")
+  const [detectionResult, setDetectionResult] = useState(treatmentPreset?.detectionResult || repairOrder.inspectionResult || "维修")
   const [speechTemplate, setSpeechTemplate] = useState("")
   const [repairMeasure, setRepairMeasure] = useState("")
   const [attachments, setAttachments] = useState([])
@@ -116,9 +115,9 @@ function RepairCompletion({ setPage }) {
   const [message, setMessage] = useState("")
   const [errorMessage, setErrorMessage] = useState("")
   const [busy, setBusy] = useState(false)
+  const [completionConfirmOpen, setCompletionConfirmOpen] = useState(false)
   const [contextLoading, setContextLoading] = useState(true)
   const [syncStatus, setSyncStatus] = useState(null)
-  const [repairSyncState, setRepairSyncState] = useState(null)
   const [warrantyConversion, setWarrantyConversion] = useState(repairOrder.manufacturerWarrantyConversion || null)
   const pricingSummaryRef = useRef(null)
 
@@ -126,7 +125,7 @@ function RepairCompletion({ setPage }) {
     let active = true
     getRepairCompletionContext(repairOrder.crmOrderNo).then((context) => {
       if (!active) return
-      const contextParts = context.usedParts || []
+      const contextParts = isAbandoned ? (context.abandonedQuoteParts || []) : (context.usedParts || [])
       const contextPricing = context.pricing || null
       const autoResponsibilityType = isAbandoned
         ? "保外维修"
@@ -146,7 +145,7 @@ function RepairCompletion({ setPage }) {
         setFaultLevel3(confirmedFault.slice(2).join(" / "))
       }
       const draft = context.order?.repairCompletion
-      setDetectionResult(draft?.detectionResult || treatmentPreset?.detectionResult || context.order?.inspectionResult || "维修")
+      setDetectionResult(treatmentPreset?.detectionResult || draft?.detectionResult || context.order?.inspectionResult || "维修")
       if (draft) {
         if (confirmedFault.length < 3) {
           setFaultLevel1(draft.faultLevel1 || "")
@@ -154,7 +153,8 @@ function RepairCompletion({ setPage }) {
           setFaultLevel3(draft.faultLevel3 || "")
         }
         const selectedTemplate = treatmentPreset?.speechTemplate || (templates.includes(draft.speechTemplate) ? draft.speechTemplate : templates[0])
-        const draftLogisticsMode = draft.logisticsChargeMode || draft.pricing?.logisticsChargeMode || "ROUND_TRIP"
+        const savedLogisticsMode = draft.logisticsChargeMode || draft.pricing?.logisticsChargeMode || "ROUND_TRIP"
+        const draftLogisticsMode = isAbandoned && savedLogisticsMode === "WAIVED" ? "ROUND_TRIP" : savedLogisticsMode
         const draftLogisticsFee = draft.oneWayLogisticsFee === undefined ? "" : String(draft.oneWayLogisticsFee)
         setSpeechTemplate(selectedTemplate)
         setRepairMeasure(treatmentPreset
@@ -163,7 +163,7 @@ function RepairCompletion({ setPage }) {
         const combined = [...(draft.attachments || [])]
         for (const approval of approvalAttachments) if (!combined.some((item) => item.id === approval.id)) combined.push(approval)
         setAttachments(combined)
-        setOneWayLogisticsFee(draftLogisticsMode === "WAIVED" ? "" : draftLogisticsFee)
+        setOneWayLogisticsFee(draftLogisticsMode === "WAIVED" && !isAbandoned ? "" : draftLogisticsFee)
         setLogisticsChargeMode(draftLogisticsMode)
         setDiscountEnabled(draft.discountEnabled === true || draft.pricing?.discountEnabled === true)
         setDiscountScope(draft.discountScope || draft.pricing?.discountScope || "ORDER_TOTAL")
@@ -172,6 +172,7 @@ function RepairCompletion({ setPage }) {
           : "")
       }
       if (!draft) {
+        if (isAbandoned) setLogisticsChargeMode("ROUND_TRIP")
         setSpeechTemplate(presetTemplate)
         setRepairMeasure(buildRepairMeasure(presetTemplate, contextParts, repairOrder.originalFault, confirmedFault.at(-1)))
         setAttachments(approvalAttachments)
@@ -188,29 +189,6 @@ function RepairCompletion({ setPage }) {
       .catch(() => active && setSyncStatus(null))
     return () => { active = false }
   }, [repairOrder.crmOrderNo])
-
-  useEffect(() => {
-    if (treatmentMode !== "REPAIR") return undefined
-    let active = true
-    let timer = null
-    const refresh = async () => {
-      try {
-        const status = await getRepairPreparationStatus(repairOrder.crmOrderNo)
-        if (!active) return
-        setRepairSyncState(status)
-        if (status.recloudWriteEnabled === true && status.recloudRepairPreparationCanComplete !== true) {
-          timer = window.setTimeout(refresh, 1000)
-        }
-      } catch {
-        if (active) timer = window.setTimeout(refresh, 1500)
-      }
-    }
-    refresh()
-    return () => {
-      active = false
-      if (timer) window.clearTimeout(timer)
-    }
-  }, [repairOrder.crmOrderNo, treatmentMode])
 
   const partsText = usedParts.length
     ? usedParts.map((part) => `${part.partName}×${part.quantity}（${part.repairLevel || "等级待确认"}）`).join("、")
@@ -232,31 +210,25 @@ function RepairCompletion({ setPage }) {
   const discountRateNumber = Number(discountRate)
   const hasValidDiscount = !discountEnabled || (discountRate !== "" && Number.isFinite(discountRateNumber) && discountRateNumber > 0 && discountRateNumber < 10)
   const technicianAttachments = attachments.filter((item) => item.source !== "WARRANTY_CONVERSION_APPROVAL")
-  const hasInspectionReport = technicianAttachments.some((item) => item.mimeType === "application/pdf")
   const hasInspectionMedia = technicianAttachments.some((item) => /^(image|video)\//.test(item.mimeType || ""))
-  const hasRequiredAttachment = isInspectionOnly ? hasInspectionReport && hasInspectionMedia : technicianAttachments.length > 0
+  const hasRequiredAttachment = isInspectionOnly ? hasInspectionMedia : technicianAttachments.length > 0
   const conversionReady = warrantyConversion?.requested !== true || warrantyConversion?.status === "APPROVED"
-  const preparationReady = treatmentMode !== "REPAIR"
-    || repairSyncState?.recloudWriteEnabled === false
-    || repairSyncState?.recloudRepairPreparationCanComplete === true
-  const canSubmitCompletion = preparationReady && hasRequiredAttachment && conversionReady && (
-    !isOutOfWarranty
-    || (pricing?.canPrice && hasValidDiscount && (requiresLogisticsFee ? hasValidOutOfWarrantyFee : logisticsChargeMode === "WAIVED" || hasValidOptionalOutOfWarrantyFee))
+  const canSubmitCompletion = hasRequiredAttachment && conversionReady && (
+    isAbandoned
+      ? pricing?.canPrice && hasValidOutOfWarrantyFee
+      : !isOutOfWarranty
+        || (pricing?.canPrice && hasValidDiscount && (requiresLogisticsFee ? hasValidOutOfWarrantyFee : logisticsChargeMode === "WAIVED" || hasValidOptionalOutOfWarrantyFee))
   )
-  const submitButtonLabel = !preparationReady
-    ? repairSyncState?.recloudRepairPreparationStatus === "FAILED"
-      ? "瑞云配件同步恢复中"
-      : repairSyncState
-        ? "瑞云配件正在同步"
-        : "正在核对瑞云维修状态"
-    : !conversionReady
+  const submitButtonLabel = !conversionReady
     ? "等待信息员上传转保凭证"
     : !hasRequiredAttachment
     ? isInspectionOnly
-      ? !hasInspectionReport ? "请先上传 PDF 检测报告" : "请先上传照片/视频"
+      ? "请先上传照片/视频"
       : "请先上传维修照片/视频"
-    : isOutOfWarranty && !pricing?.canPrice
+    : (isOutOfWarranty || isAbandoned) && !pricing?.canPrice
       ? "保外费用待核对"
+      : isAbandoned && !hasValidOutOfWarrantyFee
+        ? "请填写预计寄回运费"
       : requiresLogisticsFee && !hasValidOutOfWarrantyFee
         ? "请填写单程物流费"
         : discountEnabled && !hasValidDiscount
@@ -268,18 +240,24 @@ function RepairCompletion({ setPage }) {
   const originalServiceFee = Number(pricing?.subtotal || 0)
   const originalTotalFee = originalServiceFee + displayedLogisticsFee
   const discountMultiplier = discountEnabled && hasValidDiscount ? discountRateNumber / 10 : 1
-  const displayedTotalFee = discountEnabled && hasValidDiscount
+  const displayedTotalFee = isAbandoned
+    ? 0
+    : discountEnabled && hasValidDiscount
     ? discountScope === "ORDER_TOTAL"
       ? Number((originalTotalFee * discountMultiplier).toFixed(2))
       : Number((originalServiceFee * discountMultiplier + displayedLogisticsFee).toFixed(2))
     : Number(originalTotalFee.toFixed(2))
   const displayedDiscountAmount = Number((originalTotalFee - displayedTotalFee).toFixed(2))
   const formatMoney = (value) => String(Number(Number(value || 0).toFixed(2)))
-  const primaryRemark = discountEnabled && hasValidDiscount ? "申请折扣减免" : "无减免"
+  const primaryRemark = isAbandoned
+    ? "申请运费减免"
+    : discountEnabled && hasValidDiscount ? "申请折扣减免" : "无减免"
   const feeDetails = `配件费${formatMoney(pricing?.partsFee)}元，维修费${formatMoney(pricing?.fee)}元，运费${formatMoney(displayedLogisticsFee)}元，合计${formatMoney(originalTotalFee)}元`
-  const secondaryRemark = discountEnabled && hasValidDiscount
-    ? `${feeDetails}，${formatMoney(discountRateNumber)}折后费用合计${formatMoney(displayedTotalFee)}元`
-    : feeDetails
+  const secondaryRemark = isAbandoned
+    ? `${feeDetails}，用户放弃维修，免运费寄回`
+    : discountEnabled && hasValidDiscount
+      ? `${feeDetails}，${formatMoney(discountRateNumber)}折后费用合计${formatMoney(displayedTotalFee)}元`
+      : feeDetails
 
   const payload = () => ({
     rmaNo: repairOrder.crmOrderNo,
@@ -309,13 +287,25 @@ function RepairCompletion({ setPage }) {
       })
       setRepairOrder(updated)
       setMessage(result.message)
-      if (submit) setPage("home")
+      if (submit) setPage("repair")
     } catch (error) {
       setErrorMessage(error.message)
     } finally {
       setBusy(false)
     }
   }
+
+  function confirmAndSubmitCompletion() {
+    setCompletionConfirmOpen(false)
+    save(true)
+  }
+
+  useEffect(() => {
+    if (!completionConfirmOpen) return undefined
+    const closeOnEscape = (event) => event.key === "Escape" && setCompletionConfirmOpen(false)
+    window.addEventListener("keydown", closeOnEscape)
+    return () => window.removeEventListener("keydown", closeOnEscape)
+  }, [completionConfirmOpen])
 
   async function uploadFiles(event) {
     const files = [...event.target.files]
@@ -325,9 +315,8 @@ function RepairCompletion({ setPage }) {
       setErrorMessage("")
       for (const file of files) {
         const supportedMedia = /^(image|video)\//.test(file.type)
-        const supportedReport = isInspectionOnly && file.type === "application/pdf"
-        if (!supportedMedia && !supportedReport) {
-          throw new Error(isInspectionOnly ? "仅支持照片、视频和 PDF 检测报告" : "仅支持维修照片和视频")
+        if (!supportedMedia) {
+          throw new Error("仅支持维修照片和视频")
         }
         if (!String(file.type).startsWith("video/") && file.size > MAX_VIDEO_UPLOAD_BYTES) {
           throw new Error(`${file.name} 为 ${formatFileMb(file.size)}，超过单文件100MB限制`)
@@ -483,16 +472,12 @@ function RepairCompletion({ setPage }) {
         </dl>
         <div className="parts-order-fault"><span>报修描述</span><p>{repairOrder.originalFault || "未提供"}</p></div>
         {isInspectionOnly ? (
-          <p className="success-text">保内检测：不向客户收取配件费、维修费和运费，请上传检测报告及照片/视频</p>
-        ) : isAbandoned ? (
-          <p className="treatment-status-text treatment-status-out">
-            保外弃修：不申请配件，上传照片/视频后按弃修流程寄回
-          </p>
-        ) : isOutOfWarranty ? (
+          <p className="success-text">保内检测：不向客户收取配件费、维修费和运费；师傅上传现场照片/视频，检测报告由信息员制作并上传</p>
+        ) : (isAbandoned || isOutOfWarranty) ? (
             <div ref={pricingSummaryRef} className={`pricing-summary compact-pricing-summary ${isDebugging ? "debugging-pricing-summary" : ""} ${!pricing?.canPrice ? "pricing-needs-review" : ""}`}>
               <div className="pricing-summary-head">
-                <div><span>保外费用明细</span><strong>{isDebugging ? "调试费用（选填）" : "完工前请核对"}</strong></div>
-                <b>{pricing?.canPrice ? `应收 ¥${displayedTotalFee.toFixed(2)}` : "合计待核价"}</b>
+                <div><span>{isAbandoned ? "弃修报价明细" : "保外费用明细"}</span><strong>{isAbandoned ? "用于免运费申请" : isDebugging ? "调试费用（选填）" : "完工前请核对"}</strong></div>
+                <b>{pricing?.canPrice ? (isAbandoned ? "客户实付 ¥0.00" : `应收 ¥${displayedTotalFee.toFixed(2)}`) : "合计待核价"}</b>
               </div>
               {!isDebugging && <div className="pricing-stat-grid fee-detail-grid">
                 <div><span>维修等级</span><strong>{pricing?.highestLevel || "待确认"}</strong></div>
@@ -500,13 +485,13 @@ function RepairCompletion({ setPage }) {
                 <div><span>维修费</span><strong>{pricing?.fee === null || pricing?.fee === undefined ? "待核价" : `¥${pricing.fee}`}</strong></div>
               </div>}
               {!pricing?.canPrice && <div className="pricing-review-alert" role="alert"><strong>价格资料不完整</strong><span>仍可先填写运费；配件零售价或机型维修费补齐后即可提交。</span></div>}
-              {logisticsChargeMode !== "WAIVED" && <div className="pricing-fee-field">
-                <label htmlFor="one-way-logistics-fee"><span>单程物流费</span><em>{requiresOutOfWarrantyFee ? "必填" : "选填"}</em></label>
-                <input id="one-way-logistics-fee" type="number" min="0" step="0.01" value={oneWayLogisticsFee} onChange={(event) => setOneWayLogisticsFee(event.target.value)} placeholder={requiresOutOfWarrantyFee ? "请填写单程快递费" : "可按实际情况填写，不填也能提交"} required={requiresOutOfWarrantyFee} disabled={completedDetail} />
+              {(isAbandoned || logisticsChargeMode !== "WAIVED") && <div className="pricing-fee-field">
+                <label htmlFor="one-way-logistics-fee"><span>单程物流费</span><em>{isAbandoned || requiresOutOfWarrantyFee ? "必填" : "选填"}</em></label>
+                <input id="one-way-logistics-fee" type="number" min="0" step="0.01" value={oneWayLogisticsFee} onChange={(event) => setOneWayLogisticsFee(event.target.value)} placeholder={isAbandoned ? "填写单程寄回运费，再选择收单边或双边" : requiresOutOfWarrantyFee ? "请填写单程快递费" : "可按实际情况填写，不填也能提交"} required={isAbandoned || requiresOutOfWarrantyFee} disabled={completedDetail} />
               </div>}
               <fieldset className="logistics-mode-options">
-                <legend>向客户收取的运费</legend>
-                {LOGISTICS_MODES.map((item) => (
+                <legend>{isAbandoned ? "原应收运费方式" : "向客户收取的运费"}</legend>
+                {LOGISTICS_MODES.filter((item) => !isAbandoned || item.value !== "WAIVED").map((item) => (
                   <label key={item.value}>
                     <input type="radio" name="logistics-charge-mode" value={item.value} checked={logisticsChargeMode === item.value} onChange={(event) => {
                       const nextMode = event.target.value
@@ -556,16 +541,18 @@ function RepairCompletion({ setPage }) {
               </section>}
               <div className="pricing-calculation-row">
                 <span>{logisticsMode.label}<strong>¥{displayedLogisticsFee.toFixed(2)}</strong></span>
-                <span>费用原价<strong>¥{originalTotalFee.toFixed(2)}</strong></span>
-                {discountEnabled && hasValidDiscount && <span>折扣优惠<strong>-¥{displayedDiscountAmount.toFixed(2)}</strong></span>}
-                <span>最终应收<strong>¥{displayedTotalFee.toFixed(2)}</strong></span>
+                <span>{isAbandoned ? "原维修报价合计" : "费用原价"}<strong>¥{originalTotalFee.toFixed(2)}</strong></span>
+                {!isAbandoned && discountEnabled && hasValidDiscount && <span>折扣优惠<strong>-¥{displayedDiscountAmount.toFixed(2)}</strong></span>}
+                <span>{isAbandoned ? "弃修实收" : "最终应收"}<strong>¥{displayedTotalFee.toFixed(2)}</strong></span>
               </div>
               {pricing?.canPrice && <details className="pricing-remarks">
                 <summary>查看费用备注</summary>
                 <p>一级备注：{primaryRemark}</p>
                 <p>二级备注：{secondaryRemark}</p>
               </details>}
-              <p className="field-hint">{isDebugging
+              <p className="field-hint">{isAbandoned
+                ? "故障配件仅用于核算原维修报价；瑞云不会添加配件。填写单程物流费并选择收单边或双边，计算结果会用于二级备注和免运费申请表。"
+                : isDebugging
                 ? "保外调试费用选填，师傅可根据实际情况填写；不填也可直接提交。"
                 : "收取往返或单边运费时必须填写单程物流费；选择全免后无需填写，后台会重新核算。"}</p>
             </div>
@@ -594,8 +581,8 @@ function RepairCompletion({ setPage }) {
         </section>
 
         <section className="receipt-upload-section repair-upload-section">
-          <div className="receipt-upload-heading"><div><strong>{isInspectionOnly ? "检测报告与照片/视频" : "维修照片/视频"}</strong><span>{isInspectionOnly ? "上传检测报告和现场照片/视频，无需填写保外费用" : "归属瑞云维修单，与签收附件分开"}</span></div><span className="repair-required-badge">必填</span></div>
-          {!completedDetail && <input className="visually-hidden-file" id="repair-attachments" type="file" accept={isInspectionOnly ? "image/*,video/*,application/pdf" : "image/*,video/*"} multiple onChange={uploadFiles} disabled={busy} />}
+          <div className="receipt-upload-heading"><div><strong>{isInspectionOnly ? "现场照片/视频" : "维修照片/视频"}</strong><span>{isInspectionOnly ? "师傅只需上传现场照片/视频；检测报告由信息员另行制作并上传" : "归属瑞云维修单，与签收附件分开"}</span></div><span className="repair-required-badge">必填</span></div>
+          {!completedDetail && <input className="visually-hidden-file" id="repair-attachments" type="file" accept="image/*,video/*" multiple onChange={uploadFiles} disabled={busy} />}
           {!completedDetail && <div className="receipt-upload-actions">
             <button type="button" className="receipt-upload-button camera-button" onClick={() => setPhotoCameraOpen(true)} disabled={busy}><CameraIcon size={18} />拍照</button>
             <label className="receipt-upload-button" htmlFor="repair-attachments">▧ 从相册选择</label>
@@ -609,7 +596,7 @@ function RepairCompletion({ setPage }) {
             disabled={busy}
             loadAttachment={loadSavedAttachment}
             onRemove={completedDetail ? null : removeAttachment}
-          /> : <p className="receipt-upload-empty">{isInspectionOnly ? "暂无检测报告或附件" : "暂无维修照片/视频"}</p>}
+          /> : <p className="receipt-upload-empty">暂无维修照片/视频</p>}
         </section>
 
         {errorMessage && !/^缺少必填字段/.test(errorMessage) && <p className="error-message">{errorMessage}</p>}
@@ -618,10 +605,23 @@ function RepairCompletion({ setPage }) {
           <button className="secondary-btn" disabled={busy} onClick={() => save(false)}>保存草稿</button>
           {isOutOfWarranty && !pricing?.canPrice
             ? <button type="button" className="fee-review-jump" disabled={busy} onClick={showPricingSummary}>查看费用明细</button>
-            : <button className="primary-btn" disabled={busy || !canSubmitCompletion} onClick={() => save(true)}>{submitButtonLabel}</button>}
+            : <button className="primary-btn" disabled={busy || !canSubmitCompletion} onClick={() => setCompletionConfirmOpen(true)}>{submitButtonLabel}</button>}
         </div>}
-        {completedDetail ? <button className="secondary-btn" onClick={() => setPage("home")}>返回首页</button> : <p className="dry-run-notice">仅保存 FieldDesk 本地数据，不连接或修改瑞云。</p>}
+        {completedDetail
+          ? <button className="secondary-btn" onClick={() => setPage("repair")}>返回工单</button>
+          : <p className="dry-run-notice">提交后由系统继续同步瑞云，无需停留本页等待。</p>}
       </div>
+      {completionConfirmOpen && <div className="completion-confirm-overlay" onClick={() => setCompletionConfirmOpen(false)}>
+        <section className="completion-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="completion-confirm-title" onClick={(event) => event.stopPropagation()}>
+          <div className="completion-confirm-icon" aria-hidden="true">✓</div>
+          <h2 id="completion-confirm-title">确认提交完工？</h2>
+          <p>{isInspectionOnly ? "请确认检测资料和现场附件均已核对无误。确认后系统只操作瑞云完工，不点击提交；信息员将开检测报告、上传报告、修改地址并提交。" : "请确认维修资料和附件均已核对无误。提交后，瑞云流程将由系统继续处理。"}</p>
+          <div className="completion-confirm-actions">
+            <button type="button" className="completion-confirm-cancel" onClick={() => setCompletionConfirmOpen(false)}>再检查一下</button>
+            <button type="button" className="completion-confirm-submit" onClick={confirmAndSubmitCompletion}>确认完工</button>
+          </div>
+        </section>
+      </div>}
       {!completedDetail && <PhotoCaptureModal open={photoCameraOpen} title="拍摄维修照片" filePrefix="维修照片" onCapture={uploadCapturedPhoto} onClose={() => setPhotoCameraOpen(false)} />}
     </div>
   )

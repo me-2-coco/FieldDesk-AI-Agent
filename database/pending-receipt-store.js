@@ -70,7 +70,7 @@ class PendingReceiptStore {
         };
         if (previous) {
           for (const key of [
-            'logisticsNo', 'phone', 'customerName', 'regionAddress', 'reportedFault',
+            'logisticsNo', 'phone', 'customerName', 'regionAddress', 'customerAddress', 'reportedFault',
             'sn', 'productLine', 'productModel', 'pickupStatus', 'sourceCreatedAt',
             'phoneVerified',
           ]) {

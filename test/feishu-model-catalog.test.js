@@ -119,6 +119,18 @@ test("mismatch resolves one Feishu product model code for Recloud search", () =>
   assert.equal(result.correctionLookupRequired, true);
 });
 
+test("SN variants sharing one numeric product model code are the same Recloud project", () => {
+  const result = resolveProjectModel([
+    { projectCode: "R2246", model: "S10 Plus", modelCode: "01020400000134" },
+    { projectCode: "R2246B", model: "S10 Plus", modelCode: "01020400000134" },
+  ], { sn: "R2246B2CQCN004500000P01", currentProjectCode: "R2246" });
+  assert.equal(result.status, "MATCHED");
+  assert.equal(result.canContinue, true);
+  assert.equal(result.correctionLookupRequired, false);
+  assert.equal(result.matchBasis, "SHARED_PRODUCT_MODEL_CODE");
+  assert.equal(result.productModelCode, "01020400000134");
+});
+
 test("mismatch stops on duplicate model codes", () => {
   const result = resolveProjectModel([
     { projectCode: "W2213/W2213D", model: "H11 S", modelCode: "01010300000061" },
@@ -142,6 +154,21 @@ test("same project prefers the one numeric product model code", () => {
   ], { sn: "R25730123456", currentProjectCode: "WRONG" });
   assert.equal(result.status, "CHANGE_REQUIRED");
   assert.equal(result.productModelCode, "010204AA000720");
+});
+
+test("model hint disambiguates several numeric product codes under one project", () => {
+  const result = resolveProjectModel([
+    { projectCode: "R2228", model: "S10（非上下水版）", modelCode: "01020400000086" },
+    { projectCode: "R2228", model: "S10（上下水版）", modelCode: "01020400000127" },
+    { projectCode: "R2228", model: "S10+上下水装置", modelCode: "TM202301120001" },
+  ], {
+    sn: "R2228Z2CBCN045960000P01",
+    currentProjectCode: "R2304",
+    model: "S10（非上下水版）",
+  });
+  assert.equal(result.status, "CHANGE_REQUIRED");
+  assert.equal(result.projectCode, "R2228");
+  assert.equal(result.productModelCode, "01020400000086");
 });
 
 test("correct current project never requires a product-code correction lookup", () => {

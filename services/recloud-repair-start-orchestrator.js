@@ -93,6 +93,7 @@ async function orchestrateRepairStart(payload, adapter, options = {}) {
         assignee: assignmentPlan.servicePerson,
         assignmentSource: payload.assignmentSource || "",
         warrantyConversionRequested: payload.warrantyConversionRequested === true,
+        warrantyConfirmationVersion: 2,
         partsVerified: false,
         missingParts: reportedMissingParts,
         completedSteps: ["ASSIGNEE_VERIFIED", "WARRANTY_CONVERSION_CONFIRMED", "PARTS_SHORTAGE_RECORDED"],
@@ -105,6 +106,7 @@ async function orchestrateRepairStart(payload, adapter, options = {}) {
     assignee: assignmentPlan.servicePerson,
     assignmentSource: payload.assignmentSource || "",
     warrantyConversionRequested: payload.warrantyConversionRequested === true,
+    warrantyConfirmationVersion: 2,
     partsVerified: true,
     completedSteps: ["ASSIGNEE_VERIFIED", "WARRANTY_CONVERSION_CONFIRMED", "PARTS_VERIFIED"],
   };

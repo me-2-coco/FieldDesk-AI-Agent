@@ -73,7 +73,7 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
       logisticsNo: workflow.logisticsNo || "",
       customer: workflow.customerName || "",
       phone: fullLocalPhone(workflow),
-      address: workflow.regionAddress || "",
+      address: workflow.customerAddress || workflow.regionAddress || "",
       product: workflow.productLine || workflow.specialty || "",
       model: workflow.productLine || workflow.specialty || "",
       sn: workflow.sn || "",
@@ -414,10 +414,12 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
       {detailStatus && <div className="home-work-order-list">
         <div className="home-list-heading"><strong>{detailStatus === "unfinished" ? "师傅手上未修走的机器" : detailStatus === "waiting" ? "待料工单" : detailStatus === "outOfWarranty" ? "保外暂存工单" : detailStatus === "held" ? "其他暂存工单" : "已完成维修"}</strong><span>{detailOrders.length} 台</span></div>
         {!detailOrders.length && <p>当前没有该状态的机器</p>}
-        {detailOrders.map((item) => <button type="button" key={item.rmaNo} className={canViewTechnicians ? "read-only" : ""} onClick={() => isTechnician && item.status !== "ON_HOLD" && openWorkflow(item)} aria-disabled={canViewTechnicians || item.status === "ON_HOLD"}>
-          <span className="home-order-main"><strong>{canViewTechnicians ? item.phoneMasked || "电话未记录" : fullLocalPhone(item)}</strong><small>{item.productLine || item.specialty || "品类未记录"} · SN {item.sn || "未记录"}{item.status === "ON_HOLD" && <> · {item.hold?.category || "分类未记录"}/{item.hold?.reason || "原因未记录"}</>}</small></span>
-          <span className={`home-order-status ${detailStatus}`}>{technicianWorkloadStatusLabel(item)}</span>{isTechnician && <b>›</b>}
-        </button>)}
+        {!!detailOrders.length && <div className="home-work-order-scroll">
+          {detailOrders.map((item) => <button type="button" key={item.rmaNo} className={canViewTechnicians ? "read-only" : ""} onClick={() => isTechnician && item.status !== "ON_HOLD" && openWorkflow(item)} aria-disabled={canViewTechnicians || item.status === "ON_HOLD"}>
+            <span className="home-order-main"><strong>{canViewTechnicians ? item.phoneMasked || "电话未记录" : fullLocalPhone(item)}</strong><small>{item.productLine || item.specialty || "品类未记录"} · SN {item.sn || "未记录"}{item.status === "ON_HOLD" && <> · {item.hold?.category || "分类未记录"}/{item.hold?.reason || "原因未记录"}</>}</small></span>
+            <span className={`home-order-status ${detailStatus}`}>{technicianWorkloadStatusLabel(item)}</span>{isTechnician && <b>›</b>}
+          </button>)}
+        </div>}
       </div>}
       {isTechnician && order?.crmOrderNo && !technicianOrderFinished && <>
         <p>当前工单：{order.crmOrderNo}</p>

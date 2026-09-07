@@ -1,6 +1,6 @@
 const path = require("path");
 
-const ATTACHMENT_NAME_PATTERN = /\.(?:jpe?g|png|webp|heic|mp4|mov|avi|webm)$/i;
+const ATTACHMENT_NAME_PATTERN = /\.(?:jpe?g|png|webp|heic|mp4|mov|avi|webm|pdf)$/i;
 
 function parseDisplayedSize(value) {
   const match = String(value || "").trim().match(/^(\d+(?:\.\d+)?)\s*([KMGT]?)(?:I?B)?(?:\s*\|)?$/i);
@@ -15,6 +15,7 @@ function mimeTypeFromName(fileName) {
     ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
     ".webp": "image/webp", ".heic": "image/heic", ".mp4": "video/mp4",
     ".mov": "video/quicktime", ".avi": "video/x-msvideo", ".webm": "video/webm",
+    ".pdf": "application/pdf",
   }[extension] || "";
 }
 
@@ -35,8 +36,8 @@ function parseRepairAttachmentPanelText(text) {
   return attachments;
 }
 
-async function locateRepairAttachmentPanel(page) {
-  const headings = page.getByText("附件", { exact: true }).filter({ visible: true });
+async function locateRepairAttachmentPanel(page, target = "附件") {
+  const headings = page.getByText(target, { exact: true }).filter({ visible: true });
   const count = await headings.count();
   if (count !== 1) {
     const error = new Error(count ? "维修附件区域不唯一" : "没有找到维修附件区域");
@@ -49,8 +50,8 @@ async function locateRepairAttachmentPanel(page) {
   return await panel.count() ? panel.first() : headings.first().locator("xpath=parent::*");
 }
 
-async function readExistingRepairAttachments(page) {
-  const panel = await locateRepairAttachmentPanel(page);
+async function readExistingRepairAttachments(page, target = "附件") {
+  const panel = await locateRepairAttachmentPanel(page, target);
   return parseRepairAttachmentPanelText(await panel.innerText());
 }
 

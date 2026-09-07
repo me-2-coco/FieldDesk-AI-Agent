@@ -23,7 +23,6 @@ function readyInspection(overrides = {}) {
     mainAttachmentHeadingCount: 1,
     mainAttachmentUploadCount: 1,
     attachmentTarget: "附件",
-    forbiddenAttachmentTarget: "附件（检测报告）",
     completeButtonCount: 1,
     submitButtonCount: 0,
     mutationRequestDetected: false,

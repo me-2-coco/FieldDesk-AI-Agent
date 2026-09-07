@@ -7,7 +7,7 @@ const RECLOUD_WORK_ORDER_OPERATION_POLICY = Object.freeze({
   partEntryTarget: "新件名称",
   forbiddenPartLookup: "放大镜",
   attachmentTarget: "附件",
-  forbiddenAttachmentTarget: "附件（检测报告）",
+  detectionReportAttachmentTarget: "附件（检测报告）",
   excludedTargets: Object.freeze(["责任判定", "品质描述"]),
   troubleshootingValue: "否",
   approvalFlow: "内部维修单自动审批（成都欣益）",
@@ -46,8 +46,8 @@ function assertRecloudOperationAllowed(operation = {}) {
   if (action === RECLOUD_WORK_ORDER_OPERATION_POLICY.forbiddenPartLookup) {
     throw policyError("添加配件禁止点击放大镜，应在新件名称直接输入编码", "RECLOUD_PART_LOOKUP_FORBIDDEN", action);
   }
-  if (target === RECLOUD_WORK_ORDER_OPERATION_POLICY.forbiddenAttachmentTarget) {
-    throw policyError("维修照片视频只能上传到主附件", "RECLOUD_ATTACHMENT_TARGET_FORBIDDEN", target);
+  if (target === RECLOUD_WORK_ORDER_OPERATION_POLICY.detectionReportAttachmentTarget && action !== "上传检测报告") {
+    throw policyError("只有系统生成的检测报告可以上传到检测报告附件", "RECLOUD_ATTACHMENT_TARGET_FORBIDDEN", target);
   }
   if (RECLOUD_WORK_ORDER_OPERATION_POLICY.excludedTargets.includes(target)) {
     throw policyError(`禁止修改${target}`, "RECLOUD_FIELD_TARGET_FORBIDDEN", target);

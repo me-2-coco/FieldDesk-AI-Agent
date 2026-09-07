@@ -188,6 +188,10 @@ function createDefaultOrder({
 
     inspectionFaultOutcome: "",
 
+    diagnosticParts: [],
+
+    diagnosticPartsConfirmedAt: null,
+
     faultSystem: "",
 
     crmFault: "",
@@ -431,6 +435,12 @@ function normalizeOrder(order) {
 
     inspectionFaultOutcome:
       order.inspectionFaultOutcome || "",
+
+    diagnosticParts:
+      Array.isArray(order.diagnosticParts) ? order.diagnosticParts : [],
+
+    diagnosticPartsConfirmedAt:
+      order.diagnosticPartsConfirmedAt || null,
 
     resumeStep:
       order.resumeStep || "",
@@ -908,6 +918,12 @@ export function createRepairOrder(
 
     inspectionFaultOutcome:
       fields.inspectionFaultOutcome || "",
+
+    diagnosticParts:
+      Array.isArray(fields.diagnosticParts) ? fields.diagnosticParts : [],
+
+    diagnosticPartsConfirmedAt:
+      fields.diagnosticPartsConfirmedAt || null,
 
     specialty:
       fields.specialty || "",

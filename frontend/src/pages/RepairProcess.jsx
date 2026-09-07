@@ -34,6 +34,13 @@ function RepairProcess({ setPage }) {
   const [serviceOrderAttemptedAt, setServiceOrderAttemptedAt] = useState("not-started")
   const inspectionIsSaved = Boolean(repairOrder.level3Fault && repairOrder.warrantyType)
     || [REPAIR_STATUS.INSPECTION_COMPLETE, REPAIR_STATUS.REPAIRING].includes(repairOrder.status)
+  const needsDiagnosticPart = repairOrder.treatmentMode === "INSPECTION_ONLY"
+    && repairOrder.inspectionFaultOutcome === "FAULT_REPRODUCED"
+    && !repairOrder.diagnosticPartsConfirmedAt
+
+  useEffect(() => {
+    if (needsDiagnosticPart) setPage("partsApplication")
+  }, [needsDiagnosticPart, setPage])
 
   useEffect(() => {
     if (!inspectionIsSaved) return undefined
@@ -207,7 +214,7 @@ function RepairProcess({ setPage }) {
   }
 
   function returnToPreviousStep() {
-    navigateToSavedStep(repairOrder.treatmentMode === "REPAIR" ? "partsApplication" : "repairDecision")
+    navigateToSavedStep(["REPAIR", "ABANDONED"].includes(repairOrder.treatmentMode) || repairOrder.treatmentMode === "INSPECTION_ONLY" && repairOrder.inspectionFaultOutcome === "FAULT_REPRODUCED" ? "partsApplication" : "repairDecision")
   }
 
   return (
@@ -325,18 +332,14 @@ function RepairProcess({ setPage }) {
             <button
               className="primary-btn"
               onClick={enterRepair}
-              disabled={isSaving || recloudWriteEnabled === null || (recloudWriteEnabled === true && ["PENDING", "SYNCING", "RESULT_UNKNOWN"].includes(detectionSyncStatus))}
+              disabled={isSaving || recloudWriteEnabled === null}
             >
               {isSaving
                 ? "正在进入维修..."
                 : recloudWriteEnabled === null
                   ? "正在核对瑞云状态"
-                : detectionSyncStatus === "FAILED"
-                  ? "重试检测同步"
-                  : recloudWriteEnabled === true && ["PENDING", "SYNCING"].includes(detectionSyncStatus)
-                    ? "瑞云检测处理中"
-                    : detectionSyncStatus === "RESULT_UNKNOWN"
-                      ? "等待管理员核验"
+                : recloudWriteEnabled === true && ["PENDING", "SYNCING", "FAILED", "RESULT_UNKNOWN"].includes(detectionSyncStatus)
+                    ? "进入下一步"
                       : repairOrder.treatmentMode === "REPAIR" ? "维修" : "进入处理结果"}
             </button>
           )}

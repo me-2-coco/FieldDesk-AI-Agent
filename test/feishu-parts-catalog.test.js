@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { FeishuPartsCatalog, parsePartRows, parseSweepPartRows, projectCodesFromTitle, partSupportsProject, projectCodeSearchCandidates, searchPartRows, retailPrice } = require("../connectors/feishu-parts-catalog");
+const { FeishuPartsCatalog, parsePartRows, parseSweepPartRows, projectCodesFromTitle, partSupportsProject, projectCodeSearchCandidates, searchPartRows, retailPrice, replacementPartCode } = require("../connectors/feishu-parts-catalog");
 
 test("零售价兼容飞书货币符号和千位分隔格式", () => {
   assert.equal(retailPrice("¥1,299.50"), 1299.5);
@@ -116,7 +116,65 @@ test("配件搜索支持完整和模糊的物料条码与名称，并优先完�
     { code: "20020100009999", name: "7510 测试组件", projectCode: "W2336" },
   ];
   assert.deepEqual(searchPartRows(items, { projectCode: "W2336", keyword: "20020100007510" }).map((part) => part.code), ["20020100007510"]);
-  assert.deepEqual(searchPartRows(items, { projectCode: "W2336", keyword: "7510" }).map((part) => part.code), ["20020100007510", "20020100009999"]);
+  assert.deepEqual(searchPartRows(items, { projectCode: "W2336", keyword: "7510" }).map((part) => part.code), ["20020100007510"]);
   assert.deepEqual(searchPartRows(items, { projectCode: "W2336", keyword: "售后进水管" }).map((part) => part.code), ["20020100007511"]);
   assert.deepEqual(searchPartRows(items, { projectCode: "W2336", keyword: "进水" }).map((part) => part.code), ["20020100007510", "20020100007511"]);
+});
+
+test("当前机型表全局搜索在非物料编号列命中编码时标记替代料", () => {
+  assert.equal(replacementPartCode("替代料 20020100030341"), "20020100030341");
+  const rows = [
+    ["序号", "物料编号", "备件名称", "配置", "单位", "维修等级", "零售价", "备注"],
+    [179, "20020100010636", "售后自动进水回充组件", 1, "pcs", "中修", 39, "替代料 20020100030341"],
+  ];
+  const [part] = parseSweepPartRows(rows, { title: "S30 PU&S30 PU甄选(R2424&R9498)" });
+  assert.equal(part.code, "20020100010636");
+  assert.deepEqual(part.alternateCodes.map((item) => item.code), ["20020100030341"]);
+  const [replacementMatch] = searchPartRows([part], { projectCode: "R9498", keyword: "30341" });
+  assert.equal(replacementMatch.code, "20020100030341");
+  assert.equal(replacementMatch.sourceCode, "20020100010636");
+  assert.equal(replacementMatch.isReplacementPart, true);
+  assert.equal(replacementMatch.matchedColumn, "备注");
+  assert.deepEqual(searchPartRows([part], { projectCode: "R2424", keyword: "10636" }).map((item) => item.code), ["20020100010636"]);
+  const [nameMatch] = searchPartRows([part], { projectCode: "R2424", keyword: "自动进水" });
+  assert.equal(nameMatch.code, "20020100010636");
+  assert.equal(nameMatch.isReplacementPart, undefined);
+});
+
+test("物料编号列有结果时正常显示，不使用其它列的同编码替代结果", () => {
+  const items = [
+    { code: "20020100030341", name: "新料独立行", projectCode: "R2424" },
+    { code: "20020100010636", name: "旧料行", projectCode: "R2424", alternateCodes: [{ code: "20020100030341", columnName: "备注" }] },
+  ];
+  const matches = searchPartRows(items, { projectCode: "R2424", keyword: "30341" });
+  assert.deepEqual(matches.map((item) => item.code), ["20020100030341"]);
+  assert.equal(matches[0].name, "新料独立行");
+  assert.equal(matches[0].isReplacementPart, undefined);
+});
+
+test("物料编号列和其它列中的编码都支持前缀中间段及尾号模糊搜索", () => {
+  const items = [
+    { code: "20020100030399", name: "普通料", projectCode: "R2424", alternateCodes: [] },
+    { code: "20020100010636", name: "旧料行", projectCode: "R2424", alternateCodes: [{ code: "20020100030341", columnName: "备注" }] },
+  ];
+  for (const keyword of ["200201000303", "100030", "30341"]) {
+    const matches = searchPartRows(items, { projectCode: "R2424", keyword });
+    assert.equal(matches.some((item) => item.code === "20020100030341" && item.isReplacementPart === true), true);
+  }
+  const combined = searchPartRows(items, { projectCode: "R2424", keyword: "303" });
+  assert.deepEqual(combined.map((item) => item.code), ["20020100030399", "20020100030341"]);
+  assert.equal(combined[0].isReplacementPart, undefined);
+  assert.equal(combined[1].isReplacementPart, true);
+});
+
+test("非备注列中的物料编码也按全局搜索规则显示为替代料", () => {
+  const rows = [
+    ["序号", "物料编号", "备件名称", "配置", "单位", "维修等级", "零售价", "兼容编码"],
+    [1, "20020100010636", "售后自动进水回充组件", 1, "pcs", "中修", 39, "可用 20020100030341"],
+  ];
+  const [part] = parseSweepPartRows(rows, { title: "S30 PU(R2424)" });
+  const [match] = searchPartRows([part], { projectCode: "R2424", keyword: "30341" });
+  assert.equal(match.code, "20020100030341");
+  assert.equal(match.isReplacementPart, true);
+  assert.equal(match.matchedColumn, "兼容编码");
 });

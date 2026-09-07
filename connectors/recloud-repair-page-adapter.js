@@ -50,6 +50,35 @@ async function clickApprovalFlowInput(flowInput) {
   }
 }
 
+async function clickAfterLoadingSettles(page, button, options = {}) {
+  const deadline = Date.now() + Number(options.timeoutMs || 30_000);
+  const loadingMasks = page.locator([
+    ".rt-loading-mask:visible",
+    ".el-loading-mask:visible",
+    ".ant-spin-spinning:visible",
+  ].join(", "));
+  let lastError = null;
+  while (Date.now() < deadline) {
+    if (await loadingMasks.count() > 0) {
+      await page.waitForTimeout?.(Number(options.pollIntervalMs || 250));
+      continue;
+    }
+    try {
+      await button.click({ timeout: Math.min(5000, Math.max(500, deadline - Date.now())) });
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!String(error?.message || error).includes("intercepts pointer events")) throw error;
+      await page.waitForTimeout?.(Number(options.pollIntervalMs || 250));
+    }
+  }
+  throw adapterError(
+    `瑞云加载遮罩长时间未释放：${String(lastError?.message || "").slice(0, 300)}`,
+    "RECLOUD_REPAIR_LOADING_MASK_TIMEOUT",
+    "SUBMIT"
+  );
+}
+
 async function openServiceReport(page, timeoutMs = 15000) {
   const partsHeading = page.getByText("服务单更换件明细", { exact: true }).filter({ visible: true });
   if (await partsHeading.count() === 1) return;
@@ -87,7 +116,13 @@ async function waitForDialog(page, countBefore, timeoutMs = 7000) {
   const dialogs = page.locator("[role='dialog']:visible, .el-dialog:visible, .rt-dialog:visible, .rt-dialog__wrapper:visible");
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (await dialogs.count() > countBefore) return dialogs.last();
+    if (await dialogs.count() > countBefore) {
+      // Keep the locator bound to the dialog that was opened by this action.
+      // A model notice may appear immediately afterwards; `last()` would then
+      // dynamically switch to that notice and make the assignment flow wait
+      // for or validate the wrong window.
+      return dialogs.nth(countBefore);
+    }
     await page.waitForTimeout?.(100);
   }
   throw adapterError("瑞云操作窗口未打开", "RECLOUD_REPAIR_DIALOG_NOT_FOUND", "PAGE");
@@ -187,6 +222,12 @@ function enrichExpectedAttachmentMetadata(attachments, expectedAttachments) {
   });
 }
 
+async function isRecloudRepairFullySubmitted(page) {
+  const completedBadge = page.getByText("已完工", { exact: true }).filter({ visible: true });
+  const pendingSubmit = page.getByRole("button", { name: exactText("提交") }).filter({ visible: true });
+  return await completedBadge.count() === 1 && await pendingSubmit.count() === 0;
+}
+
 function createRecloudRepairPageAdapter(page, context = {}) {
   return {
     async waitForTimeout(timeoutMs) {
@@ -222,19 +263,27 @@ function createRecloudRepairPageAdapter(page, context = {}) {
       }
       console.info("RECLOUD_REPAIR_REMOTE_READ: attachments_start");
       const attachments = await readExistingRepairAttachments(page).catch(() => []);
+      const expectsDetectionReport = (context.payload?.attachments || []).some((item) => item?.source === "INSPECTION_REPORT");
+      const detectionReportAttachments = expectsDetectionReport
+        ? await readExistingRepairAttachments(page, "附件（检测报告）").catch(() => [])
+        : [];
       console.info("RECLOUD_REPAIR_REMOTE_READ: attachments_ready");
       return {
         assignee: assignee.currentAssignee,
         parts,
         attachments: enrichExpectedAttachmentMetadata(attachments, context.payload?.attachments),
-        completed: await page.getByText("已完工", { exact: true }).filter({ visible: true }).count() === 1,
+        detectionReportAttachments: enrichExpectedAttachmentMetadata(detectionReportAttachments, context.payload?.attachments),
+        // “已完工”只代表完工资料已经保存。只要页面仍显示“提交”，
+        // 签核流程就还没有完成，必须继续走最终提交，不能提前报成功。
+        completed: await isRecloudRepairFullySubmitted(page),
       };
     },
 
-    async readRemoteAttachments() {
+    async readRemoteAttachments(options = {}) {
       await dismissBlockingRepairMessageBoxes(page);
       await openServiceReport(page);
-      const attachments = await readExistingRepairAttachments(page).catch(() => []);
+      const target = String(options.target || "附件").trim();
+      const attachments = await readExistingRepairAttachments(page, target).catch(() => []);
       return enrichExpectedAttachmentMetadata(attachments, context.payload?.attachments);
     },
 
@@ -319,26 +368,42 @@ function createRecloudRepairPageAdapter(page, context = {}) {
         "RECLOUD_WARRANTY_CONVERSION_PRODUCT_AMBIGUOUS",
         "WARRANTY_CONVERSION"
       );
-      const productRowText = String(await productRow.innerText().catch(() => ""));
-      const productRowValues = productRowText.split(/\s+/).filter(Boolean);
-      if (productRowValues.includes("保内")) {
-        console.info("RECLOUD_WARRANTY_CONVERSION: already_in_warranty");
-        return { confirmed: true, alreadyInWarranty: true };
-      }
+      // “保外转保内”是服务单进入维修后的必经确认项，而不是仅在表格
+      // 当前显示“保外”时才执行。即使产品行已经显示“保内”，仍要打开
+      // 确认窗口并按 FieldDesk 选择明确提交“是/否”，不能以显示值代替确认。
       // 瑞云表格会把“操作”列复制到 fixed-right 浮层。主体行中的按钮虽然
       // 可见，但会被浮层副本挡住；应优先点击真正位于 fixed-right 中的按钮。
       // 仍然先用 SN 锁定唯一产品行，避免误操作同单的其他产品。
-      const rowButton = await uniqueVisible(
-        productRow.getByRole("button", { name: exactText("保外转保内") }).filter({ visible: true }),
-        "当前产品行缺少保外转保内按钮",
-        "RECLOUD_WARRANTY_CONVERSION_BUTTON_AMBIGUOUS",
-        "WARRANTY_CONVERSION"
-      );
+      const productRowText = String(await productRow.innerText().catch(() => ""));
+      const productRowValues = productRowText.split(/\s+/).filter(Boolean);
+      const rowButtons = productRow
+        .getByRole("button", { name: exactText("保外转保内") })
+        .filter({ visible: true });
       const fixedButtons = page
         .locator(".rtxpc-table__fixed-right:visible, .el-table__fixed-right:visible")
         .getByRole("button", { name: exactText("保外转保内") })
         .filter({ visible: true });
-      const button = await fixedButtons.count() === 1 ? fixedButtons.first() : rowButton;
+      const fixedCount = await fixedButtons.count();
+      const rowCount = await rowButtons.count();
+      if (fixedCount > 1 || (fixedCount === 0 && rowCount > 1)) {
+        throw adapterError(
+          `保外转保内按钮不唯一（固定列 ${fixedCount} 个，主体行 ${rowCount} 个）`,
+          "RECLOUD_WARRANTY_CONVERSION_BUTTON_AMBIGUOUS",
+          "WARRANTY_CONVERSION"
+        );
+      }
+      if (fixedCount === 0 && rowCount === 0) {
+        if (productRowValues.includes("保内")) {
+          console.info("RECLOUD_WARRANTY_CONVERSION: already_explicitly_confirmed");
+          return { confirmed: true, alreadyExplicitlyConfirmed: true };
+        }
+        throw adapterError(
+          "当前产品行缺少保外转保内按钮",
+          "RECLOUD_WARRANTY_CONVERSION_BUTTON_AMBIGUOUS",
+          "WARRANTY_CONVERSION"
+        );
+      }
+      const button = fixedCount === 1 ? fixedButtons.first() : rowButtons.first();
       await button.click({ timeout: 5000 });
       const dialog = page.getByRole("dialog", { name: exactText("保外转保内确认") }).filter({ visible: true });
       const confirmation = await uniqueVisible(
@@ -605,14 +670,16 @@ function createRecloudRepairPageAdapter(page, context = {}) {
       return /(?:^|\s)否(?:\s|$)/.test(String(await rows.first().innerText()));
     },
 
-    async uploadAttachments(plan) {
+    async uploadAttachments(plan, options = {}) {
       await openServiceReport(page);
       if (!plan.additions.length) return { uploadedCount: 0 };
-      const headings = page.getByText("附件", { exact: true }).filter({ visible: true });
-      const heading = await uniqueVisible(headings, "瑞云主附件区域不唯一", "RECLOUD_REPAIR_ATTACHMENT_SECTION_AMBIGUOUS", "ATTACHMENTS");
+      const target = String(options.target || "附件").trim();
+      const isDetectionReport = target === "附件（检测报告）";
+      const headings = page.getByText(target, { exact: true }).filter({ visible: true });
+      const heading = await uniqueVisible(headings, `瑞云${target}区域不唯一`, isDetectionReport ? "RECLOUD_DETECTION_REPORT_SECTION_AMBIGUOUS" : "RECLOUD_REPAIR_ATTACHMENT_SECTION_AMBIGUOUS", isDetectionReport ? "DETECTION_REPORT" : "ATTACHMENTS");
       const panel = heading.locator("xpath=ancestor::*[.//button[normalize-space(.)='上传附件']][1]");
-      if (await panel.count() !== 1) throw adapterError("无法定位瑞云主附件上传按钮", "RECLOUD_REPAIR_ATTACHMENT_UPLOAD_NOT_FOUND", "ATTACHMENTS");
-      const uploadEntry = await uniqueVisible(panel.getByRole("button", { name: exactText("上传附件") }).filter({ visible: true }), "瑞云主附件上传按钮不唯一", "RECLOUD_REPAIR_ATTACHMENT_UPLOAD_AMBIGUOUS", "ATTACHMENTS");
+      if (await panel.count() !== 1) throw adapterError(`无法定位瑞云${target}上传按钮`, isDetectionReport ? "RECLOUD_DETECTION_REPORT_UPLOAD_NOT_FOUND" : "RECLOUD_REPAIR_ATTACHMENT_UPLOAD_NOT_FOUND", isDetectionReport ? "DETECTION_REPORT" : "ATTACHMENTS");
+      const uploadEntry = await uniqueVisible(panel.getByRole("button", { name: exactText("上传附件") }).filter({ visible: true }), `瑞云${target}上传按钮不唯一`, isDetectionReport ? "RECLOUD_DETECTION_REPORT_UPLOAD_AMBIGUOUS" : "RECLOUD_REPAIR_ATTACHMENT_UPLOAD_AMBIGUOUS", isDetectionReport ? "DETECTION_REPORT" : "ATTACHMENTS");
       await uploadEntry.click({ timeout: 5000 });
       const dialog = await uniqueVisible(
         page.getByRole("dialog").filter({ has: page.getByText("上传附件", { exact: true }) }).filter({ visible: true }),
@@ -688,7 +755,7 @@ function createRecloudRepairPageAdapter(page, context = {}) {
     async clickSubmit(options = {}) {
       if (options.stopImmediately !== true) throw adapterError("最终提交必须设置立即停止", "RECLOUD_REPAIR_SUBMIT_POLICY_INVALID", "SUBMIT");
       const button = await uniqueVisible(page.getByRole("button", { name: exactText("提交") }).filter({ visible: true }), "瑞云提交按钮不唯一", "RECLOUD_REPAIR_SUBMIT_AMBIGUOUS", "SUBMIT");
-      await button.click({ timeout: 5000 });
+      await clickAfterLoadingSettles(page, button);
       const dialog = await uniqueVisible(page.getByRole("dialog", { name: exactText("签核流程") }).filter({ visible: true }), "瑞云签核流程窗口不唯一", "RECLOUD_REPAIR_APPROVAL_DIALOG_AMBIGUOUS", "SUBMIT");
       const expectedFlow = String(options.approvalFlow || "").trim();
       const flowInput = await uniqueVisible(
@@ -716,14 +783,17 @@ function createRecloudRepairPageAdapter(page, context = {}) {
       }
       const submit = await uniqueVisible(dialog.getByRole("button", { name: exactText("提交") }).filter({ visible: true }), "签核流程提交按钮不唯一", "RECLOUD_REPAIR_APPROVAL_SUBMIT_AMBIGUOUS", "SUBMIT");
       if (!await submit.isEnabled()) throw adapterError("签核流程提交按钮不可用", "RECLOUD_REPAIR_APPROVAL_SUBMIT_DISABLED", "SUBMIT");
-      await submit.click({ timeout: 5000 });
+      await clickAfterLoadingSettles(page, submit);
     },
   };
 }
 
 module.exports = {
+  clickAfterLoadingSettles,
   clickApprovalFlowInput,
   createRecloudRepairPageAdapter,
   dismissBlockingRepairMessageBoxes,
+  waitForDialog,
+  isRecloudRepairFullySubmitted,
   readApprovalFlow,
 };

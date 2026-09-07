@@ -25,7 +25,8 @@ export function resumePageForLocalWorkflow(order = {}) {
     if (order.treatmentMode && order.treatmentMode !== "REPAIR") return "repairCompletion"
     return order.repairStartedAt || order.recloudServiceOrderCreatedAt ? "repairCompletion" : "repairProcess"
   }
-  if (order.treatmentMode === "REPAIR") return "partsApplication"
+  if (order.treatmentMode === "REPAIR" || order.treatmentMode === "ABANDONED") return "partsApplication"
+  if (order.treatmentMode === "INSPECTION_ONLY" && order.inspectionFaultOutcome === "FAULT_REPRODUCED" && !order.diagnosticPartsConfirmedAt) return "partsApplication"
   if (order.treatmentMode) return "repairProcess"
   if (order.receiptCompletedAt) return order.technicianWarranty ? "repairDecision" : "repairWarranty"
   return ""

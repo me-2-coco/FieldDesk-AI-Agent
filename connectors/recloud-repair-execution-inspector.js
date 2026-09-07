@@ -192,7 +192,7 @@ async function inspectRepairExecutionControls(page, targetAssignee, options = {}
     partEntryTarget: RECLOUD_WORK_ORDER_OPERATION_POLICY.partEntryTarget,
     reportAttachmentHeadingCount: await reportAttachmentHeadings.count(),
     attachmentTarget: RECLOUD_WORK_ORDER_OPERATION_POLICY.attachmentTarget,
-    forbiddenAttachmentTarget: RECLOUD_WORK_ORDER_OPERATION_POLICY.forbiddenAttachmentTarget,
+    detectionReportAttachmentTarget: RECLOUD_WORK_ORDER_OPERATION_POLICY.detectionReportAttachmentTarget,
     completeButtonCount: await completeButtons.count(),
     submitButtonCount: await submitButtons.count(),
     excludedTargets: [...RECLOUD_WORK_ORDER_OPERATION_POLICY.excludedTargets],

@@ -55,7 +55,6 @@ function memoryRepairAdapter() {
     async uploadAttachments(plan, policy) {
       calls.push(`附件:${policy.target}`);
       assert.equal(policy.target, "附件");
-      assert.equal(policy.forbiddenTarget, "附件（检测报告）");
       attachments = plan.additions;
     },
     async clickComplete() { calls.push("完工"); },

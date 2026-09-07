@@ -247,7 +247,10 @@ function App() {
     const refresh = async () => {
       try {
         const items = await getInformationExceptions()
-        if (active) setPartsShortageNotices((items || []).filter((item) => item.type === "PARTS_SHORTAGE_PENDING"))
+        if (active) setPartsShortageNotices((items || []).filter((item) => [
+          "PARTS_SHORTAGE_PENDING",
+          "INSPECTION_ONLY_ADDRESS_AND_SUBMIT_PENDING",
+        ].includes(item.type)))
       } catch {
         // 通知接口短暂不可用时保留上次结果，下一轮自动重试。
       } finally {
@@ -665,11 +668,11 @@ function App() {
           type="button"
           className="global-sync-alert"
           onClick={() => setPage("exceptionCenter")}
-          aria-label={`查看${partsShortageNotices.length}张瑞云缺件待办`}
+          aria-label={`查看${partsShortageNotices.length}张信息员待办`}
         >
           <span>
-            <b>瑞云缺件待补录 · {partsShortageNotices[0]?.rmaNo || "待查看"}</b>
-            <small>{partsShortageNotices[0]?.message || "到货后补加配件并提交瑞云"}</small>
+            <b>{partsShortageNotices[0]?.type === "INSPECTION_ONLY_ADDRESS_AND_SUBMIT_PENDING" ? "只检测工单待处理" : "瑞云缺件待补录"} · {partsShortageNotices[0]?.rmaNo || "待查看"}</b>
+            <small>{partsShortageNotices[0]?.message || "请进入信息员异常中心处理"}</small>
           </span>
           <strong>{partsShortageNotices.length > 99 ? "99+" : partsShortageNotices.length}</strong>
         </button>

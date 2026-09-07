@@ -261,6 +261,32 @@ test("SN is trimmed and normalized to uppercase", async (t) => {
   assert.equal(saved.sn, "TEST-SN-A1");
 });
 
+test("assigned technician can reopen receipt to correct a wrong SN without losing photos or remote receipt confirmation", async (t) => {
+  const store = await createTestStore(t);
+  await store.prepare(validPayload({ sn: "WRONG-SN" }));
+  await store.completeReceipt("JXTH900001001", USERS.dual);
+  await store.markRecloudReceiptConfirmed("JXTH900001001", {
+    receipt: { confirmed: true, skipped: true }, operator: USERS.dual,
+  });
+
+  const reopened = await store.reopenReceiptForSnCorrection("JXTH900001001", USERS.dual);
+  assert.equal(reopened.status, "RECEIPT_PREPARED");
+  assert.equal(reopened.sn, "");
+  assert.equal(reopened.receiptCompletedAt, null);
+  assert.equal(reopened.modelAuthorization, null);
+  assert.equal(reopened.receiptAttachments.length, 1);
+  assert.ok(reopened.recloudReceiptConfirmedAt);
+  assert.ok(reopened.snCorrectionRequiredAt);
+  assert.equal(reopened.recloudProjectVerificationStatus, "NOT_STARTED");
+  assert.equal(reopened.recloudReceiptAttachmentSyncStatus, "PENDING");
+
+  const corrected = await store.prepare(validPayload({ sn: "CORRECT-SN" }));
+  assert.equal(corrected.sn, "CORRECT-SN");
+  assert.equal(corrected.snCorrectionRequiredAt, "");
+  assert.ok(corrected.receiptAttachments.length >= 1);
+  assert.ok(corrected.recloudReceiptConfirmedAt);
+});
+
 test("existing local order resumes without opening Recloud", async (t) => {
   const store = await createTestStore(t);
   await store.prepare({
@@ -314,7 +340,6 @@ test("local receipt completion moves the order to pending inspection", async (t)
     operatorName: USERS.sweep.displayName,
     remark: "扫地机",
   });
-
   const completed = await store.completeReceipt(
     "JXTH900001001",
     USERS.sweep
@@ -459,7 +484,7 @@ test("part application is bound to the current order SN", async (t) => {
 
   const result = await store.applyPart(
     "JXTH900001001",
-    { code: "00100123", name: "售后主刷电机", stock: 10, retailPrice: 29, repairLevel: "中修", returnRequired: true },
+    { code: "00100123", name: "售后主刷电机", stock: 10, retailPrice: 29, repairLevel: "中修", returnRequired: true, isReplacementPart: true, sourceCode: "00999999" },
     2,
     USERS.sweep
   );
@@ -469,6 +494,8 @@ test("part application is bound to the current order SN", async (t) => {
   assert.equal(result.application.retailPrice, 29);
   assert.equal(result.application.repairLevel, "中修");
   assert.equal(result.application.returnRequired, true);
+  assert.equal(result.application.isReplacementPart, true);
+  assert.equal(result.application.sourcePartCode, "00999999");
   assert.equal(result.order.partApplications.length, 1);
 
   await assert.rejects(
@@ -511,6 +538,119 @@ test("part application rejects zero stock", async (t) => {
     ),
     { code: "PART_OUT_OF_STOCK" }
   );
+});
+
+test("abandoned repair records quote-only parts without consuming or syncing inventory", async (t) => {
+  const store = await createTestStore(t);
+  await store.prepare(validPayload());
+  await store.completeReceipt("JXTH900001001", USERS.sweep);
+  await store.saveInspection(
+    "JXTH900001001",
+    { inspectionResult: "弃修", technicianWarranty: "保外" },
+    USERS.sweep
+  );
+  await store.saveTreatmentDecision(
+    "JXTH900001001",
+    { treatmentMode: "ABANDONED" },
+    USERS.sweep
+  );
+
+  const result = await store.applyPart(
+    "JXTH900001001",
+    { code: "00100345", name: "故障滚刷", stock: 0, retailPrice: 39, repairLevel: "中修" },
+    1,
+    USERS.sweep
+  );
+
+  assert.equal(result.application.quoteOnly, true);
+  assert.equal(result.order.abandonedQuoteParts.length, 1);
+  assert.equal((result.order.partApplications || []).length, 0);
+  const confirmed = await store.confirmParts("JXTH900001001", USERS.sweep);
+  assert.ok(confirmed.order.abandonedQuoteConfirmedAt);
+  assert.equal((confirmed.order.partApplications || []).length, 0);
+});
+
+test("inspection-only fault reproduction records diagnostic parts without consuming or syncing inventory", async (t) => {
+  const store = await createTestStore(t);
+  await store.prepare(validPayload());
+  await store.completeReceipt("JXTH900001001", USERS.sweep);
+  const decision = await store.saveTreatmentDecision(
+    "JXTH900001001",
+    {
+      treatmentMode: "INSPECTION_ONLY",
+      inspectionFaultOutcome: "FAULT_REPRODUCED",
+      detectionResult: "只检测不维修",
+      technicianWarranty: "保内",
+    },
+    USERS.sweep
+  );
+  assert.equal(decision.resumeStep, "partsApplication");
+
+  const result = await store.applyPart(
+    "JXTH900001001",
+    { code: "00100345", name: "故障滚刷", stock: 0, retailPrice: 39, repairLevel: "中修" },
+    1,
+    USERS.sweep
+  );
+  assert.equal(result.application.diagnosticOnly, true);
+  assert.equal(result.order.diagnosticParts.length, 1);
+  assert.equal((result.order.partApplications || []).length, 0);
+
+  const confirmed = await store.confirmParts("JXTH900001001", USERS.sweep);
+  assert.ok(confirmed.order.diagnosticPartsConfirmedAt);
+  assert.equal(confirmed.nextStep, "repairProcess");
+  assert.equal((confirmed.order.partApplications || []).length, 0);
+  const repeated = await store.confirmParts("JXTH900001001", USERS.sweep);
+  assert.equal(repeated.alreadyConfirmed, true);
+  assert.equal(repeated.order.diagnosticPartsConfirmedAt, confirmed.order.diagnosticPartsConfirmedAt);
+  assert.equal(repeated.order.timeline.length, confirmed.order.timeline.length);
+});
+
+test("inspection-only no-fault skips diagnostic parts and goes directly to detection", async (t) => {
+  const store = await createTestStore(t);
+  await store.prepare(validPayload());
+  await store.completeReceipt("JXTH900001001", USERS.sweep);
+  const decision = await store.saveTreatmentDecision(
+    "JXTH900001001",
+    {
+      treatmentMode: "INSPECTION_ONLY",
+      inspectionFaultOutcome: "NO_FAULT",
+      detectionResult: "只检测不维修",
+      technicianWarranty: "保内",
+    },
+    USERS.sweep
+  );
+  assert.equal(decision.resumeStep, "repairProcess");
+  assert.deepEqual(decision.diagnosticParts, []);
+});
+
+test("choosing abandoned repair can persist a background freight-waiver draft", async (t) => {
+  const store = await createTestStore(t);
+  await store.prepare(validPayload());
+  await store.completeReceipt("JXTH900001001", USERS.sweep);
+  await store.saveInspection(
+    "JXTH900001001",
+    { inspectionResult: "弃修", technicianWarranty: "保外" },
+    USERS.sweep
+  );
+  await store.saveTreatmentDecision(
+    "JXTH900001001",
+    { treatmentMode: "ABANDONED" },
+    USERS.sweep
+  );
+
+  const order = await store.saveFreightWaiverApplication("JXTH900001001", {
+    status: "DRAFT",
+    templateVersion: "sample-v2",
+    formData: { customerName: "测试客户", customerPhone: "13800138000" },
+    quoteReady: false,
+    freightReady: false,
+  }, USERS.sweep);
+
+  assert.equal(order.freightWaiverApplication.status, "DRAFT");
+  assert.equal(order.freightWaiverApplication.formData.customerPhone, "13800138000");
+  assert.ok(order.freightWaiverApplication.createdAt);
+  assert.equal(order.timeline.at(-1).type, "FREIGHT_WAIVER_APPLICATION_CREATED");
 });
 
 test("local receipt and inspection APIs never open Recloud", async (t) => {
@@ -764,6 +904,11 @@ test("receipt-only live mode completes locally before confirming Recloud in the 
     operatorName: USERS.sweep.displayName,
     remark: "扫地机",
   });
+  await store.markModelAuthorization("JXTH900001001", {
+    repairability: "SUPPORTED",
+    status: "MATCHED",
+    projectCode: "R9000",
+  }, USERS.sweep);
   let queryCount = 0;
   let confirmCount = 0;
   let uploadCount = 0;
@@ -776,7 +921,7 @@ test("receipt-only live mode completes locally before confirming Recloud in the 
     queryRmaByLogisticsNo: async (_page, logisticsNo) => {
       queryCount += 1;
       assert.equal(logisticsNo, "TEST-LOGISTICS-1001");
-      return { rmaNo: "JXTH900001001", productLine: "扫地机", pickupStatus: "已取件" };
+      return { rmaNo: "JXTH900001001", productLine: "扫地机", pickupStatus: "已取件", projectCode: "R9000" };
     },
     confirmSign: async (_page, sn, productType, remark, options) => {
       confirmCount += 1;
@@ -816,7 +961,12 @@ test("receipt-only live mode completes locally before confirming Recloud in the 
     const current = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
     return current?.recloudReceiptSyncStatus;
   }, "CONFIRMED");
-  assert.equal(queryCount, 3);
+  await waitForValue(async () => {
+    const current = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
+    return current?.recloudReceiptAttachmentSyncStatus;
+  }, "CONFIRMED");
+  assert.ok(queryCount >= 1);
+  const queryCountAfterSync = queryCount;
   assert.equal(confirmCount, 1);
   assert.equal(uploadCount, 1);
 
@@ -828,7 +978,7 @@ test("receipt-only live mode completes locally before confirming Recloud in the 
 
   const retried = await post(url, "/api/repairs/complete-local-receipt", { rmaNo: "JXTH900001001" });
   assert.equal(retried.response.status, 200);
-  assert.equal(queryCount, 3);
+  assert.equal(queryCount, queryCountAfterSync);
   assert.equal(confirmCount, 1);
 });
 
@@ -1598,8 +1748,9 @@ test("inspection page shows the required local order fields", async () => {
   assert.match(source, /navigateToSavedStep\("partsApplication"\)/);
   assert.match(source, /saveRepairResumeStep/);
   assert.match(source, /getRepairSyncStatus/);
-  assert.match(source, /瑞云检测处理中/);
-  assert.match(source, /等待管理员核验/);
+  assert.match(source, /\? "进入下一步"/);
+  assert.doesNotMatch(source, /进入下一步（后台处理中）/);
+  assert.doesNotMatch(source, /disabled=\{isSaving \|\| recloudWriteEnabled === null \|\|/);
   assert.match(source, /window\.setTimeout\(refresh, 1000\)/);
   assert.match(source, /inspectionIsSaved/);
   assert.match(source, /repairOrder\.level3Fault && repairOrder\.warrantyType/);

@@ -1,6 +1,13 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { validateProjectCorrectionInput, buildProjectCorrectionPlan } = require("../services/recloud-project-correction-rules");
+const { projectTextMatchesCode } = require("../connectors/recloud");
+
+test("project verification accepts a code shown together with the model name", () => {
+  assert.equal(projectTextMatchesCode("S10 Plus（R2246B）", "R2246B"), true);
+  assert.equal(projectTextMatchesCode("R2246B", "R2246B"), true);
+  assert.equal(projectTextMatchesCode("R2246B1", "R2246B"), false);
+});
 
 test("accepts the R2580X correction learned from the model summary", () => {
   assert.deepEqual(validateProjectCorrectionInput({
@@ -22,6 +29,14 @@ test("rejects the letter-starting duplicate product model code", () => {
     expectedProjectCode: "R2580X",
     productModelCode: "TM202609010001",
   }), /数字开头/);
+});
+
+test("reports the exact missing project-correction field", () => {
+  assert.throws(
+    () => validateProjectCorrectionInput({ sn: "R2228Z2CBCN045960000P01", expectedProjectCode: "R2228" }),
+    (error) => error.code === "RECLOUD_PROJECT_CORRECTION_INPUT_MISSING"
+      && error.message === "修改项目号缺少：产品型号编码"
+  );
 });
 
 test("matching project produces a keep plan with no modification", () => {

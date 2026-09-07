@@ -40,6 +40,14 @@ function detectOrderExceptions(order, options = {}) {
       detectedAt: order.partsShortage.detectedAt || order.updatedAt || "",
     });
   }
+  if (order.inspectionOnlyHandoff?.status === "PENDING_INFORMATION") {
+    exceptions.push(baseException(
+      order,
+      "INSPECTION_ONLY_ADDRESS_AND_SUBMIT_PENDING",
+      "HIGH",
+      "只检测不维修：瑞云已完工确认，请信息员开检测报告、上传到附件（检测报告）、修改返件地址后点击提交"
+    ));
+  }
   if (order.recloudReceiptSyncStatus === "RESULT_UNKNOWN") {
     exceptions.push(baseException(
       order,
@@ -58,8 +66,11 @@ function detectOrderExceptions(order, options = {}) {
   }
   if (COMPLETION_STATUSES.has(order.status)) {
     const completion = order.repairCompletion || {};
+    const skipsFaultClassification = ["ABANDONED", "INSPECTION_ONLY", "DEBUGGING"].includes(order.treatmentMode);
     const missing = [
-      !completion.faultLevel1 && "一级故障", !completion.faultLevel2 && "二级故障", !completion.faultLevel3 && "三级故障",
+      !skipsFaultClassification && !completion.faultLevel1 && "一级故障",
+      !skipsFaultClassification && !completion.faultLevel2 && "二级故障",
+      !skipsFaultClassification && !completion.faultLevel3 && "三级故障",
       !completion.repairMeasure && "维修措施", !completion.operatorName && "完工师傅",
     ].filter(Boolean);
     if (missing.length) exceptions.push(baseException(order, "REPORT_INCOMPLETE", "HIGH", `维修报告缺少：${missing.join("、")}`));

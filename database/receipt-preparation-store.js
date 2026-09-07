@@ -80,6 +80,9 @@ function createReceiptPreparation(input, existing = null, now = new Date()) {
       : existing?.recloudReceiptRequired ?? null,
     customerName: normalizeRequired(input.customerName),
     regionAddress: normalizeRequired(input.regionAddress),
+    customerAddress: normalizeRequired(input.customerAddress || input.regionAddress),
+    sourceCreatedAt: normalizeRequired(input.sourceCreatedAt),
+    productModel: normalizeRequired(input.productModel),
     reportedFault: normalizeRequired(input.reportedFault),
     manufacturerWarrantyConversion: existing?.manufacturerWarrantyConversion || {
       requested: false,
@@ -127,6 +130,8 @@ function createReceiptPreparation(input, existing = null, now = new Date()) {
     recloudDetectionAttemptedAt: existing?.recloudDetectionAttemptedAt || "",
     recloudDetectionConfirmedAt: existing?.recloudDetectionConfirmedAt || "",
     recloudDetectionLastError: existing?.recloudDetectionLastError || null,
+    snCorrectionRequiredAt: "",
+    snCorrectionHistory: existing?.snCorrectionHistory || [],
     timeline: existing?.timeline || [
       timelineEvent("CRM_QUERIED", "物流单查询完成", { userId: input.operatorId, displayName: input.operatorName }, timestamp),
       timelineEvent("RECEIPT_PREPARED", "签收资料已准备", { userId: input.operatorId, displayName: input.operatorName }, timestamp),
@@ -165,7 +170,7 @@ class JsonReceiptPreparationStore {
       const existing = records.find(
         (record) => record.rmaNo === normalizedInput.rmaNo
       );
-      if (existing?.recloudReceiptConfirmedAt) return existing;
+      if (existing?.recloudReceiptConfirmedAt && !existing.snCorrectionRequiredAt) return existing;
       const conflict = records.find(
         (record) =>
           record.rmaNo !== normalizedInput.rmaNo &&
@@ -721,7 +726,18 @@ class JsonReceiptPreparationStore {
         status: treatmentMode === "ON_HOLD"
           ? "ON_HOLD"
           : hasSavedInspection ? "INSPECTION_COMPLETED_PENDING_REPAIR" : "RECEIVED_PENDING_INSPECTION",
-        resumeStep: treatmentMode === "ON_HOLD" ? "" : skipsParts ? "repairProcess" : "partsApplication",
+        resumeStep: treatmentMode === "ON_HOLD"
+          ? ""
+          : ["REPAIR", "ABANDONED"].includes(treatmentMode)
+            || (treatmentMode === "INSPECTION_ONLY" && inspectionFaultOutcome === "FAULT_REPRODUCED")
+            ? "partsApplication"
+            : "repairProcess",
+        diagnosticParts: treatmentMode === "INSPECTION_ONLY" && inspectionFaultOutcome === "FAULT_REPRODUCED"
+          ? (Array.isArray(existing.diagnosticParts) ? existing.diagnosticParts : [])
+          : [],
+        diagnosticPartsConfirmedAt: treatmentMode === "INSPECTION_ONLY" && inspectionFaultOutcome === "FAULT_REPRODUCED"
+          ? existing.diagnosticPartsConfirmedAt || null
+          : null,
         inspectionResult: normalizeRequired(input.detectionResult),
         detectionResult: normalizeRequired(input.detectionResult),
         technicianWarranty,
@@ -753,6 +769,68 @@ class JsonReceiptPreparationStore {
             timestamp
           ),
         ],
+      };
+      await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
+  async saveFreightWaiverApplication(rmaNo, application = {}, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing) throw Object.assign(new Error("未找到已签收工单"), { code: "RECEIPT_PREPARATION_NOT_FOUND", status: 404 });
+      if (existing.treatmentMode !== "ABANDONED") {
+        throw Object.assign(new Error("只有弃修工单可以生成免运费申请单"), { code: "FREIGHT_WAIVER_NOT_APPLICABLE", status: 409 });
+      }
+      const timestamp = new Date().toISOString();
+      const previous = existing.freightWaiverApplication || {};
+      const nextStatus = normalizeRequired(application.status) || previous.status || "DRAFT";
+      const updated = {
+        ...existing,
+        freightWaiverApplication: {
+          ...previous,
+          ...application,
+          status: nextStatus,
+          createdAt: previous.createdAt || timestamp,
+          updatedAt: timestamp,
+        },
+        updatedAt: timestamp,
+        timeline: previous.status
+          ? existing.timeline || []
+          : [
+              ...(existing.timeline || []),
+              timelineEvent("FREIGHT_WAIVER_APPLICATION_CREATED", "免运费申请单已在后台建立", operator, timestamp),
+            ],
+      };
+      await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
+  async markInspectionOnlyAwaitingInformation(rmaNo, result = {}, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing) throw Object.assign(new Error("未找到只检测不维修工单"), { code: "RECEIPT_PREPARATION_NOT_FOUND", status: 404 });
+      const timestamp = new Date().toISOString();
+      const updated = {
+        ...existing,
+        inspectionOnlyHandoff: {
+          status: "PENDING_INFORMATION",
+          message: "瑞云已完工确认，待信息员开检测报告、上传报告、修改地址并提交",
+          completedSteps: Array.isArray(result.completedSteps) ? result.completedSteps : [],
+          requestedAt: existing.inspectionOnlyHandoff?.requestedAt || timestamp,
+          updatedAt: timestamp,
+        },
+        updatedAt: timestamp,
+        timeline: existing.inspectionOnlyHandoff?.status === "PENDING_INFORMATION"
+          ? existing.timeline || []
+          : [...(existing.timeline || []), timelineEvent("INSPECTION_ONLY_AWAITING_INFORMATION", "瑞云已完工确认，已通知信息员开检测报告、上传报告、修改地址并提交", operator, timestamp)],
       };
       await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
       return updated;
@@ -1096,14 +1174,20 @@ class JsonReceiptPreparationStore {
         error.status = 400;
         throw error;
       }
-      const existingApplication = (existing.partApplications || []).find((item) => item.partCode === part.code);
+      const quoteOnly = existing.treatmentMode === "ABANDONED";
+      const diagnosticOnly = existing.treatmentMode === "INSPECTION_ONLY" && existing.inspectionFaultOutcome === "FAULT_REPRODUCED";
+      const recordOnly = quoteOnly || diagnosticOnly;
+      const partCollection = quoteOnly
+        ? (existing.abandonedQuoteParts || [])
+        : diagnosticOnly ? (existing.diagnosticParts || []) : (existing.partApplications || []);
+      const existingApplication = partCollection.find((item) => item.partCode === part.code);
       if (existingApplication) {
         const error = new Error("该配件已添加，请直接修改已申请数量");
         error.code = "PART_ALREADY_APPLIED";
         error.status = 409;
         throw error;
       }
-      if (part.stock < 1 || requestedQuantity > part.stock) {
+      if (!recordOnly && (part.stock < 1 || requestedQuantity > part.stock)) {
         const error = new Error("库存不足，无法申请");
         error.code = "PART_OUT_OF_STOCK";
         error.status = 409;
@@ -1123,9 +1207,14 @@ class JsonReceiptPreparationStore {
         retailPrice: Number.isFinite(normalizedRetailPrice) && normalizedRetailPrice >= 0 ? normalizedRetailPrice : null,
         repairLevel: normalizeRequired(part.repairLevel),
         returnRequired: Boolean(part.returnRequired),
+        isReplacementPart: part.isReplacementPart === true,
+        sourcePartCode: part.isReplacementPart === true ? normalizeRequired(part.sourceCode) : "",
         projectCode: normalizeRequired(part.projectCode),
         sn: existing.sn,
-        status: "PART_APPLICATION_RECORDED",
+        status: quoteOnly ? "ABANDONED_QUOTE_PART_RECORDED" : diagnosticOnly ? "DIAGNOSTIC_PART_RECORDED" : "PART_APPLICATION_RECORDED",
+        quoteOnly,
+        diagnosticOnly,
+        recordOnly,
         operatorId: normalizeRequired(operator.userId),
         operatorName:
           normalizeRequired(operator.displayName) || "本地测试用户",
@@ -1133,12 +1222,21 @@ class JsonReceiptPreparationStore {
       };
       const updated = {
         ...existing,
-        partApplications: [...(Array.isArray(existing.partApplications) ? existing.partApplications : []), application],
+        ...(quoteOnly
+          ? { abandonedQuoteParts: [...(Array.isArray(existing.abandonedQuoteParts) ? existing.abandonedQuoteParts : []), application] }
+          : diagnosticOnly
+            ? { diagnosticParts: [...(Array.isArray(existing.diagnosticParts) ? existing.diagnosticParts : []), application] }
+          : { partApplications: [...(Array.isArray(existing.partApplications) ? existing.partApplications : []), application] }),
         resumeStep: "partsApplication",
         updatedAt: timestamp,
         timeline: [
           ...(existing.timeline || []),
-          timelineEvent("PART_APPLICATION", "配件申请已记录", operator, timestamp),
+          timelineEvent(
+            quoteOnly ? "ABANDONED_QUOTE_PART" : diagnosticOnly ? "DIAGNOSTIC_PART" : "PART_APPLICATION",
+            quoteOnly ? "弃修报价配件已记录" : diagnosticOnly ? "只检测故障配件已记录（不写入瑞云）" : "配件申请已记录",
+            operator,
+            timestamp
+          ),
         ],
       };
       await this.writeAll(
@@ -1158,7 +1256,12 @@ class JsonReceiptPreparationStore {
       if (!["RECEIVED_PENDING_INSPECTION", "INSPECTION_COMPLETED_PENDING_REPAIR", "REPAIR_COMPLETION_DRAFT"].includes(existing.status)) {
         throw Object.assign(new Error("当前工单不能修改配件"), { code: "PART_APPLICATION_NOT_ALLOWED", status: 409 });
       }
-      const current = (existing.partApplications || []).find((item) => item.id === applicationId);
+      const quoteOnly = existing.treatmentMode === "ABANDONED";
+      const diagnosticOnly = existing.treatmentMode === "INSPECTION_ONLY" && existing.inspectionFaultOutcome === "FAULT_REPRODUCED";
+      const partCollection = quoteOnly
+        ? (existing.abandonedQuoteParts || [])
+        : diagnosticOnly ? (existing.diagnosticParts || []) : (existing.partApplications || []);
+      const current = partCollection.find((item) => item.id === applicationId);
       if (!current) throw Object.assign(new Error("未找到该配件记录"), { code: "PART_APPLICATION_NOT_FOUND", status: 404 });
       const remove = input.remove === true;
       const amount = Number(input.quantity);
@@ -1169,12 +1272,22 @@ class JsonReceiptPreparationStore {
       const application = remove ? null : { ...current, quantity: amount, updatedAt: timestamp };
       const updated = {
         ...existing,
-        partApplications: remove
-          ? (existing.partApplications || []).filter((item) => item.id !== applicationId)
-          : (existing.partApplications || []).map((item) => item.id === applicationId ? application : item),
+        ...(quoteOnly ? {
+          abandonedQuoteParts: remove
+            ? partCollection.filter((item) => item.id !== applicationId)
+            : partCollection.map((item) => item.id === applicationId ? application : item),
+        } : diagnosticOnly ? {
+          diagnosticParts: remove
+            ? partCollection.filter((item) => item.id !== applicationId)
+            : partCollection.map((item) => item.id === applicationId ? application : item),
+        } : {
+          partApplications: remove
+            ? partCollection.filter((item) => item.id !== applicationId)
+            : partCollection.map((item) => item.id === applicationId ? application : item),
+        }),
         resumeStep: "partsApplication",
         updatedAt: timestamp,
-        timeline: [...(existing.timeline || []), timelineEvent("PART_APPLICATION_UPDATED", remove ? "已删除误选配件" : "已修改配件数量", operator, timestamp)],
+        timeline: [...(existing.timeline || []), timelineEvent(quoteOnly ? "ABANDONED_QUOTE_PART_UPDATED" : diagnosticOnly ? "DIAGNOSTIC_PART_UPDATED" : "PART_APPLICATION_UPDATED", remove ? "已删除误选配件" : "已修改配件数量", operator, timestamp)],
       };
       await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
       return { order: updated, application };
@@ -1191,16 +1304,24 @@ class JsonReceiptPreparationStore {
       if (!["RECEIVED_PENDING_INSPECTION", "INSPECTION_IN_PROGRESS", "INSPECTION_COMPLETED_PENDING_REPAIR", "REPAIR_COMPLETION_DRAFT"].includes(existing.status)) {
         throw Object.assign(new Error("当前工单不能确认维修配件"), { code: "PART_CONFIRMATION_NOT_ALLOWED", status: 409 });
       }
-      if (!(existing.partApplications || []).length) {
-        throw Object.assign(new Error("请先添加维修配件"), { code: "PART_CONFIRMATION_EMPTY", status: 409 });
+      const quoteOnly = existing.treatmentMode === "ABANDONED";
+      const diagnosticOnly = existing.treatmentMode === "INSPECTION_ONLY" && existing.inspectionFaultOutcome === "FAULT_REPRODUCED";
+      const selectedParts = quoteOnly
+        ? (existing.abandonedQuoteParts || [])
+        : diagnosticOnly ? (existing.diagnosticParts || []) : (existing.partApplications || []);
+      if (!selectedParts.length) {
+        throw Object.assign(new Error(quoteOnly ? "请先添加导致用户弃修的故障配件" : diagnosticOnly ? "请先添加检测确认的故障配件" : "请先添加维修配件"), { code: "PART_CONFIRMATION_EMPTY", status: 409 });
+      }
+      if (diagnosticOnly && existing.diagnosticPartsConfirmedAt) {
+        return { order: existing, nextStep: "repairProcess", alreadyConfirmed: true };
       }
       const timestamp = new Date().toISOString();
       const updated = {
         ...existing,
         resumeStep: "repairProcess",
-        partsConfirmedAt: timestamp,
+        ...(quoteOnly ? { abandonedQuoteConfirmedAt: timestamp } : diagnosticOnly ? { diagnosticPartsConfirmedAt: timestamp } : { partsConfirmedAt: timestamp }),
         updatedAt: timestamp,
-        timeline: [...(existing.timeline || []), timelineEvent("PARTS_CONFIRMED", "维修配件已确认，进入维修完工", operator, timestamp)],
+        timeline: [...(existing.timeline || []), timelineEvent(quoteOnly ? "ABANDONED_QUOTE_CONFIRMED" : diagnosticOnly ? "DIAGNOSTIC_PARTS_CONFIRMED" : "PARTS_CONFIRMED", quoteOnly ? "弃修报价配件已确认，进入检测" : diagnosticOnly ? "只检测故障配件已确认，进入检测" : "维修配件已确认，进入维修完工", operator, timestamp)],
       };
       await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
       return { order: updated, nextStep: "repairProcess" };
@@ -1324,6 +1445,39 @@ class JsonReceiptPreparationStore {
     return operation;
   }
 
+  async reconcileRecloudServiceOrderNotCreated(rmaNo, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing) throw Object.assign(new Error("未找到待维修工单"), { code: "RECEIPT_PREPARATION_NOT_FOUND", status: 404 });
+      if (existing.recloudServiceOrderCreatedAt) {
+        throw Object.assign(new Error("瑞云维修服务单已经创建，不能按未创建恢复"), {
+          code: "RECLOUD_SERVICE_ORDER_ALREADY_CREATED",
+          status: 409,
+        });
+      }
+      const timestamp = new Date().toISOString();
+      const updated = {
+        ...existing,
+        recloudServiceOrderSyncStatus: "FAILED",
+        recloudServiceOrderLastError: {
+          code: "RECLOUD_SERVICE_ORDER_RECONCILED_NOT_CREATED",
+          message: "管理员已核对瑞云维修单号为空，可安全重新创建",
+          at: timestamp,
+        },
+        updatedAt: timestamp,
+        timeline: [
+          ...(existing.timeline || []),
+          timelineEvent("RECLOUD_SERVICE_ORDER_NOT_CREATED_CONFIRMED", "管理员已核对瑞云维修服务单未创建", operator, timestamp),
+        ],
+      };
+      await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
   async markRecloudRepairPreparationConfirmed(rmaNo, input = {}, operator = {}) {
     const operation = this.writeQueue.then(async () => {
       const records = await this.readAll();
@@ -1349,6 +1503,7 @@ class JsonReceiptPreparationStore {
           assignmentSource:
             normalizeRequired(input.assignmentSource)
             || normalizeRequired(existing.recloudRepairPreparation?.assignmentSource),
+          warrantyConfirmationVersion: Number(input.warrantyConfirmationVersion || 0),
           status: hasShortage ? "PARTS_SHORTAGE" : "CONFIRMED",
           completedAt: timestamp,
           completedSteps: Array.isArray(input.completedSteps) ? input.completedSteps : [],
@@ -1476,10 +1631,9 @@ class JsonReceiptPreparationStore {
         if (!detectionResult) missingFields.push("detectionResult");
         if (!repairMeasure) missingFields.push("repairMeasure");
         if (!Array.isArray(input.attachments) || !input.attachments.length) missingFields.push("attachments");
-        if (existing.treatmentMode === "INSPECTION_ONLY" && !(Array.isArray(input.attachments) && input.attachments.some((item) => item?.mimeType === "application/pdf"))) {
-          missingFields.push("inspectionReportPdf");
-        }
-        if (existing.treatmentMode === "INSPECTION_ONLY" && !(Array.isArray(input.attachments) && input.attachments.some((item) => /^(image|video)\//.test(item?.mimeType || "")))) {
+        if (existing.treatmentMode === "INSPECTION_ONLY" && !(Array.isArray(input.attachments) && input.attachments.some((item) =>
+          /^(image|video)\//.test(item?.mimeType || "") && item?.source !== "INSPECTION_REPORT"
+        ))) {
           missingFields.push("inspectionMedia");
         }
         if (missingFields.length) {
@@ -1717,6 +1871,109 @@ class JsonReceiptPreparationStore {
         throw Object.assign(new Error("只能更新本人负责工单的恢复步骤"), { code: "REPAIR_RESUME_STEP_FORBIDDEN", status: 403 });
       }
       const updated = { ...existing, resumeStep, updatedAt: new Date().toISOString() };
+      await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
+  async reopenReceiptForSnCorrection(rmaNo, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing) {
+        throw Object.assign(new Error("未找到需要更正 SN 的签收工单"), {
+          code: "RECEIPT_PREPARATION_NOT_FOUND", status: 404,
+        });
+      }
+      const role = normalizeRequired(operator.role).toUpperCase();
+      const assignedUserId = existing.technicianId || existing.operatorId;
+      if (role !== "ADMIN" && assignedUserId !== normalizeRequired(operator.userId)) {
+        throw Object.assign(new Error("只能恢复本人负责的签收工单"), {
+          code: "RECEIPT_SN_CORRECTION_FORBIDDEN", status: 403,
+        });
+      }
+      if (["REPAIR_COMPLETED_PENDING_SHIPMENT", "SHIPPED_PENDING_COMPLETION", "COMPLETED"].includes(existing.status)
+        || existing.returnShipment?.shippedAt) {
+        throw Object.assign(new Error("工单已完工或返件，不能恢复签收 SN"), {
+          code: "RECEIPT_SN_CORRECTION_LOCKED", status: 409,
+        });
+      }
+      const timestamp = new Date().toISOString();
+      const correctionRecord = {
+        reopenedAt: timestamp,
+        reopenedById: normalizeRequired(operator.userId),
+        reopenedByName: normalizeRequired(operator.displayName) || "系统管理员",
+        previousSn: existing.sn || "",
+        previousStatus: existing.status || "",
+      };
+      const updated = {
+        ...existing,
+        sn: "",
+        status: "RECEIPT_PREPARED",
+        resumeStep: "",
+        receiptCompletedAt: null,
+        modelAuthorization: null,
+        technicianWarranty: "",
+        warrantyDecision: null,
+        warrantyOverridden: false,
+        warrantyConfirmedAt: null,
+        manufacturerWarrantyConversion: {
+          requested: false, approved: false, approvalNo: "", status: "NOT_REQUIRED", proofAttachments: [],
+        },
+        treatmentMode: "",
+        treatmentLabel: "",
+        treatmentDecidedAt: null,
+        skipsParts: false,
+        partApplications: [],
+        abandonedQuoteParts: [],
+        diagnosticParts: [],
+        diagnosticPartsConfirmedAt: null,
+        partsConfirmedAt: null,
+        inspectionResult: "",
+        inspectionRemark: "",
+        faultCategory: "",
+        faultContent: "",
+        detectionResult: "",
+        inspectionUpdatedAt: null,
+        customerReasonConsistent: "",
+        inspectionAbnormal: "",
+        productFunctionDecision: "",
+        originalConsumables: "",
+        consumableName: "",
+        dismantled: "",
+        repairCompletion: null,
+        hold: null,
+        recloudProjectVerificationStatus: "NOT_STARTED",
+        recloudProjectVerificationAttemptedAt: "",
+        recloudProjectVerificationConfirmedAt: "",
+        recloudVerifiedProjectCode: "",
+        recloudProjectVerificationLastError: null,
+        recloudReceiptAttachmentSyncStatus: existing.receiptAttachments?.length ? "PENDING" : "NOT_STARTED",
+        recloudReceiptAttachmentAttemptedAt: "",
+        recloudReceiptAttachmentConfirmedAt: "",
+        recloudReceiptAttachmentResult: null,
+        recloudReceiptAttachmentLastError: null,
+        recloudDetectionSyncStatus: "NOT_STARTED",
+        recloudDetectionAttemptedAt: "",
+        recloudDetectionConfirmedAt: "",
+        recloudDetectionLastError: null,
+        recloudServiceOrderSyncStatus: "NOT_STARTED",
+        recloudServiceOrderAttemptedAt: "",
+        recloudServiceOrderCreatedAt: "",
+        recloudServiceOrderNo: "",
+        recloudServiceOrderLastError: null,
+        recloudRepairPreparation: null,
+        repairStartedAt: null,
+        snCorrectionRequiredAt: timestamp,
+        snCorrectionHistory: [...(existing.snCorrectionHistory || []), correctionRecord],
+        updatedAt: timestamp,
+        timeline: [
+          ...(existing.timeline || []),
+          timelineEvent("RECEIPT_SN_CORRECTION_REOPENED", "SN 录入有误，已恢复到签收步骤", operator, timestamp),
+        ],
+      };
       await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
       return updated;
     });

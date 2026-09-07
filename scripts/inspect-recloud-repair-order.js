@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 const recloud = require("../connectors/recloud");
+const { createRecloudRepairPageAdapter } = require("../connectors/recloud-repair-page-adapter");
 const { assessRecloudRepairPageReadiness } = require("../services/recloud-repair-page-readiness");
 
 async function main() {
@@ -12,6 +13,29 @@ async function main() {
     if (opened.loginRequired) throw Object.assign(new Error("login required"), { code: "RECLOUD_LOGIN_REQUIRED" });
     process.stderr.write("DIAGNOSTIC_STAGE: locating_rma\n");
     const detail = await recloud.queryRmaByLogisticsNo(opened.page, logisticsNo);
+    let existingServiceOrder = null;
+    try {
+      process.stderr.write("DIAGNOSTIC_STAGE: checking_existing_service_order\n");
+      existingServiceOrder = await recloud.openExistingRepairServiceOrder(opened.page, {
+        rmaNo: detail.rmaNo,
+        logisticsNo,
+      });
+    } catch (error) {
+      if (error.code !== "RECLOUD_REPAIR_SERVICE_ORDER_NOT_FOUND") throw error;
+    }
+    if (existingServiceOrder) {
+      const remoteState = await createRecloudRepairPageAdapter(opened.page, {
+        rmaNo: detail.rmaNo,
+        logisticsNo,
+      }).readRemoteState();
+      process.stdout.write(`${JSON.stringify({
+        rmaLocated: Boolean(detail.rmaNo),
+        existingServiceOrder,
+        remoteState,
+        recloudModified: false,
+      })}\n`);
+      return;
+    }
     process.stderr.write("DIAGNOSTIC_STAGE: inspecting_repair_page\n");
     const inspection = await recloud.inspectRepairForm(opened.page, {
       dryRun: true,
@@ -19,13 +43,14 @@ async function main() {
       searchTerm: detail.rmaNo,
       inspectPartAddDialog: true,
       allowUnavailablePartAdd: true,
-      logger: { info() {} },
+      logger: console,
     });
     const readiness = assessRecloudRepairPageReadiness(inspection, {
       mode: "completed-read-only",
     });
     process.stdout.write(`${JSON.stringify({
       rmaLocated: Boolean(detail.rmaNo),
+      existingServiceOrder,
       status: readiness.status,
       observedState: readiness.observedState,
       missingFields: readiness.missingFields,

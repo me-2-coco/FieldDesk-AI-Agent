@@ -9,6 +9,15 @@ function retailPrice(value) {
   return Number.isFinite(amount) ? amount : null;
 }
 
+function replacementPartCode(value) {
+  const match = text(value).match(/替代(?:物)?料[^0-9]*(\d{8,})/i);
+  return match?.[1] || "";
+}
+
+function materialCodes(value) {
+  return [...new Set(text(value).match(/\d{8,}/g) || [])];
+}
+
 function columnIndex(row = [], aliases = []) {
   const normalizedAliases = aliases.map((item) => comparable(item));
   return row.findIndex((value) => {
@@ -85,23 +94,56 @@ function searchPartRows(items = [], input = {}) {
   const keyword = text(input.keyword).toUpperCase();
   const supported = items.filter((part) => partSupportsProject(part, projectCode));
   if (!keyword) return supported.slice(0, 100);
-  return supported
+  const rankMatches = (field, values) => values
     .map((part, index) => {
-      const code = text(part.code).toUpperCase();
-      const name = text(part.name).toUpperCase();
-      const rank = code === keyword ? 0
-        : name === keyword ? 1
-          : code.startsWith(keyword) ? 2
-            : code.includes(keyword) ? 3
-              : name.startsWith(keyword) ? 4
-                : name.includes(keyword) ? 5
-                  : -1;
+      const value = text(field(part)).toUpperCase();
+      const rank = value === keyword ? 0
+        : value.startsWith(keyword) ? 1
+          : value.includes(keyword) ? 2
+            : -1;
       return { part, index, rank };
     })
     .filter((match) => match.rank >= 0)
     .sort((left, right) => left.rank - right.rank || left.index - right.index)
     .slice(0, 100)
     .map((match) => match.part);
+
+  if (/^\d+$/.test(keyword)) {
+    // 当前机型工作表中的所有物料编码都支持模糊搜索。“物料编号”列
+    // 命中的是普通物料，其它列命中的完整编码是替代料候选。
+    const directCodeMatches = rankMatches((part) => part.code, supported);
+    const alternatives = [];
+    for (const part of supported) {
+      for (const candidate of Array.isArray(part.alternateCodes) ? part.alternateCodes : []) {
+        const candidateCode = text(candidate.code).toUpperCase();
+        if (!candidateCode.includes(keyword)) continue;
+        alternatives.push({
+          ...part,
+          sourceCode: part.code,
+          code: candidateCode,
+          isReplacementPart: true,
+          matchedOutsideCodeColumn: true,
+          matchedColumn: candidate.columnName || "",
+        });
+      }
+    }
+    // 同一个完整编码同时出现在物料编号列和其它列时，普通物料优先；
+    // 不同编码则全部返回，避免模糊关键词漏掉其它列中的替代料。
+    const results = new Map(directCodeMatches.map((part) => [part.code, part]));
+    for (const part of alternatives) {
+      if (!results.has(part.code)) results.set(part.code, part);
+    }
+    return [...results.values()].slice(0, 100);
+  }
+
+  // 文字也在当前机型工作表整行搜索。名称等普通字段命中时仍显示该行
+  // “物料编号”列的编码；替代料标记只由“其它列中的物料编码”命中触发。
+  return rankMatches(
+    (part) => (part.searchCells || []).length
+      ? part.searchCells.map((cell) => cell.value).join(" ")
+      : [part.code, part.name, part.remark].map(text).join(" "),
+    supported
+  );
 }
 
 function parseSweepPartRows(values = [], sheet = {}) {
@@ -117,20 +159,38 @@ function parseSweepPartRows(values = [], sheet = {}) {
         code: normalized.indexOf("物料编号"), name: nameIndex,
         repairLevel: normalized.indexOf("维修等级"), price: columnIndex(normalized, ["零售价", "零售价格", "建议零售价", "最终零售价"]),
         returnRequired: normalized.indexOf("旧件返厂"),
+        remark: columnIndex(normalized, ["备注"]),
+        headers: normalized,
       };
       continue;
     }
     if (!columns) continue;
     const code = text(row[columns.code]);
     const name = text(row[columns.name]);
+    const remark = columns.remark >= 0 ? text(row[columns.remark]) : "";
+    const searchCells = normalized
+      .map((value, columnIndex) => ({ columnIndex, columnName: text(columns.headers[columnIndex]), value }))
+      .filter((cell) => cell.value);
+    const alternateCodes = searchCells
+      .filter((cell) => cell.columnIndex !== columns.code)
+      .flatMap((cell) => materialCodes(cell.value).map((alternateCode) => ({
+        code: alternateCode,
+        columnIndex: cell.columnIndex,
+        columnName: cell.columnName,
+      })));
     const levelText = text(row[columns.repairLevel]);
     const repairLevel = ["大修", "中修", "小修"].find((level) => levelText.startsWith(level));
     if (!/^\d{8,}$/.test(code) || !name || !repairLevel || (!sheet.common && !projectCodes.length)) continue;
     parts.push({
       sourceRow: index + 1, sourceSheetId: sheet.sheetId, sourceSheetTitle: sheet.title,
-      code, name, retailPrice: retailPrice(row[columns.price]),
+      code,
+      name,
+      retailPrice: retailPrice(row[columns.price]),
       repairLevel, returnRequired: columns.returnRequired >= 0 && text(row[columns.returnRequired]) === "是",
       projectCode: sheet.common ? "*" : projectCodes.join("/"), productLine: sheet.productLine || "扫地机",
+      searchCells,
+      alternateCodes,
+      ...(remark ? { remark } : {}),
     });
   }
   return parts;
@@ -247,4 +307,4 @@ class FeishuPartsCatalog {
   }
 }
 
-module.exports = { FeishuPartsCatalog, parsePartRows, parseSweepPartRows, projectCodesFromTitle, partSupportsProject, projectCodeSearchCandidates, searchPartRows, retailPrice, columnIndex };
+module.exports = { FeishuPartsCatalog, parsePartRows, parseSweepPartRows, projectCodesFromTitle, partSupportsProject, projectCodeSearchCandidates, searchPartRows, retailPrice, replacementPartCode, materialCodes, columnIndex };

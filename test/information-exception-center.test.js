@@ -35,6 +35,25 @@ test("unknown Recloud receipt result is exposed for manual reconciliation", () =
   assert.match(item.message, /人工核对/);
 });
 
+test("inspection-only completion becomes a high-priority report address and submit task", () => {
+  const [item] = detectOrderExceptions({
+    rmaNo: "JXTH202609062811",
+    logisticsNo: "SF5117998691836",
+    status: "REPAIR_COMPLETED_PENDING_SHIPMENT",
+    technicianName: "卢连波",
+    inspectionOnlyHandoff: { status: "PENDING_INFORMATION" },
+    repairCompletion: {
+      repairMeasure: "只检测不维修，原机寄回",
+      operatorName: "卢连波",
+      attachments: [{ id: "PHOTO" }, { id: "REPORT", source: "INSPECTION_REPORT" }],
+    },
+    updatedAt: new Date().toISOString(),
+  });
+  assert.equal(item.type, "INSPECTION_ONLY_ADDRESS_AND_SUBMIT_PENDING");
+  assert.equal(item.severity, "HIGH");
+  assert.match(item.message, /开检测报告、上传到附件（检测报告）、修改返件地址后点击提交/);
+});
+
 async function start(t, user) {
   const receiptStore = { readAll: async () => [{ rmaNo: "R1", logisticsNo: "SF1", status: "RECEIVED_PENDING_INSPECTION", receiptCompletedAt: "2026-08-20T00:00:00Z", updatedAt: "2026-08-20T00:00:00Z" }] };
   const fileStore = { read: async () => Buffer.from("ok") };

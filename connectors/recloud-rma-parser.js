@@ -28,6 +28,7 @@ const FIELD_LABELS = {
   receiptStatus: ["签收状态", "取件签收状态"],
   pickupStatus: ["取件物流状态"],
   receiptSignedAt: ["取件物流签收时间", "签收时间"],
+  sourceCreatedAt: ["寄修单创建时间", "创建时间"],
 };
 
 const { classifyRecloudReceiptState } = require("./recloud-receipt-state");
@@ -331,6 +332,9 @@ function parseRmaFieldPairs(pairs, logisticsNo = "", options = {}) {
       ]),
     },
     reportedFault: findFieldValue(normalizedPairs, FIELD_LABELS.reportedFault),
+    ...(findFieldValue(normalizedPairs, FIELD_LABELS.sourceCreatedAt)
+      ? { sourceCreatedAt: findFieldValue(normalizedPairs, FIELD_LABELS.sourceCreatedAt) }
+      : {}),
     ...(findFieldValue(normalizedPairs, FIELD_LABELS.technicianName)
       ? { technicianName: findFieldValue(normalizedPairs, FIELD_LABELS.technicianName) }
       : {}),

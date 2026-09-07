@@ -47,9 +47,6 @@ function assessRecloudRepairExecutionReadiness(inspection = {}) {
   if (inspection.attachmentTarget !== "附件") {
     missingFields.push("repair.execution.attachmentTarget");
   }
-  if (inspection.forbiddenAttachmentTarget !== "附件（检测报告）") {
-    missingFields.push("repair.execution.forbiddenAttachmentTarget");
-  }
   if (inspection.completeButtonCount !== 1 && inspection.submitButtonCount !== 1) {
     missingFields.push("repair.execution.completeOrSubmit");
   }

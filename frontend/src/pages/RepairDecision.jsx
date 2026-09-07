@@ -6,8 +6,8 @@ import { RECLOUD_HOLD_REASON_GROUPS } from "../data/recloudHoldReasons.js"
 
 const OPTIONS = [
   { value: "REPAIR", tone: "repair", title: "维修", badge: "需配件", description: "需要更换配件，下一步申请配件。", next: "申请配件" },
-  { value: "ABANDONED", tone: "abandoned", title: "弃修", badge: "免配件", description: "用户不维修，下一步登记故障分类并完成检测。", next: "填写检测" },
-  { value: "INSPECTION_ONLY", tone: "inspection", title: "只检测不维修", badge: "检测报告", description: "不申请配件，下一步登记故障分类并完成检测。", next: "填写检测" },
+  { value: "ABANDONED", tone: "abandoned", title: "弃修", badge: "仅核价", description: "登记故障配件和预计寄回运费，只用于费用明细，不向瑞云添加配件。", next: "填写弃修报价" },
+  { value: "INSPECTION_ONLY", tone: "inspection", title: "只检测不维修", badge: "人工报告", description: "选择故障复现或无故障；检测报告由信息员制作并上传。", next: "按检测结果继续" },
   { value: "DEBUGGING", tone: "debugging", title: "调试", badge: "免配件", description: "无硬件故障，下一步登记故障分类并完成检测。", next: "填写检测" },
   { value: "TRANSFER_TO_HEADQUARTERS", tone: "transfer", title: "转寄总部", badge: "转总部", description: "网点不继续处理，登记后转寄总部。", next: "结束网点流程" },
   { value: "ON_HOLD", tone: "hold", title: "暂存", badge: "同步瑞云滞留", description: "待料、用户考虑或其他原因暂不能继续时使用。", next: "填写原因和备注" },
@@ -30,7 +30,7 @@ function RepairDecision({ setPage }) {
   async function continueFlow() {
     if (!selected) return setErrorMessage("请选择这台机器接下来如何处理")
     if (selected === "INSPECTION_ONLY" && !inspectionFaultOutcome) {
-      return setErrorMessage("请选择检测结果：故障复现或无故障")
+      return setErrorMessage("请选择故障复现或无故障")
     }
     try {
       setBusy(true)

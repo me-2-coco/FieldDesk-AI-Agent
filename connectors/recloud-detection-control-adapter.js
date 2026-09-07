@@ -130,6 +130,24 @@ async function readRadioValue(item) {
 
 async function visibleCandidates(locator) {
   const candidates = [];
+  if (typeof locator.evaluateAll === "function") {
+    const visibleItems = await locator.evaluateAll((elements) => elements
+      .slice(0, 300)
+      .map((element, index) => ({
+        index,
+        text: String(element.innerText || element.textContent || ""),
+        visible: Boolean(element.offsetWidth || element.offsetHeight || element.getClientRects().length),
+      }))
+      .filter((item) => item.visible));
+    for (const item of visibleItems) {
+      const option = locator.nth(item.index);
+      candidates.push({
+        text: async () => item.text,
+        click: () => option.click({ timeout: 3000 }),
+      });
+    }
+    return candidates;
+  }
   const count = Math.min(await locator.count(), 300);
   const texts = await locator.allInnerTexts().catch(() => []);
   for (let index = 0; index < count; index += 1) {
@@ -253,4 +271,5 @@ module.exports = {
   clickDropdownInput,
   chooseDropdownValue,
   createRecloudDetectionControlAdapter,
+  visibleCandidates,
 };

@@ -7,7 +7,30 @@ const {
   readSelectValue,
   clickDropdownInput,
   chooseDropdownValue,
+  visibleCandidates,
 } = require("../connectors/recloud-detection-control-adapter");
+
+test("visible detection options are collected in one browser evaluation", async () => {
+  let evaluations = 0;
+  const clicked = [];
+  const locator = {
+    async evaluateAll(callback) {
+      evaluations += 1;
+      const visible = { innerText: "保内", offsetWidth: 10, offsetHeight: 10, getClientRects: () => [1] };
+      const hidden = { innerText: "保外", offsetWidth: 0, offsetHeight: 0, getClientRects: () => [] };
+      return callback([visible, hidden]);
+    },
+    nth(index) {
+      return { async click() { clicked.push(index); } };
+    },
+  };
+  const candidates = await visibleCandidates(locator);
+  assert.equal(evaluations, 1);
+  assert.equal(candidates.length, 1);
+  assert.equal(await candidates[0].text(), "保内");
+  await candidates[0].click();
+  assert.deepEqual(clicked, [0]);
+});
 
 function option(text, calls) {
   return {

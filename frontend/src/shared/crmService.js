@@ -186,12 +186,17 @@ export async function cancelReceiptPreparation(rmaNo) {
   return request("/api/repairs/prepare-receipt/cancel", { rmaNo })
 }
 
-export async function completeLocalReceipt(rmaNo) {
+export async function completeLocalReceipt(rmaNo, receiptAttempt = "") {
   const normalizedRmaNo = String(rmaNo || "").trim()
+  const normalizedAttempt = String(receiptAttempt || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9-]/g, "-")
+    .slice(0, 80) || "default"
   return request(
     "/api/repairs/complete-local-receipt",
     { rmaNo: normalizedRmaNo },
-    { idempotencyKey: `receipt-confirm:${normalizedRmaNo}` }
+    { idempotencyKey: `receipt-confirm:${normalizedRmaNo}:${normalizedAttempt}` }
   )
 }
 
@@ -319,6 +324,10 @@ export async function confirmRepairParts(rmaNo) {
 
 export async function getLocalInventory() {
   return get("/api/inventory")
+}
+
+export async function queryRecloudPartsInventory(query) {
+  return get(`/api/inventory/recloud?query=${encodeURIComponent(String(query || "").trim())}`)
 }
 
 export async function receiveInventoryPart(payload) {

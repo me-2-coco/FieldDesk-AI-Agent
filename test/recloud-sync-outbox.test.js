@@ -84,6 +84,35 @@ test("outbox stores required safe fields and enforces idempotency", async (t) =>
   assert.deepEqual(first.payload, buildNodePayload(ORDER, "RECEIPT"));
 });
 
+test("completion stays pending until its Recloud preparation dependency is ready", async (t) => {
+  const outbox = await outboxFixture(t);
+  const delayed = [];
+  let ready = false;
+  let calls = 0;
+  const service = new RecloudSyncService(outbox, {
+    async syncRepairCompleted() {
+      calls += 1;
+      return { status: "SUCCESS" };
+    },
+  }, {
+    scheduler: () => {},
+    retryScheduler: (work) => delayed.push(work),
+    canProcessTask: async (task) => task.nodeType !== "REPAIR_COMPLETED" || ready,
+  });
+  const task = await service.enqueueOrderNode(ORDER, "REPAIR_COMPLETED", "DEPENDENCY-1");
+
+  const waiting = await service.processTask(task.id);
+  assert.equal(waiting.status, TASK_STATUS.PENDING);
+  assert.equal(waiting.retryCount, 0);
+  assert.equal(calls, 0);
+  assert.equal(delayed.length, 1);
+
+  ready = true;
+  await delayed.shift()();
+  assert.equal((await outbox.get(task.id)).status, TASK_STATUS.SUCCESS);
+  assert.equal(calls, 1);
+});
+
 test("reopened orders cancel stale sync tasks and can enqueue a new local completion record", async (t) => {
   const outbox = await outboxFixture(t);
   const service = new RecloudSyncService(outbox, new DryRunRecloudAdapter(), { scheduler: () => {} });
@@ -167,6 +196,28 @@ test("parts-shortage completion stops before submit and notifies the information
   assert.equal(completed.status, TASK_STATUS.SUCCESS);
   assert.equal(completed.resultStatus, "AWAITING_PARTS");
   assert.equal(completed.missingParts[0].partCode, "P1");
+  assert.equal(notices.length, 1);
+});
+
+test("inspection-only completion notifies the information clerk after Recloud completion", async (t) => {
+  const outbox = await outboxFixture(t);
+  const notices = [];
+  const service = new RecloudSyncService(outbox, {
+    async syncRepairCompleted() {
+      return {
+        status: "AWAITING_INFORMATION_CLERK",
+        completedSteps: ["COMPLETE_CLICKED", "SUBMIT_RESERVED_FOR_INFORMATION_CLERK"],
+      };
+    },
+  }, {
+    scheduler: () => {},
+    onInspectionOnlyAwaitingInformation: async (task, result) => notices.push({ task, result }),
+  });
+  const task = await service.enqueueOrderNode({ ...ORDER, treatmentMode: "INSPECTION_ONLY" }, "REPAIR_COMPLETED", "INSPECTION-HANDOFF");
+  const completed = await service.processTask(task.id);
+  assert.equal(completed.status, TASK_STATUS.SUCCESS);
+  assert.equal(completed.resultStatus, "AWAITING_INFORMATION_CLERK");
+  assert.deepEqual(completed.completedSteps, ["COMPLETE_CLICKED", "SUBMIT_RESERVED_FOR_INFORMATION_CLERK"]);
   assert.equal(notices.length, 1);
 });
 
@@ -633,6 +684,30 @@ test("pending sync tasks resume after a backend restart", async (t) => {
   assert.equal(scheduled.length, 1);
 });
 
+test("stale processing task is recovered after a backend restart", async (t) => {
+  const outbox = await outboxFixture(t);
+  const scheduled = [];
+  const service = new RecloudSyncService(outbox, new DryRunRecloudAdapter(), {
+    scheduler: (work) => scheduled.push(work),
+    staleProcessingMs: 1000,
+  });
+  const task = await outbox.enqueue({
+    workOrderNo: ORDER.id,
+    rmaNo: ORDER.rmaNo,
+    nodeType: "RECEIPT",
+    localBusinessRecordId: "STALE-RESTART-1",
+    idempotencyKey: "RECEIPT:STALE-RESTART-1",
+    payload: buildNodePayload(ORDER, "RECEIPT"),
+  });
+  await outbox.transition(task.id, TASK_STATUS.PROCESSING);
+  const tasks = await outbox.readAll();
+  tasks.find((item) => item.id === task.id).updatedAt = "2020-01-01T00:00:00.000Z";
+  await outbox.writeAll(tasks);
+  assert.equal(await service.resumePendingTasks(), 1);
+  assert.equal((await outbox.get(task.id)).status, TASK_STATUS.PENDING);
+  assert.equal(scheduled.length, 1);
+});
+
 test("retryable failed tasks also resume after a backend restart", async (t) => {
   const outbox = await outboxFixture(t);
   const scheduled = [];
@@ -678,7 +753,7 @@ test("repair mapping confirms observed Recloud columns and blocks ambiguous fee 
   assert.equal(RECLOUD_REPAIR_FIELD_TARGETS.repairFeeReceivable.status, "SYSTEM_CALCULATED");
   assert.equal(RECLOUD_REPAIR_FIELD_TARGETS.customerPaidAmount.status, "CONFIRMED");
   assert.deepEqual(RECLOUD_REPAIR_FIELD_TARGETS.attachments, { target: "附件", status: "CONFIRMED" });
-  assert.deepEqual(RECLOUD_REPAIR_FIELD_TARGETS.detectionReportAttachments, { target: "附件（检测报告）", status: "EXCLUDED" });
+  assert.deepEqual(RECLOUD_REPAIR_FIELD_TARGETS.detectionReportAttachments, { target: "附件（检测报告）", status: "CONFIRMED_FOR_INSPECTION_ONLY" });
   assert.deepEqual(RECLOUD_REPAIR_FIELD_TARGETS.warrantyConversion, {
     target: "保外转保内", status: "REQUIRED_ONCE", control: "ONE_SHOT_BUTTON",
   });
@@ -744,7 +819,7 @@ test("repair form plan only pre-fills confirmed customer-facing fields", () => {
     "partsCostAmount", "partsRetailAmount", "repairFeeReceivable", "serviceFeeCost",
   ]);
   assert.deepEqual(plan.excludedFields.map((item) => item.key).sort(), [
-    "detectionReportAttachments", "personalizedLogisticsAmount",
+    "personalizedLogisticsAmount",
   ]);
   assert.deepEqual(plan.manualReviewFields, []);
 });
@@ -770,6 +845,37 @@ test("in-warranty repair does not write customer or logistics charges", () => {
   const writes = Object.fromEntries(buildRecloudRepairFormPlan(payload).safeWrites.map((item) => [item.key, item.value]));
   assert.equal("customerPaidAmount" in writes, false);
   assert.equal("logisticsAmount" in writes, false);
+});
+
+test("abandoned return writes freight waiver remarks to the Recloud service order", () => {
+  const payload = buildNodePayload({
+    ...ORDER,
+    treatmentMode: "ABANDONED",
+    technicianWarranty: "保外",
+    repairCompletion: {
+      ...ORDER.repairCompletion,
+      responsibilityType: "保外维修",
+      usedParts: [],
+      pricing: {
+        status: "OUT_OF_WARRANTY",
+        partsFee: 0,
+        fee: 0,
+        logisticsChargeMode: "ROUND_TRIP",
+        oneWayLogisticsFee: 40,
+        quotedLogisticsFee: 80,
+        logisticsFee: 0,
+        totalFee: 0,
+        primaryRemark: "申请运费减免",
+        secondaryRemark: "配件费0元，维修费0元，运费80元，合计80元，用户放弃维修，免运费寄回",
+      },
+    },
+  }, "REPAIR_COMPLETED");
+  const writes = Object.fromEntries(buildRecloudRepairFormPlan(payload).safeWrites.map((item) => [item.key, item.value]));
+
+  assert.equal(writes.primaryRemark, "申请运费减免");
+  assert.equal(writes.secondaryRemark, "配件费0元，维修费0元，运费80元，合计80元，用户放弃维修，免运费寄回");
+  assert.equal(writes.customerPaidAmount, 0);
+  assert.equal(writes.logisticsAmount, 0);
 });
 
 test("admin page exposes task status and retry while server hooks all five nodes", async () => {

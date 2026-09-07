@@ -1,10 +1,84 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
+  clickAfterLoadingSettles,
   clickApprovalFlowInput,
   dismissBlockingRepairMessageBoxes,
+  isRecloudRepairFullySubmitted,
   readApprovalFlow,
+  waitForDialog,
 } = require("../connectors/recloud-repair-page-adapter");
+
+test("dialog opened by an action stays bound when a later notice appears", async () => {
+  const openedDialog = { id: "assignment" };
+  let count = 0;
+  const dialogs = {
+    async count() {
+      count += 1;
+      return count === 1 ? 0 : 2;
+    },
+    nth(index) {
+      assert.equal(index, 0);
+      return openedDialog;
+    },
+    last() {
+      throw new Error("must not use a dynamic last() locator");
+    },
+  };
+  const page = {
+    locator() { return dialogs; },
+    async waitForTimeout() {},
+  };
+
+  assert.equal(await waitForDialog(page, 0), openedDialog);
+});
+
+test("已完工 is not terminal while the final 提交 button is still visible", async () => {
+  const visible = { async count() { return 1; } };
+  const hidden = { async count() { return 0; } };
+  const chain = (result) => ({ filter() { return result; } });
+  const page = {
+    getByText() { return chain(visible); },
+    getByRole(role, options = {}) {
+      if (role === "button" && options.name instanceof RegExp && options.name.test("提交")) return chain(visible);
+      return chain(hidden);
+    },
+  };
+  assert.equal(await isRecloudRepairFullySubmitted(page), false);
+});
+
+test("已完工 becomes terminal after the final 提交 button disappears", async () => {
+  const visible = { async count() { return 1; } };
+  const hidden = { async count() { return 0; } };
+  const page = {
+    getByText() { return { filter() { return visible; } }; },
+    getByRole() { return { filter() { return hidden; } }; },
+  };
+  assert.equal(await isRecloudRepairFullySubmitted(page), true);
+});
+
+test("submit waits for the Recloud loading mask and retries intercepted clicks", async () => {
+  let maskChecks = 0;
+  let clickAttempts = 0;
+  const waits = [];
+  const page = {
+    locator(selector) {
+      assert.match(selector, /rt-loading-mask/);
+      return { async count() { maskChecks += 1; return maskChecks === 1 ? 1 : 0; } };
+    },
+    async waitForTimeout(ms) { waits.push(ms); },
+  };
+  const button = {
+    async click() {
+      clickAttempts += 1;
+      if (clickAttempts === 1) throw new Error("loading mask intercepts pointer events");
+    },
+  };
+
+  await clickAfterLoadingSettles(page, button, { timeoutMs: 5000, pollIntervalMs: 10 });
+  assert.equal(clickAttempts, 2);
+  assert.deepEqual(waits, [10, 10]);
+});
 
 test("approval flow is read from the visible selected tag when the search input is empty", async () => {
   const dialog = {

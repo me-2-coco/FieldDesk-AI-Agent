@@ -24,6 +24,9 @@ function PartsApplication({ setPage }) {
   const [isSearching, setIsSearching] = useState(false)
   const [selectedParts, setSelectedParts] = useState([])
   const [scannerOpen, setScannerOpen] = useState(false)
+  const quoteOnly = repairOrder.treatmentMode === "ABANDONED"
+  const diagnosticOnly = repairOrder.treatmentMode === "INSPECTION_ONLY" && repairOrder.inspectionFaultOutcome === "FAULT_REPRODUCED"
+  const recordOnly = quoteOnly || diagnosticOnly
   // The repair path unwinds one page at a time:
   // completion -> inspection -> parts -> treatment decision.
   const backPage = "repairDecision"
@@ -34,10 +37,19 @@ function PartsApplication({ setPage }) {
       .then((result) => {
         if (!active) return
         setSelectedParts(result.items || [])
+        if (diagnosticOnly && result.diagnosticPartsConfirmedAt) {
+          const updated = updateRepairOrder({
+            status: REPAIR_STATUS.WAIT_INSPECTION,
+            resumeStep: "repairProcess",
+            diagnosticPartsConfirmedAt: result.diagnosticPartsConfirmedAt,
+          })
+          setRepairOrder(updated)
+          setPage("repairProcess")
+        }
       })
       .catch((error) => active && setErrorMessage(error.message))
     return () => { active = false }
-  }, [repairOrder.crmOrderNo])
+  }, [diagnosticOnly, repairOrder.crmOrderNo, setPage])
 
   useEffect(() => {
     let active = true
@@ -133,12 +145,14 @@ function PartsApplication({ setPage }) {
             retailPrice: application.retailPrice,
             repairLevel: application.repairLevel,
             returnRequired: application.returnRequired,
+            isReplacementPart: application.isReplacementPart,
+            sourcePartCode: application.sourcePartCode,
             status: "已记录"
           }
         ]
       })
       setRepairOrder(updated)
-      setMessage(result.message || "配件申请已保存到 FieldDesk")
+      setMessage(result.message || (quoteOnly ? "弃修报价配件已保存" : diagnosticOnly ? "故障配件已保存到 FieldDesk" : "配件申请已保存到 FieldDesk"))
     } catch (error) {
       setErrorMessage(error.message)
     } finally {
@@ -177,7 +191,8 @@ function PartsApplication({ setPage }) {
       setErrorMessage("")
       const result = await confirmRepairParts(repairOrder.crmOrderNo)
       const updated = updateRepairOrder({
-        status: result.nextStep === "repairCompletion" ? REPAIR_STATUS.REPAIRING : REPAIR_STATUS.WAIT_INSPECTION
+        status: result.nextStep === "repairCompletion" ? REPAIR_STATUS.REPAIRING : REPAIR_STATUS.WAIT_INSPECTION,
+        diagnosticPartsConfirmedAt: result.order?.diagnosticPartsConfirmedAt || repairOrder.diagnosticPartsConfirmedAt || null,
       })
       setRepairOrder(updated)
       setPage("repairProcess")
@@ -207,7 +222,7 @@ function PartsApplication({ setPage }) {
         <button className="arrow-back" onClick={returnToPreviousStep} disabled={isSaving}>
           ←
         </button>
-        <h1>申请配件</h1>
+        <h1>{quoteOnly ? "弃修配件核价" : diagnosticOnly ? "确认故障配件" : "申请配件"}</h1>
       </div>
 
       <SupervisionNoticeCard rmaNo={repairOrder.crmOrderNo} />
@@ -224,13 +239,13 @@ function PartsApplication({ setPage }) {
       </section>
 
       <section className="card selected-parts-card compact-selected-parts-card">
-        <div className="selected-parts-heading"><div><span>已选配件</span><h2>本工单配件</h2></div><strong>{selectedPartsCount} 件</strong></div>
-        {!selectedParts.length && <p>尚未选择配件</p>}
+        <div className="selected-parts-heading"><div><span>{quoteOnly ? "报价配件" : diagnosticOnly ? "故障记录" : "已选配件"}</span><h2>{quoteOnly ? "导致弃修的故障配件" : diagnosticOnly ? "检测确认的故障配件" : "本工单配件"}</h2></div><strong>{selectedPartsCount} 件</strong></div>
+        {!selectedParts.length && <p>{recordOnly ? "尚未登记故障配件" : "尚未选择配件"}</p>}
         {selectedParts.map((part) => (
           <div className="selected-part-row" key={part.id}>
             <div>
               <strong>{part.partName}</strong>
-              <p>{part.partCode} · {part.repairLevel} · {priceText(part.retailPrice)}{part.returnRequired && <strong className="part-return-required">旧件需返厂</strong>}</p>
+              <p>{part.partCode} · {part.repairLevel} · {priceText(part.retailPrice)}{part.isReplacementPart && <i>替代料</i>}{part.returnRequired && <strong className="part-return-required">旧件需返厂</strong>}</p>
             </div>
             <input
               aria-label={`${part.partName}数量`}
@@ -254,7 +269,7 @@ function PartsApplication({ setPage }) {
             <button type="button" className="secondary-btn" onClick={() => changeApplication(part, part.quantity, true)} disabled={isSaving}>删除</button>
           </div>
         ))}
-        {!!selectedParts.length && <div className="selected-parts-total"><span>配件小计</span><strong>{selectedPartsTotal === null ? "待核价" : `¥${selectedPartsTotal.toFixed(2)}`}</strong><small>完整费用在维修完工页核对</small></div>}
+        {!!selectedParts.length && <div className="selected-parts-total"><span>{quoteOnly ? "预计配件费" : diagnosticOnly ? "故障配件数量" : "配件小计"}</span><strong>{diagnosticOnly ? `${selectedPartsCount} 件` : selectedPartsTotal === null ? "待核价" : `¥${selectedPartsTotal.toFixed(2)}`}</strong><small>{quoteOnly ? "仅用于弃修费用明细，不会添加到瑞云更换件" : diagnosticOnly ? "仅用于确认故障，不申请库存、不写入瑞云更换件" : "完整费用在维修完工页核对"}</small></div>}
       </section>
 
       <section className="card parts-search-card">
@@ -278,7 +293,7 @@ function PartsApplication({ setPage }) {
           </button>
         </div>
 
-        <div className="part-search-result">
+        <div className="part-search-result" tabIndex={matches.length > 8 ? 0 : undefined} aria-label="配件搜索结果，超过八条时可上下滑动">
           {isSearching && <p>正在查询厂家飞书配件表...</p>}
           {!isSearching && keyword.trim() && matches.length === 0 && <p>当前机型下未找到匹配配件</p>}
           {matches.map((part) => {
@@ -296,7 +311,7 @@ function PartsApplication({ setPage }) {
               <span className="part-search-copy">
                 <strong>{part.name}</strong>
                 <small>{part.code}</small>
-                <span className="part-result-meta">{alreadyApplied && <i>已添加</i>}<em>{part.repairLevel}</em><b>零售价 {priceText(part.retailPrice)}</b>{part.returnRequired && <strong className="part-return-required">旧件需返厂</strong>}</span>
+                <span className="part-result-meta">{alreadyApplied && <i>已添加</i>}{part.isReplacementPart && <i>替代料</i>}<em>{part.repairLevel}</em><b>零售价 {priceText(part.retailPrice)}</b>{part.returnRequired && <strong className="part-return-required">旧件需返厂</strong>}</span>
               </span>
             </label>
           )})}
@@ -325,10 +340,10 @@ function PartsApplication({ setPage }) {
         {message && <p role="status">{message}</p>}
 
         <p className="dry-run-notice">
-          配件与价格实时查询厂家飞书表；当前只记录到 FieldDesk，不写入瑞云
+          {quoteOnly ? "弃修配件只用于核价和免运费申请，不占库存、不写入瑞云更换件" : diagnosticOnly ? "故障配件只用于说明检测结果，不占库存、不写入瑞云更换件" : "配件与价格实时查询厂家飞书表；当前只记录到 FieldDesk，不写入瑞云"}
         </p>
         <button className="primary-btn" onClick={continueToCompletion} disabled={isSaving || selectedParts.length === 0}>
-          {selectedParts.length ? "配件确认完成，下一步故障分类" : "请先添加维修配件"}
+          {selectedParts.length ? (quoteOnly ? "弃修报价确认，下一步故障分类" : diagnosticOnly ? "故障配件确认，下一步填写检测" : "配件确认完成，下一步故障分类") : (recordOnly ? "请先添加故障配件" : "请先添加维修配件")}
         </button>
       </section>
       <ScannerModal

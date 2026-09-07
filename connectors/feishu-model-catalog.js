@@ -95,13 +95,21 @@ function resolveProjectModel(rows, input = {}) {
   const snProject = getSnProjectMatch(input.sn, rows);
   if (!snProject.projectCode) return { status: "INVALID_SN", canContinue: false, correctionLookupRequired: false };
   const currentProjectCode = comparableProjectCode(input.currentProjectCode);
-  const matches = rows.filter((row) => projectCodeMatches(row.projectCode, snProject.projectCode));
+  const projectMatches = rows.filter((row) => projectCodeMatches(row.projectCode, snProject.projectCode));
+  const modelHint = comparable(input.model || input.expectedModel);
+  const modelMatches = modelHint
+    ? projectMatches.filter((row) => comparable(row.model) === modelHint)
+    : [];
+  // A project can intentionally contain several machine variants and product
+  // model codes. Receipt preparation has already persisted the exact machine
+  // model, so use that hint during the later Recloud project correction.
+  const matches = modelMatches.length > 0 ? modelMatches : projectMatches;
   const modelCodes = [...new Set(matches.map((row) => row.modelCode).filter(Boolean))];
   const numericModelCodes = modelCodes.filter((code) => /^\d/.test(code));
   const repairFeeOptions = [...new Map(matches
     .filter((row) => row.repairFees)
     .map((row) => [JSON.stringify(row.repairFees), row.repairFees])).values()];
-  if (matches.length === 0) {
+  if (projectMatches.length === 0) {
     return {
       status: "TRANSFER_TO_HEADQUARTERS",
       repairability: "UNSUPPORTED",
@@ -133,6 +141,31 @@ function resolveProjectModel(rows, input = {}) {
       projectCode: snProject.projectCode,
       currentProjectCode: normalize(input.currentProjectCode),
       productModelCode: selectedCode,
+      model: selectedRow?.model || "",
+      repairFees: selectedRow?.repairFees || { 大修: 0, 中修: 0, 小修: 0 },
+    };
+  }
+  const currentProjectRows = rows.filter((row) =>
+    projectCodeMatches(row.projectCode, currentProjectCode)
+  );
+  const currentNumericModelCodes = [...new Set(currentProjectRows
+    .map((row) => row.modelCode)
+    .filter((code) => /^\d/.test(code)))];
+  if (
+    numericModelCodes.length === 1
+    && currentNumericModelCodes.length === 1
+    && numericModelCodes[0] === currentNumericModelCodes[0]
+  ) {
+    const selectedRow = matches.find((row) => row.modelCode === numericModelCodes[0]) || matches[0];
+    return {
+      status: "MATCHED",
+      repairability: "SUPPORTED",
+      canContinue: true,
+      correctionLookupRequired: false,
+      matchBasis: "SHARED_PRODUCT_MODEL_CODE",
+      projectCode: snProject.projectCode,
+      currentProjectCode: normalize(input.currentProjectCode),
+      productModelCode: numericModelCodes[0],
       model: selectedRow?.model || "",
       repairFees: selectedRow?.repairFees || { 大修: 0, 中修: 0, 小修: 0 },
     };

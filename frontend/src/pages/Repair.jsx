@@ -102,7 +102,7 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
       logisticsNo: order.logisticsNo || queryResult.logisticsNo || queryResult.pickupLogisticsNo || "",
       customer: order.customerName || queryResult.customer?.name || "",
       phone: order.phoneMasked || queryResult.customer?.phoneMasked || "",
-      address: order.regionAddress || queryResult.customer?.regionAddress || "",
+      address: order.customerAddress || order.regionAddress || queryResult.customer?.customerAddress || queryResult.customer?.regionAddress || "",
       product: order.productLine || order.specialty || queryResult.productLine || "",
       model: order.productLine || order.specialty || queryResult.productLine || "",
       sn: order.sn || "",
@@ -111,6 +111,7 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
       originalFault: order.reportedFault || queryResult.reportedFault || "",
       inspectionResult: order.inspectionResult || "",
       inspectionRemark: order.inspectionRemark || "",
+      inspectionFaultOutcome: order.inspectionFaultOutcome || "",
       crmFault: order.faultCategory || "",
       level3Fault: order.faultCategory || "",
       treatmentMode: order.treatmentMode || "",
@@ -134,6 +135,19 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
       const localOrder = localOrders.find((item) =>
         String(item.rmaNo || "").trim() === String(result.rmaNo || "").trim()
       )
+      if (localOrder?.snCorrectionRequiredAt) {
+        setRepairDetail({ ...result, localWorkflow: localOrder })
+        setSn("")
+        setSpecialty(localOrder.specialty || localOrder.productLine || result.productLine || "")
+        setReceiptAttachments((localOrder.receiptAttachments || []).map((attachment) => ({
+          ...attachment,
+          uploaded: true
+        })))
+        setReceiptStep("form")
+        setErrorMessage("")
+        setReceiptMessage("原 SN 已清除，请重新扫描正确的机器 SN；已上传照片均已保留")
+        return true
+      }
       if (!localOrder?.sn) return false
       // 旧版本曾可能把联系电话或物流号误存为 SN。此类脏记录不能阻断重新录入。
       if (validateReceiptSn(localOrder.sn, localOrder.logisticsNo || result.pickupLogisticsNo || "")) {
@@ -403,6 +417,9 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
         customerName: repairDetail.customer?.name || "",
         phoneMasked: repairDetail.customer?.phoneMasked || "",
         regionAddress: repairDetail.customer?.regionAddress || "",
+        customerAddress: repairDetail.customer?.customerAddress || repairDetail.customer?.regionAddress || "",
+        sourceCreatedAt: repairDetail.sourceCreatedAt || repairDetail.createdAt || "",
+        productModel: repairDetail.productModel || "",
         reportedFault: repairDetail.reportedFault
       })
       const canContinueLocalWorkflow = preparation.authorization?.repairability === "SUPPORTED"
@@ -430,7 +447,10 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
           data: await fileToDataUrl(attachment.file)
         })
       }))
-      const result = await completeLocalReceipt(repairDetail.rmaNo)
+      // A corrected SN is a new receipt attempt for the same RMA. Include the
+      // scanned SN in the idempotency key so an earlier wrong-SN response can
+      // never be replayed into the corrected workflow.
+      const result = await completeLocalReceipt(repairDetail.rmaNo, normalizedSn)
       const order = createRepairOrder({
         id: `RMA-${result.rmaNo}`,
         crmOrderNo: result.rmaNo,
@@ -629,7 +649,7 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
 
             <div>
               <dt>所在地区/地址</dt>
-              <dd>{repairDetail.customer?.regionAddress || "未提供"}</dd>
+              <dd>{repairDetail.customer?.customerAddress || repairDetail.customer?.regionAddress || "未提供"}</dd>
             </div>
             <div>
               <dt>产品线</dt>

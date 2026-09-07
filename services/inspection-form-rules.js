@@ -47,11 +47,19 @@ function buildInspectionFormDecision(input = {}) {
   const treatmentMode = requiredText(input.treatmentMode);
   const requestedResult = requiredText(input.detectionResult)
     || (treatmentMode === "DEBUGGING" ? "调试" : "");
-  const detectionResult = ["弃修", "不修"].includes(requestedResult)
+  // 处理方式是业务主状态，优先级必须高于前端表单残留值。否则师傅先前
+  // 选择过“维修”后再改为“弃修”，旧的“维修”会被错误写进瑞云。
+  const detectionResult = treatmentMode === "ABANDONED"
     ? "弃修"
-    : ["只检测不维修", "检测不维修"].includes(requestedResult)
+    : treatmentMode === "INSPECTION_ONLY"
       ? "检测不维修"
-      : "维修";
+      : treatmentMode === "DEBUGGING"
+        ? "维修"
+        : ["弃修", "不修"].includes(requestedResult)
+          ? "弃修"
+          : ["只检测不维修", "检测不维修"].includes(requestedResult)
+            ? "检测不维修"
+            : "维修";
   return {
     status: "READY",
     canAutoSubmit: true,
