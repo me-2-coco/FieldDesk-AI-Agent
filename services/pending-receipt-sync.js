@@ -1,4 +1,5 @@
-const FIVE_MINUTES = 5 * 60 * 1000;
+const REALTIME_SYNC_INTERVAL = 30 * 1000;
+const MINIMUM_SYNC_INTERVAL = 15 * 1000;
 const DEFAULT_TIME_ZONE = 'Asia/Shanghai';
 
 function pendingReceiptSyncEnabled(env = process.env) {
@@ -6,8 +7,10 @@ function pendingReceiptSyncEnabled(env = process.env) {
 }
 
 function pendingReceiptSyncInterval(env = process.env) {
-  const requested = Number(env.PENDING_RECEIPT_SYNC_INTERVAL_MS || FIVE_MINUTES);
-  return Number.isFinite(requested) ? Math.max(FIVE_MINUTES, requested) : FIVE_MINUTES;
+  const requested = Number(env.PENDING_RECEIPT_SYNC_INTERVAL_MS || REALTIME_SYNC_INTERVAL);
+  return Number.isFinite(requested)
+    ? Math.max(MINIMUM_SYNC_INTERVAL, requested)
+    : REALTIME_SYNC_INTERVAL;
 }
 
 function shanghaiParts(date) {
@@ -18,9 +21,8 @@ function shanghaiParts(date) {
   return Object.fromEntries(parts.map(({ type, value }) => [type, Number(value)]));
 }
 
-function isActiveSyncTime(date = new Date()) {
-  const { hour } = shanghaiParts(date);
-  return hour >= 7 && hour < 23;
+function isActiveSyncTime() {
+  return true;
 }
 
 function shanghaiDateKey(date = new Date()) {
@@ -28,19 +30,13 @@ function shanghaiDateKey(date = new Date()) {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
-function millisecondsUntilNextWindow(date = new Date(), intervalMs = FIVE_MINUTES) {
-  if (isActiveSyncTime(date)) {
-    const elapsed = date.getTime() % intervalMs;
-    return elapsed === 0 ? intervalMs : intervalMs - elapsed;
-  }
-  const parts = shanghaiParts(date);
-  const todaySevenUtc = Date.UTC(parts.year, parts.month - 1, parts.day, 7) - 8 * 60 * 60 * 1000;
-  const next = parts.hour >= 23 ? todaySevenUtc + 24 * 60 * 60 * 1000 : todaySevenUtc;
-  return Math.max(1000, next - date.getTime());
+function millisecondsUntilNextWindow(date = new Date(), intervalMs = REALTIME_SYNC_INTERVAL) {
+  const elapsed = date.getTime() % intervalMs;
+  return elapsed === 0 ? intervalMs : intervalMs - elapsed;
 }
 
 class PendingReceiptSync {
-  constructor({ store, readOrders, intervalMs = FIVE_MINUTES, logger = console,
+  constructor({ store, readOrders, intervalMs = REALTIME_SYNC_INTERVAL, logger = console,
     setTimer = setTimeout, clearTimer = clearTimeout, now = () => new Date() }) {
     this.store = store;
     this.readOrders = readOrders;
@@ -52,23 +48,28 @@ class PendingReceiptSync {
     this.timer = null;
     this.stopped = true;
     this.running = false;
+    this.initialSync = true;
   }
 
   async syncNow({ force = false } = {}) {
     const current = this.now();
-    if (!force && !isActiveSyncTime(current)) return { skipped: true, reason: 'OUTSIDE_SYNC_WINDOW' };
     if (this.running) return { skipped: true, reason: 'ALREADY_RUNNING' };
     this.running = true;
     try {
       const snapshot = await this.store.readSnapshot();
       const lastDate = snapshot.syncedAt ? shanghaiDateKey(new Date(snapshot.syncedAt)) : '';
-      const catchUp = !lastDate || lastDate !== shanghaiDateKey(current);
+      // Every backend start first refreshes the complete pending list. Later
+      // runs only scan newly-created rows, keeping near-real-time polling cheap.
+      const catchUp = force || this.initialSync || !lastDate || lastDate !== shanghaiDateKey(current);
       const result = await this.readOrders({
         existingRmaNos: snapshot.orders
           .filter((order) => /^1[3-9]\d{9}$/.test(String(order.phone || '').trim()))
           .map((order) => order.rmaNo).filter(Boolean),
         since: snapshot.syncedAt || '', catchUp,
       });
+      if (result?.yielded) {
+        return { skipped: true, reason: 'FOREGROUND_QUERY_PRIORITY', catchUp, yielded: true };
+      }
       const orders = Array.isArray(result) ? result : result.orders || [];
       const activeRmaNos = Array.isArray(result?.activeRmaNos) ? result.activeRmaNos : null;
       const merged = await this.store.mergeIncremental(orders, {
@@ -76,6 +77,7 @@ class PendingReceiptSync {
         syncedAt: current.toISOString(),
       });
       this.logger.info?.(`PENDING_RECEIPT_SYNC: added ${merged.added}, updated ${merged.updated}, total ${merged.total}`);
+      this.initialSync = false;
       return { skipped: false, catchUp, ...merged };
     } catch (error) {
       this.logger.error?.(`PENDING_RECEIPT_SYNC: failed ${error.code || 'UNKNOWN'}`);
@@ -97,7 +99,7 @@ class PendingReceiptSync {
   start(immediate = true) {
     if (!this.stopped) return;
     this.stopped = false;
-    if (immediate && isActiveSyncTime(this.now())) this.syncNow().finally(() => this.scheduleNext());
+    if (immediate) this.syncNow().finally(() => this.scheduleNext());
     else this.scheduleNext();
   }
 
@@ -109,6 +111,6 @@ class PendingReceiptSync {
 }
 
 module.exports = {
-  FIVE_MINUTES, PendingReceiptSync, isActiveSyncTime, millisecondsUntilNextWindow,
+  REALTIME_SYNC_INTERVAL, MINIMUM_SYNC_INTERVAL, PendingReceiptSync, isActiveSyncTime, millisecondsUntilNextWindow,
   pendingReceiptSyncEnabled, pendingReceiptSyncInterval, shanghaiDateKey,
 };

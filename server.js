@@ -5283,12 +5283,13 @@ if (require.main === module) {
       recloudConnector,
       (page, queue) => recloudConnector.readPendingReceiptOrders(page, {
         ...context,
+        listOnly: true,
         shouldYield: queue.shouldYield,
       }),
       {
         background: true,
         channel: "background-receipts",
-        timeoutMs: 30000,
+        timeoutMs: 120000,
         timeoutCode: "RECLOUD_PENDING_RECEIPTS_TIMEOUT",
       }
     ),

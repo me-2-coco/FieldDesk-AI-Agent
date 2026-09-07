@@ -10,13 +10,14 @@ const {
   pendingReceiptSyncInterval,
 } = require('../services/pending-receipt-sync');
 
-test('pending receipt schedule runs 07:00-23:00 Shanghai every five minutes', () => {
+test('pending receipt schedule runs continuously every thirty seconds', () => {
   assert.equal(isActiveSyncTime(new Date('2026-08-30T22:59:59+08:00')), true);
-  assert.equal(isActiveSyncTime(new Date('2026-08-30T23:00:00+08:00')), false);
-  assert.equal(isActiveSyncTime(new Date('2026-08-31T06:59:59+08:00')), false);
+  assert.equal(isActiveSyncTime(new Date('2026-08-30T23:00:00+08:00')), true);
+  assert.equal(isActiveSyncTime(new Date('2026-08-31T06:59:59+08:00')), true);
   assert.equal(isActiveSyncTime(new Date('2026-08-31T07:00:00+08:00')), true);
-  assert.equal(pendingReceiptSyncInterval({}), 300000);
-  assert.equal(millisecondsUntilNextWindow(new Date('2026-08-30T23:00:00+08:00')), 8 * 60 * 60 * 1000);
+  assert.equal(pendingReceiptSyncInterval({}), 30000);
+  assert.equal(pendingReceiptSyncInterval({ PENDING_RECEIPT_SYNC_INTERVAL_MS: '1000' }), 15000);
+  assert.equal(millisecondsUntilNextWindow(new Date('2026-08-30T23:00:00+08:00')), 30000);
 });
 
 test('three-month backfill starts at the first day of the oldest included Shanghai month', () => {
@@ -70,12 +71,64 @@ test('first daytime sync performs catch-up and later sync is incremental', async
   assert.deepEqual(result.options.activeRmaNos, ['OLD', 'NEW']);
 });
 
-test('sync pauses outside the configured window', async () => {
+test('backend startup refreshes the full list even when cache was synced earlier the same day', async () => {
+  const contexts = [];
+  const store = {
+    readSnapshot: async () => ({
+      syncedAt: '2026-08-31T01:00:00.000Z',
+      orders: [{ rmaNo: 'OLD', phone: '13812345678' }],
+    }),
+    mergeIncremental: async () => ({ added: 0, updated: 1, removed: 0, total: 1 }),
+  };
+  const sync = new PendingReceiptSync({
+    store,
+    now: () => new Date('2026-08-31T12:00:00+08:00'),
+    readOrders: async (context) => {
+      contexts.push(context);
+      return { orders: [], activeRmaNos: ['OLD'] };
+    },
+    logger: { info() {}, error() {} },
+  });
+
+  assert.equal((await sync.syncNow()).catchUp, true);
+  assert.equal((await sync.syncNow()).catchUp, false);
+  assert.equal(contexts.length, 2);
+});
+
+test('foreground work yields without advancing the cache timestamp or losing startup catch-up', async () => {
+  let merges = 0;
+  const store = {
+    readSnapshot: async () => ({ syncedAt: '2026-08-31T01:00:00.000Z', orders: [] }),
+    mergeIncremental: async () => { merges += 1; return {}; },
+  };
+  let calls = 0;
+  const sync = new PendingReceiptSync({
+    store,
+    now: () => new Date('2026-08-31T12:00:00+08:00'),
+    readOrders: async () => (++calls === 1
+      ? { orders: [], activeRmaNos: null, yielded: true }
+      : { orders: [], activeRmaNos: [] }),
+    logger: { info() {}, error() {} },
+  });
+
+  assert.equal((await sync.syncNow()).reason, 'FOREGROUND_QUERY_PRIORITY');
+  assert.equal(merges, 0);
+  assert.equal((await sync.syncNow()).catchUp, true);
+  assert.equal(merges, 1);
+});
+
+test('sync continues outside the former daytime window', async () => {
   let called = false;
   const sync = new PendingReceiptSync({
-    store: {}, readOrders: async () => { called = true; },
+    store: {
+      readSnapshot: async () => ({ syncedAt: '', orders: [] }),
+      mergeIncremental: async () => ({ added: 0, updated: 0, removed: 0, total: 0 }),
+    },
+    readOrders: async () => { called = true; return { orders: [], activeRmaNos: [] }; },
     now: () => new Date('2026-08-30T23:30:00+08:00'),
+    logger: { info() {}, error() {} },
   });
-  assert.deepEqual(await sync.syncNow(), { skipped: true, reason: 'OUTSIDE_SYNC_WINDOW' });
-  assert.equal(called, false);
+  const result = await sync.syncNow();
+  assert.equal(result.skipped, false);
+  assert.equal(called, true);
 });

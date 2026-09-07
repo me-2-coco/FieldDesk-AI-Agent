@@ -1889,6 +1889,17 @@ async function readPendingReceiptOrders(page, options = {}) {
   if (options.shouldYield?.()) {
     return { orders: [], activeRmaNos: null, fullSnapshot: false, yielded: true };
   }
+  // The continuous FieldDesk sync only needs the pending-list fields. Persist
+  // every discovered row at once so a hundred new orders do not become a
+  // 500-minute queue. Full detail/phone enrichment remains available to the
+  // explicit backfill script and foreground lookup path.
+  if (options.listOnly) {
+    return {
+      orders: [...orders.values()],
+      activeRmaNos: scannedAll ? activeRmaNos : null,
+      fullSnapshot: scannedAll,
+    };
+  }
   const prioritySignature = getMaskedPhoneSignature(options.priorityPhone || '');
   const priorityMatches = (order) => {
     if (!prioritySignature) return false;
