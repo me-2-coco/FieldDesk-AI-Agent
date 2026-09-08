@@ -339,7 +339,12 @@ class JsonReceiptPreparationStore {
         error.status = 404;
         throw error;
       }
-      if (existing.recloudReceiptConfirmedAt) return existing;
+      if (existing.recloudReceiptConfirmedAt) {
+        if (!existing.recloudReceiptLastError) return existing;
+        const normalized = { ...existing, recloudReceiptLastError: null };
+        await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? normalized : record));
+        return normalized;
+      }
       const timestamp = new Date().toISOString();
       const operator = input.operator || {};
       const updated = {
@@ -351,6 +356,7 @@ class JsonReceiptPreparationStore {
           skipped: input.skipped === true,
           message: normalizeRequired(input.receipt?.message) || (input.skipped ? "瑞云已签收，跳过重复签收" : "签收完成"),
         },
+        recloudReceiptLastError: null,
         updatedAt: timestamp,
         timeline: [
           ...(existing.timeline || []),

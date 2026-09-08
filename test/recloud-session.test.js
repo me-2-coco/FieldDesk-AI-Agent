@@ -836,7 +836,7 @@ test("business writes use a separate priority channel and make background reads 
   assert.deepEqual(channels.sort(), ["background", "business-write"]);
 });
 
-test("business write pool accepts twenty orders without exceeding its fixed limit", async () => {
+test("business write pool accepts thirty orders without exceeding its fixed limit", async () => {
   const channels = [];
   let active = 0;
   let peak = 0;
@@ -846,7 +846,7 @@ test("business write pool accepts twenty orders without exceeding its fixed limi
       return { loginRequired: false, page: { channel } };
     },
   };
-  const jobs = Array.from({ length: 20 }, (_, index) => withRecloud(
+  const jobs = Array.from({ length: 30 }, (_, index) => withRecloud(
     connector,
     async (page) => {
       active += 1;
@@ -859,9 +859,44 @@ test("business write pool accepts twenty orders without exceeding its fixed limi
   ));
 
   const results = await Promise.all(jobs);
-  assert.equal(results.length, 20);
+  assert.equal(results.length, 30);
   assert.equal(peak, 5);
   assert.equal(new Set(channels).size, 5);
+});
+
+test("new technician writes overtake queued historical recovery work", async () => {
+  const order = [];
+  const releases = [];
+  let startedCount = 0;
+  let bothStarted;
+  const started = new Promise((resolve) => { bothStarted = resolve; });
+  const connector = {
+    async openRecloud({ channel }) {
+      return { loginRequired: false, page: { channel } };
+    },
+  };
+  const options = { background: true, channel: "priority-write", concurrency: 2 };
+  const blocker = (name) => withRecloud(connector, async () => {
+    order.push(name);
+    startedCount += 1;
+    if (startedCount === 2) bothStarted();
+    await new Promise((resolve) => { releases.push(resolve); });
+  }, { ...options, queuePriority: -100 });
+  const first = blocker("first-recovery");
+  const second = blocker("second-recovery");
+  await started;
+  const queuedRecovery = withRecloud(connector, async () => order.push("queued-recovery"), {
+    ...options, queuePriority: -100,
+  });
+  const live = withRecloud(connector, async () => order.push("live-submission"), {
+    ...options, queuePriority: 100,
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  releases[0]();
+  await live;
+  releases[1]();
+  await Promise.all([first, second, queuedRecovery]);
+  assert.deepEqual(order, ["first-recovery", "second-recovery", "live-submission", "queued-recovery"]);
 });
 
 test("a timed-out pooled write is quarantined while other workers keep processing", async () => {

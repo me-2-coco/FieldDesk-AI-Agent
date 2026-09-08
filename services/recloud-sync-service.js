@@ -57,6 +57,7 @@ class RecloudSyncService {
     this.dependencyPollMs = Math.max(250, Number(options.dependencyPollMs || 1000));
     this.taskFilter = typeof options.taskFilter === "function" ? options.taskFilter : () => true;
     this.staleProcessingMs = Number(options.staleProcessingMs || 45_000);
+    this.activeTaskIds = new Set();
   }
 
   async enqueueOrderNode(order, nodeType, localBusinessRecordId) {
@@ -77,11 +78,16 @@ class RecloudSyncService {
     return task;
   }
 
-  async resumePendingTasks() {
+  async resumePendingTasks(options = {}) {
     const allTasks = await this.outbox.readAll();
     const now = Date.now();
+    const minFailedAgeMs = Math.max(0, Number(options.minFailedAgeMs || 0));
+    const maxTasks = Number.isFinite(Number(options.maxTasks))
+      ? Math.max(0, Math.floor(Number(options.maxTasks)))
+      : Infinity;
     const staleProcessingTasks = allTasks.filter((task) =>
-      this.taskFilter(task)
+      !this.activeTaskIds.has(task.id)
+      && this.taskFilter(task)
       && task.status === TASK_STATUS.PROCESSING
       && Number.isFinite(Date.parse(task.updatedAt))
       && now - Date.parse(task.updatedAt) >= this.staleProcessingMs
@@ -97,11 +103,14 @@ class RecloudSyncService {
       });
     }
     const tasks = (await this.outbox.readAll()).filter((task) =>
-      this.taskFilter(task) && (
+      !this.activeTaskIds.has(task.id) && this.taskFilter(task) && (
         task.status === TASK_STATUS.PENDING
-        || (task.status === TASK_STATUS.FAILED && Number(task.retryCount || 0) < this.maxRetries)
+        || (task.status === TASK_STATUS.FAILED
+          && Number(task.retryCount || 0) < this.maxRetries
+          && now - Date.parse(task.updatedAt || 0) >= minFailedAgeMs)
       )
-    );
+    ).sort((left, right) => String(left.updatedAt || "").localeCompare(String(right.updatedAt || "")))
+      .slice(0, maxTasks);
     for (const task of tasks) {
       this.scheduler(() => this.processTask(task.id).catch(() => {}));
     }
@@ -109,6 +118,16 @@ class RecloudSyncService {
   }
 
   async processTask(taskId) {
+    if (this.activeTaskIds.has(taskId)) return this.outbox.get(taskId);
+    this.activeTaskIds.add(taskId);
+    try {
+      return await this.processTaskOnce(taskId);
+    } finally {
+      this.activeTaskIds.delete(taskId);
+    }
+  }
+
+  async processTaskOnce(taskId) {
     let task = await this.outbox.get(taskId);
     if (!task || ![TASK_STATUS.PENDING, TASK_STATUS.FAILED].includes(task.status)) return task;
     if (!this.taskFilter(task)) return task;

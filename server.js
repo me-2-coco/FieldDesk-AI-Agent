@@ -86,6 +86,21 @@ const {
 const { hasBusinessRole, isBusinessRuleExempt } = require("./config/business-access-policy");
 
 const SUPPORTED_REPAIR_SPECIALTIES = Object.freeze(["扫地机", "洗地机"]);
+const RECLOUD_FAILED_RETRY_COOLDOWN_MS = 5 * 60 * 1000;
+const RECLOUD_RECOVERY_SWEEP_INTERVAL_MS = 60 * 1000;
+const RECLOUD_RECOVERY_SWEEP_BATCH_SIZE = 5;
+const RECEIPT_RECOVERY_STATUSES = new Set([
+  "RECEIVED_PENDING_INSPECTION",
+  "INSPECTION_IN_PROGRESS",
+  "INSPECTION_COMPLETED_PENDING_REPAIR",
+  "REPAIR_COMPLETION_DRAFT",
+]);
+const NON_RETRYABLE_DETECTION_ERRORS = new Set([
+  "RECLOUD_ACTION_NOT_FOUND",
+  "RECLOUD_DETECTION_PAYLOAD_INVALID",
+  "RECLOUD_DETECTION_OPTION_AMBIGUOUS",
+  "RECLOUD_DETECTION_FIELD_AMBIGUOUS",
+]);
 const ACCOUNT_SESSION_COOKIE = "fielddesk_session";
 
 function resolvePersistedProjectAuthorization(modelAuthorization, currentProjectCode) {
@@ -537,6 +552,7 @@ function runRecloudPool(coordinator, connector, operation, options, requestedCha
   if (!pool) {
     pool = {
       waiting: [],
+      nextSequence: 0,
       nextWorkerId: size,
       workers: Array.from({ length: size }, (_, index) => ({
         busy: false,
@@ -547,7 +563,17 @@ function runRecloudPool(coordinator, connector, operation, options, requestedCha
     coordinator.pools.set(poolKey, pool);
   }
   return new Promise((resolve, reject) => {
-    pool.waiting.push({ operation, options, resolve, reject });
+    pool.waiting.push({
+      operation,
+      options,
+      resolve,
+      reject,
+      priority: Number(options.queuePriority || 0),
+      sequence: pool.nextSequence++,
+    });
+    pool.waiting.sort((left, right) => (
+      right.priority - left.priority || left.sequence - right.sequence
+    ));
     const dispatch = () => {
       for (const worker of pool.workers) {
         if (worker.busy || pool.waiting.length === 0) continue;
@@ -634,6 +660,82 @@ function recloudBusinessWriteConcurrency(env = process.env) {
     : 5;
 }
 
+function timestampAgeMs(value, now = Date.now()) {
+  const timestamp = Date.parse(String(value || ""));
+  return Number.isFinite(timestamp) ? Math.max(0, now - timestamp) : Infinity;
+}
+
+function shouldAutoResumeReceipt(order, now = Date.now()) {
+  if (!order?.receiptCompletedAt || !RECEIPT_RECOVERY_STATUSES.has(order.status)) return false;
+  if (order.recloudReceiptSyncStatus === "RESULT_UNKNOWN") return false;
+  const missingDependency = !order.recloudReceiptConfirmedAt
+    || !order.recloudProjectVerificationConfirmedAt
+    || ((order.receiptAttachments || []).length > 0 && !order.recloudReceiptAttachmentConfirmedAt);
+  if (!missingDependency) return false;
+  const latestErrorTimestamp = [
+    order.recloudReceiptAttachmentLastError?.at,
+    order.recloudProjectVerificationLastError?.at,
+    order.recloudReceiptLastError?.at,
+  ].map((value) => Date.parse(String(value || "")))
+    .filter(Number.isFinite)
+    .sort((left, right) => right - left)[0];
+  return !latestErrorTimestamp
+    || now - latestErrorTimestamp >= RECLOUD_FAILED_RETRY_COOLDOWN_MS;
+}
+
+function shouldAutoResumeDetection(order, now = Date.now()) {
+  if (order?.status !== "INSPECTION_COMPLETED_PENDING_REPAIR") return false;
+  if (!order.inspectionUpdatedAt || order.recloudDetectionConfirmedAt) return false;
+  const status = String(order.recloudDetectionSyncStatus || "");
+  if (status === "PENDING") return true;
+  if (status === "SYNCING") {
+    return timestampAgeMs(order.recloudDetectionAttemptedAt, now) >= 120_000;
+  }
+  if (status !== "FAILED") return false;
+  if (NON_RETRYABLE_DETECTION_ERRORS.has(order.recloudDetectionLastError?.code)) return false;
+  return timestampAgeMs(
+    order.recloudDetectionLastError?.at || order.recloudDetectionAttemptedAt,
+    now
+  ) >= RECLOUD_FAILED_RETRY_COOLDOWN_MS;
+}
+
+function shouldAutoResumeServiceOrder(order, now = Date.now()) {
+  if (!order?.recloudDetectionConfirmedAt) return false;
+  if (!["INSPECTION_COMPLETED_PENDING_REPAIR", "REPAIR_COMPLETION_DRAFT"].includes(order.status)) return false;
+  if (order.recloudServiceOrderSyncStatus === "RESULT_UNKNOWN") return false;
+  const preparationStatus = String(order.recloudRepairPreparation?.status || "");
+  const needsCreation = !order.recloudServiceOrderCreatedAt
+    && preparationStatus === "PENDING";
+  const needsPreparationRecovery = Boolean(
+    order.recloudServiceOrderCreatedAt
+    && order.recloudServiceOrderNo
+    && preparationStatus === "FAILED"
+  );
+  if (!needsCreation && !needsPreparationRecovery) return false;
+  const status = String(order.recloudServiceOrderSyncStatus || "");
+  if (status === "SYNCING") {
+    return timestampAgeMs(order.recloudServiceOrderAttemptedAt, now) >= 300_000;
+  }
+  const lastFailureAt = order.recloudRepairPreparation?.failedAt
+    || order.recloudServiceOrderLastError?.at
+    || order.recloudServiceOrderAttemptedAt;
+  return !lastFailureAt || timestampAgeMs(lastFailureAt, now) >= RECLOUD_FAILED_RETRY_COOLDOWN_MS;
+}
+
+function recloudRecoverySweepIntervalMs(env = process.env) {
+  const configured = Number(env.RECLOUD_RECOVERY_SWEEP_INTERVAL_MS);
+  return Number.isFinite(configured) && configured >= 10_000
+    ? Math.floor(configured)
+    : RECLOUD_RECOVERY_SWEEP_INTERVAL_MS;
+}
+
+function recloudRecoverySweepBatchSize(env = process.env) {
+  const configured = Number(env.RECLOUD_RECOVERY_SWEEP_BATCH_SIZE);
+  return Number.isFinite(configured) && configured > 0
+    ? Math.min(20, Math.floor(configured))
+    : RECLOUD_RECOVERY_SWEEP_BATCH_SIZE;
+}
+
 async function initializeRecloudSession(connector, logger = console) {
   try {
     return await connector.openRecloud();
@@ -669,6 +771,7 @@ function createApp(
     background: true,
     channel: "business-write",
     priority: true,
+    queuePriority: 100,
     concurrency: recloudBusinessWriteConcurrency(runtimeEnv),
     timeoutMs: recloudBusinessWriteTimeoutMs(runtimeEnv),
     resultUnknownOnTimeout: true,
@@ -764,10 +867,13 @@ function createApp(
         return preparationStatus === "CONFIRMED"
           || preparationStatus === "PARTS_SHORTAGE";
       },
+      staleProcessingMs: recloudBusinessWriteTimeoutMs(runtimeEnv) + 60_000,
     }
   );
   if (typeof syncService.resumePendingTasks === "function") {
-    syncService.resumePendingTasks().catch((error) => {
+    syncService.resumePendingTasks({
+      maxTasks: recloudRecoverySweepBatchSize(runtimeEnv),
+    }).catch((error) => {
       console.error(`RECLOUD_SYNC_RESUME: failed ${error.code || "UNKNOWN"}`);
     });
   }
@@ -926,7 +1032,7 @@ function createApp(
     return true;
   }
 
-  function scheduleRecloudReceiptSync(order, operator = {}, attemptId = "") {
+  function scheduleRecloudReceiptSync(order, operator = {}, attemptId = "", scheduleOptions = {}) {
     const rmaNo = String(order?.rmaNo || "").trim();
     const receiptNeedsSync = !order?.recloudReceiptConfirmedAt;
     const projectNeedsSync = !order?.recloudProjectVerificationConfirmedAt;
@@ -1185,7 +1291,11 @@ function createApp(
             }
           }
           return { receipt, attachmentResult };
-        }, { ...businessWriteOptions, timeoutCode: "RECLOUD_RECEIPT_TIMEOUT" });
+        }, {
+          ...businessWriteOptions,
+          queuePriority: scheduleOptions.queuePriority ?? businessWriteOptions.queuePriority,
+          timeoutCode: "RECLOUD_RECEIPT_TIMEOUT",
+        });
         receiptRecoveryAttempts.delete(rmaNo);
         const syncedOrder = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
         if (syncedOrder?.inspectionUpdatedAt && !syncedOrder.recloudDetectionConfirmedAt) {
@@ -1223,10 +1333,13 @@ function createApp(
         receiptRecoveryAttempts.set(rmaNo, retryCount);
         const retryDelay = [2000, 5000, 15000][retryCount - 1];
         if (retryDelay) {
-          setTimeout(async () => {
+          const retryTimer = setTimeout(async () => {
             const latest = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
-            if (latest) scheduleRecloudReceiptSync(latest, operator, crypto.randomUUID());
+            if (latest) scheduleRecloudReceiptSync(
+              latest, operator, crypto.randomUUID(), scheduleOptions
+            );
           }, retryDelay);
+          retryTimer.unref?.();
         }
       } finally {
         activeReceiptSyncs.delete(rmaNo);
@@ -1240,18 +1353,11 @@ function createApp(
       try {
         const orders = await receiptStore.readAll();
         for (const order of orders) {
-          if (
-            order.receiptCompletedAt
-            && order.recloudReceiptSyncStatus !== "RESULT_UNKNOWN"
-            && (!order.recloudReceiptConfirmedAt
-              || !order.recloudProjectVerificationConfirmedAt
-              || ((order.receiptAttachments || []).length > 0
-                && !order.recloudReceiptAttachmentConfirmedAt))
-          ) {
+          if (shouldAutoResumeReceipt(order)) {
             scheduleRecloudReceiptSync(order, {
               userId: order.operatorId || order.technicianId || "SYSTEM",
               displayName: order.operatorName || order.technicianName || "FieldDesk 后台",
-            }, crypto.randomUUID());
+            }, crypto.randomUUID(), { queuePriority: -100 });
           }
         }
       } catch (error) {
@@ -1263,7 +1369,7 @@ function createApp(
   const activeDetectionSyncs = new Set();
   const detectionRecoveryAttempts = new Map();
 
-  function scheduleRecloudDetectionSync(order, operator = {}) {
+  function scheduleRecloudDetectionSync(order, operator = {}, scheduleOptions = {}) {
     const rmaNo = String(order?.rmaNo || "").trim();
     const receiptDependenciesReady = Boolean(
       order?.recloudReceiptConfirmedAt
@@ -1271,7 +1377,7 @@ function createApp(
       && (!(order?.receiptAttachments || []).length || order?.recloudReceiptAttachmentConfirmedAt)
     );
     if (rmaNo && isRecloudReceiptWriteEnabled(runtimeEnv) && !receiptDependenciesReady) {
-      scheduleRecloudReceiptSync(order, operator, crypto.randomUUID());
+      scheduleRecloudReceiptSync(order, operator, crypto.randomUUID(), scheduleOptions);
       return false;
     }
     if (
@@ -1316,6 +1422,7 @@ function createApp(
           });
         }, {
           ...businessWriteOptions,
+          queuePriority: scheduleOptions.queuePriority ?? businessWriteOptions.queuePriority,
           timeoutCode: "RECLOUD_DETECTION_TIMEOUT",
           // confirmDetection itself marks an unknown result only after the
           // final confirmation click. A broader lane timeout before that point
@@ -1352,15 +1459,16 @@ function createApp(
             validationMessages: error.validationMessages || [],
           })
         );
-        if (!resultUnknown) {
+        if (!resultUnknown && !NON_RETRYABLE_DETECTION_ERRORS.has(error.code)) {
           const retryCount = (detectionRecoveryAttempts.get(rmaNo) || 0) + 1;
           detectionRecoveryAttempts.set(rmaNo, retryCount);
           const retryDelay = [2000, 5000, 15000][retryCount - 1];
           if (retryDelay) {
-            setTimeout(async () => {
+            const retryTimer = setTimeout(async () => {
               const latest = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
-              if (latest) scheduleRecloudDetectionSync(latest, operator);
+              if (latest) scheduleRecloudDetectionSync(latest, operator, scheduleOptions);
             }, retryDelay);
+            retryTimer.unref?.();
           }
         }
       } finally {
@@ -1375,19 +1483,11 @@ function createApp(
       try {
         const orders = await receiptStore.readAll();
         for (const order of orders) {
-          const attemptedAt = Date.parse(order.recloudDetectionAttemptedAt || "");
-          const staleSync = order.recloudDetectionSyncStatus === "SYNCING"
-            && Number.isFinite(attemptedAt)
-            && Date.now() - attemptedAt >= 120_000;
-          if (
-            order.inspectionUpdatedAt
-            && !order.recloudDetectionConfirmedAt
-            && (staleSync || ["PENDING", "FAILED"].includes(order.recloudDetectionSyncStatus))
-          ) {
+          if (shouldAutoResumeDetection(order)) {
             scheduleRecloudDetectionSync(order, {
               userId: order.operatorId || order.technicianId || "SYSTEM",
               displayName: order.operatorName || order.technicianName || "FieldDesk 后台",
-            });
+            }, { queuePriority: -100 });
           }
         }
       } catch (error) {
@@ -1496,7 +1596,11 @@ function createApp(
             usedParts: order.recloudRepairPreparation?.usedParts || [],
           }, adapter, { writeEnabled: true });
           return result;
-        }, { ...businessWriteOptions, timeoutCode: "RECLOUD_SERVICE_ORDER_TIMEOUT" });
+        }, {
+          ...businessWriteOptions,
+          queuePriority: recoveryOptions.queuePriority ?? businessWriteOptions.queuePriority,
+          timeoutCode: "RECLOUD_SERVICE_ORDER_TIMEOUT",
+        });
         if (!liveResult?.serviceOrderCreated) {
           throw createApiError("RECLOUD_SERVICE_ORDER_NOT_CREATED", "瑞云未确认创建维修服务单", 502);
         }
@@ -1536,14 +1640,16 @@ function createApp(
           serviceOrderRecoveryAttempts.set(rmaNo, retryCount);
           const retryDelay = [2000, 5000, 15000, 60000][Math.min(retryCount - 1, 3)];
           serviceOrderRecoveryNextAt.set(rmaNo, Date.now() + retryDelay);
-          setTimeout(async () => {
+          const retryTimer = setTimeout(async () => {
             serviceOrderRecoveryNextAt.delete(rmaNo);
             const latest = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
             if (!latest) return;
             scheduleRecloudServiceOrderSync(latest, operator, serviceOrderCreated ? {
+              queuePriority: recoveryOptions.queuePriority,
               forcePreparationRecovery: true,
-            } : {});
+            } : { queuePriority: recoveryOptions.queuePriority });
           }, retryDelay);
+          retryTimer.unref?.();
         }
       } finally {
         activeServiceOrderSyncs.delete(rmaNo);
@@ -1566,7 +1672,7 @@ function createApp(
             scheduleRecloudServiceOrderSync(order, {
               userId: order.operatorId || order.technicianId || "SYSTEM",
               displayName: order.operatorName || order.technicianName || "FieldDesk 后台",
-            });
+            }, { queuePriority: -100 });
           }
         }
       } catch (error) {
@@ -1574,6 +1680,76 @@ function createApp(
       }
     });
   }
+
+  let recloudRecoverySweepRunning = false;
+  let recloudRecoverySweepTimer = null;
+  const runRecloudRecoverySweep = async () => {
+    if (recloudRecoverySweepRunning) return { skipped: true, scheduled: 0 };
+    recloudRecoverySweepRunning = true;
+    try {
+      const now = Date.now();
+      const batchSize = recloudRecoverySweepBatchSize(runtimeEnv);
+      const orders = await receiptStore.readAll();
+      const candidates = orders.map((order) => {
+        if (shouldAutoResumeReceipt(order, now)) return { order, stage: "receipt" };
+        if (shouldAutoResumeDetection(order, now)) return { order, stage: "detection" };
+        if (shouldAutoResumeServiceOrder(order, now)) return { order, stage: "service-order" };
+        return null;
+      }).filter(Boolean)
+        .sort((left, right) => String(
+          left.order.updatedAt || left.order.createdAt || ""
+        ).localeCompare(String(right.order.updatedAt || right.order.createdAt || "")))
+        .slice(0, batchSize);
+      let scheduled = 0;
+      for (const candidate of candidates) {
+        const order = candidate.order;
+        const operator = {
+          userId: order.operatorId || order.technicianId || "SYSTEM",
+          displayName: order.operatorName || order.technicianName || "FieldDesk 恢复巡检",
+        };
+        if (candidate.stage === "receipt") {
+          scheduled += Number(scheduleRecloudReceiptSync(
+            order, operator, crypto.randomUUID(), { queuePriority: -50 }
+          ));
+        } else if (candidate.stage === "detection") {
+          scheduled += Number(scheduleRecloudDetectionSync(order, operator, { queuePriority: -50 }));
+        } else {
+          scheduled += Number(scheduleRecloudServiceOrderSync(order, operator, {
+            queuePriority: -50,
+            forcePreparationRecovery: order.recloudRepairPreparation?.status === "FAILED",
+          }));
+        }
+      }
+      const outboxScheduled = typeof syncService.resumePendingTasks === "function"
+        ? await syncService.resumePendingTasks({
+            minFailedAgeMs: RECLOUD_FAILED_RETRY_COOLDOWN_MS,
+            maxTasks: batchSize,
+          })
+        : 0;
+      if (scheduled || outboxScheduled) {
+        console.info(`RECLOUD_RECOVERY_WATCHDOG: orderTasks=${scheduled} outboxTasks=${outboxScheduled}`);
+      }
+      return { skipped: false, scheduled, outboxScheduled };
+    } catch (error) {
+      console.error(`RECLOUD_RECOVERY_WATCHDOG: failed ${error.code || "UNKNOWN"}`);
+      return { skipped: false, scheduled: 0, error: error.code || "UNKNOWN" };
+    } finally {
+      recloudRecoverySweepRunning = false;
+    }
+  };
+  if (options.recloudRecoveryWatchdogEnabled === true) {
+    setImmediate(() => runRecloudRecoverySweep());
+    recloudRecoverySweepTimer = setInterval(
+      () => runRecloudRecoverySweep(),
+      recloudRecoverySweepIntervalMs(runtimeEnv)
+    );
+    recloudRecoverySweepTimer.unref?.();
+  }
+  app.locals.runRecloudRecoverySweep = runRecloudRecoverySweep;
+  app.locals.stopRecloudRecoveryWatchdog = () => {
+    if (recloudRecoverySweepTimer) clearInterval(recloudRecoverySweepTimer);
+    recloudRecoverySweepTimer = null;
+  };
 
   app.get("/api/health", (req, res) => {
     res.json({
@@ -4723,26 +4899,11 @@ function createApp(
       // The uploader is filename-idempotent and the active set prevents
       // duplicate concurrent work.
       for (const order of orders) {
-        if (
-          order.receiptCompletedAt
-          && Array.isArray(order.receiptAttachments)
-          && (!order.recloudReceiptConfirmedAt
-            || !order.recloudProjectVerificationConfirmedAt
-            || !order.recloudReceiptAttachmentConfirmedAt)
-          && order.recloudReceiptSyncStatus !== "RESULT_UNKNOWN"
-        ) {
-          scheduleRecloudReceiptSync(order, user, crypto.randomUUID());
+        if (shouldAutoResumeReceipt(order)) {
+          scheduleRecloudReceiptSync(order, user, crypto.randomUUID(), { queuePriority: 0 });
         }
-        const detectionAttemptedAt = Date.parse(order.recloudDetectionAttemptedAt || "");
-        const detectionIsStale = Number.isFinite(detectionAttemptedAt)
-          && Date.now() - detectionAttemptedAt >= 120_000;
-        if (
-          order.status === "INSPECTION_COMPLETED_PENDING_REPAIR"
-          && (order.recloudDetectionSyncStatus === "FAILED"
-            || (["PENDING", "SYNCING"].includes(order.recloudDetectionSyncStatus) && detectionIsStale))
-          && !order.recloudDetectionConfirmedAt
-        ) {
-          scheduleRecloudDetectionSync(order, user);
+        if (shouldAutoResumeDetection(order)) {
+          scheduleRecloudDetectionSync(order, user, { queuePriority: 0 });
         }
       }
       res.json({ success: true, data: orders });
@@ -5328,9 +5489,12 @@ if (require.main === module) {
     supervisionMonitor,
     pendingReceiptStore,
     rmaQueryCacheStore,
-    resumePendingRecloudReceipts: true,
-    resumePendingRecloudDetections: true,
-    resumePendingRecloudServiceOrders: true,
+    // The watchdog performs the same recovery in bounded low-priority batches.
+    // Keep the legacy one-shot scanners disabled to avoid a restart storm.
+    resumePendingRecloudReceipts: false,
+    resumePendingRecloudDetections: false,
+    resumePendingRecloudServiceOrders: false,
+    recloudRecoveryWatchdogEnabled: true,
     recloudRepairPageAdapterFactory: createRecloudRepairPageAdapter,
     recloudRepairAdapterProvider: {
       run: (task, work) => withRecloud(recloudConnector, async (page) => {
@@ -5403,6 +5567,7 @@ if (require.main === module) {
     if (monitorEnabled(process.env)) supervisionMonitor.start();
   });
   const shutdown = async () => {
+    app.locals.stopRecloudRecoveryWatchdog?.();
     supervisionMonitor.stop();
     pendingReceiptSync.stop();
     if (rmaQueryBackfillTimer) clearTimeout(rmaQueryBackfillTimer);
@@ -5438,4 +5603,9 @@ module.exports = {
   validateReceiptSn,
   recloudBusinessWriteConcurrency,
   recloudBusinessWriteTimeoutMs,
+  shouldAutoResumeReceipt,
+  shouldAutoResumeDetection,
+  shouldAutoResumeServiceOrder,
+  recloudRecoverySweepIntervalMs,
+  recloudRecoverySweepBatchSize,
 };

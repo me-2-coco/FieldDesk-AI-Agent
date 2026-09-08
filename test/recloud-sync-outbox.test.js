@@ -704,6 +704,38 @@ test("pending sync tasks resume after a backend restart", async (t) => {
   assert.equal(scheduled.length, 1);
 });
 
+test("watchdog recovery limits each sweep and does not schedule an active task twice", async (t) => {
+  const outbox = await outboxFixture(t);
+  const scheduled = [];
+  let release;
+  let markStarted;
+  const started = new Promise((resolve) => { markStarted = resolve; });
+  let calls = 0;
+  const service = new RecloudSyncService(outbox, {
+    async syncReceipt() {
+      calls += 1;
+      markStarted();
+      await new Promise((resolve) => { release = resolve; });
+      return { status: "SUCCESS" };
+    },
+  }, {
+    scheduler: (work) => scheduled.push(work),
+  });
+  for (let index = 0; index < 3; index += 1) {
+    await service.enqueueOrderNode(ORDER, "RECEIPT", `WATCHDOG-${index}`);
+  }
+  scheduled.length = 0;
+  assert.equal(await service.resumePendingTasks({ maxTasks: 2 }), 2);
+  assert.equal(scheduled.length, 2);
+  const running = scheduled[0]();
+  await started;
+  const duplicate = service.processTask((await outbox.readAll())[0].id);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls, 1);
+  release();
+  await Promise.all([running, duplicate]);
+});
+
 test("stale processing task is recovered after a backend restart", async (t) => {
   const outbox = await outboxFixture(t);
   const scheduled = [];

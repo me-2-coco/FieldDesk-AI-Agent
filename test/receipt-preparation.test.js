@@ -261,6 +261,23 @@ test("SN is trimmed and normalized to uppercase", async (t) => {
   assert.equal(saved.sn, "TEST-SN-A1");
 });
 
+test("a confirmed Recloud receipt clears its stale failure", async (t) => {
+  const store = await createTestStore(t);
+  await store.prepare(validPayload());
+  await store.markRecloudReceiptFailed("JXTH900001001", {
+    code: "RECLOUD_RECEIPT_TIMEOUT",
+    resultUnknown: true,
+    operator: USERS.dual,
+  });
+  const confirmed = await store.markRecloudReceiptConfirmed("JXTH900001001", {
+    skipped: true,
+    receipt: { message: "已核实瑞云签收完成" },
+    operator: USERS.dual,
+  });
+  assert.equal(confirmed.recloudReceiptSyncStatus, "CONFIRMED");
+  assert.equal(confirmed.recloudReceiptLastError, null);
+});
+
 test("assigned technician can reopen receipt to correct a wrong SN without losing photos or remote receipt confirmation", async (t) => {
   const store = await createTestStore(t);
   await store.prepare(validPayload({ sn: "WRONG-SN" }));
