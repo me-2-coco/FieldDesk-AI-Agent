@@ -11409,6 +11409,77 @@ async function correctRmaProjectModel(page, input = {}, options = {}) {
   };
 }
 
+async function correctRmaProductSn(page, input = {}, options = {}) {
+  assertRecloudAuthenticated(page);
+  const currentSn = normalizeText(input.currentSn).toUpperCase();
+  const expectedSn = normalizeText(input.expectedSn).toUpperCase();
+  if (!currentSn || !expectedSn) {
+    const error = new Error("瑞云 SN 更正缺少当前值或 FieldDesk 扫描值");
+    error.code = "RECLOUD_PRODUCT_SN_CORRECTION_INVALID";
+    error.status = 400;
+    throw error;
+  }
+  if (currentSn === expectedSn) return { success: true, changed: false, currentSn, expectedSn };
+
+  const matchingRows = page.locator("tr:visible").filter({ hasText: currentSn });
+  await matchingRows.first().waitFor({ state: "visible", timeout: 15_000 }).catch(() => {});
+  const rowTexts = await matchingRows.allInnerTexts().catch(() => []);
+  const uniqueRows = [...new Set(rowTexts.map(normalizeText).filter(Boolean))];
+  if (uniqueRows.length !== 1) {
+    const error = new Error(`瑞云当前 SN ${currentSn} 所在产品行不是唯一项`);
+    error.code = "RECLOUD_PRODUCT_SN_ROW_AMBIGUOUS";
+    error.status = 409;
+    throw error;
+  }
+  const productRow = matchingRows.first();
+  const currentSnCell = productRow.getByText(currentSn, { exact: true }).filter({ visible: true }).first();
+  if (!await currentSnCell.isVisible().catch(() => false)) {
+    const error = new Error(`瑞云产品行未找到当前 SN ${currentSn}`);
+    error.code = "RECLOUD_PRODUCT_SN_CELL_NOT_FOUND";
+    error.status = 409;
+    throw error;
+  }
+  const projectCode = normalizeText(input.projectCode);
+  const editCell = projectCode
+    ? await locateRmaProjectCell(productRow, projectCode)
+    : currentSnCell;
+  await editCell.dblclick();
+
+  const editDialog = page.locator('.rt-dialog__wrapper:visible, [role="dialog"]:visible').last();
+  await editDialog.waitFor({ state: "visible", timeout: 15_000 });
+  const snInput = editDialog.getByRole("textbox", { name: "产品序列号" }).first();
+  await snInput.waitFor({ state: "visible", timeout: 15_000 });
+  const dialogSn = normalizeText(await snInput.inputValue().catch(() => "")).toUpperCase();
+  if (dialogSn !== currentSn) {
+    const error = new Error("瑞云产品编辑窗口中的 SN 与目标产品行不一致");
+    error.code = "RECLOUD_PRODUCT_SN_DIALOG_MISMATCH";
+    error.status = 409;
+    throw error;
+  }
+  await snInput.fill(expectedSn);
+
+  if (options.dryRun !== false) {
+    const cancelButton = editDialog.getByRole("button", { name: /^(取消|关闭)$/ }).first();
+    if (await cancelButton.isVisible().catch(() => false)) await cancelButton.click();
+    return { success: true, changed: false, dryRun: true, currentSn, expectedSn };
+  }
+
+  const saveButton = editDialog
+    .getByRole("button", { name: /^保存$/ })
+    .or(editDialog.getByText(/^保存$/, { exact: true }))
+    .last();
+  await saveButton.click();
+  await editDialog.waitFor({ state: "hidden", timeout: 30_000 });
+  const verified = await readRmaProductIdentity(page, { sn: expectedSn });
+  if (normalizeText(verified?.sn).toUpperCase() !== expectedSn) {
+    const error = new Error(`瑞云 SN 修改后未能复核为 ${expectedSn}`);
+    error.code = "RECLOUD_PRODUCT_SN_CORRECTION_POSTVERIFY_FAILED";
+    error.status = 409;
+    throw error;
+  }
+  return { success: true, changed: true, dryRun: false, currentSn, expectedSn, identity: verified };
+}
+
 function findRmaFieldItem(scope, labelPattern) {
   return scope
     .locator('.rt-form-item, .el-form-item, [class*="form-item"]')
@@ -11672,6 +11743,7 @@ module.exports = {
   validateProjectCorrectionInput,
   projectTextMatchesCode,
   correctRmaProjectModel,
+  correctRmaProductSn,
   readRmaHoldReasonOptions,
   submitRmaHold,
   fillReceiptFields,

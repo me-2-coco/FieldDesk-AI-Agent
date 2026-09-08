@@ -1084,11 +1084,23 @@ function createApp(
             : null;
           if (productIdentity?.sn
             && productIdentity.sn.trim().toUpperCase() !== String(order.sn || "").trim().toUpperCase()) {
-            throw createApiError(
-              "RECLOUD_PRODUCT_SN_MISMATCH",
-              "瑞云产品序列号与 FieldDesk 扫描 SN 不一致，已停止后台操作",
-              409
-            );
+            if (typeof connector.correctRmaProductSn !== "function") {
+              throw createApiError(
+                "RECLOUD_PRODUCT_SN_MISMATCH",
+                "瑞云产品序列号与 FieldDesk 扫描 SN 不一致，且当前无法自动修正瑞云",
+                409
+              );
+            }
+            const correction = await connector.correctRmaProductSn(page, {
+              currentSn: productIdentity.sn,
+              expectedSn: order.sn,
+              projectCode: productIdentity.projectCode,
+              rmaNo,
+            }, { dryRun: false });
+            productIdentity = correction.identity || {
+              ...productIdentity,
+              sn: order.sn,
+            };
           }
           let currentProjectCode = detail.projectCode || productIdentity?.projectCode || "";
           let receipt = null;
