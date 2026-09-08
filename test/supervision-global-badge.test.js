@@ -44,6 +44,10 @@ test("督办监测异常时全局提示师傅但不阻断维修", async () => {
   assert.match(service, /getSupervisionMonitorStatus/);
   assert.match(service, /\/api\/supervision\/monitor\/status/);
   assert.match(app, /RECLOUD_LOGIN_REQUIRED/);
+  assert.match(app, /瑞云登录状态/);
+  assert.match(app, /督办单监测状态/);
+  assert.match(app, /督办单监测已失效/);
+  assert.match(app, /global-status-warning-stack/);
   assert.match(app, /督办监测长时间未成功检查/);
   assert.match(app, /global-monitor-warning/);
   assert.match(css, /\.global-monitor-warning/);

@@ -77,6 +77,7 @@ function App() {
   const [supervisionOpenKey, setSupervisionOpenKey] = useState(0)
   const [latestSupervision, setLatestSupervision] = useState(null)
   const [supervisionTargetRmaNo, setSupervisionTargetRmaNo] = useState("")
+  const [recloudLoginWarning, setRecloudLoginWarning] = useState("")
   const [supervisionMonitorWarning, setSupervisionMonitorWarning] = useState("")
   const [syncAttentionTasks, setSyncAttentionTasks] = useState([])
   const [mySyncAlerts, setMySyncAlerts] = useState([])
@@ -194,7 +195,10 @@ function App() {
   useEffect(() => {
     const canInspectSupervisionMonitor = isLoggedIn && hasBusinessRole(currentUser, USER_ROLES.INFORMATION_CLERK, USER_ROLES.ADMIN)
     if (!canInspectSupervisionMonitor) {
-      queueMicrotask(() => setSupervisionMonitorWarning(""))
+      queueMicrotask(() => {
+        setRecloudLoginWarning("")
+        setSupervisionMonitorWarning("")
+      })
       return undefined
     }
     let active = true
@@ -213,14 +217,19 @@ function App() {
           : startupExpired
 
         if (!status?.enabled) {
+          setRecloudLoginWarning("")
           setSupervisionMonitorWarning("督办监测未启动，请联系信息员检查后台服务")
         } else if (status?.lastErrorCode === "RECLOUD_LOGIN_REQUIRED") {
-          setSupervisionMonitorWarning("瑞云登录已失效，督办提醒暂时中断，请联系信息员重新登录")
+          setRecloudLoginWarning("瑞云登录已失效，请联系信息员重新登录")
+          setSupervisionMonitorWarning("督办单监测已失效，恢复瑞云登录后系统会自动重试")
         } else if (status?.lastErrorCode) {
+          setRecloudLoginWarning("")
           setSupervisionMonitorWarning("督办监测出现异常，系统正在自动重试，请联系信息员检查")
         } else if (isStale) {
+          setRecloudLoginWarning("")
           setSupervisionMonitorWarning("督办监测长时间未成功检查，请联系信息员检查后台服务")
         } else {
+          setRecloudLoginWarning("")
           setSupervisionMonitorWarning("")
         }
       } catch {
@@ -611,10 +620,20 @@ function App() {
 
       </main>
 
-      {supervisionMonitorWarning && (
-        <div className="global-monitor-warning" role="status">
-          <b>督办监测状态</b>
-          <span>{supervisionMonitorWarning}</span>
+      {(recloudLoginWarning || supervisionMonitorWarning) && (
+        <div className="global-status-warning-stack" role="status">
+          {recloudLoginWarning && (
+            <div className="global-monitor-warning global-login-warning">
+              <b>瑞云登录状态</b>
+              <span>{recloudLoginWarning}</span>
+            </div>
+          )}
+          {supervisionMonitorWarning && (
+            <div className="global-monitor-warning">
+              <b>督办单监测状态</b>
+              <span>{supervisionMonitorWarning}</span>
+            </div>
+          )}
         </div>
       )}
 

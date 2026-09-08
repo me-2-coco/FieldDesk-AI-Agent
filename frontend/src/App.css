@@ -3537,16 +3537,28 @@ background:#fafafa;
 .profile-management-grid button svg { margin-bottom: 5px; color: var(--fd-blue); }
 
 /* Keep operational alerts compact and away from the bottom navigation */
-.global-monitor-warning {
+.global-status-warning-stack {
+  position: fixed;
   top: 12px;
   right: 50%;
-  bottom: auto;
+  z-index: 91;
+  display: grid;
+  gap: 7px;
   width: min(380px, calc(100vw - 24px));
+  transform: translateX(50%);
+}
+.global-monitor-warning {
+  position: static;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  width: 100%;
   padding: 9px 12px;
   border-radius: 13px;
-  transform: translateX(50%);
+  transform: none;
   font-size: 10px;
 }
+.global-login-warning { color: #a1261c; border-color: #f0a19a; background: #fff0ee; box-shadow: 0 7px 20px rgba(161,38,28,.14); }
 .global-monitor-warning b { font-size: 11px; }
 .global-sync-alert { right: 50%; bottom: 88px; width: min(390px, calc(100vw - 28px)); min-height: 48px; margin: 0; transform: translateX(50%); }
 
