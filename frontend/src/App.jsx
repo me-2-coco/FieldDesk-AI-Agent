@@ -81,6 +81,8 @@ function App() {
   const [supervisionMonitorWarning, setSupervisionMonitorWarning] = useState("")
   const [syncAttentionTasks, setSyncAttentionTasks] = useState([])
   const [mySyncAlerts, setMySyncAlerts] = useState([])
+  const [dismissedOperationAlertKey, setDismissedOperationAlertKey] = useState("")
+  const [dismissedSyncAlertKey, setDismissedSyncAlertKey] = useState("")
   const [partsShortageNotices, setPartsShortageNotices] = useState([])
   const [selectedInformationReportRmaNo, setSelectedInformationReportRmaNo] = useState("")
 
@@ -88,6 +90,25 @@ function App() {
   const workflowRestricted = isWorkflowRestrictedTechnician(currentUser)
   const workflowLocked = workflowRestricted
     && isTechnicianWorkflowLocked(currentRepairOrder)
+  const notificationUserId = String(currentUser?.id || "anonymous")
+  const operationAlertKey = mySyncAlerts.length > 0
+    ? [notificationUserId, mySyncAlerts.length, mySyncAlerts[0]?.rmaNo, mySyncAlerts[0]?.stageLabel, mySyncAlerts[0]?.message].join("|")
+    : ""
+  const syncAlertKey = syncAttentionTasks.length > 0
+    ? [notificationUserId, syncAttentionTasks.length, syncAttentionTasks[0]?.id, syncAttentionTasks[0]?.status, syncAttentionTasks[0]?.updatedAt].join("|")
+    : ""
+
+  useEffect(() => {
+    setDismissedOperationAlertKey(sessionStorage.getItem(`fielddesk-dismissed-operation-alert:${notificationUserId}`) || "")
+    setDismissedSyncAlertKey(sessionStorage.getItem(`fielddesk-dismissed-sync-alert:${notificationUserId}`) || "")
+  }, [notificationUserId])
+
+  function dismissGlobalAlert(type, key) {
+    if (!key) return
+    sessionStorage.setItem(`fielddesk-dismissed-${type}-alert:${notificationUserId}`, key)
+    if (type === "operation") setDismissedOperationAlertKey(key)
+    if (type === "sync") setDismissedSyncAlertKey(key)
+  }
 
   useEffect(() => {
     if (!isLoggedIn || !workflowRestricted) return
@@ -652,34 +673,50 @@ function App() {
         </button>
       )}
 
-      {mySyncAlerts.length > 0 && (
-        <button
-          type="button"
-          className="global-operation-alert"
-          onClick={() => openRepairOrderFromSyncTask(mySyncAlerts[0]?.rmaNo)}
-          aria-label={`账号${String(currentUser?.id || "").replace(/^FieldDesk/, "")}有${mySyncAlerts.length}条工单同步异常`}
-        >
-          <span>
-            <b>{String(currentUser?.id || "").replace(/^FieldDesk/, "")} · {mySyncAlerts[0]?.stageLabel}异常</b>
-            <small>{mySyncAlerts[0]?.rmaNo} · {mySyncAlerts[0]?.message}</small>
-          </span>
-          <strong>{mySyncAlerts.length > 99 ? "99+" : mySyncAlerts.length}</strong>
-        </button>
+      {mySyncAlerts.length > 0 && operationAlertKey !== dismissedOperationAlertKey && (
+        <div className="global-operation-alert is-dismissible" role="status">
+          <button
+            type="button"
+            className="global-alert-main"
+            onClick={() => openRepairOrderFromSyncTask(mySyncAlerts[0]?.rmaNo)}
+            aria-label={`账号${String(currentUser?.id || "").replace(/^FieldDesk/, "")}有${mySyncAlerts.length}条工单同步异常`}
+          >
+            <span>
+              <b>{String(currentUser?.id || "").replace(/^FieldDesk/, "")} · {mySyncAlerts[0]?.stageLabel}异常</b>
+              <small>{mySyncAlerts[0]?.rmaNo} · {mySyncAlerts[0]?.message}</small>
+            </span>
+            <strong>{mySyncAlerts.length > 99 ? "99+" : mySyncAlerts.length}</strong>
+          </button>
+          <button
+            type="button"
+            className="global-alert-close"
+            aria-label="关闭工单同步异常通知"
+            onClick={() => dismissGlobalAlert("operation", operationAlertKey)}
+          >×</button>
+        </div>
       )}
 
-      {hasBusinessRole(currentUser, USER_ROLES.ADMIN) && syncAttentionTasks.length > 0 && page !== "syncTasks" && (
-        <button
-          type="button"
-          className={`global-sync-alert${supervisionUnreadCount > 0 ? " with-supervision" : ""}`}
-          onClick={() => setPage("syncTasks")}
-          aria-label={`查看${syncAttentionTasks.length}个待处理同步任务`}
-        >
-          <span>
-            <b>同步任务待处理 · {syncAttentionTasks[0]?.rmaNo || "待查看"}</b>
-            <small>人工复核、执行失败或等待最终确认</small>
-          </span>
-          <strong>{syncAttentionTasks.length > 99 ? "99+" : syncAttentionTasks.length}</strong>
-        </button>
+      {hasBusinessRole(currentUser, USER_ROLES.ADMIN) && syncAttentionTasks.length > 0 && page !== "syncTasks" && syncAlertKey !== dismissedSyncAlertKey && (
+        <div className={`global-sync-alert is-dismissible${supervisionUnreadCount > 0 ? " with-supervision" : ""}`} role="status">
+          <button
+            type="button"
+            className="global-alert-main"
+            onClick={() => setPage("syncTasks")}
+            aria-label={`查看${syncAttentionTasks.length}个待处理同步任务`}
+          >
+            <span>
+              <b>同步任务待处理 · {syncAttentionTasks[0]?.rmaNo || "待查看"}</b>
+              <small>人工复核、执行失败或等待最终确认</small>
+            </span>
+            <strong>{syncAttentionTasks.length > 99 ? "99+" : syncAttentionTasks.length}</strong>
+          </button>
+          <button
+            type="button"
+            className="global-alert-close"
+            aria-label="关闭待处理同步任务通知"
+            onClick={() => dismissGlobalAlert("sync", syncAlertKey)}
+          >×</button>
+        </div>
       )}
 
       {currentUser?.role === USER_ROLES.INFORMATION_CLERK && partsShortageNotices.length > 0 && page !== "exceptionCenter" && (
