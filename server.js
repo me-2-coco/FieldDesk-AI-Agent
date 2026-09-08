@@ -33,7 +33,7 @@ const { LocalShippingAttachmentStore } = require("./database/shipping-attachment
 const { JsonRecloudSyncOutbox } = require("./database/recloud-sync-outbox");
 const { PrintJobStore } = require("./database/print-job-store");
 const { createRecloudAdapter } = require("./connectors/recloud-adapter");
-const { RecloudSyncService } = require("./services/recloud-sync-service");
+const { NODE_METHODS, RecloudSyncService } = require("./services/recloud-sync-service");
 const { createRecloudCommandExecutor } = require("./services/recloud-command-executor");
 const { orchestrateRepairStart } = require("./services/recloud-repair-start-orchestrator");
 const { createRecloudRepairPageAdapter } = require("./connectors/recloud-repair-page-adapter");
@@ -5004,6 +5004,35 @@ function createApp(
           message: "已恢复到处理方式选择，原维修师傅可继续处理",
         },
       });
+    } catch (error) { next(error); }
+  });
+
+  app.post("/api/repairs/admin/delete-local-order", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      if (!hasBusinessRole(user, USER_ROLES.ADMIN)) {
+        throw createApiError("LOCAL_ORDER_DELETE_FORBIDDEN", "只有管理员或负责人可以删除误操作工单", 403);
+      }
+      const rmaNo = String(req.body?.rmaNo || "").trim();
+      if (!rmaNo) throw createApiError("RMA_NO_REQUIRED", "缺少寄修单号", 400);
+
+      const existing = (await receiptStore.readAll()).find((order) => order.rmaNo === rmaNo);
+      if (!existing) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到需要删除的工单", 404);
+      if (["REPAIR_COMPLETED_PENDING_SHIPMENT", "SHIPPED_PENDING_COMPLETION", "COMPLETED"].includes(existing.status) || existing.returnShipment?.shippedAt) {
+        throw createApiError("LOCAL_ORDER_DELETE_SHIPPED", "已完工、已发货或已完结工单不能删除", 409);
+      }
+
+      await syncService.cancelOrderNodes(rmaNo, Object.keys(NODE_METHODS), { allowApplied: isDryRun(runtimeEnv) });
+      await receiptAttachmentStore.deleteOrder(rmaNo);
+      const deleted = await receiptStore.deleteLocalOrder(rmaNo, user);
+      await coordinationStore.clearResourceState(rmaNo);
+      await coordinationStore.audit({
+        action: "DELETE_LOCAL_WORK_ORDER",
+        resourceId: rmaNo,
+        user,
+        outcome: "SUCCESS",
+      });
+      res.json({ success: true, data: { rmaNo: deleted.rmaNo, deleted: true } });
     } catch (error) { next(error); }
   });
 

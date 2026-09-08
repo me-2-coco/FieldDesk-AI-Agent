@@ -15,6 +15,7 @@ test("admin recovery is wired through an admin-only page and API", async () => {
   ]);
 
   assert.match(server, /\/api\/repairs\/admin\/reopen-treatment/);
+  assert.match(server, /\/api\/repairs\/admin\/delete-local-order/);
   assert.match(server, /hasBusinessRole\(user, USER_ROLES\.ADMIN\)/);
   assert.match(server, /cancelOrderNodes/);
   assert.match(app, /page === "adminRepairRecovery"/);
@@ -22,7 +23,10 @@ test("admin recovery is wired through an admin-only page and API", async () => {
   assert.match(users, /"adminRepairRecovery"/);
   assert.match(users, /String\(user\?\.role \|\| ""\)\.trim\(\)\.toLowerCase\(\)/);
   assert.match(api, /reopenRepairTreatment/);
+  assert.match(api, /deleteLocalRepairOrder/);
   assert.match(page, /恢复到选择处理方式/);
+  assert.match(page, /管理员 \/ 负责人权限/);
+  assert.match(page, /删除误操作工单/);
   assert.match(page, /原维修师傅/);
   assert.match(page, /window\.confirm/);
 });

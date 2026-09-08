@@ -82,6 +82,18 @@ class LocalRepairAttachmentStore {
       throw error;
     }
   }
+
+  async deleteOrder(rmaNo) {
+    const orderNo = String(rmaNo || "").trim();
+    if (!orderNo) throw Object.assign(new Error("缺少寄修单号"), { code: "RMA_NO_REQUIRED", status: 400 });
+    const orderDirectory = path.join(this.directory, crypto.createHash("sha256").update(orderNo).digest("hex"));
+    const resolvedRoot = path.resolve(this.directory);
+    if (!path.resolve(orderDirectory).startsWith(`${resolvedRoot}${path.sep}`)) {
+      throw Object.assign(new Error("附件路径无效"), { code: "ATTACHMENT_PATH_INVALID", status: 400 });
+    }
+    await fs.rm(orderDirectory, { recursive: true, force: true });
+    return { deleted: true };
+  }
 }
 
 module.exports = { LocalRepairAttachmentStore, DEFAULT_DIRECTORY, DEFAULT_MAX_FILE_BYTES };

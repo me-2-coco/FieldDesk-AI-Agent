@@ -70,6 +70,27 @@ class WorkCoordinationStore {
   failIdempotency(scopedKey) {
     return this.backend.update((data) => { delete data.idempotency[scopedKey]; });
   }
+  clearResourceState(resourceId) {
+    const normalized = String(resourceId || "").trim();
+    if (!normalized) return Promise.resolve({ locks: 0, idempotency: 0 });
+    return this.backend.update((data) => {
+      let locks = 0;
+      let idempotency = 0;
+      for (const key of Object.keys(data.locks || {})) {
+        if (key === normalized || JSON.stringify(data.locks[key]).includes(normalized)) {
+          delete data.locks[key];
+          locks += 1;
+        }
+      }
+      for (const key of Object.keys(data.idempotency || {})) {
+        if (key.includes(normalized) || JSON.stringify(data.idempotency[key]).includes(normalized)) {
+          delete data.idempotency[key];
+          idempotency += 1;
+        }
+      }
+      return { locks, idempotency };
+    });
+  }
   audit(event) {
     return this.backend.update((data) => {
       const cutoff = this.now() - this.auditRetentionDays * 86400_000;

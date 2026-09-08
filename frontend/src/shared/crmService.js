@@ -220,6 +220,10 @@ export async function reopenRepairTreatment(rmaNo) {
   return request("/api/repairs/admin/reopen-treatment", { rmaNo })
 }
 
+export async function deleteLocalRepairOrder(rmaNo) {
+  return request("/api/repairs/admin/delete-local-order", { rmaNo })
+}
+
 export async function uploadReceiptAttachment(payload) {
   return request("/api/repairs/receipt/attachments", payload)
 }

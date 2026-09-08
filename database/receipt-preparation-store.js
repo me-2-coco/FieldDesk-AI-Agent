@@ -155,6 +155,32 @@ class JsonReceiptPreparationStore {
     return Array.isArray(parsed) ? parsed : [];
   }
 
+  async deleteLocalOrder(rmaNo, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      if (normalizeRequired(operator.role).toUpperCase() !== "ADMIN") {
+        throw Object.assign(new Error("只有管理员或负责人可以删除误操作工单"), {
+          code: "LOCAL_ORDER_DELETE_ADMIN_REQUIRED", status: 403,
+        });
+      }
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing) {
+        throw Object.assign(new Error("未找到需要删除的工单"), {
+          code: "RECEIPT_PREPARATION_NOT_FOUND", status: 404,
+        });
+      }
+      if (["REPAIR_COMPLETED_PENDING_SHIPMENT", "SHIPPED_PENDING_COMPLETION", "COMPLETED"].includes(existing.status) || existing.returnShipment?.shippedAt) {
+        throw Object.assign(new Error("已完工、已发货或已完结工单不能删除"), {
+          code: "LOCAL_ORDER_DELETE_SHIPPED", status: 409,
+        });
+      }
+      await this.writeAll(records.filter((record) => record.rmaNo !== rmaNo));
+      return existing;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
   async writeAll(records) {
     await this.backend.write(records);
   }
