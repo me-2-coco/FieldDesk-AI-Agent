@@ -1882,7 +1882,7 @@ test("inspection page shows the required local order fields", async () => {
   assert.doesNotMatch(source, /配件申请/);
 });
 
-test("parts page uses the live Recloud service order and binds applications to the SN", async () => {
+test("parts page searches Feishu by model with a full-table fallback and binds applications to the SN", async () => {
   const source = await fs.readFile(
     path.join(__dirname, "../frontend/src/pages/PartsApplication.jsx"),
     "utf8"
@@ -1899,7 +1899,9 @@ test("parts page uses the live Recloud service order and binds applications to t
   assert.match(source, /扫描物料条码/);
   assert.match(source, /输入或扫描物料条码 \/ 物料名称/);
   assert.match(source, /handlePartScan/);
-  assert.match(source, /正在查询瑞云服务单可用配件/);
+  assert.match(source, /正在查询飞书备件表/);
+  assert.match(source, /机型优先 · 全表兜底/);
+  assert.match(source, /catalogMatchLabel/);
   assert.match(source, /申请数量/);
   assert.match(source, /value=\{part\.quantity\}/);
   assert.match(source, /selectedPartsCount/);
@@ -1908,5 +1910,6 @@ test("parts page uses the live Recloud service order and binds applications to t
   assert.match(source, /该配件已添加，请直接修改上方数量/);
   assert.match(source, /const backPage = recordOnly \? "repairDecision" : "repairProcess"/);
   assert.match(source, /saveRepairResumeStep\(repairOrder\.crmOrderNo, backPage\)/);
-  assert.match(source, /配件编码、名称、价格、可添加状态和库存结果均以当前瑞云服务单为准/);
+  assert.match(source, /优先匹配当前机型；无结果时自动搜索飞书全表/);
+  assert.match(source, /能否使用最终以瑞云真实添加和回读结果为准/);
 });

@@ -4603,8 +4603,9 @@ function createApp(
     const selectedSearchKeyword = String(input?.searchKeyword || "").trim().toUpperCase();
     const requestedQuantity = Number(input?.quantity);
     if (query.length < 2) throw createApiError("RECLOUD_REPAIR_PART_QUERY_TOO_SHORT", "至少输入 2 个字符后再登记核实", 400);
-    if (input?.confirmRecloudAdd !== true || selectedPartSource !== "RECLOUD_SERVICE_ORDER" || !selectedPartCode || !selectedPartName) {
-      throw createApiError("RECLOUD_PART_SELECTION_REQUIRED", "请先从瑞云搜索结果中选择准确配件，再确认添加", 400);
+    const allowedSelectionSources = new Set(["FEISHU_LIVE", "RECLOUD_SERVICE_ORDER"]);
+    if (input?.confirmRecloudAdd !== true || !allowedSelectionSources.has(selectedPartSource) || !selectedPartCode || !selectedPartName) {
+      throw createApiError("RECLOUD_PART_SELECTION_REQUIRED", "请先从配件搜索结果中选择准确配件，再确认添加", 400);
     }
     const cachedSelection = recloudPartSearchCache.get(`${rmaNo}::${selectedSearchKeyword}`);
     const selectionIsFresh = cachedSelection && Date.now() - cachedSelection.cachedAt < RECLOUD_PART_SELECTION_TTL_MS;
@@ -4613,7 +4614,7 @@ function createApp(
         && String(item.name || "").trim() === selectedPartName
     );
     if (!cachedPart) {
-      throw createApiError("RECLOUD_PART_SELECTION_EXPIRED", "瑞云配件候选已过期，请重新搜索并选择", 409);
+      throw createApiError("RECLOUD_PART_SELECTION_EXPIRED", "配件候选已过期，请重新搜索并选择", 409);
     }
     if (!Number.isInteger(requestedQuantity) || requestedQuantity < 1) {
       throw createApiError("PART_QUANTITY_INVALID", "申请数量必须是正整数", 400);
@@ -4635,9 +4636,14 @@ function createApp(
       name: String(cachedPart.name || selectedPartName).trim(),
       stock: requestedQuantity,
       retailPrice: cachedPart.retailPrice,
-      repairLevel: "",
-      returnRequired: false,
+      repairLevel: cachedPart.repairLevel,
+      returnRequired: cachedPart.returnRequired === true,
+      isReplacementPart: cachedPart.isReplacementPart === true,
+      sourceCode: cachedPart.sourceCode,
       projectCode: getSnProjectMatch(order.sn).projectCode,
+      catalogProjectCode: cachedPart.projectCode,
+      catalogMatchScope: cachedPart.catalogMatchScope,
+      catalogMatchLabel: cachedPart.catalogMatchLabel,
       verificationQuery: query,
       verificationStatus: "PENDING",
       recloudAddAuthorized: true,
@@ -4684,9 +4690,12 @@ function createApp(
       }
       const projectCode = getSnProjectMatch(order.sn).projectCode;
       const productLine = order.specialty || order.productLine;
-      const part = (await feishuPartsCatalog.search({ productLine, projectCode, keyword: partCode }))
+      const catalogResult = typeof feishuPartsCatalog.searchWithFallback === "function"
+        ? await feishuPartsCatalog.searchWithFallback({ productLine, projectCode, keyword: partCode })
+        : { items: await feishuPartsCatalog.search({ productLine, projectCode, keyword: partCode }) };
+      const part = (catalogResult.items || [])
         .find((item) => item.code === partCode);
-      if (!part) throw createApiError("PART_NOT_FOUND", "该配件不适用于当前机型", 404);
+      if (!part) throw createApiError("PART_NOT_FOUND", "飞书备件表未找到该配件", 404);
       const data = await receiptStore.applyPart(rmaNo, { ...part, stock: recordOnly ? Number.MAX_SAFE_INTEGER : Number(req.body?.quantity) }, req.body?.quantity, user);
       const pricedParts = quoteOnly
         ? (data.order?.abandonedQuoteParts || [])
@@ -4719,67 +4728,28 @@ function createApp(
       const keyword = String(req.query.keyword || "").trim().toUpperCase();
       const order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
       if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到当前工单", 404);
-      if (order.treatmentMode === "REPAIR") {
-        if (!order.recloudServiceOrderCreatedAt || !order.recloudServiceOrderNo) {
-          return res.json({
-            success: true,
-            data: {
-              projectCode: getSnProjectMatch(order.sn).projectCode,
-              source: "RECLOUD_SERVICE_ORDER",
-              queriedAt: new Date().toISOString(),
-              items: [],
-              serviceOrderPending: true,
-              message: "瑞云服务单创建中，可先登记配件，建单后自动核实",
-            },
-          });
-        }
-        assertRecloudPartInteractionReady(order);
-        if (keyword.length < 2) {
-          return res.json({
-            success: true,
-            data: { projectCode: getSnProjectMatch(order.sn).projectCode, source: "RECLOUD_SERVICE_ORDER", queriedAt: new Date().toISOString(), items: [] },
-          });
-        }
-        const cacheKey = `${rmaNo}::${keyword}`;
-        const cached = recloudPartSearchCache.get(cacheKey);
-        if (cached && Date.now() - cached.cachedAt < RECLOUD_PART_SEARCH_CACHE_MS) {
-          return res.json({ success: true, data: { ...cached.data, cached: true } });
-        }
-        const result = await withRecloud(connector, async (page) => {
-          const adapter = await openRecloudPartAdapter(page, order);
-          if (typeof adapter.searchParts !== "function") {
-            throw createApiError("RECLOUD_PARTS_SEARCH_UNAVAILABLE", "瑞云配件搜索执行器未接入", 503);
-          }
-          return adapter.searchParts(keyword, { limit: 30, timeoutMs: 2400 });
-        }, {
-          ...foregroundQueryOptions,
-          channel: "parts-query",
-          timeoutMs: 12_000,
-          timeoutCode: "RECLOUD_PART_SEARCH_TIMEOUT",
-          resultUnknownOnTimeout: false,
-          idleReleaseMs: 30_000,
-        });
-        const data = {
-          projectCode: getSnProjectMatch(order.sn).projectCode,
-          source: "RECLOUD_SERVICE_ORDER",
-          queriedAt: new Date().toISOString(),
-          items: (result.items || []).map((item) => ({
-            code: item.code,
-            name: item.name,
-            retailPrice: item.retailPrice,
-            repairLevel: "瑞云确认后补充",
-            returnRequired: false,
-            source: "RECLOUD_SERVICE_ORDER",
-          })),
-          explicitEmpty: result.explicitEmpty === true,
-        };
-        recloudPartSearchCache.set(cacheKey, { cachedAt: Date.now(), data });
-        return res.json({ success: true, data });
-      }
       const projectCode = getSnProjectMatch(order.sn).projectCode;
       const productLine = order.specialty || order.productLine;
-      const items = await feishuPartsCatalog.search({ productLine, projectCode, keyword });
-      res.json({ success: true, data: { projectCode, source: "FEISHU_LIVE", queriedAt: new Date().toISOString(), items } });
+      if (keyword.length < 2) {
+        return res.json({ success: true, data: { projectCode, source: "FEISHU_LIVE", queriedAt: new Date().toISOString(), items: [] } });
+      }
+      const cacheKey = `${rmaNo}::${keyword}`;
+      const cached = recloudPartSearchCache.get(cacheKey);
+      if (cached && Date.now() - cached.cachedAt < RECLOUD_PART_SEARCH_CACHE_MS) {
+        return res.json({ success: true, data: { ...cached.data, cached: true } });
+      }
+      const catalogResult = typeof feishuPartsCatalog.searchWithFallback === "function"
+        ? await feishuPartsCatalog.searchWithFallback({ productLine, projectCode, keyword })
+        : { fallbackUsed: false, items: await feishuPartsCatalog.search({ productLine, projectCode, keyword }) };
+      const data = {
+        projectCode,
+        source: "FEISHU_LIVE",
+        queriedAt: new Date().toISOString(),
+        fallbackUsed: catalogResult.fallbackUsed === true,
+        items: (catalogResult.items || []).map((item) => ({ ...item, source: "FEISHU_LIVE" })),
+      };
+      recloudPartSearchCache.set(cacheKey, { cachedAt: Date.now(), data });
+      return res.json({ success: true, data });
     } catch (error) { next(error); }
   });
 

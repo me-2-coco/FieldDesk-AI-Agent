@@ -121,6 +121,43 @@ test("配件搜索支持完整和模糊的物料条码与名称，并优先完�
   assert.deepEqual(searchPartRows(items, { projectCode: "W2336", keyword: "进水" }).map((part) => part.code), ["20020100007510", "20020100007511"]);
 });
 
+test("当前机型无结果时可以忽略机型搜索全表", () => {
+  const items = [
+    { code: "20020100007510", name: "当前机型进水组件", projectCode: "W2336" },
+    { code: "20020100030341", name: "替代进水组件", projectCode: "W2501" },
+  ];
+  assert.deepEqual(searchPartRows(items, { projectCode: "W2336", keyword: "30341" }), []);
+  assert.deepEqual(
+    searchPartRows(items, { projectCode: "W2336", keyword: "30341", ignoreProject: true }).map((part) => part.code),
+    ["20020100030341"]
+  );
+});
+
+test("配件目录优先返回本机型结果，只有无结果时才回退全表", async () => {
+  const catalog = new FeishuPartsCatalog();
+  let allRowsReads = 0;
+  catalog.search = async ({ keyword }) => keyword === "水泵"
+    ? [{ code: "20020100013703", name: "本机型水泵", projectCode: "W2448" }]
+    : [];
+  catalog.readAllRows = async () => {
+    allRowsReads += 1;
+    return [{ code: "20020100030341", name: "其它机型替代轮", projectCode: "W2501" }];
+  };
+
+  const modelMatch = await catalog.searchWithFallback({ productLine: "洗地机", projectCode: "W2448", keyword: "水泵" });
+  assert.equal(modelMatch.fallbackUsed, false);
+  assert.equal(modelMatch.items[0].catalogMatchScope, "MODEL");
+  assert.equal(modelMatch.items[0].catalogMatchLabel, "本机型匹配");
+  assert.equal(allRowsReads, 0);
+
+  const fallback = await catalog.searchWithFallback({ productLine: "洗地机", projectCode: "W2448", keyword: "30341" });
+  assert.equal(fallback.fallbackUsed, true);
+  assert.equal(fallback.items[0].catalogMatchScope, "ALL_CATALOG");
+  assert.equal(fallback.items[0].catalogMatchLabel, "全表匹配·需瑞云确认");
+  assert.equal(fallback.items[0].projectCode, "W2501");
+  assert.equal(allRowsReads, 1);
+});
+
 test("当前机型表全局搜索在非物料编号列命中编码时标记替代料", () => {
   assert.equal(replacementPartCode("替代料 20020100030341"), "20020100030341");
   const rows = [

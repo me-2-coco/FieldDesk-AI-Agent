@@ -1249,6 +1249,9 @@ class JsonReceiptPreparationStore {
         sourcePartCode: part.isReplacementPart === true ? normalizeRequired(part.sourceCode) : "",
         replacesShortagePartCode: normalizeRequired(part.replacesShortagePartCode).toUpperCase(),
         projectCode: normalizeRequired(part.projectCode),
+        catalogProjectCode: normalizeRequired(part.catalogProjectCode || part.projectCode),
+        catalogMatchScope: normalizeRequired(part.catalogMatchScope),
+        catalogMatchLabel: normalizeRequired(part.catalogMatchLabel),
         sn: existing.sn,
         status: quoteOnly
           ? "ABANDONED_QUOTE_PART_RECORDED"

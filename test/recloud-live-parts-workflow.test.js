@@ -142,6 +142,9 @@ test("an explicitly authorized live add is locked after Recloud confirms the sav
     name: "售后风机及线束组件",
     stock: 1,
     retailPrice: 66,
+    catalogProjectCode: "R2501",
+    catalogMatchScope: "ALL_CATALOG",
+    catalogMatchLabel: "全表匹配·需瑞云确认",
     verificationStatus: "PENDING",
     recloudAddAuthorized: true,
   }, 1, TECH);
@@ -153,6 +156,8 @@ test("an explicitly authorized live add is locked after Recloud confirms the sav
     confirmed: true,
   }, TECH);
   assert.equal(confirmed.partApplications[0].status, "RECLOUD_PART_CONFIRMED");
+  assert.equal(confirmed.partApplications[0].catalogProjectCode, "R2501");
+  assert.equal(confirmed.partApplications[0].catalogMatchScope, "ALL_CATALOG");
   assert.ok(confirmed.partApplications[0].recloudConfirmedAt);
   await assert.rejects(
     store.updatePartApplication("LIVE-PART-ADD", queued.application.id, { remove: true }, TECH),
@@ -160,7 +165,7 @@ test("an explicitly authorized live add is locked after Recloud confirms the sav
   );
 });
 
-test("parts stay editable before service-order creation and Next waits for verification", async () => {
+test("Feishu candidates stay searchable before service-order creation and Next waits for Recloud verification", async () => {
   const serverSource = await fs.readFile(path.join(__dirname, "../server.js"), "utf8");
   const pageSource = await fs.readFile(path.join(__dirname, "../frontend/src/pages/PartsApplication.jsx"), "utf8");
   const adapterSource = await fs.readFile(path.join(__dirname, "../connectors/recloud-repair-page-adapter.js"), "utf8");
@@ -169,14 +174,18 @@ test("parts stay editable before service-order creation and Next waits for verif
   assert.match(serverSource, /adapter\.searchParts\(query, \{ limit: 30, timeoutMs: 2600 \}\)/);
   assert.match(serverSource, /order\.treatmentMode === "REPAIR"\) assertRecloudPartInteractionReady\(order\)/);
   assert.match(pageSource, /添加并在瑞云核实/);
-  assert.match(pageSource, /!recordOnly && !partInteractionReady/);
+  assert.match(serverSource, /searchWithFallback/);
+  assert.match(serverSource, /"FEISHU_LIVE", "RECLOUD_SERVICE_ORDER"/);
+  assert.match(pageSource, /机型优先 · 全表兜底/);
+  assert.match(pageSource, /正在查询飞书备件表/);
+  assert.doesNotMatch(pageSource, /keyword\.trim\(\)\.length < 2 \|\| \(!recordOnly && !partInteractionReady\)/);
   assert.match(pageSource, /disabled=\{isSaving \|\| !selectedPart \|\| selectedPartAlreadyApplied\}/);
   assert.match(pageSource, /searchKeyword: keyword\.trim\(\)/);
   assert.match(serverSource, /RECLOUD_PART_SELECTION_EXPIRED/);
   assert.match(serverSource, /application\.recloudAddAuthorized !== true/);
   assert.match(serverSource, /await adapter\.addParts/);
   assert.match(serverSource, /remotelyConfirmed: true/);
-  assert.match(serverSource, /retailPrice: item\.retailPrice/);
+  assert.match(serverSource, /retailPrice: cachedPart\.retailPrice/);
   assert.match(pageSource, /!partInteractionReady \|\| !partVerificationComplete/);
   assert.doesNotMatch(pageSource, /disabled=\{!recordOnly && !partInteractionReady\}/);
   assert.match(pageSource, /排队待核实[\s\S]*瑞云核实中[\s\S]*异常，自动重试中/);

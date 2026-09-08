@@ -92,7 +92,9 @@ function projectCodesFromTitle(title) {
 function searchPartRows(items = [], input = {}) {
   const projectCode = comparable(input.projectCode);
   const keyword = text(input.keyword).toUpperCase();
-  const supported = items.filter((part) => partSupportsProject(part, projectCode));
+  const supported = input.ignoreProject === true
+    ? items
+    : items.filter((part) => partSupportsProject(part, projectCode));
   if (!keyword) return supported.slice(0, 100);
   const rankMatches = (field, values) => values
     .map((part, index) => {
@@ -197,7 +199,13 @@ function parseSweepPartRows(values = [], sheet = {}) {
 }
 
 class FeishuPartsCatalog {
-  constructor(options = {}) { this.env = options.env || process.env; this.fetch = options.fetch || globalThis.fetch; }
+  constructor(options = {}) {
+    this.env = options.env || process.env;
+    this.fetch = options.fetch || globalThis.fetch;
+    this.allRowsCacheMs = Number(options.allRowsCacheMs || this.env.FEISHU_PARTS_CACHE_MS || 5 * 60_000);
+    this.allRowsCache = new Map();
+    this.allRowsInflight = new Map();
+  }
   async readRows() {
     const appId = text(this.env.FEISHU_APP_ID);
     const appSecret = text(this.env.FEISHU_APP_SECRET);
@@ -258,6 +266,52 @@ class FeishuPartsCatalog {
     return [];
   }
 
+  async searchWithFallback(input = {}) {
+    const currentModelItems = await this.search(input);
+    if (currentModelItems.length) {
+      return {
+        fallbackUsed: false,
+        items: currentModelItems.map((part) => ({
+          ...part,
+          catalogMatchScope: "MODEL",
+          catalogMatchLabel: "本机型匹配",
+        })),
+      };
+    }
+    const allRows = await this.readAllRows(input.productLine);
+    const matches = searchPartRows(allRows, {
+      keyword: input.keyword,
+      ignoreProject: true,
+    });
+    const unique = new Map();
+    for (const part of matches) {
+      if (!unique.has(part.code)) unique.set(part.code, part);
+    }
+    return {
+      fallbackUsed: true,
+      items: [...unique.values()].map((part) => ({
+        ...part,
+        catalogMatchScope: "ALL_CATALOG",
+        catalogMatchLabel: "全表匹配·需瑞云确认",
+      })),
+    };
+  }
+
+  async readAllRows(productLine) {
+    const key = text(productLine) === "扫地机" ? "扫地机" : "洗地机";
+    const cached = this.allRowsCache.get(key);
+    if (cached && Date.now() - cached.cachedAt < this.allRowsCacheMs) return cached.items;
+    if (this.allRowsInflight.has(key)) return this.allRowsInflight.get(key);
+    const pending = (key === "扫地机" ? this.readSweepRows() : this.readWashRows())
+      .then((items) => {
+        this.allRowsCache.set(key, { cachedAt: Date.now(), items });
+        return items;
+      })
+      .finally(() => this.allRowsInflight.delete(key));
+    this.allRowsInflight.set(key, pending);
+    return pending;
+  }
+
   async readSweepProjectRows(projectCode) {
     const spreadsheetToken = text(this.env.FEISHU_SWEEP_PARTS_SPREADSHEET_TOKEN);
     if (!spreadsheetToken) throw Object.assign(new Error("飞书扫地机配件表配置不完整"), { code: "FEISHU_SWEEP_PARTS_CONFIG_MISSING" });
@@ -303,6 +357,30 @@ class FeishuPartsCatalog {
     }));
     const unique = new Map();
     for (const item of rows.flat()) unique.set(item.code, item);
+    return [...unique.values()];
+  }
+
+  async readWashRows() {
+    const spreadsheetToken = text(this.env.FEISHU_PARTS_SPREADSHEET_TOKEN);
+    if (!spreadsheetToken) throw Object.assign(new Error("飞书洗地机配件表配置不完整"), { code: "FEISHU_PARTS_CONFIG_MISSING" });
+    const tenantToken = await this.tenantToken();
+    const listResponse = await this.fetch(`https://open.feishu.cn/open-apis/sheets/v3/spreadsheets/${encodeURIComponent(spreadsheetToken)}/sheets/query`, { headers: { Authorization: `Bearer ${tenantToken}` } });
+    const list = await listResponse.json();
+    if (!listResponse.ok || list.code !== 0) throw Object.assign(new Error("读取洗地机工作表列表失败"), { code: "FEISHU_WASH_SHEETS_FAILED" });
+    const sheets = (list.data?.sheets || []).filter((sheet) => projectCodesFromTitle(sheet.title).length);
+    const items = [];
+    for (let offset = 0; offset < sheets.length; offset += 5) {
+      const rows = await Promise.all(sheets.slice(offset, offset + 5).map(async (sheet) => {
+        const range = `${sheet.sheet_id}!A1:V${sheet.grid_properties?.row_count || 1000}`;
+        const response = await this.fetch(`https://open.feishu.cn/open-apis/sheets/v2/spreadsheets/${encodeURIComponent(spreadsheetToken)}/values/${encodeURIComponent(range)}`, { headers: { Authorization: `Bearer ${tenantToken}` } });
+        const result = await response.json();
+        if (!response.ok || result.code !== 0) throw Object.assign(new Error(`读取洗地机配件工作表失败：${sheet.title}`), { code: "FEISHU_WASH_PARTS_READ_FAILED" });
+        return parseSweepPartRows(result.data?.valueRange?.values || [], { sheetId: sheet.sheet_id, title: sheet.title, productLine: "洗地机" });
+      }));
+      items.push(...rows.flat());
+    }
+    const unique = new Map();
+    for (const item of items) unique.set(`${item.code}:${item.projectCode}`, item);
     return [...unique.values()];
   }
 }

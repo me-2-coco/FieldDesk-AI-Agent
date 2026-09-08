@@ -79,7 +79,7 @@ function PartsApplication({ setPage }) {
 
   useEffect(() => {
     let active = true
-    if (!keyword.trim() || keyword.trim().length < 2 || (!recordOnly && !partInteractionReady)) {
+    if (!keyword.trim() || keyword.trim().length < 2) {
       return () => { active = false }
     }
     const timer = setTimeout(async () => {
@@ -98,7 +98,7 @@ function PartsApplication({ setPage }) {
       }
     }, 180)
     return () => { active = false; clearTimeout(timer) }
-  }, [keyword, partInteractionReady, recordOnly, repairOrder.crmOrderNo])
+  }, [keyword, repairOrder.crmOrderNo])
 
   const matches = useMemo(() => parts, [parts])
 
@@ -141,7 +141,7 @@ function PartsApplication({ setPage }) {
   async function submitApplication() {
     const query = String(selectedPart?.code || keyword || "").trim()
     if (!selectedPart) {
-      setErrorMessage(recordOnly ? "请从配件目录选择准确配件" : "请先从瑞云搜索结果中选择准确配件")
+      setErrorMessage("请先从飞书备件表搜索结果中选择准确配件")
       return
     }
     if (query.length < 2) {
@@ -198,6 +198,8 @@ function PartsApplication({ setPage }) {
             returnRequired: application.returnRequired,
             isReplacementPart: application.isReplacementPart,
             sourcePartCode: application.sourcePartCode,
+            catalogMatchScope: application.catalogMatchScope,
+            catalogMatchLabel: application.catalogMatchLabel,
             status: recordOnly ? "已记录" : "瑞云核实中"
           }
         ]
@@ -324,7 +326,7 @@ function PartsApplication({ setPage }) {
           <div className="selected-part-row" key={part.id}>
             <div>
               <strong>{part.partName}</strong>
-              <p>{part.partCode} · {part.repairLevel || "费用信息后台补充"} · {priceText(part.retailPrice)}{part.recloudVerificationStatus === "PENDING" && <i>排队待核实</i>}{part.recloudVerificationStatus === "VERIFYING" && <i>瑞云核实中</i>}{part.recloudVerificationStatus === "AVAILABLE" && <i>瑞云可用</i>}{part.recloudVerificationStatus === "OUT_OF_STOCK" && <i>瑞云缺件</i>}{part.recloudVerificationStatus === "FAILED" && <i>异常，自动重试中</i>}{part.recloudVerificationStatus === "NEEDS_SELECTION" && <i>请选择准确物料</i>}{part.recloudConfirmedAt && <i>瑞云已真实添加</i>}{part.isReplacementPart && <i>替代料</i>}{part.returnRequired && <strong className="part-return-required">旧件需返厂</strong>}</p>
+              <p>{part.partCode} · {part.repairLevel || "费用信息后台补充"} · {priceText(part.retailPrice)}{part.catalogMatchScope === "ALL_CATALOG" && <i>全表匹配</i>}{part.recloudVerificationStatus === "PENDING" && <i>排队待核实</i>}{part.recloudVerificationStatus === "VERIFYING" && <i>瑞云核实中</i>}{part.recloudVerificationStatus === "AVAILABLE" && <i>瑞云可用</i>}{part.recloudVerificationStatus === "OUT_OF_STOCK" && <i>瑞云缺件</i>}{part.recloudVerificationStatus === "FAILED" && <i>异常，自动重试中</i>}{part.recloudVerificationStatus === "NEEDS_SELECTION" && <i>请选择准确物料</i>}{part.recloudConfirmedAt && <i>瑞云已真实添加</i>}{part.isReplacementPart && <i>替代料</i>}{part.returnRequired && <strong className="part-return-required">旧件需返厂</strong>}</p>
               {part.recloudVerificationError?.message && <small>{part.recloudVerificationError.message}</small>}
               {part.recloudVerificationStatus === "NEEDS_SELECTION" && <div className="part-verification-options">
                 {(part.recloudVerificationOptions || []).map((option) => <button type="button" className="secondary-btn" key={option.code} onClick={() => chooseVerificationOption(part, option)} disabled={isSaving}>{option.name} · {option.code}</button>)}
@@ -362,8 +364,8 @@ function PartsApplication({ setPage }) {
 
       <section className="card parts-search-card">
         <div className="parts-search-heading">
-          <div><span>{recordOnly ? "配件目录" : "瑞云服务单"}</span><h2>搜索配件</h2></div>
-          <small>{recordOnly ? "实时匹配" : partInteractionReady ? "服务单已建" : "服务单创建中"}</small>
+          <div><span>飞书备件表</span><h2>搜索配件</h2></div>
+          <small>机型优先 · 全表兜底</small>
         </div>
         <div className="parts-search-kinds" aria-label="支持的搜索方式">
           <span>条码完整/模糊</span><span>名称完整/模糊</span>
@@ -382,10 +384,10 @@ function PartsApplication({ setPage }) {
         </div>
 
         <div className="part-search-result" tabIndex={matches.length > 8 ? 0 : undefined} aria-label="配件搜索结果，超过八条时可上下滑动">
-          {!recordOnly && !partInteractionReady && <p>可以先输入编码或名称；瑞云正在完成检测和创建服务单，建单后这里会自动显示完整候选。当前进度：检测 {syncStage.detection} · 建单 {syncStage.serviceOrder}</p>}
-          {isSearching && <p>{recordOnly ? "正在查询厂家飞书配件表..." : "正在查询瑞云服务单可用配件..."}</p>}
-          {!recordOnly && partInteractionReady && keyword.trim().length >= 2 && !isSearching && searchedKeyword !== keyword.trim() && <p>正在准备瑞云搜索结果...</p>}
-          {!isSearching && searchedKeyword === keyword.trim() && keyword.trim().length >= 2 && matches.length === 0 && <p>{recordOnly ? "没有找到匹配配件" : "瑞云没有返回匹配配件，请更换编码或名称搜索"}</p>}
+          {!recordOnly && !partInteractionReady && <p>配件可先从飞书备件表选择；瑞云正在完成检测和创建服务单，建单后会自动真实添加并核实。当前进度：检测 {syncStage.detection} · 建单 {syncStage.serviceOrder}</p>}
+          {isSearching && <p>正在查询飞书备件表...</p>}
+          {!isSearching && keyword.trim().length >= 2 && searchedKeyword !== keyword.trim() && <p>正在准备飞书配件结果...</p>}
+          {!isSearching && searchedKeyword === keyword.trim() && keyword.trim().length >= 2 && matches.length === 0 && <p>飞书备件表没有找到匹配配件，请更换编码或名称搜索</p>}
           {matches.map((part) => {
             const alreadyApplied = selectedParts.some((item) => item.partCode === part.code)
             return (
@@ -401,7 +403,7 @@ function PartsApplication({ setPage }) {
               <span className="part-search-copy">
                 <strong>{part.name}</strong>
                 <small>{part.code}</small>
-                <span className="part-result-meta">{alreadyApplied && <i>已添加</i>}{part.isReplacementPart && <i>替代料</i>}<em>{part.repairLevel}</em><b>零售价 {priceText(part.retailPrice)}</b>{part.returnRequired && <strong className="part-return-required">旧件需返厂</strong>}</span>
+                <span className="part-result-meta">{alreadyApplied && <i>已添加</i>}<i>{part.catalogMatchLabel || "本机型匹配"}</i>{part.isReplacementPart && <i>替代料</i>}<em>{part.repairLevel}</em><b>零售价 {priceText(part.retailPrice)}</b>{part.returnRequired && <strong className="part-return-required">旧件需返厂</strong>}</span>
               </span>
             </label>
           )})}
@@ -436,7 +438,7 @@ function PartsApplication({ setPage }) {
         {message && <p role="status">{message}</p>}
 
         <p className="dry-run-notice">
-          {quoteOnly ? "弃修配件只用于核价和免运费申请，不占库存、不写入瑞云更换件" : diagnosticOnly ? "故障配件只用于说明检测结果，不占库存、不写入瑞云更换件" : "配件编码、名称、价格、可添加状态和库存结果均以当前瑞云服务单为准；飞书只补充瑞云未提供的费用信息和维修等级。"}
+          {quoteOnly ? "弃修配件只用于核价和免运费申请，不占库存、不写入瑞云更换件" : diagnosticOnly ? "故障配件只用于说明检测结果，不占库存、不写入瑞云更换件" : "优先匹配当前机型；无结果时自动搜索飞书全表。全表结果只是候选，能否使用最终以瑞云真实添加和回读结果为准。"}
         </p>
         {!recordOnly && partInteractionReady && !partsShortage && selectedParts.length === 0 && <div className="no-parts-declaration">
           <label><input type="checkbox" checked={noParts} onChange={(event) => setNoParts(event.target.checked)} /> 本单确认无需更换配件</label>
