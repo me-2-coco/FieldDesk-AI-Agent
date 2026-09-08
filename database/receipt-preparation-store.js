@@ -1247,13 +1247,25 @@ class JsonReceiptPreparationStore {
         returnRequired: Boolean(part.returnRequired),
         isReplacementPart: part.isReplacementPart === true,
         sourcePartCode: part.isReplacementPart === true ? normalizeRequired(part.sourceCode) : "",
+        replacesShortagePartCode: normalizeRequired(part.replacesShortagePartCode).toUpperCase(),
         projectCode: normalizeRequired(part.projectCode),
         sn: existing.sn,
         status: quoteOnly
           ? "ABANDONED_QUOTE_PART_RECORDED"
           : diagnosticOnly
             ? "DIAGNOSTIC_PART_RECORDED"
-            : part.recloudConfirmed === true ? "RECLOUD_PART_CONFIRMED" : "PART_APPLICATION_RECORDED",
+            : part.recloudConfirmed === true
+              ? "RECLOUD_PART_CONFIRMED"
+              : normalizeRequired(part.verificationStatus) || "RECLOUD_PART_VERIFY_PENDING",
+        verificationQuery: normalizeRequired(part.verificationQuery) || normalizeRequired(part.code),
+        recloudVerificationStatus: recordOnly
+          ? "NOT_REQUIRED"
+          : part.recloudConfirmed === true
+            ? "AVAILABLE"
+            : normalizeRequired(part.verificationStatus) || "PENDING",
+        recloudVerificationOptions: Array.isArray(part.verificationOptions) ? part.verificationOptions : [],
+        recloudVerificationError: null,
+        recloudVerifiedAt: part.recloudConfirmed === true ? timestamp : "",
         recloudConfirmedAt: part.recloudConfirmed === true ? timestamp : "",
         recloudSource: part.recloudConfirmed === true ? "SERVICE_ORDER" : "",
         quoteOnly,
@@ -1309,8 +1321,10 @@ class JsonReceiptPreparationStore {
         : diagnosticOnly ? (existing.diagnosticParts || []) : (existing.partApplications || []);
       const current = partCollection.find((item) => item.id === applicationId);
       if (!current) throw Object.assign(new Error("未找到该配件记录"), { code: "PART_APPLICATION_NOT_FOUND", status: 404 });
-      if (current.recloudConfirmedAt) {
-        throw Object.assign(new Error("该配件已写入瑞云，不能在 FieldDesk 直接修改或删除"), {
+      if (current.recloudConfirmedAt || current.recloudVerificationStatus === "OUT_OF_STOCK") {
+        throw Object.assign(new Error(current.recloudVerificationStatus === "OUT_OF_STOCK"
+          ? "瑞云已确认缺件，该记录已锁定，不能删除绕过信息员处理"
+          : "该配件已写入瑞云，不能在 FieldDesk 直接修改或删除"), {
           code: "RECLOUD_PART_APPLICATION_LOCKED",
           status: 409,
         });
@@ -1365,6 +1379,14 @@ class JsonReceiptPreparationStore {
         && (existing.partsShortage?.parts || []).length > 0;
       const noParts = input.noParts === true;
       const noPartsReason = normalizeRequired(input.noPartsReason);
+      const unresolvedParts = existing.treatmentMode === "REPAIR"
+        ? selectedParts.filter((part) => !["AVAILABLE", "OUT_OF_STOCK"].includes(normalizeRequired(part.recloudVerificationStatus)))
+        : [];
+      if (unresolvedParts.length) {
+        throw Object.assign(new Error("配件仍在瑞云核实中，请等待全部返回可用或缺件结果"), {
+          code: "RECLOUD_PART_VERIFICATION_PENDING", status: 409,
+        });
+      }
       if (noParts && shortagePending) {
         throw Object.assign(new Error("瑞云已确认缺件，不能改为无需配件绕过处理"), { code: "PARTS_SHORTAGE_BYPASS_FORBIDDEN", status: 409 });
       }
@@ -1374,6 +1396,11 @@ class JsonReceiptPreparationStore {
       if (noParts && !noPartsReason) {
         throw Object.assign(new Error("选择无需配件时必须填写原因"), { code: "NO_PARTS_REASON_REQUIRED", status: 400 });
       }
+      if (existing.treatmentMode === "REPAIR" && (!existing.recloudServiceOrderCreatedAt || !existing.recloudServiceOrderNo)) {
+        throw Object.assign(new Error("瑞云服务单仍在创建，暂不能进入下一步"), {
+          code: "RECLOUD_SERVICE_ORDER_PENDING", status: 409,
+        });
+      }
       if (!selectedParts.length && !shortagePending && !noParts) {
         throw Object.assign(new Error(quoteOnly ? "请先添加导致用户弃修的故障配件" : diagnosticOnly ? "请先添加检测确认的故障配件" : "请先添加维修配件"), { code: "PART_CONFIRMATION_EMPTY", status: 409 });
       }
@@ -1382,6 +1409,7 @@ class JsonReceiptPreparationStore {
       }
       const timestamp = new Date().toISOString();
       const repairPartsComplete = existing.treatmentMode === "REPAIR";
+      const verifiedParts = selectedParts.filter((part) => part.recloudVerificationStatus === "AVAILABLE");
       const updated = {
         ...existing,
         status: repairPartsComplete ? "REPAIR_COMPLETION_DRAFT" : existing.status,
@@ -1389,6 +1417,16 @@ class JsonReceiptPreparationStore {
         noPartsDeclaredAt: noParts ? timestamp : existing.noPartsDeclaredAt || null,
         noPartsReason: noParts ? noPartsReason : existing.noPartsReason || "",
         ...(quoteOnly ? { abandonedQuoteConfirmedAt: timestamp } : diagnosticOnly ? { diagnosticPartsConfirmedAt: timestamp } : { partsConfirmedAt: timestamp }),
+        ...(repairPartsComplete ? {
+          recloudRepairPreparation: {
+            ...(existing.recloudRepairPreparation || {}),
+            usedParts: noParts ? [] : verifiedParts,
+            status: "PENDING",
+            requestedAt: timestamp,
+            failedAt: "",
+            lastError: null,
+          },
+        } : {}),
         updatedAt: timestamp,
         timeline: [...(existing.timeline || []), timelineEvent(
           quoteOnly ? "ABANDONED_QUOTE_CONFIRMED" : diagnosticOnly ? "DIAGNOSTIC_PARTS_CONFIRMED" : noParts ? "NO_PARTS_CONFIRMED" : "PARTS_CONFIRMED",
@@ -1425,7 +1463,7 @@ class JsonReceiptPreparationStore {
         recloudServiceOrderLastError: null,
         recloudServiceOrderCreatedAt: input.recloudSynced === true ? timestamp : existing.recloudServiceOrderCreatedAt || "",
         recloudRepairPreparation: input.repairPreparation
-          ? { ...input.repairPreparation, status: input.recloudSynced === true ? "CONFIRMED" : "PENDING" }
+          ? { ...input.repairPreparation, status: input.recloudSynced === true ? "CONFIRMED" : "WAITING_PART_VERIFICATION" }
           : existing.recloudRepairPreparation || null,
         repairStartedAt: timestamp,
         updatedAt: timestamp,
@@ -1567,9 +1605,29 @@ class JsonReceiptPreparationStore {
           reason: normalizeRequired(part?.reason) || "瑞云库存不足",
         }))
         .filter((part) => part.partCode && part.quantity > 0);
-      const hasShortage = missingParts.length > 0;
+      const existingMissingParts = existing.partsShortage?.status === "PENDING_INFORMATION"
+        ? (existing.partsShortage.parts || [])
+        : [];
+      const mergedMissingParts = [...existingMissingParts, ...missingParts].reduce((items, part) => {
+        const code = normalizeRequired(part?.partCode).toUpperCase();
+        if (!code) return items;
+        return [...items.filter((item) => normalizeRequired(item.partCode).toUpperCase() !== code), part];
+      }, []);
+      const hasShortage = mergedMissingParts.length > 0;
+      const missingCodes = new Set(mergedMissingParts.map((part) => normalizeRequired(part.partCode).toUpperCase()));
       const updated = {
         ...existing,
+        partApplications: (existing.partApplications || []).map((part) => {
+          const code = normalizeRequired(part.partCode).toUpperCase();
+          if (part.recloudVerificationStatus !== "AVAILABLE" || missingCodes.has(code)) return part;
+          return {
+            ...part,
+            status: "RECLOUD_PART_CONFIRMED",
+            recloudConfirmedAt: part.recloudConfirmedAt || timestamp,
+            recloudSource: "SERVICE_ORDER",
+            updatedAt: timestamp,
+          };
+        }),
         recloudRepairPreparation: {
           ...(existing.recloudRepairPreparation || {}),
           assignee:
@@ -1582,13 +1640,13 @@ class JsonReceiptPreparationStore {
           status: hasShortage ? "PARTS_SHORTAGE" : "CONFIRMED",
           completedAt: timestamp,
           completedSteps: Array.isArray(input.completedSteps) ? input.completedSteps : [],
-          missingParts,
+          missingParts: mergedMissingParts,
           failedAt: "",
           lastError: null,
         },
         partsShortage: hasShortage ? {
           status: "PENDING_INFORMATION",
-          parts: missingParts,
+          parts: mergedMissingParts,
           detectedAt: existing.partsShortage?.detectedAt || timestamp,
           updatedAt: timestamp,
           resolvedAt: "",
@@ -1600,7 +1658,7 @@ class JsonReceiptPreparationStore {
           timelineEvent(
             hasShortage ? "RECLOUD_PARTS_SHORTAGE" : "RECLOUD_REPAIR_PREPARATION_CONFIRMED",
             hasShortage
-              ? `瑞云库存缺件：${missingParts.map((part) => `${part.partName || part.partCode}×${part.quantity}`).join("、")}`
+              ? `瑞云库存缺件：${mergedMissingParts.map((part) => `${part.partName || part.partCode}×${part.quantity}`).join("、")}`
               : "瑞云已完成改派、保外转保内确认和配件添加",
             operator,
             timestamp
@@ -1674,7 +1732,9 @@ class JsonReceiptPreparationStore {
         },
         recloudRepairPreparation: {
           ...(existing.recloudRepairPreparation || {}),
-          status: resolved ? "CONFIRMED" : "PARTS_SHORTAGE",
+          status: resolved
+            ? existing.partsConfirmedAt ? "CONFIRMED" : "WAITING_PART_VERIFICATION"
+            : "PARTS_SHORTAGE",
           missingParts: remaining,
           completedSteps: resolved
             ? [...new Set([...(existing.recloudRepairPreparation?.completedSteps || []), "PARTS_VERIFIED_BY_REPLACEMENT"])]
@@ -1684,6 +1744,83 @@ class JsonReceiptPreparationStore {
         timeline: [...(existing.timeline || []), timelineEvent(
           "RECLOUD_PART_SHORTAGE_REPLACED",
           `缺件 ${sourceCode} 已由瑞云可用配件 ${normalizeRequired(replacementPart?.partCode)} 替代`,
+          operator,
+          timestamp
+        )],
+      };
+      await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
+  async markRecloudPartVerification(rmaNo, applicationId, input = {}, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find((record) => record.rmaNo === rmaNo);
+      if (!existing) throw Object.assign(new Error("未找到待维修工单"), { code: "RECEIPT_PREPARATION_NOT_FOUND", status: 404 });
+      const current = (existing.partApplications || []).find((part) => part.id === applicationId);
+      if (!current) throw Object.assign(new Error("未找到待核实配件"), { code: "PART_APPLICATION_NOT_FOUND", status: 404 });
+      const timestamp = new Date().toISOString();
+      const status = normalizeRequired(input.status) || "FAILED";
+      const verifiedCode = normalizeRequired(input.partCode).toUpperCase();
+      const verifiedName = normalizeRequired(input.partName);
+      const options = (Array.isArray(input.options) ? input.options : []).map((item) => ({
+        code: normalizeRequired(item?.code).toUpperCase(),
+        name: normalizeRequired(item?.name),
+      })).filter((item) => item.code);
+      const partApplications = (existing.partApplications || []).map((part) => part.id !== applicationId ? part : {
+        ...part,
+        partCode: verifiedCode || part.partCode,
+        partName: verifiedName || part.partName,
+        verificationQuery: normalizeRequired(input.verificationQuery) || part.verificationQuery,
+        status: status === "AVAILABLE"
+          ? "RECLOUD_PART_AVAILABLE"
+          : status === "OUT_OF_STOCK"
+            ? "RECLOUD_PART_OUT_OF_STOCK"
+            : status === "NEEDS_SELECTION"
+              ? "RECLOUD_PART_NEEDS_SELECTION"
+              : status === "VERIFYING"
+                ? "RECLOUD_PART_VERIFYING"
+                : status === "PENDING" ? "RECLOUD_PART_VERIFY_PENDING" : "RECLOUD_PART_VERIFY_FAILED",
+        recloudVerificationStatus: status,
+        recloudVerificationOptions: options,
+        recloudVerificationError: input.error ? {
+          code: normalizeRequired(input.error.code) || "RECLOUD_PART_VERIFY_FAILED",
+          message: normalizeRequired(input.error.message) || "瑞云配件核实失败，后台将自动重试",
+          at: timestamp,
+        } : null,
+        recloudVerifiedAt: ["AVAILABLE", "OUT_OF_STOCK", "NEEDS_SELECTION"].includes(status) ? timestamp : part.recloudVerifiedAt || "",
+        updatedAt: timestamp,
+      });
+      let partsShortage = existing.partsShortage || null;
+      if (status === "OUT_OF_STOCK") {
+        const missing = {
+          partCode: verifiedCode || current.partCode,
+          partName: verifiedName || current.partName,
+          quantity: Number(current.quantity || 1),
+          reason: normalizeRequired(input.reason) || "瑞云配件窗口明确显示无可用结果",
+          applicationId,
+        };
+        const prior = partsShortage?.status === "PENDING_INFORMATION" ? partsShortage.parts || [] : [];
+        partsShortage = {
+          status: "PENDING_INFORMATION",
+          parts: [...prior.filter((part) => part.applicationId !== applicationId), missing],
+          detectedAt: partsShortage?.detectedAt || timestamp,
+          updatedAt: timestamp,
+          resolvedAt: "",
+          resolvedBy: null,
+        };
+      }
+      const updated = {
+        ...existing,
+        partApplications,
+        partsShortage,
+        updatedAt: timestamp,
+        timeline: [...(existing.timeline || []), timelineEvent(
+          status === "AVAILABLE" ? "RECLOUD_PART_AVAILABLE" : status === "OUT_OF_STOCK" ? "RECLOUD_PART_OUT_OF_STOCK" : "RECLOUD_PART_VERIFICATION_UPDATED",
+          status === "AVAILABLE" ? `瑞云已核实配件可用：${verifiedName || verifiedCode}` : status === "OUT_OF_STOCK" ? `瑞云已核实配件缺件：${verifiedName || verifiedCode}` : "瑞云配件核实状态已更新",
           operator,
           timestamp
         )],

@@ -804,8 +804,6 @@ test("live detection saves locally and responds before Recloud finishes in the b
   await store.completeReceipt("JXTH900001001", USERS.sweep);
   await store.saveWarrantyDecision("JXTH900001001", { technicianWarranty: "保内" }, USERS.sweep);
   await store.saveTreatmentDecision("JXTH900001001", { treatmentMode: "REPAIR", technicianWarranty: "保内" }, USERS.sweep);
-  await store.applyPart("JXTH900001001", { code: "13703", name: "售后电池包组件", stock: 10 }, 1, USERS.sweep);
-  await store.confirmParts("JXTH900001001", USERS.sweep);
 
   let confirmCount = 0;
   let releaseConfirmation;
@@ -858,7 +856,7 @@ test("live detection saves locally and responds before Recloud finishes in the b
   await waitForValue(async () => {
     const current = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
     return current?.recloudRepairPreparation?.status;
-  }, "CONFIRMED");
+  }, "WAITING_PART_VERIFICATION");
   const completed = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
   assert.equal(completed.recloudServiceOrderNo, "SO-900001001");
   assert.ok(completed.recloudServiceOrderCreatedAt);
@@ -875,8 +873,6 @@ test("a failed Recloud detection remains a background failure and does not roll 
   await store.completeReceipt("JXTH900001001", USERS.sweep);
   await store.saveWarrantyDecision("JXTH900001001", { technicianWarranty: "保内" }, USERS.sweep);
   await store.saveTreatmentDecision("JXTH900001001", { treatmentMode: "REPAIR", technicianWarranty: "保内" }, USERS.sweep);
-  await store.applyPart("JXTH900001001", { code: "13703", name: "售后电池包组件", stock: 10 }, 1, USERS.sweep);
-  await store.confirmParts("JXTH900001001", USERS.sweep);
 
   const connector = {
     openRecloud: async () => ({ loginRequired: false, page: {} }),
@@ -930,8 +926,6 @@ test("a hung detection is isolated and another order still reaches Recloud", asy
     await store.completeReceipt(rmaNo, USERS.sweep);
     await store.saveWarrantyDecision(rmaNo, { technicianWarranty: "保内" }, USERS.sweep);
     await store.saveTreatmentDecision(rmaNo, { treatmentMode: "REPAIR", technicianWarranty: "保内" }, USERS.sweep);
-    await store.applyPart(rmaNo, { code: "13703", name: "售后电池包组件", stock: 10 }, 1, USERS.sweep);
-    await store.confirmParts(rmaNo, USERS.sweep);
   }
 
   let confirmationCount = 0;

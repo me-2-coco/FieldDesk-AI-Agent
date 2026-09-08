@@ -36,7 +36,7 @@ test("FieldDesk persists detection before Recloud-backed parts and repair comple
   }, TECH);
   assert.equal(started.resumeStep, "partsApplication");
   assert.equal(started.recloudRepairPreparation.assignee, "瑞云测试师傅");
-  assert.equal(started.recloudRepairPreparation.status, "PENDING");
+  assert.equal(started.recloudRepairPreparation.status, "WAITING_PART_VERIFICATION");
 
   const serviceOrderConfirmed = await store.markRecloudServiceOrderConfirmed(
     "STAGED-R",
@@ -86,11 +86,11 @@ test("Recloud detection and repair creation are separate explicit actions", asyn
   assert.match(server, /recloud-preparation\/retry[\s\S]*forcePreparationRecovery:\s*true/);
   assert.match(server, /recloudRepairAdapterProvider[\s\S]*openExistingRepairServiceOrder/);
   assert.match(server, /app\.post\("\/api\/repairs\/inspection"[\s\S]*scheduleRecloudDetectionSync/);
-  assert.match(server, /confirmedOrder\?\.recloudRepairPreparation\?\.status === "PENDING"[\s\S]*scheduleRecloudServiceOrderSync\(confirmedOrder/);
+  assert.match(server, /WAITING_PART_VERIFICATION[\s\S]*scheduleRecloudServiceOrderSync\(confirmedOrder/);
   assert.match(server, /waitingForDetection[\s\S]*瑞云检测完成后将自动创建维修服务单/);
   assert.match(server, /app\.post\("\/api\/repairs\/start-repair"[\s\S]*scheduleRecloudServiceOrderSync/);
-  assert.match(server, /serviceOrderCreated \|\| !resultUnknown[\s\S]*setTimeout[\s\S]*scheduleRecloudServiceOrderSync/);
-  assert.match(server, /recloudServiceOrderSyncStatus === "FAILED"[\s\S]*recloudRepairPreparation\?\.status === "PENDING"[\s\S]*scheduleRecloudServiceOrderSync/);
+  assert.match(server, /preparationAttempted \|\| !resultUnknown[\s\S]*setTimeout[\s\S]*scheduleRecloudServiceOrderSync/);
+  assert.match(server, /WAITING_PART_VERIFICATION", "PENDING"[\s\S]*scheduleRecloudServiceOrderSync/);
   assert.match(server, /api\/admin\/recloud\/service-order\/reconcile-not-created[\s\S]*confirmedNotCreated[\s\S]*scheduleRecloudServiceOrderSync/);
   assert.match(storeSource, /reconcileRecloudServiceOrderNotCreated[\s\S]*RECLOUD_SERVICE_ORDER_NOT_CREATED_CONFIRMED/);
   assert.doesNotMatch(server, /代客户收件/);

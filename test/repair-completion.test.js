@@ -146,9 +146,9 @@ test("reselecting repair preserves a saved inspection and can return to completi
     faultCategory: "产品质量|无法启动|电源模块不良",
     technicianWarranty: "保外",
   }, USER);
-  await receiptStore.applyPart("TEST-RMA", {
+  const queuedPart = await receiptStore.applyPart("TEST-RMA", {
     code: "00100123", name: "主刷电机", stock: 3,
-    retailPrice: 29, repairLevel: "中修",
+    retailPrice: 29, repairLevel: "中修", verificationStatus: "PENDING",
   }, 1, USER);
 
   const reselected = await receiptStore.saveTreatmentDecision("TEST-RMA", {
@@ -156,6 +156,17 @@ test("reselecting repair preserves a saved inspection and can return to completi
   }, USER);
   assert.equal(reselected.status, "INSPECTION_COMPLETED_PENDING_REPAIR");
   assert.equal(reselected.faultCategory, "产品质量|无法启动|电源模块不良");
+
+  await receiptStore.startRepair("TEST-RMA", {
+    partsPending: true,
+    repairPreparation: { assignee: USER.displayName, assignmentSource: "DIRECT", usedParts: [] },
+  }, USER);
+  await receiptStore.markRecloudServiceOrderConfirmed("TEST-RMA", USER, { serviceOrderNo: "SO-TEST-RMA" });
+  await receiptStore.markRecloudPartVerification("TEST-RMA", queuedPart.application.id, {
+    status: "AVAILABLE",
+    partCode: "00100123",
+    partName: "主刷电机",
+  }, USER);
 
   const confirmed = await receiptStore.confirmParts("TEST-RMA", USER);
   assert.equal(confirmed.order.status, "REPAIR_COMPLETION_DRAFT");
@@ -447,7 +458,7 @@ test("frontend exposes six treatment choices including headquarters transfer and
   for (const mode of ["REPAIR", "ABANDONED", "INSPECTION_ONLY", "DEBUGGING", "TRANSFER_TO_HEADQUARTERS", "ON_HOLD"]) {
     assert.match(decisionSource, new RegExp(mode));
   }
-  assert.match(decisionSource, /解锁配件/);
+  assert.match(decisionSource, /瑞云建单后自动优先核实/);
   assert.match(decisionSource, /transferToHeadquarters/);
   assert.match(decisionSource, /6 选 1/);
   assert.match(decisionSource, /RECLOUD_HOLD_REASON_GROUPS/);

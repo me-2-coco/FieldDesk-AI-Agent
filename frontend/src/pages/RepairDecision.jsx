@@ -5,7 +5,7 @@ import { getCurrentRepairOrder, REPAIR_STATUS, updateRepairOrder } from "../shar
 import { RECLOUD_HOLD_REASON_GROUPS } from "../data/recloudHoldReasons.js"
 
 const OPTIONS = [
-  { value: "REPAIR", tone: "repair", title: "维修", badge: "先检测", description: "先选择三级故障并提交检测；瑞云建单、改派完成后解锁配件。", next: "填写检测" },
+  { value: "REPAIR", tone: "repair", title: "维修", badge: "先检测", description: "先选择三级故障并提交检测；配件可立即登记，瑞云建单后自动优先核实。", next: "填写检测" },
   { value: "ABANDONED", tone: "abandoned", title: "弃修", badge: "仅核价", description: "登记故障配件和预计寄回运费，只用于费用明细，不向瑞云添加配件。", next: "填写弃修报价" },
   { value: "INSPECTION_ONLY", tone: "inspection", title: "只检测不维修", badge: "人工报告", description: "选择故障复现或无故障；检测报告由信息员制作并上传。", next: "按检测结果继续" },
   { value: "DEBUGGING", tone: "debugging", title: "调试", badge: "免配件", description: "无硬件故障，下一步登记故障分类并完成检测。", next: "填写检测" },

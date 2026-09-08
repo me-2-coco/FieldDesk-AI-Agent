@@ -17,8 +17,8 @@ async function orchestrateRepairStart(payload, adapter, options = {}) {
   if (!adapter || typeof adapter.readAssignee !== "function" || typeof adapter.readRemoteState !== "function") {
     throw startError("瑞云维修准备执行器不可用", "RECLOUD_REPAIR_START_ADAPTER_INVALID", "PLAN");
   }
-  // 改派只有首次从寄修单点击“维修”进入服务单时可用。这里在任何
-  // 页签切换、配件读取或保外转保内动作之前先完成改派和复核。
+  // 师傅确认配件核实结果并点击下一步后，维修准备严格按改派、
+  // 保外转保内、真实添加配件执行；预核实阶段绝不调用这里。
   let assignee = await adapter.readAssignee();
   const assignmentPlan = buildRecloudAssignmentPlan(payload.assignee);
   let assignmentRequired = String(assignee || "").trim() !== assignmentPlan.servicePerson;

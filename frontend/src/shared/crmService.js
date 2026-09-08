@@ -326,6 +326,10 @@ export async function updateRepairPart(payload) {
   return request("/api/repairs/parts/update", payload)
 }
 
+export async function chooseRecloudPart(payload) {
+  return request("/api/repairs/parts/verify-choice", payload)
+}
+
 export async function confirmRepairParts(rmaNo, options = {}) {
   return request("/api/repairs/parts/confirm", { rmaNo, ...options })
 }

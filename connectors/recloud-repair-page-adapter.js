@@ -469,8 +469,8 @@ function createRecloudRepairPageAdapter(page, context = {}) {
     },
 
     async assignResponsible(plan) {
-      // 瑞云只有首次进入服务单时允许“改派”。严禁使用“派单”，也不
-      // 提供退出后重新进单补派/补改派的降级路径。
+      // 师傅点击下一步后执行“改派”。严禁使用“派单”；重试时仍须
+      // 重新读取当前负责人并保证只对目标服务单做幂等改派。
       // 建单完成后瑞云偶尔会保留特殊服务项目提示；必须先点右上角叉
       // 关闭，否则其遮罩会拦截“改派”按钮并造成固定 5 秒超时。
       await dismissBlockingRepairMessageBoxes(page);
@@ -637,6 +637,18 @@ function createRecloudRepairPageAdapter(page, context = {}) {
           seen.add(item.code);
           items.push(item);
           if (items.length >= Math.max(1, Math.min(50, Number(options.limit || 30)))) break;
+        }
+        // Some Recloud builds auto-select the only match and immediately hide
+        // the suggestion list. In that case the full code is already written
+        // to the read-only code field; treat it as an explicit single result
+        // instead of reporting an empty lookup and retrying forever.
+        if (items.length === 0 && lookup.selectedCode) {
+          const selectedName = String(await partInput.inputValue().catch(() => "") || query).trim();
+          items.push({
+            code: lookup.selectedCode,
+            name: selectedName || lookup.selectedCode,
+            source: "RECLOUD_SERVICE_ORDER",
+          });
         }
         return {
           items,

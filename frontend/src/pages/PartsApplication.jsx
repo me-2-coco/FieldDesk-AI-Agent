@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import ScannerModal from "../components/ScannerModal.jsx"
 import SupervisionNoticeCard from "../components/SupervisionNoticeCard.jsx"
 import { ScanIcon } from "../components/AppIcons.jsx"
-import { applyLocalPart, confirmRepairParts, getRepairParts, saveRepairResumeStep, searchPartsCatalog, updateRepairPart } from "../shared/crmService.js"
+import { applyLocalPart, chooseRecloudPart, confirmRepairParts, getRepairParts, saveRepairResumeStep, searchPartsCatalog, updateRepairPart } from "../shared/crmService.js"
 import {
   getCurrentRepairOrder,
   REPAIR_STATUS,
@@ -26,6 +26,7 @@ function PartsApplication({ setPage }) {
   const [scannerOpen, setScannerOpen] = useState(false)
   const [partsShortage, setPartsShortage] = useState(null)
   const [partInteractionReady, setPartInteractionReady] = useState(false)
+  const [partVerificationComplete, setPartVerificationComplete] = useState(false)
   const [syncStage, setSyncStage] = useState({ detection: "NOT_STARTED", serviceOrder: "NOT_STARTED", preparation: "NOT_STARTED" })
   const [noParts, setNoParts] = useState(false)
   const [noPartsReason, setNoPartsReason] = useState("")
@@ -46,6 +47,7 @@ function PartsApplication({ setPage }) {
         setSelectedParts(result.items || [])
         setPartsShortage(result.partsShortage || null)
         setPartInteractionReady(result.recloudPartInteractionReady === true)
+        setPartVerificationComplete(result.recloudPartVerificationComplete === true)
         setSyncStage({
           detection: result.recloudDetectionSyncStatus || "NOT_STARTED",
           serviceOrder: result.recloudServiceOrderSyncStatus || "NOT_STARTED",
@@ -63,7 +65,7 @@ function PartsApplication({ setPage }) {
           setPage("repairProcess")
           return
         }
-        if (!recordOnly && result.recloudPartInteractionReady !== true) timer = window.setTimeout(refresh, 800)
+        if (!recordOnly && (result.recloudPartInteractionReady !== true || result.recloudPartVerificationComplete !== true)) timer = window.setTimeout(refresh, 650)
       })
       .catch((error) => {
         if (!active) return
@@ -76,7 +78,7 @@ function PartsApplication({ setPage }) {
 
   useEffect(() => {
     let active = true
-    if (!keyword.trim() || (!recordOnly && !partInteractionReady) || keyword.trim().length < 2) {
+    if (!keyword.trim() || !recordOnly || keyword.trim().length < 2) {
       return () => { active = false }
     }
     const timer = setTimeout(async () => {
@@ -94,7 +96,7 @@ function PartsApplication({ setPage }) {
       }
     }, 180)
     return () => { active = false; clearTimeout(timer) }
-  }, [keyword, partInteractionReady, recordOnly, repairOrder.crmOrderNo])
+  }, [keyword, recordOnly, repairOrder.crmOrderNo])
 
   const matches = useMemo(() => parts, [parts])
 
@@ -134,8 +136,13 @@ function PartsApplication({ setPage }) {
     : "暂无价格"
 
   async function submitApplication() {
-    if (!selectedPart) {
-      setErrorMessage("请选择配件")
+    const query = String(selectedPart?.code || keyword || "").trim()
+    if (recordOnly && !selectedPart) {
+      setErrorMessage("请从配件目录选择准确配件")
+      return
+    }
+    if (query.length < 2) {
+      setErrorMessage("请至少输入 2 个字符")
       return
     }
     if (selectedPartAlreadyApplied) {
@@ -147,8 +154,9 @@ function PartsApplication({ setPage }) {
       setErrorMessage("")
       const result = await applyLocalPart({
         rmaNo: repairOrder.crmOrderNo,
-        partCode: selectedPart.code,
-        partName: selectedPart.name,
+        partCode: selectedPart?.code || "",
+        partQuery: query,
+        partName: selectedPart?.name || query,
         replacesShortagePartCode: replacementFor,
         quantity: Number(quantity)
       })
@@ -163,6 +171,7 @@ function PartsApplication({ setPage }) {
         const exists = current.some((item) => item.id === application.id)
         return exists ? current.map((item) => item.id === application.id ? application : item) : [...current, application]
       })
+      setPartVerificationComplete(false)
       setReplacementFor("")
       const updated = updateRepairOrder({
         status: REPAIR_STATUS.WAIT_PARTS,
@@ -179,12 +188,32 @@ function PartsApplication({ setPage }) {
             returnRequired: application.returnRequired,
             isReplacementPart: application.isReplacementPart,
             sourcePartCode: application.sourcePartCode,
-            status: "瑞云已添加"
+            status: recordOnly ? "已记录" : "瑞云核实中"
           }
         ]
       })
       setRepairOrder(updated)
       setMessage(result.message || (quoteOnly ? "弃修报价配件已保存" : diagnosticOnly ? "故障配件已保存到 FieldDesk" : "配件申请已保存到 FieldDesk"))
+    } catch (error) {
+      setErrorMessage(error.message)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  async function chooseVerificationOption(application, option) {
+    try {
+      setIsSaving(true)
+      setErrorMessage("")
+      const result = await chooseRecloudPart({
+        rmaNo: repairOrder.crmOrderNo,
+        applicationId: application.id,
+        partCode: option.code,
+        partName: option.name,
+      })
+      setSelectedParts(result.order?.partApplications || selectedParts)
+      setPartVerificationComplete(false)
+      setMessage(result.message || "已选择配件，正在瑞云核实")
     } catch (error) {
       setErrorMessage(error.message)
     } finally {
@@ -217,7 +246,7 @@ function PartsApplication({ setPage }) {
   }
 
   async function continueToCompletion() {
-    if (!recordOnly && !partInteractionReady) return
+    if (!recordOnly && (!partInteractionReady || !partVerificationComplete)) return
     if (!selectedParts.length && !partsShortage && !noParts) return
     if (noParts && !noPartsReason.trim()) {
       setErrorMessage("选择无需配件时必须填写原因")
@@ -285,7 +314,11 @@ function PartsApplication({ setPage }) {
           <div className="selected-part-row" key={part.id}>
             <div>
               <strong>{part.partName}</strong>
-              <p>{part.partCode} · {part.repairLevel || "费用信息后台补充"} · {priceText(part.retailPrice)}{part.recloudConfirmedAt && <i>瑞云已添加</i>}{part.isReplacementPart && <i>替代料</i>}{part.returnRequired && <strong className="part-return-required">旧件需返厂</strong>}</p>
+              <p>{part.partCode} · {part.repairLevel || "费用信息后台补充"} · {priceText(part.retailPrice)}{part.recloudVerificationStatus === "PENDING" && <i>排队待核实</i>}{part.recloudVerificationStatus === "VERIFYING" && <i>瑞云核实中</i>}{part.recloudVerificationStatus === "AVAILABLE" && <i>瑞云可用</i>}{part.recloudVerificationStatus === "OUT_OF_STOCK" && <i>瑞云缺件</i>}{part.recloudVerificationStatus === "FAILED" && <i>异常，自动重试中</i>}{part.recloudVerificationStatus === "NEEDS_SELECTION" && <i>请选择准确物料</i>}{part.recloudConfirmedAt && <i>瑞云已真实添加</i>}{part.isReplacementPart && <i>替代料</i>}{part.returnRequired && <strong className="part-return-required">旧件需返厂</strong>}</p>
+              {part.recloudVerificationError?.message && <small>{part.recloudVerificationError.message}</small>}
+              {part.recloudVerificationStatus === "NEEDS_SELECTION" && <div className="part-verification-options">
+                {(part.recloudVerificationOptions || []).map((option) => <button type="button" className="secondary-btn" key={option.code} onClick={() => chooseVerificationOption(part, option)} disabled={isSaving}>{option.name} · {option.code}</button>)}
+              </div>}
             </div>
             <input
               aria-label={`${part.partName}数量`}
@@ -304,9 +337,9 @@ function PartsApplication({ setPage }) {
                 const nextQuantity = Number(event.target.value)
                 if (nextQuantity !== previousQuantity) changeApplication(part, nextQuantity, false, previousQuantity)
               }}
-              disabled={isSaving || Boolean(part.recloudConfirmedAt)}
+              disabled={isSaving || Boolean(part.recloudConfirmedAt) || part.recloudVerificationStatus === "OUT_OF_STOCK"}
             />
-            <button type="button" className="secondary-btn" onClick={() => changeApplication(part, part.quantity, true)} disabled={isSaving || Boolean(part.recloudConfirmedAt)}>{part.recloudConfirmedAt ? "已锁定" : "删除"}</button>
+            <button type="button" className="secondary-btn" onClick={() => changeApplication(part, part.quantity, true)} disabled={isSaving || Boolean(part.recloudConfirmedAt) || part.recloudVerificationStatus === "OUT_OF_STOCK"}>{part.recloudConfirmedAt || part.recloudVerificationStatus === "OUT_OF_STOCK" ? "已锁定" : "删除"}</button>
           </div>
         ))}
         {partsShortage && <div className="parts-shortage-locked" role="status">
@@ -320,7 +353,7 @@ function PartsApplication({ setPage }) {
       <section className="card parts-search-card">
         <div className="parts-search-heading">
           <div><span>{recordOnly ? "配件目录" : "瑞云服务单"}</span><h2>搜索配件</h2></div>
-          <small>{recordOnly ? "实时匹配" : partInteractionReady ? "已解锁" : "准备中"}</small>
+          <small>{recordOnly ? "实时匹配" : partInteractionReady ? "服务单已建" : "服务单创建中"}</small>
         </div>
         <div className="parts-search-kinds" aria-label="支持的搜索方式">
           <span>条码完整/模糊</span><span>名称完整/模糊</span>
@@ -332,7 +365,6 @@ function PartsApplication({ setPage }) {
             onChange={(event) => updateKeyword(event.target.value)}
             placeholder="输入或扫描物料条码 / 物料名称"
             autoComplete="off"
-            disabled={!recordOnly && !partInteractionReady}
           />
           <button type="button" className="parts-scan-button" aria-label="扫描物料条码" onClick={() => setScannerOpen(true)}>
             <ScanIcon size={20} /><span>扫码</span>
@@ -340,9 +372,9 @@ function PartsApplication({ setPage }) {
         </div>
 
         <div className="part-search-result" tabIndex={matches.length > 8 ? 0 : undefined} aria-label="配件搜索结果，超过八条时可上下滑动">
-          {!recordOnly && !partInteractionReady && <p>瑞云正在依次完成检测、创建服务单和改派，完成后这里会自动解锁。当前进度：检测 {syncStage.detection} · 建单 {syncStage.serviceOrder} · 准备 {syncStage.preparation}</p>}
+          {!recordOnly && !partInteractionReady && <p>可以先输入并登记配件。瑞云正在完成检测和创建服务单，建单后会优先逐项核实。当前进度：检测 {syncStage.detection} · 建单 {syncStage.serviceOrder}</p>}
           {isSearching && <p>{recordOnly ? "正在查询厂家飞书配件表..." : "正在查询瑞云服务单可用配件..."}</p>}
-          {!isSearching && keyword.trim().length >= 2 && matches.length === 0 && partInteractionReady && <p>瑞云当前没有返回匹配配件</p>}
+          {!recordOnly && keyword.trim().length >= 2 && <p>点击“登记并核实”，系统立即保存并在瑞云后台返回明确结果。</p>}
           {matches.map((part) => {
             const alreadyApplied = selectedParts.some((item) => item.partCode === part.code)
             return (
@@ -372,7 +404,6 @@ function PartsApplication({ setPage }) {
               min="1"
               value={quantity}
               onChange={(event) => setQuantity(event.target.value)}
-              disabled={!recordOnly && !partInteractionReady}
             />
           </label>
           {partsShortage && <label htmlFor="replacement-for">替代缺件
@@ -384,9 +415,9 @@ function PartsApplication({ setPage }) {
           <button
             className="primary-btn"
             onClick={submitApplication}
-            disabled={isSaving || (!recordOnly && !partInteractionReady) || !selectedPart || selectedPartAlreadyApplied}
+            disabled={isSaving || (recordOnly ? !selectedPart : keyword.trim().length < 2) || selectedPartAlreadyApplied}
           >
-            {isSaving ? "正在等待瑞云确认..." : selectedPartAlreadyApplied ? "该配件已添加" : recordOnly ? "添加到本工单" : "在瑞云添加并确认"}
+            {isSaving ? "正在登记..." : selectedPartAlreadyApplied ? "该配件已添加" : recordOnly ? "添加到本工单" : "登记并在瑞云核实"}
           </button>
         </div>
 
@@ -400,7 +431,7 @@ function PartsApplication({ setPage }) {
           <label><input type="checkbox" checked={noParts} onChange={(event) => setNoParts(event.target.checked)} /> 本单确认无需更换配件</label>
           {noParts && <textarea value={noPartsReason} onChange={(event) => setNoPartsReason(event.target.value)} placeholder="必填：说明无需配件的原因，系统将记录操作人和时间" maxLength={500} />}
         </div>}
-        <button className="primary-btn" onClick={continueToCompletion} disabled={isSaving || (!recordOnly && !partInteractionReady) || (!selectedParts.length && !partsShortage && !noParts) || (noParts && !noPartsReason.trim())}>
+        <button className="primary-btn" onClick={continueToCompletion} disabled={isSaving || (!recordOnly && (!partInteractionReady || !partVerificationComplete)) || (!selectedParts.length && !partsShortage && !noParts) || (noParts && !noPartsReason.trim())}>
           {selectedParts.length || partsShortage || noParts ? (quoteOnly ? "弃修报价确认，下一步故障分类" : diagnosticOnly ? "故障配件确认，下一步填写检测" : "确认配件状态，进入维修完工") : (recordOnly ? "请先添加故障配件" : "请添加配件或说明无需配件")}
         </button>
       </section>

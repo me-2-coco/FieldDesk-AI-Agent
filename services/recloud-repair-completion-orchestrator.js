@@ -149,8 +149,8 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
     };
   }
 
-  // 改派和配件只能在首次点击“维修”进入服务单时完成。若首次进入时
-  // FieldDesk 在最后的页面等待环节超时，但瑞云实际已保存成功，则允许
+  // 改派、保外转保内和真实配件添加应在师傅确认配件后的维修准备阶段完成。
+  // 若 FieldDesk 在最后的页面等待环节超时，但瑞云实际已保存成功，则允许
   // 依据当前瑞云页面重新核对结果；这里只复核，绝不补改派或补加配件。
   let preparationVerifiedByRemote = !assignmentRequired
     && partsPlan.readyToAdd
