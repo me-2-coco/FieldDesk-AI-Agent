@@ -1441,9 +1441,16 @@ function createApp(
               recoveredExistingServiceOrder: true,
             };
           } else {
-            const detail = await connector.queryRmaByLogisticsNo(page, order.logisticsNo, { preserveDetailPage: true });
-            if (detail.rmaNo && detail.rmaNo !== rmaNo) {
-              throw createApiError("RECLOUD_REPAIR_ORDER_MISMATCH", "瑞云查询结果与当前寄修单不一致", 409);
+            // Detection and service-order creation normally run on the same
+            // business-write lane. Keep the verified RMA detail page left by
+            // detection instead of rescanning the logistics number and
+            // rereading the whole order. If another job changed this lane's
+            // page, fall back to the authoritative query before writing.
+            if (!(await isExpectedRmaStillOpen(page, rmaNo))) {
+              const detail = await connector.queryRmaByLogisticsNo(page, order.logisticsNo, { preserveDetailPage: true });
+              if (detail.rmaNo && detail.rmaNo !== rmaNo) {
+                throw createApiError("RECLOUD_REPAIR_ORDER_MISMATCH", "瑞云查询结果与当前寄修单不一致", 409);
+              }
             }
             result = await connector.startRepair(page, { dryRun: false, writeEnabled: true });
             if (!result?.serviceOrderCreated) {
