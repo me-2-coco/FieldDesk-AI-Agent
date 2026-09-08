@@ -640,9 +640,21 @@ function createRecloudRepairPageAdapter(page, context = {}) {
       const save = await uniqueVisible(dialog.getByRole("button", { name: exactText("保存") }).filter({ visible: true }), "维修措施保存按钮不唯一", "RECLOUD_REPAIR_MEASURE_SAVE_AMBIGUOUS", "FIELDS");
       await save.click({ timeout: 5000 });
       await dialog.waitFor({ state: "hidden", timeout: 10000 });
+      // The row dialog only updates the page draft. Persist the whole service
+      // order before any verification; otherwise the same DOM can look correct
+      // even though a fresh Recloud page still contains the old values.
+      const saveOrder = await uniqueVisible(
+        page.getByRole("button", { name: exactText("保存") }).filter({ visible: true }),
+        "瑞云维修单保存按钮不唯一",
+        "RECLOUD_REPAIR_ORDER_SAVE_AMBIGUOUS",
+        "FIELDS"
+      );
+      await saveOrder.click({ timeout: 5000 });
+      await page.waitForTimeout?.(600);
     },
 
     async verifyRepairFields(plan) {
+      await page.reload({ waitUntil: "domcontentloaded", timeout: 15000 });
       await openServiceReport(page);
       const report = await uniqueVisible(
         page.getByRole("tabpanel", { name: exactText("服务报告") }).filter({ visible: true }),
@@ -688,7 +700,16 @@ function createRecloudRepairPageAdapter(page, context = {}) {
       const upload = await uniqueVisible(dialog.getByRole("button", { name: /^\s*上\s*传\s*$/ }).filter({ visible: true }), "附件上传确认按钮不唯一", "RECLOUD_REPAIR_ATTACHMENT_CONFIRM_AMBIGUOUS", "ATTACHMENTS");
       await upload.click({ timeout: 5000 });
       await dialog.waitFor({ state: "hidden", timeout: 30000 });
-      await page.waitForTimeout?.(500);
+      const saveOrder = await uniqueVisible(
+        page.getByRole("button", { name: exactText("保存") }).filter({ visible: true }),
+        "瑞云维修单保存按钮不唯一",
+        "RECLOUD_REPAIR_ORDER_SAVE_AMBIGUOUS",
+        "ATTACHMENTS"
+      );
+      await saveOrder.click({ timeout: 5000 });
+      await page.waitForTimeout?.(600);
+      await page.reload({ waitUntil: "domcontentloaded", timeout: 15000 });
+      await openServiceReport(page);
       return { uploadedCount: plan.additions.length };
     },
 
@@ -713,6 +734,15 @@ function createRecloudRepairPageAdapter(page, context = {}) {
         );
       }
       await dialog.getByRole("button", { name: exactText("确定") }).click({ timeout: 5000 });
+      const completedBadge = page.getByText("已完工", { exact: true }).filter({ visible: true });
+      const confirmationDeadline = Date.now() + 30000;
+      while (Date.now() < confirmationDeadline) {
+        if (await submitReady.count() === 1 || await completedBadge.count() === 1) {
+          return { confirmed: true };
+        }
+        await page.waitForTimeout?.(500);
+      }
+      throw adapterError("瑞云点击完工后状态未变化", "RECLOUD_REPAIR_COMPLETE_NOT_CONFIRMED", "COMPLETE");
     },
 
     async waitForSubmitReady(options = {}) {

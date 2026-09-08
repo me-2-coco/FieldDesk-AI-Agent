@@ -219,18 +219,23 @@ class RecloudSyncService {
   async retry(taskId) {
     const task = await this.outbox.get(taskId);
     if (!task) throw Object.assign(new Error("同步任务不存在"), { code: "SYNC_TASK_NOT_FOUND", status: 404 });
-    if (![TASK_STATUS.FAILED, TASK_STATUS.MANUAL_REVIEW, TASK_STATUS.READY_DRY_RUN].includes(task.status)) {
+    const canReconcileStoppedHandoff = task.status === TASK_STATUS.SUCCESS
+      && ["AWAITING_PARTS", "AWAITING_INFORMATION_CLERK"].includes(task.resultStatus);
+    if (![TASK_STATUS.FAILED, TASK_STATUS.MANUAL_REVIEW, TASK_STATUS.READY_DRY_RUN].includes(task.status) && !canReconcileStoppedHandoff) {
       throw Object.assign(new Error("仅失败、待人工处理或演练就绪任务可以重新执行"), { code: "SYNC_TASK_RETRY_NOT_ALLOWED", status: 409 });
     }
     const refreshed = typeof this.refreshTaskPayload === "function"
       ? await this.refreshTaskPayload(task)
       : null;
-    const pending = await this.outbox.transition(taskId, TASK_STATUS.PENDING, {
+    const retryFields = {
       lastError: "",
       errorCategory: "",
       ...(refreshed?.payload ? { payload: refreshed.payload } : {}),
       ...(refreshed?.mappingVersion ? { mappingVersion: refreshed.mappingVersion } : {}),
-    });
+    };
+    const pending = canReconcileStoppedHandoff
+      ? await this.outbox.reopenStoppedHandoff(taskId, retryFields)
+      : await this.outbox.transition(taskId, TASK_STATUS.PENDING, retryFields);
     this.scheduler(() => this.processTask(taskId).catch(() => {}));
     return pending;
   }

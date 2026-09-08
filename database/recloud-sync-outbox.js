@@ -111,6 +111,22 @@ class JsonRecloudSyncOutbox {
     });
   }
 
+  reopenStoppedHandoff(taskId, fields = {}) {
+    return this.run((tasks) => {
+      const task = tasks.find((item) => item.id === taskId);
+      if (!task) throw Object.assign(new Error("同步任务不存在"), { code: "SYNC_TASK_NOT_FOUND", status: 404 });
+      const eligible = task.status === TASK_STATUS.SUCCESS
+        && ["AWAITING_PARTS", "AWAITING_INFORMATION_CLERK"].includes(task.resultStatus);
+      if (!eligible) {
+        throw Object.assign(new Error("当前任务不是可重新核对的未提交交接状态"), {
+          code: "SYNC_TASK_HANDOFF_RECHECK_INVALID", status: 409,
+        });
+      }
+      Object.assign(task, fields, { status: TASK_STATUS.PENDING, updatedAt: new Date().toISOString() });
+      return task;
+    });
+  }
+
   async get(taskId) {
     return (await this.readAll()).find((item) => item.id === taskId) || null;
   }

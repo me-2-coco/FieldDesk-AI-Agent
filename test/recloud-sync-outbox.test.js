@@ -199,6 +199,26 @@ test("parts-shortage completion stops before submit and notifies the information
   assert.equal(notices.length, 1);
 });
 
+test("a stopped parts-shortage handoff can be rechecked against Recloud", async (t) => {
+  const outbox = await outboxFixture(t);
+  const scheduled = [];
+  const service = new RecloudSyncService(outbox, {
+    async syncRepairCompleted() {
+      return { status: "AWAITING_PARTS", missingParts: [{ partCode: "P1" }] };
+    },
+  }, {
+    scheduler: (work) => scheduled.push(work),
+  });
+  const task = await service.enqueueOrderNode(ORDER, "REPAIR_COMPLETED", "SHORTAGE-RECHECK");
+  await service.processTask(task.id);
+  scheduled.length = 0;
+
+  const retried = await service.retry(task.id);
+
+  assert.equal(retried.status, TASK_STATUS.PENDING);
+  assert.equal(scheduled.length, 1);
+});
+
 test("inspection-only completion notifies the information clerk after Recloud completion", async (t) => {
   const outbox = await outboxFixture(t);
   const notices = [];

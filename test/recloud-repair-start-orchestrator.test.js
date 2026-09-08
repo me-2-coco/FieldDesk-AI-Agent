@@ -73,6 +73,8 @@ test("real repair adapter records any unavailable part instead of stopping the w
   const source = fs.readFileSync(path.join(__dirname, "../connectors/recloud-repair-page-adapter.js"), "utf8");
   assert.match(source, /按网点库存不足规则跳过/);
   assert.doesNotMatch(source, /RECLOUD_REPAIR_PART_NOT_AVAILABLE/);
+  assert.match(source, /瑞云点击完工后状态未变化/);
+  assert.match(source, /page\.reload\(\{ waitUntil: "domcontentloaded"/);
 });
 
 test("preparation recovery resumes a completion task that was left ready after dry run", () => {
