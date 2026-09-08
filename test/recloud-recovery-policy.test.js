@@ -1,5 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const {
   recloudBusinessWriteConcurrency,
   shouldAutoResumeReceipt,
@@ -24,6 +26,15 @@ test("恢复巡检默认每分钟限量五单并限制配置边界", () => {
   assert.equal(recloudRecoverySweepBatchSize({}), 5);
   assert.equal(recloudRecoverySweepBatchSize({ RECLOUD_RECOVERY_SWEEP_BATCH_SIZE: "12" }), 12);
   assert.equal(recloudRecoverySweepBatchSize({ RECLOUD_RECOVERY_SWEEP_BATCH_SIZE: "100" }), 20);
+});
+
+test("恢复巡检在截断批次前应用瑞云写入白名单", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../server.js"), "utf8");
+  const block = source.slice(
+    source.indexOf("const candidates = orders.map"),
+    source.indexOf("let scheduled = 0", source.indexOf("const candidates = orders.map"))
+  );
+  assert.ok(block.indexOf("isRecloudRmaWriteAllowed") < block.indexOf(".slice(0, batchSize)"));
 });
 
 test("签收自动恢复只处理近期且仍处于维修前流程的工单", () => {

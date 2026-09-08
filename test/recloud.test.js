@@ -15,6 +15,7 @@ const {
   getSelectAllShortcut,
   hasVisibleReceiptAction,
   isRecloudLoginPage,
+  isBlankRecloudValue,
   isRevealPhoneEnabled,
   parseRmaDateTime,
   parseRepairDetail,
@@ -57,6 +58,13 @@ test("truncated Recloud serial numbers match only a sufficiently long unique pre
   assert.equal(serialCellMatchesExpected("R2489X56HCNQ1…", "r2489x56hcnq132701"), true);
   assert.equal(serialCellMatchesExpected("R2485X56HCNQ1...", "R2489X56HCNQ132701"), false);
   assert.equal(serialCellMatchesExpected("R248...", "R2489X56HCNQ132701"), false);
+});
+
+test("Recloud table and edit-dialog blank SN representations are equivalent", () => {
+  assert.equal(isBlankRecloudValue("--"), true);
+  assert.equal(isBlankRecloudValue(""), true);
+  assert.equal(isBlankRecloudValue(" — "), true);
+  assert.equal(isBlankRecloudValue("R930403AFCN5080101"), false);
 });
 const {
   RecloudQueryError,

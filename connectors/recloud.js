@@ -74,6 +74,10 @@ function normalizeText(value) {
   return String(value || "").trim();
 }
 
+function isBlankRecloudValue(value) {
+  return /^(?:|--?|—|暂无|未填写)$/i.test(normalizeText(value));
+}
+
 function extractRepairServiceOrderCandidates(value) {
   return [...new Set(String(value || "").match(/\bFWD[A-Z0-9-]{8,}\b/gi) || [])]
     .map((item) => item.toUpperCase());
@@ -11413,7 +11417,9 @@ async function correctRmaProductSn(page, input = {}, options = {}) {
   assertRecloudAuthenticated(page);
   const currentSn = normalizeText(input.currentSn).toUpperCase();
   const expectedSn = normalizeText(input.expectedSn).toUpperCase();
-  if (!currentSn || !expectedSn) {
+  const currentSnIsBlank = isBlankRecloudValue(currentSn);
+  const projectCode = normalizeText(input.projectCode);
+  if ((!currentSn && !projectCode) || !expectedSn) {
     const error = new Error("瑞云 SN 更正缺少当前值或 FieldDesk 扫描值");
     error.code = "RECLOUD_PRODUCT_SN_CORRECTION_INVALID";
     error.status = 400;
@@ -11421,7 +11427,12 @@ async function correctRmaProductSn(page, input = {}, options = {}) {
   }
   if (currentSn === expectedSn) return { success: true, changed: false, currentSn, expectedSn };
 
-  const matchingRows = page.locator("tr:visible").filter({ hasText: currentSn });
+  // Recloud renders an empty product SN as “--” in the table while the edit
+  // dialog exposes the same value as an empty input. In that case bind the row
+  // through its project code; treating “--” as a literal SN makes the dialog
+  // safety check fail and blocks the whole receipt chain.
+  const rowIdentity = currentSnIsBlank && projectCode ? projectCode : currentSn;
+  const matchingRows = page.locator("tr:visible").filter({ hasText: rowIdentity });
   await matchingRows.first().waitFor({ state: "visible", timeout: 15_000 }).catch(() => {});
   const rowTexts = await matchingRows.allInnerTexts().catch(() => []);
   const uniqueRows = [...new Set(rowTexts.map(normalizeText).filter(Boolean))];
@@ -11439,7 +11450,6 @@ async function correctRmaProductSn(page, input = {}, options = {}) {
     error.status = 409;
     throw error;
   }
-  const projectCode = normalizeText(input.projectCode);
   const editCell = projectCode
     ? await locateRmaProjectCell(productRow, projectCode)
     : currentSnCell;
@@ -11450,7 +11460,7 @@ async function correctRmaProductSn(page, input = {}, options = {}) {
   const snInput = editDialog.getByRole("textbox", { name: "产品序列号" }).first();
   await snInput.waitFor({ state: "visible", timeout: 15_000 });
   const dialogSn = normalizeText(await snInput.inputValue().catch(() => "")).toUpperCase();
-  if (dialogSn !== currentSn) {
+  if (dialogSn !== currentSn && !(currentSnIsBlank && isBlankRecloudValue(dialogSn))) {
     const error = new Error("瑞云产品编辑窗口中的 SN 与目标产品行不一致");
     error.code = "RECLOUD_PRODUCT_SN_DIALOG_MISMATCH";
     error.status = 409;
@@ -11683,6 +11693,7 @@ module.exports = {
   readProductLine,
   readRmaProductIdentity,
   serialCellMatchesExpected,
+  isBlankRecloudValue,
   selectCellByHeaderCoordinate,
   revealFeedbackPhone,
   queryRmaByLogisticsNo,

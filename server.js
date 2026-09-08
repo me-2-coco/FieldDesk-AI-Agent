@@ -1712,6 +1712,10 @@ function createApp(
         if (shouldAutoResumeServiceOrder(order, now)) return { order, stage: "service-order" };
         return null;
       }).filter(Boolean)
+        // Apply the write fence before truncating the recovery batch. Otherwise
+        // older blocked records outside a temporary allowlist can occupy every
+        // slot and prevent the explicitly allowed order from ever being retried.
+        .filter(({ order }) => isRecloudRmaWriteAllowed(order.rmaNo, order))
         .sort((left, right) => String(
           left.order.updatedAt || left.order.createdAt || ""
         ).localeCompare(String(right.order.updatedAt || right.order.createdAt || "")))
