@@ -75,6 +75,11 @@ test("real repair adapter records any unavailable part instead of stopping the w
   assert.doesNotMatch(source, /RECLOUD_REPAIR_PART_NOT_AVAILABLE/);
 });
 
+test("preparation recovery resumes a completion task that was left ready after dry run", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../server.js"), "utf8");
+  assert.match(source, /\["FAILED", "MANUAL_REVIEW", "READY_DRY_RUN"\]\.includes\(task\.status\)/);
+});
+
 test("assignment finishes before any page-switching remote-state read", async () => {
   const adapter = adapterFixture();
   await orchestrateRepairStart({

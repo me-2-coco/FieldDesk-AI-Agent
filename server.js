@@ -1501,7 +1501,7 @@ function createApp(
         if (recoveryOptions.retryCompletionAfterPreparation === true && typeof syncService?.outbox?.readAll === "function") {
           const repairCompletionTask = (await syncService.outbox.readAll())
             .filter((task) => task.rmaNo === rmaNo && task.nodeType === "REPAIR_COMPLETED")
-            .filter((task) => ["FAILED", "MANUAL_REVIEW"].includes(task.status))
+            .filter((task) => ["FAILED", "MANUAL_REVIEW", "READY_DRY_RUN"].includes(task.status))
             .sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")))[0];
           if (repairCompletionTask) await syncService.retry(repairCompletionTask.id);
         }
