@@ -69,7 +69,8 @@ test("Recloud detection and repair creation are separate explicit actions", asyn
   assert.match(connector, /repairButtonCount >= 1[\s\S]*serviceOrderCandidates\.length === 0/);
   assert.match(server, /function scheduleRecloudDetectionSync[\s\S]*connector\.confirmDetection/);
   assert.match(server, /function scheduleRecloudServiceOrderSync[\s\S]*connector\.startRepair/);
-  assert.match(server, /isExpectedRmaStillOpen\(page, rmaNo\)[\s\S]*queryRmaByLogisticsNo\(page, order\.logisticsNo/);
+  assert.match(server, /reusedDetectionDetail = await isExpectedRmaStillOpen\(page, rmaNo\)/);
+  assert.match(server, /RECLOUD_ACTION_NOT_FOUND[\s\S]*queryRmaByLogisticsNo\(page, order\.logisticsNo[\s\S]*connector\.startRepair/);
   assert.match(server, /recoveringPreparation[\s\S]*openExistingRepairServiceOrder/);
   assert.match(server, /recoveredExistingServiceOrder:\s*true/);
   assert.match(server, /app\.get\("\/api\/repairs\/my-sync-alerts"[\s\S]*intercepts pointer events[\s\S]*scheduleRecloudServiceOrderSync\(order, user\)/);

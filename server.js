@@ -1446,13 +1446,28 @@ function createApp(
             // detection instead of rescanning the logistics number and
             // rereading the whole order. If another job changed this lane's
             // page, fall back to the authoritative query before writing.
-            if (!(await isExpectedRmaStillOpen(page, rmaNo))) {
+            const reusedDetectionDetail = await isExpectedRmaStillOpen(page, rmaNo);
+            if (!reusedDetectionDetail) {
               const detail = await connector.queryRmaByLogisticsNo(page, order.logisticsNo, { preserveDetailPage: true });
               if (detail.rmaNo && detail.rmaNo !== rmaNo) {
                 throw createApiError("RECLOUD_REPAIR_ORDER_MISMATCH", "瑞云查询结果与当前寄修单不一致", 409);
               }
             }
-            result = await connector.startRepair(page, { dryRun: false, writeEnabled: true });
+            try {
+              result = await connector.startRepair(page, { dryRun: false, writeEnabled: true });
+            } catch (error) {
+              // Recloud may keep the just-confirmed detection page visible
+              // before refreshing its operation column. Reuse is only an
+              // optimization: if the untouched page still has no Repair
+              // action, rescan once and continue through the authoritative
+              // path instead of retrying the same stale DOM.
+              if (!reusedDetectionDetail || error.code !== "RECLOUD_ACTION_NOT_FOUND") throw error;
+              const detail = await connector.queryRmaByLogisticsNo(page, order.logisticsNo, { preserveDetailPage: true });
+              if (detail.rmaNo && detail.rmaNo !== rmaNo) {
+                throw createApiError("RECLOUD_REPAIR_ORDER_MISMATCH", "瑞云查询结果与当前寄修单不一致", 409);
+              }
+              result = await connector.startRepair(page, { dryRun: false, writeEnabled: true });
+            }
             if (!result?.serviceOrderCreated) {
               throw createApiError("RECLOUD_SERVICE_ORDER_NOT_CREATED", "瑞云未确认创建维修服务单", 502);
             }
