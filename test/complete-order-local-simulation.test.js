@@ -163,14 +163,15 @@ test("一条完全本地的模拟整单覆盖项目号、费用、附件、负�
     { writeEnabled: true, preparationCompleted: true }
   );
 
-  assert.equal(result.status, "SUCCESS");
-  assert.equal(result.stoppedImmediatelyAfterSubmit, true);
-  assert.equal(result.postSubmitActions, 0);
+  assert.equal(result.status, "AWAITING_INFORMATION_CLERK");
+  assert.equal(result.stoppedBeforeSubmit, true);
+  assert.equal(result.finalConfirmClicked, false);
+  assert.equal(result.informationClerkAction, "核对维修资料并提交");
   assert.equal(receiptAttachments.length, 7);
   assert.equal(serviceAttachments.length, 4);
   assert.deepEqual(adapter.calls, [
     "读取负责人", "负责人:唐张帅", "读取负责人", "read", "转保:false", "read",
-    "配件:DIRECT_CODE_INPUT:新件名称", "read", "read",
-    "维修字段", "复核维修字段", "read", "附件:附件", "read", "完工", "等待提交", "提交",
+    "配件:DIRECT_CODE_INPUT:新件名称", "read", "read", "read",
+    "附件:附件", "read", "维修字段", "复核维修字段", "完工",
   ]);
 });

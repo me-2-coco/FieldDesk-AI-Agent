@@ -30,6 +30,16 @@ function normalizeDiscountRate(enabled, value) {
   return Number(rate.toFixed(2));
 }
 
+function normalizeFinalChargeAmount(value, originalTotalFee) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount < 0 || amount > originalTotalFee) {
+    const error = new Error("最终应收金额必须大于或等于 0，且不能超过费用原价");
+    error.code = "FINAL_CHARGE_AMOUNT_INVALID";
+    throw error;
+  }
+  return Number(amount.toFixed(2));
+}
+
 function formatMoney(value) {
   return String(Number(Number(value || 0).toFixed(2)));
 }
@@ -42,6 +52,7 @@ function resolveRepairCharge({
   discountEnabled = false,
   discountScope = "ORDER_TOTAL",
   discountRate = 10,
+  finalChargeAmount = null,
 } = {}) {
   const mode = LOGISTICS_CHARGE_MODES[logisticsChargeMode];
   if (!mode) {
@@ -67,15 +78,20 @@ function resolveRepairCharge({
     ? originalTotalFee
     : originalServiceFee;
   const discountedBaseAmount = Number((discountBaseAmount * normalizedDiscountRate / 10).toFixed(2));
-  const discountAmount = discountEnabled
-    ? Number((discountBaseAmount - discountedBaseAmount).toFixed(2))
-    : 0;
   const discountedServiceFee = discountEnabled && normalizedDiscountScope === "SERVICE_ONLY"
     ? discountedBaseAmount
     : originalServiceFee;
-  const totalFee = discountEnabled && normalizedDiscountScope === "ORDER_TOTAL"
+  const automaticTotalFee = discountEnabled && normalizedDiscountScope === "ORDER_TOTAL"
     ? discountedBaseAmount
     : Number((discountedServiceFee + logisticsFee).toFixed(2));
+  const hasManualFinalCharge = finalChargeAmount !== null
+    && finalChargeAmount !== undefined
+    && String(finalChargeAmount).trim() !== "";
+  const manualTotalFee = hasManualFinalCharge
+    ? normalizeFinalChargeAmount(finalChargeAmount, originalTotalFee)
+    : null;
+  const totalFee = manualTotalFee ?? automaticTotalFee;
+  const discountAmount = Number((originalTotalFee - totalFee).toFixed(2));
   const primaryRemark = discountEnabled ? "申请折扣减免" : "无减免";
   const feeDetails = `配件费${formatMoney(normalizedPartsFee)}元，维修费${formatMoney(normalizedRepairFee)}元，运费${formatMoney(logisticsFee)}元，合计${formatMoney(originalTotalFee)}元`;
   const secondaryRemark = discountEnabled
@@ -97,6 +113,9 @@ function resolveRepairCharge({
     discountBaseAmount,
     discountedServiceFee,
     discountAmount,
+    automaticTotalFee,
+    manualTotalFee,
+    totalFeeSource: hasManualFinalCharge ? "MANUAL" : "AUTOMATIC",
     totalFee,
     primaryRemark,
     secondaryRemark,

@@ -79,6 +79,45 @@ test("维修费用打折后再加原价运费", () => {
   assert.equal(result.secondaryRemark, "配件费40元，维修费60元，运费20元，合计120元，3折后费用合计50元");
 });
 
+test("最终应收默认自动计算，也允许在费用原价内手动覆盖", () => {
+  const automatic = resolveRepairCharge({
+    partsFee: 448,
+    repairFee: 80,
+    oneWayLogisticsFee: 33,
+    logisticsChargeMode: "ROUND_TRIP",
+    discountEnabled: true,
+    discountRate: 2.6,
+  });
+  assert.equal(automatic.automaticTotalFee, 154.44);
+  assert.equal(automatic.totalFee, 154.44);
+  assert.equal(automatic.manualTotalFee, null);
+  assert.equal(automatic.totalFeeSource, "AUTOMATIC");
+
+  const manual = resolveRepairCharge({
+    partsFee: 448,
+    repairFee: 80,
+    oneWayLogisticsFee: 33,
+    logisticsChargeMode: "ROUND_TRIP",
+    discountEnabled: true,
+    discountRate: 2.6,
+    finalChargeAmount: 155.4,
+  });
+  assert.equal(manual.automaticTotalFee, 154.44);
+  assert.equal(manual.totalFee, 155.4);
+  assert.equal(manual.manualTotalFee, 155.4);
+  assert.equal(manual.totalFeeSource, "MANUAL");
+  assert.match(manual.secondaryRemark, /费用合计155\.4元/);
+});
+
+test("手动最终应收拒绝负数、非数字和超过费用原价", () => {
+  for (const finalChargeAmount of [-1, "abc", 137]) {
+    assert.throws(
+      () => resolveRepairCharge({ partsFee: 8, repairFee: 60, oneWayLogisticsFee: 34, finalChargeAmount }),
+      { code: "FINAL_CHARGE_AMOUNT_INVALID" }
+    );
+  }
+});
+
 test("启用打折后拒绝无效折数和未知方案", () => {
   assert.throws(
     () => resolveRepairCharge({ discountEnabled: true, discountRate: 10 }),

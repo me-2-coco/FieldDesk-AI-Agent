@@ -105,6 +105,7 @@ function RepairCompletion({ setPage }) {
   const [discountEnabled, setDiscountEnabled] = useState(false)
   const [discountScope, setDiscountScope] = useState("ORDER_TOTAL")
   const [discountRate, setDiscountRate] = useState("")
+  const [finalChargeAmount, setFinalChargeAmount] = useState(null)
   const [faultLevel1, setFaultLevel1] = useState("")
   const [faultLevel2, setFaultLevel2] = useState("")
   const [faultLevel3, setFaultLevel3] = useState("")
@@ -173,6 +174,9 @@ function RepairCompletion({ setPage }) {
         setDiscountRate((draft.discountEnabled === true || draft.pricing?.discountEnabled === true)
           ? String(draft.discountRate || draft.pricing?.discountRate || "")
           : "")
+        setFinalChargeAmount(draft.finalChargeAmount === null || draft.finalChargeAmount === undefined
+          ? null
+          : String(draft.finalChargeAmount))
       }
       if (!draft) {
         if (isAbandoned) setLogisticsChargeMode("ROUND_TRIP")
@@ -237,12 +241,35 @@ function RepairCompletion({ setPage }) {
   const hasInspectionMedia = technicianAttachments.some((item) => /^(image|video)\//.test(item.mimeType || ""))
   const hasRequiredAttachment = isInspectionOnly ? hasInspectionMedia : technicianAttachments.length > 0
   const conversionReady = warrantyConversion?.requested !== true || warrantyConversion?.status === "APPROVED"
-  const canSubmitCompletion = hasRequiredAttachment && conversionReady && (
+  const canSubmitCompletionBase = hasRequiredAttachment && conversionReady && (
     isAbandoned
       ? pricing?.canPrice && hasValidOutOfWarrantyFee
       : !isOutOfWarranty
         || (pricing?.canPrice && hasValidDiscount && (requiresLogisticsFee ? hasValidOutOfWarrantyFee : logisticsChargeMode === "WAIVED" || hasValidOptionalOutOfWarrantyFee))
   )
+  const displayedLogisticsFee = Number(oneWayLogisticsFee || 0) * logisticsMode.multiplier
+  const originalServiceFee = Number(pricing?.subtotal || 0)
+  const originalTotalFee = originalServiceFee + displayedLogisticsFee
+  const discountMultiplier = discountEnabled && hasValidDiscount ? discountRateNumber / 10 : 1
+  const calculatedTotalFee = isAbandoned
+    ? 0
+    : discountEnabled && hasValidDiscount
+    ? discountScope === "ORDER_TOTAL"
+      ? Number((originalTotalFee * discountMultiplier).toFixed(2))
+      : Number((originalServiceFee * discountMultiplier + displayedLogisticsFee).toFixed(2))
+    : Number(originalTotalFee.toFixed(2))
+  const hasManualFinalCharge = finalChargeAmount !== null
+  const manualFinalChargeNumber = Number(finalChargeAmount)
+  const hasValidFinalCharge = !hasManualFinalCharge || (
+    finalChargeAmount !== ""
+    && Number.isFinite(manualFinalChargeNumber)
+    && manualFinalChargeNumber >= 0
+    && manualFinalChargeNumber <= originalTotalFee
+  )
+  const displayedTotalFee = hasManualFinalCharge && hasValidFinalCharge
+    ? Number(manualFinalChargeNumber.toFixed(2))
+    : calculatedTotalFee
+  const canSubmitCompletion = canSubmitCompletionBase && (isAbandoned || hasValidFinalCharge)
   const submitButtonLabel = !conversionReady
     ? "等待信息员上传转保凭证"
     : !hasRequiredAttachment
@@ -259,18 +286,9 @@ function RepairCompletion({ setPage }) {
           ? "请输入大于0且小于10的折数"
         : isOutOfWarranty && !hasValidOptionalOutOfWarrantyFee
           ? "单程物流费格式不正确"
+        : !isAbandoned && !hasValidFinalCharge
+          ? "最终应收金额格式不正确"
         : "提交完工"
-  const displayedLogisticsFee = Number(oneWayLogisticsFee || 0) * logisticsMode.multiplier
-  const originalServiceFee = Number(pricing?.subtotal || 0)
-  const originalTotalFee = originalServiceFee + displayedLogisticsFee
-  const discountMultiplier = discountEnabled && hasValidDiscount ? discountRateNumber / 10 : 1
-  const displayedTotalFee = isAbandoned
-    ? 0
-    : discountEnabled && hasValidDiscount
-    ? discountScope === "ORDER_TOTAL"
-      ? Number((originalTotalFee * discountMultiplier).toFixed(2))
-      : Number((originalServiceFee * discountMultiplier + displayedLogisticsFee).toFixed(2))
-    : Number(originalTotalFee.toFixed(2))
   const displayedDiscountAmount = Number((originalTotalFee - displayedTotalFee).toFixed(2))
   const formatMoney = (value) => String(Number(Number(value || 0).toFixed(2)))
   const primaryRemark = isAbandoned
@@ -292,7 +310,8 @@ function RepairCompletion({ setPage }) {
     logisticsChargeMode,
     discountEnabled,
     discountScope,
-    discountRate: discountEnabled ? discountRate : ""
+    discountRate: discountEnabled ? discountRate : "",
+    finalChargeAmount: isAbandoned ? null : finalChargeAmount
   })
 
   async function save(submit) {
@@ -573,7 +592,12 @@ function RepairCompletion({ setPage }) {
                 <span>{logisticsMode.label}<strong>¥{displayedLogisticsFee.toFixed(2)}</strong></span>
                 <span>{isAbandoned ? "原维修报价合计" : "费用原价"}<strong>¥{originalTotalFee.toFixed(2)}</strong></span>
                 {!isAbandoned && discountEnabled && hasValidDiscount && <span>折扣优惠<strong>-¥{displayedDiscountAmount.toFixed(2)}</strong></span>}
-                <span>{isAbandoned ? "弃修实收" : "最终应收"}<strong>¥{displayedTotalFee.toFixed(2)}</strong></span>
+                {isAbandoned
+                  ? <span>弃修实收<strong>¥{displayedTotalFee.toFixed(2)}</strong></span>
+                  : <span className="final-charge-cell">
+                      <label htmlFor="final-charge-amount">最终应收</label>
+                      <span className="final-charge-control"><b>¥</b><input id="final-charge-amount" aria-label="最终应收金额" type="number" min="0" max={originalTotalFee} step="0.01" value={finalChargeAmount === null ? calculatedTotalFee.toFixed(2) : finalChargeAmount} onChange={(event) => setFinalChargeAmount(event.target.value)} disabled={completedDetail} /></span>
+                    </span>}
               </div>
               {pricing?.canPrice && <details className="pricing-remarks">
                 <summary>查看费用备注</summary>

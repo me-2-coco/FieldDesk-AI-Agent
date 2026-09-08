@@ -4429,9 +4429,10 @@ function createApp(
             discountEnabled,
             discountScope,
             discountRate,
+            finalChargeAmount: req.body?.finalChargeAmount,
           });
         } catch (error) {
-          if (["LOGISTICS_FEE_INVALID", "LOGISTICS_CHARGE_MODE_INVALID", "DISCOUNT_RATE_INVALID", "DISCOUNT_SCOPE_INVALID"].includes(error.code)) {
+          if (["LOGISTICS_FEE_INVALID", "LOGISTICS_CHARGE_MODE_INVALID", "DISCOUNT_RATE_INVALID", "DISCOUNT_SCOPE_INVALID", "FINAL_CHARGE_AMOUNT_INVALID"].includes(error.code)) {
             throw createApiError(error.code, error.message, 400);
           }
           throw error;
@@ -4550,6 +4551,7 @@ function createApp(
           discountEnabled: pricing.discountEnabled,
           discountScope: pricing.discountScope,
           discountRate: pricing.discountRate,
+          finalChargeAmount: charge?.manualTotalFee ?? null,
           primaryRemark: pricing.primaryRemark,
           secondaryRemark: pricing.secondaryRemark,
           pricing,

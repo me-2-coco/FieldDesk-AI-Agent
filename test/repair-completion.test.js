@@ -103,6 +103,9 @@ test("完工页按处理方式显示质保标签，并使用紧凑收费卡片",
   assert.ok(source.indexOf("打折方案") < source.indexOf('htmlFor="discount-rate"'));
   assert.match(source, /discountScope === "ORDER_TOTAL"/);
   assert.match(source, /最终应收/);
+  assert.match(source, /aria-label="最终应收金额"/);
+  assert.match(source, /finalChargeAmount: isAbandoned \? null : finalChargeAmount/);
+  assert.match(source, /finalChargeAmount === null \? calculatedTotalFee\.toFixed\(2\) : finalChargeAmount/);
   assert.match(source, /needsVideoCompression/);
   assert.match(source, /正在压缩视频/);
   assert.match(source, /MAX_VIDEO_UPLOAD_BYTES/);
