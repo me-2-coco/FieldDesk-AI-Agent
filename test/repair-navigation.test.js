@@ -10,7 +10,7 @@ test("saved resume step overrides status inference for unfinished orders", async
 test("legacy unfinished orders infer their furthest valid workflow page", async () => {
   const { resumePageForLocalWorkflow } = await import("../frontend/src/shared/repairNavigation.js");
   assert.equal(resumePageForLocalWorkflow({ receiptCompletedAt: "saved" }), "repairWarranty");
-  assert.equal(resumePageForLocalWorkflow({ receiptCompletedAt: "saved", treatmentMode: "REPAIR" }), "partsApplication");
+  assert.equal(resumePageForLocalWorkflow({ receiptCompletedAt: "saved", treatmentMode: "REPAIR" }), "repairProcess");
   assert.equal(resumePageForLocalWorkflow({
     receiptCompletedAt: "saved",
     treatmentMode: "REPAIR",

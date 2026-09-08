@@ -41,6 +41,7 @@ function editableControl(initialValue, role, onFill = async () => {}) {
   return {
     count: async () => 1,
     isVisible: async () => true,
+    isEnabled: async () => true,
     inputValue: async () => value,
     fill: async (nextValue) => {
       value = nextValue;

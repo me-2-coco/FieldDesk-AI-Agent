@@ -27,10 +27,10 @@ test("local workflow pages are routed and reachable from status-aware actions", 
 test("inspection parts and completion expose the current technician flow while shipping is read only", async () => {
   const inspection = await source("frontend/src/pages/RepairProcess.jsx");
   assert.match(inspection, /startRepair\(repairOrder\.crmOrderNo, serviceOrderAttemptedAt\)/);
-  assert.match(inspection, /“检测”完成瑞云寄修单检测/);
-  assert.match(inspection, /进入处理结果前会创建瑞云维修服务单并改派，仅维修方式添加配件/);
+  assert.match(inspection, /“检测”会依次完成瑞云检测、创建维修服务单和改派/);
+  assert.match(inspection, /维修单准备成功后自动解锁瑞云配件/);
   const parts = await source("frontend/src/pages/PartsApplication.jsx");
-  assert.match(parts, /REPAIR_STATUS\.WAIT_PARTS/); assert.match(parts, /下一步故障分类/);
+  assert.match(parts, /REPAIR_STATUS\.WAIT_PARTS/); assert.match(parts, /确认配件状态，进入维修完工/);
   const repairWork = await source("frontend/src/pages/RepairWork.jsx");
   assert.doesNotMatch(repairWork, /实际维修记录/); assert.match(repairWork, /setPage\("repairProcess"\)/);
   const completion = await source("frontend/src/pages/RepairCompletion.jsx");

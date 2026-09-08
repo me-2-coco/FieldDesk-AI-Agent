@@ -71,7 +71,8 @@ test("repair preparation records explicit Recloud inventory shortage and continu
 
 test("real repair adapter records any unavailable part instead of stopping the workflow", () => {
   const source = fs.readFileSync(path.join(__dirname, "../connectors/recloud-repair-page-adapter.js"), "utf8");
-  assert.match(source, /按网点库存不足规则跳过/);
+  assert.match(source, /瑞云配件窗口明确显示无可用结果/);
+  assert.match(source, /RECLOUD_REPAIR_PART_LOOKUP_UNAVAILABLE/);
   assert.doesNotMatch(source, /RECLOUD_REPAIR_PART_NOT_AVAILABLE/);
   assert.match(source, /瑞云点击完工后状态未变化/);
   assert.match(source, /page\.reload\(\{ waitUntil: "domcontentloaded"/);
@@ -111,8 +112,8 @@ test("repair assignment adapter never targets the dispatch action", () => {
   assert.doesNotMatch(source, /if \(options\.requested !== true\) return/);
   assert.match(source, /const choice = options\.requested === true \? "是" : "否"/);
   assert.match(source, /filter\(\{ has: serialNumberCell \}\)/);
-  assert.match(source, /for \(let attempt = 0; attempt < 3/);
-  assert.match(source, /按网点库存不足规则跳过/);
+  assert.match(source, /for \(let attempt = 0; attempt < 2/);
+  assert.match(source, /瑞云配件窗口明确显示无可用结果/);
 });
 
 test("warranty conversion is explicitly confirmed even when the product row already shows in warranty", () => {

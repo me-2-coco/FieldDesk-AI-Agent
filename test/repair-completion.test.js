@@ -158,8 +158,8 @@ test("reselecting repair preserves a saved inspection and can return to completi
   assert.equal(reselected.faultCategory, "产品质量|无法启动|电源模块不良");
 
   const confirmed = await receiptStore.confirmParts("TEST-RMA", USER);
-  assert.equal(confirmed.order.status, "INSPECTION_COMPLETED_PENDING_REPAIR");
-  assert.equal(confirmed.nextStep, "repairProcess");
+  assert.equal(confirmed.order.status, "REPAIR_COMPLETION_DRAFT");
+  assert.equal(confirmed.nextStep, "repairCompletion");
 });
 
 test("unfinished order persists the exact page to resume", async (t) => {
@@ -406,7 +406,7 @@ test("frontend completion page reuses confirmed fault and includes warranty, med
   assert.match(source, /再检查一下/);
   assert.match(source, /确认完工/);
   assert.match(source, /canSubmitCompletion/);
-  assert.doesNotMatch(source, /getRepairPreparationStatus/);
+  assert.match(source, /getRepairPreparationStatus/);
   assert.doesNotMatch(source, /recloudRepairPreparationCanComplete/);
   assert.doesNotMatch(source, /const canSubmitCompletion = preparationReady/);
   assert.doesNotMatch(source, /瑞云配件同步恢复中/);
@@ -418,7 +418,7 @@ test("frontend completion page reuses confirmed fault and includes warranty, med
   assert.match(source, /正在读取维修资料/);
   assert.match(source, /维修资料读取失败/);
   assert.match(partsSource, /完整费用在维修完工页核对/);
-  assert.match(partsSource, /const backPage = "repairDecision"/);
+  assert.match(partsSource, /const backPage = recordOnly \? "repairDecision" : "repairProcess"/);
   assert.match(source, /requiresOutOfWarrantyFee/);
   assert.match(source, /disabled=\{busy \|\| !canSubmitCompletion\}/);
   assert.doesNotMatch(source, /fetch\s*\(/i);
@@ -447,7 +447,7 @@ test("frontend exposes six treatment choices including headquarters transfer and
   for (const mode of ["REPAIR", "ABANDONED", "INSPECTION_ONLY", "DEBUGGING", "TRANSFER_TO_HEADQUARTERS", "ON_HOLD"]) {
     assert.match(decisionSource, new RegExp(mode));
   }
-  assert.match(decisionSource, /申请配件/);
+  assert.match(decisionSource, /解锁配件/);
   assert.match(decisionSource, /transferToHeadquarters/);
   assert.match(decisionSource, /6 选 1/);
   assert.match(decisionSource, /RECLOUD_HOLD_REASON_GROUPS/);
@@ -457,7 +457,7 @@ test("frontend exposes six treatment choices including headquarters transfer and
   assert.match(decisionSource, /NO_FAULT/);
   assert.match(decisionSource, /选择故障复现或无故障；检测报告由信息员制作并上传/);
   assert.doesNotMatch(decisionSource, /三级鉴定内容|inspectionAppearanceResult|inspectionFunctionResult/);
-  assert.match(serverSource, /inspectionFaultOutcome === "FAULT_REPRODUCED"[\s\S]*\? "partsApplication"/);
+  assert.match(serverSource, /REPAIR: \{ label: "维修", detectionResult: "维修", nextStep: "repairProcess" \}/);
   assert.doesNotMatch(completionSource, /检测报告后台已准备|FieldDesk 在后台生成/);
   assert.match(partsSource, /diagnosticOnly/);
   assert.match(partsSource, /故障配件只用于说明检测结果，不占库存、不写入瑞云更换件/);

@@ -326,8 +326,8 @@ export async function updateRepairPart(payload) {
   return request("/api/repairs/parts/update", payload)
 }
 
-export async function confirmRepairParts(rmaNo) {
-  return request("/api/repairs/parts/confirm", { rmaNo })
+export async function confirmRepairParts(rmaNo, options = {}) {
+  return request("/api/repairs/parts/confirm", { rmaNo, ...options })
 }
 
 export async function getLocalInventory() {

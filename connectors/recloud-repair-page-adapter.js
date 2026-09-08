@@ -218,6 +218,60 @@ async function selectFirstRequiredOption(page, input) {
   await page.waitForTimeout?.(250);
 }
 
+const RECLOUD_PART_OPTION_SELECTOR = [
+  ".rtxpc-autocomplete-suggestion li:visible",
+  ".el-autocomplete-suggestion li:visible",
+  ".rtxpc-select-dropdown__item:visible",
+  ".el-select-dropdown__item:visible",
+  "[role='option']:visible",
+].join(", ");
+
+function parseRecloudPartOptionText(value) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return null;
+  const codeToken = (text.match(/[A-Z0-9][A-Z0-9._/-]{5,}/gi) || [])
+    .find((token) => /\d/.test(token));
+  if (!codeToken) return null;
+  const code = codeToken.replace(/[，,;；]$/, "").toUpperCase();
+  const name = text.replace(codeToken, "").replace(/^[\s|｜:：-]+|[\s|｜:：-]+$/g, "").trim();
+  return { code, name: name || code, source: "RECLOUD_SERVICE_ORDER" };
+}
+
+async function waitForPartLookup(page, partCodeInput, requestedPartCode = "", options = {}) {
+  const timeoutMs = Number(options.timeoutMs || 2200);
+  const deadline = Date.now() + timeoutMs;
+  const expected = String(requestedPartCode || "").trim().toUpperCase();
+  const optionsLocator = page.locator(RECLOUD_PART_OPTION_SELECTOR);
+  // Only trust an empty-state rendered inside the currently open lookup
+  // popover. Other service-report sections may independently show “暂无数据”
+  // and must never be mistaken for a parts shortage.
+  const lookupPopovers = page.locator([
+    ".rtxpc-autocomplete-suggestion:visible",
+    ".el-autocomplete-suggestion:visible",
+    ".rtxpc-select-dropdown:visible",
+    ".el-select-dropdown:visible",
+    "[role='listbox']:visible",
+  ].join(", "));
+  const explicitEmpty = lookupPopovers
+    .getByText(/^(暂无数据|无数据|没有匹配数据|暂无匹配结果)$/)
+    .filter({ visible: true });
+  while (Date.now() < deadline) {
+    const selectedCode = String(await partCodeInput?.inputValue?.().catch(() => "") || "").trim().toUpperCase();
+    if (selectedCode && (!expected || selectedCode === expected)) {
+      return { selectedCode, optionCount: await optionsLocator.count().catch(() => 0), explicitEmpty: false };
+    }
+    const optionCount = await optionsLocator.count().catch(() => 0);
+    if (optionCount > 0) return { selectedCode, optionCount, explicitEmpty: false };
+    if (await explicitEmpty.count().catch(() => 0)) return { selectedCode, optionCount: 0, explicitEmpty: true };
+    await page.waitForTimeout?.(80);
+  }
+  return {
+    selectedCode: String(await partCodeInput?.inputValue?.().catch(() => "") || "").trim().toUpperCase(),
+    optionCount: await optionsLocator.count().catch(() => 0),
+    explicitEmpty: Boolean(await explicitEmpty.count().catch(() => 0)),
+  };
+}
+
 async function locateFormItemByText(scope, labelText) {
   const labels = scope
     .locator("label:visible, .rt-form-item__label:visible, .el-form-item__label:visible")
@@ -341,7 +395,9 @@ function createRecloudRepairPageAdapter(page, context = {}) {
       // Some model-specific notices are mounted a few seconds after the
       // service-order page appears. Wait for that delayed first notice once;
       // subsequent reads only dismiss notices that are already visible.
-      settleMs: initialBlockingMessageSweepCompleted ? 0 : 3500,
+      settleMs: context.fastPartsInteraction === true
+        ? 0
+        : initialBlockingMessageSweepCompleted ? 0 : 3500,
     });
     initialBlockingMessageSweepCompleted = true;
   };
@@ -401,6 +457,15 @@ function createRecloudRepairPageAdapter(page, context = {}) {
       const target = String(options.target || "附件").trim();
       const attachments = await readExistingRepairAttachments(page, target).catch(() => []);
       return enrichExpectedAttachmentMetadata(attachments, context.payload?.attachments);
+    },
+
+    async readParts() {
+      await dismissRepairNotices();
+      await openServiceReport(page);
+      return readExistingRepairParts(page).catch((error) => {
+        if (error.code === "RECLOUD_REPAIR_PARTS_TABLE_NOT_FOUND") return [];
+        throw error;
+      });
     },
 
     async assignResponsible(plan) {
@@ -541,6 +606,52 @@ function createRecloudRepairPageAdapter(page, context = {}) {
       return { confirmed: true, choice, requested: options.requested === true };
     },
 
+    async searchParts(keyword, options = {}) {
+      await dismissRepairNotices();
+      await openServiceReport(page);
+      const query = String(keyword || "").trim();
+      if (query.length < 2) {
+        throw adapterError("至少输入 2 个字符后再查询瑞云配件", "RECLOUD_REPAIR_PART_QUERY_TOO_SHORT", "PARTS");
+      }
+      const dialog = await openRepairPartAddDialog(page, { timeoutMs: 5000 });
+      try {
+        const productInput = await locateDialogInput(dialog, "服务单产品明细");
+        const partInput = await locateDialogInput(dialog, "新件名称");
+        const partCodeInput = await locateDialogInput(dialog, "新件编码");
+        if (!productInput || !partInput || !partCodeInput) {
+          throw adapterError("配件窗口查询控件发生变化", "RECLOUD_REPAIR_PART_FORM_CHANGED", "PARTS");
+        }
+        await selectFirstRequiredOption(page, productInput);
+        await partInput.fill(query);
+        const lookup = await waitForPartLookup(page, partCodeInput, "", {
+          timeoutMs: Number(options.timeoutMs || 2400),
+        });
+        const optionTexts = lookup.optionCount > 0
+          ? await page.locator(RECLOUD_PART_OPTION_SELECTOR).allInnerTexts().catch(() => [])
+          : [];
+        const items = [];
+        const seen = new Set();
+        for (const optionText of optionTexts) {
+          const item = parseRecloudPartOptionText(optionText);
+          if (!item || seen.has(item.code)) continue;
+          seen.add(item.code);
+          items.push(item);
+          if (items.length >= Math.max(1, Math.min(50, Number(options.limit || 30)))) break;
+        }
+        return {
+          items,
+          explicitEmpty: lookup.explicitEmpty === true,
+          source: "RECLOUD_SERVICE_ORDER",
+        };
+      } finally {
+        if (await dialog.isVisible().catch(() => false)) {
+          const close = dialog.locator(".el-dialog__headerbtn:visible, button[aria-label='Close']:visible, button[aria-label*='关闭']:visible");
+          if (await close.count() === 1) await close.first().click({ timeout: 1500 }).catch(() => {});
+          if (await dialog.isVisible().catch(() => false)) await page.keyboard.press("Escape").catch(() => {});
+        }
+      }
+    },
+
     async addParts(additions) {
       await openServiceReport(page);
       const missingParts = [];
@@ -556,23 +667,36 @@ function createRecloudRepairPageAdapter(page, context = {}) {
         await selectFirstRequiredOption(page, productInput);
         const requestedPartCode = String(part.partCode || "").trim().toUpperCase();
         let selectedPartCode = "";
-        // 通用物流箱有库存时一定会出现在新件搜索中。为排除网络刷新延迟，
-        // 连续查询三次，并以只读“新件编码”的回填值作为选中成功依据。
-        for (let attempt = 0; attempt < 3 && selectedPartCode !== requestedPartCode; attempt += 1) {
+        let explicitEmpty = false;
+        // 优先等待瑞云的下拉结果或只读编码回填，不再使用固定长等待。
+        // 只有瑞云明确显示无数据才按缺件处理；超时/网络异常必须抛出，
+        // 由后台安全重试，不能把系统故障伪装成库存不足。
+        for (let attempt = 0; attempt < 2 && selectedPartCode !== requestedPartCode; attempt += 1) {
           await partInput.fill("");
           await partInput.fill(part.partCode);
-          await page.waitForTimeout?.(700 + attempt * 300);
+          const lookup = await waitForPartLookup(page, partCodeInput, requestedPartCode, {
+            timeoutMs: attempt === 0 ? 1800 : 2600,
+          });
+          explicitEmpty ||= lookup.explicitEmpty === true;
+          if (!lookup.optionCount && !lookup.selectedCode) continue;
           await partInput.press("ArrowDown");
           await partInput.press("Enter");
-          await page.waitForTimeout?.(400);
-          selectedPartCode = String(await partCodeInput.inputValue().catch(() => "")).trim().toUpperCase();
+          const selected = await waitForPartLookup(page, partCodeInput, requestedPartCode, { timeoutMs: 900 });
+          selectedPartCode = selected.selectedCode;
         }
         if (selectedPartCode !== requestedPartCode) {
+          if (!explicitEmpty) {
+            throw adapterError(
+              `瑞云配件 ${requestedPartCode} 查询未返回明确结果，等待后台重试`,
+              "RECLOUD_REPAIR_PART_LOOKUP_UNAVAILABLE",
+              "PARTS"
+            );
+          }
           missingParts.push({
             partCode: String(part.partCode || "").trim(),
             partName: String(part.partName || "").trim(),
             quantity: Number(part.quantity || 0),
-            reason: "瑞云添加配件连续搜索无结果，按网点库存不足规则跳过",
+            reason: "瑞云配件窗口明确显示无可用结果",
           });
           // Reload closes every known variant of the add-part dialog. The
           // orchestrator persists this as PARTS_SHORTAGE, continues through
@@ -980,5 +1104,7 @@ module.exports = {
   ensurePicklistValue,
   waitForDialog,
   isRecloudRepairFullySubmitted,
+  parseRecloudPartOptionText,
   readApprovalFlow,
+  waitForPartLookup,
 };

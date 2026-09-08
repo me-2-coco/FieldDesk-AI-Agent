@@ -168,6 +168,7 @@ function RepairProcess({ setPage }) {
       setRecloudWriteEnabled(result.recloudWriteEnabled === true)
       setDetectionSyncStatus(result.recloudDetectionSyncStatus || "NOT_STARTED")
       setMessage(result.message || "检测信息已保存到 FieldDesk")
+      if (result.nextStep === "partsApplication") setPage("partsApplication")
     } catch (error) {
       if (error.code === "RECLOUD_DETECTION_RETRY_QUEUED") {
         setDetectionSyncStatus("SYNCING")
@@ -214,7 +215,7 @@ function RepairProcess({ setPage }) {
   }
 
   function returnToPreviousStep() {
-    navigateToSavedStep(["REPAIR", "ABANDONED"].includes(repairOrder.treatmentMode) || repairOrder.treatmentMode === "INSPECTION_ONLY" && repairOrder.inspectionFaultOutcome === "FAULT_REPRODUCED" ? "partsApplication" : "repairDecision")
+    navigateToSavedStep(repairOrder.treatmentMode === "ABANDONED" || repairOrder.treatmentMode === "INSPECTION_ONLY" && repairOrder.inspectionFaultOutcome === "FAULT_REPRODUCED" ? "partsApplication" : "repairDecision")
   }
 
   return (
@@ -299,7 +300,7 @@ function RepairProcess({ setPage }) {
         {recloudPrefillPlan && (
           <div className="recloud-review-card" aria-label="瑞云检测预填复核清单">
             <h3>瑞云预填复核清单</h3>
-            <p>以下内容已由 FieldDesk 生成，提交瑞云前必须由师傅逐项核对。</p>
+            <p>以下内容已由 FieldDesk 生成并在后台同步瑞云，师傅可在此复核。</p>
             <dl>
               {recloudPrefillPlan.safeWrites
                 .filter((item) => !/耗材名称|是否拆封/.test(item.target || ""))
@@ -310,14 +311,14 @@ function RepairProcess({ setPage }) {
                 </div>
               ))}
             </dl>
-            <p className="dry-run-notice">责任判定保持空白；系统不会自动点击瑞云“确认”。</p>
+            <p className="dry-run-notice">责任判定保持空白；瑞云确认、建服务单和改派均按状态独立执行并可安全重试。</p>
           </div>
         )}
 
         <div className="inspection-actions">
           {inspectionIsSaved && repairOrder.treatmentMode === "REPAIR" ? (
             <button className="secondary-btn" onClick={() => navigateToSavedStep("partsApplication")} disabled={isSaving}>
-              返回添加配件
+              进入瑞云配件
             </button>
           ) : !inspectionIsSaved ? (
             <button
@@ -328,7 +329,7 @@ function RepairProcess({ setPage }) {
               {isSaving ? "正在检测..." : "检测"}
             </button>
           ) : null}
-          {inspectionIsSaved && RECLOUD_SERVICE_ORDER_MODES.has(repairOrder.treatmentMode) && (
+          {inspectionIsSaved && repairOrder.treatmentMode !== "REPAIR" && RECLOUD_SERVICE_ORDER_MODES.has(repairOrder.treatmentMode) && (
             <button
               className="primary-btn"
               onClick={enterRepair}
@@ -351,7 +352,7 @@ function RepairProcess({ setPage }) {
         </div>
 
         <p className="dry-run-notice">
-          “检测”完成瑞云寄修单检测；进入处理结果前会创建瑞云维修服务单并改派，仅维修方式添加配件
+          “检测”会依次完成瑞云检测、创建维修服务单和改派；维修单准备成功后自动解锁瑞云配件
         </p>
       </div>
 
