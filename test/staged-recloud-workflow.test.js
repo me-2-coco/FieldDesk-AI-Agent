@@ -7,7 +7,7 @@ const { JsonReceiptPreparationStore } = require("../database/receipt-preparation
 
 const TECH = { userId: "STAGED-TECH", displayName: "分步测试师傅", role: "TECHNICIAN" };
 
-test("FieldDesk persists detection before Recloud-backed parts and repair completion", async (t) => {
+test("FieldDesk persists the required warranty, decision, parts, detection and repair order", async (t) => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "fielddesk-staged-"));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   const store = new JsonReceiptPreparationStore(path.join(directory, "orders.json"));
@@ -20,23 +20,25 @@ test("FieldDesk persists detection before Recloud-backed parts and repair comple
   const warranted = await store.saveWarrantyDecision("STAGED-R", { technicianWarranty: "保内" }, TECH);
   assert.equal(warranted.resumeStep, "repairDecision");
   const decided = await store.saveTreatmentDecision("STAGED-R", { treatmentMode: "REPAIR" }, TECH);
-  assert.equal(decided.resumeStep, "repairProcess");
+  assert.equal(decided.resumeStep, "partsApplication");
+  await store.applyPart("STAGED-R", { code: "P-1", name: "测试配件", stock: 2, retailPrice: 10 }, 1, TECH);
+  const partsConfirmed = await store.confirmParts("STAGED-R", TECH);
+  assert.equal(partsConfirmed.nextStep, "repairProcess");
   const inspected = await store.saveInspection("STAGED-R", { inspectionResult: "维修", faultCategory: "产品质量|功能异常|部件不良", technicianWarranty: "保内" }, TECH);
   assert.equal(inspected.resumeStep, "repairProcess");
   const started = await store.startRepair("STAGED-R", {
-    partsPending: true,
     recloudSynced: false,
     repairPreparation: {
       fieldDeskUserId: TECH.userId,
       assignee: "瑞云测试师傅",
       assignmentSource: "DIRECT",
       warrantyConversionRequested: false,
-      usedParts: [],
+      usedParts: [{ partCode: "P-1", quantity: 1 }],
     },
   }, TECH);
-  assert.equal(started.resumeStep, "partsApplication");
+  assert.equal(started.resumeStep, "repairCompletion");
   assert.equal(started.recloudRepairPreparation.assignee, "瑞云测试师傅");
-  assert.equal(started.recloudRepairPreparation.status, "WAITING_PART_VERIFICATION");
+  assert.equal(started.recloudRepairPreparation.status, "PENDING");
 
   const serviceOrderConfirmed = await store.markRecloudServiceOrderConfirmed(
     "STAGED-R",
@@ -53,13 +55,6 @@ test("FieldDesk persists detection before Recloud-backed parts and repair comple
   assert.equal(reconciled.recloudRepairPreparation.status, "CONFIRMED");
   assert.equal(reconciled.recloudRepairPreparation.assignee, "实际改派师傅");
   assert.equal(reconciled.recloudRepairPreparation.assignmentSource, "MANUAL_RECONCILIATION");
-
-  await store.applyPart("STAGED-R", {
-    code: "P-1", name: "瑞云测试配件", stock: 1, retailPrice: null, recloudConfirmed: true,
-  }, 1, TECH);
-  const partsConfirmed = await store.confirmParts("STAGED-R", TECH);
-  assert.equal(partsConfirmed.nextStep, "repairCompletion");
-  assert.equal(partsConfirmed.order.resumeStep, "repairCompletion");
 });
 
 test("Recloud detection and repair creation are separate explicit actions", async () => {
@@ -86,11 +81,11 @@ test("Recloud detection and repair creation are separate explicit actions", asyn
   assert.match(server, /recloud-preparation\/retry[\s\S]*forcePreparationRecovery:\s*true/);
   assert.match(server, /recloudRepairAdapterProvider[\s\S]*openExistingRepairServiceOrder/);
   assert.match(server, /app\.post\("\/api\/repairs\/inspection"[\s\S]*scheduleRecloudDetectionSync/);
-  assert.match(server, /WAITING_PART_VERIFICATION[\s\S]*scheduleRecloudServiceOrderSync\(confirmedOrder/);
+  assert.match(server, /confirmedOrder\?\.recloudRepairPreparation\?\.status === "PENDING"[\s\S]*scheduleRecloudServiceOrderSync\(confirmedOrder/);
   assert.match(server, /waitingForDetection[\s\S]*瑞云检测完成后将自动创建维修服务单/);
   assert.match(server, /app\.post\("\/api\/repairs\/start-repair"[\s\S]*scheduleRecloudServiceOrderSync/);
-  assert.match(server, /preparationAttempted \|\| !resultUnknown[\s\S]*setTimeout[\s\S]*scheduleRecloudServiceOrderSync/);
-  assert.match(server, /WAITING_PART_VERIFICATION", "PENDING"[\s\S]*scheduleRecloudServiceOrderSync/);
+  assert.match(server, /serviceOrderCreated \|\| !resultUnknown[\s\S]*setTimeout[\s\S]*scheduleRecloudServiceOrderSync/);
+  assert.match(server, /recloudServiceOrderSyncStatus === "FAILED"[\s\S]*recloudRepairPreparation\?\.status === "PENDING"[\s\S]*scheduleRecloudServiceOrderSync/);
   assert.match(server, /api\/admin\/recloud\/service-order\/reconcile-not-created[\s\S]*confirmedNotCreated[\s\S]*scheduleRecloudServiceOrderSync/);
   assert.match(storeSource, /reconcileRecloudServiceOrderNotCreated[\s\S]*RECLOUD_SERVICE_ORDER_NOT_CREATED_CONFIRMED/);
   assert.doesNotMatch(server, /代客户收件/);

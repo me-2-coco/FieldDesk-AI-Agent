@@ -146,9 +146,9 @@ test("reselecting repair preserves a saved inspection and can return to completi
     faultCategory: "产品质量|无法启动|电源模块不良",
     technicianWarranty: "保外",
   }, USER);
-  const queuedPart = await receiptStore.applyPart("TEST-RMA", {
+  await receiptStore.applyPart("TEST-RMA", {
     code: "00100123", name: "主刷电机", stock: 3,
-    retailPrice: 29, repairLevel: "中修", verificationStatus: "PENDING",
+    retailPrice: 29, repairLevel: "中修",
   }, 1, USER);
 
   const reselected = await receiptStore.saveTreatmentDecision("TEST-RMA", {
@@ -157,20 +157,9 @@ test("reselecting repair preserves a saved inspection and can return to completi
   assert.equal(reselected.status, "INSPECTION_COMPLETED_PENDING_REPAIR");
   assert.equal(reselected.faultCategory, "产品质量|无法启动|电源模块不良");
 
-  await receiptStore.startRepair("TEST-RMA", {
-    partsPending: true,
-    repairPreparation: { assignee: USER.displayName, assignmentSource: "DIRECT", usedParts: [] },
-  }, USER);
-  await receiptStore.markRecloudServiceOrderConfirmed("TEST-RMA", USER, { serviceOrderNo: "SO-TEST-RMA" });
-  await receiptStore.markRecloudPartVerification("TEST-RMA", queuedPart.application.id, {
-    status: "AVAILABLE",
-    partCode: "00100123",
-    partName: "主刷电机",
-  }, USER);
-
   const confirmed = await receiptStore.confirmParts("TEST-RMA", USER);
-  assert.equal(confirmed.order.status, "REPAIR_COMPLETION_DRAFT");
-  assert.equal(confirmed.nextStep, "repairCompletion");
+  assert.equal(confirmed.order.status, "INSPECTION_COMPLETED_PENDING_REPAIR");
+  assert.equal(confirmed.nextStep, "repairProcess");
 });
 
 test("unfinished order persists the exact page to resume", async (t) => {
@@ -429,7 +418,7 @@ test("frontend completion page reuses confirmed fault and includes warranty, med
   assert.match(source, /正在读取维修资料/);
   assert.match(source, /维修资料读取失败/);
   assert.match(partsSource, /完整费用在维修完工页核对/);
-  assert.match(partsSource, /const backPage = recordOnly \? "repairDecision" : "repairProcess"/);
+  assert.match(partsSource, /const backPage = "repairDecision"/);
   assert.match(source, /requiresOutOfWarrantyFee/);
   assert.match(source, /disabled=\{busy \|\| !canSubmitCompletion\}/);
   assert.doesNotMatch(source, /fetch\s*\(/i);
@@ -458,7 +447,7 @@ test("frontend exposes six treatment choices including headquarters transfer and
   for (const mode of ["REPAIR", "ABANDONED", "INSPECTION_ONLY", "DEBUGGING", "TRANSFER_TO_HEADQUARTERS", "ON_HOLD"]) {
     assert.match(decisionSource, new RegExp(mode));
   }
-  assert.match(decisionSource, /瑞云建单后自动优先核实/);
+  assert.match(decisionSource, /申请配件/);
   assert.match(decisionSource, /transferToHeadquarters/);
   assert.match(decisionSource, /6 选 1/);
   assert.match(decisionSource, /RECLOUD_HOLD_REASON_GROUPS/);
@@ -468,7 +457,7 @@ test("frontend exposes six treatment choices including headquarters transfer and
   assert.match(decisionSource, /NO_FAULT/);
   assert.match(decisionSource, /选择故障复现或无故障；检测报告由信息员制作并上传/);
   assert.doesNotMatch(decisionSource, /三级鉴定内容|inspectionAppearanceResult|inspectionFunctionResult/);
-  assert.match(serverSource, /REPAIR: \{ label: "维修", detectionResult: "维修", nextStep: "repairProcess" \}/);
+  assert.match(serverSource, /inspectionFaultOutcome === "FAULT_REPRODUCED"[\s\S]*\? "partsApplication"/);
   assert.doesNotMatch(completionSource, /检测报告后台已准备|FieldDesk 在后台生成/);
   assert.match(partsSource, /diagnosticOnly/);
   assert.match(partsSource, /故障配件只用于说明检测结果，不占库存、不写入瑞云更换件/);

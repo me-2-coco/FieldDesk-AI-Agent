@@ -332,11 +332,7 @@ function buildNodePayload(order, nodeType) {
       assignmentSource: order.recloudRepairPreparation?.assignmentSource || "",
       repairPreparationCompletedAt: order.recloudRepairPreparation?.completedAt || "",
       repairPreparationStatus: order.recloudRepairPreparation?.status || "",
-      missingParts: compactParts(
-        order.partsShortage?.status === "PENDING_INFORMATION"
-          ? order.partsShortage?.parts || []
-          : []
-      ),
+      missingParts: compactParts(order.partsShortage?.parts || order.recloudRepairPreparation?.missingParts || []),
       treatmentMode: order.treatmentMode,
       faultLevel1: completion.faultLevel1,
       faultLevel2: completion.faultLevel2,

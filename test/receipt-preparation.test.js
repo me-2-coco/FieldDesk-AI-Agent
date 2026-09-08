@@ -77,7 +77,6 @@ async function startServer(t, connector, store, user = USERS.dual, options = {})
       feishuModelCatalog: options.feishuModelCatalog || { authorize: async () => ({ repairability: "SUPPORTED", status: "MATCHED", canContinue: true }) },
       ...(options.env ? { env: options.env } : {}),
       ...(options.receiptAttachmentStore ? { receiptAttachmentStore: options.receiptAttachmentStore } : {}),
-      ...(options.createAppOptions || {}),
     }).listen(
       0,
       "127.0.0.1",
@@ -87,16 +86,6 @@ async function startServer(t, connector, store, user = USERS.dual, options = {})
   });
   t.after(() => server.close());
   return `http://127.0.0.1:${server.address().port}`;
-}
-
-function readyRepairAdapterFixture() {
-  let assignee = "";
-  return {
-    async readAssignee() { return assignee; },
-    async assignResponsible(plan) { assignee = plan.servicePerson; },
-    async readRemoteState() { return { assignee, parts: [] }; },
-    async confirmWarrantyConversion() {},
-  };
 }
 
 async function post(url, pathName, body) {
@@ -570,7 +559,7 @@ test("part application is bound to the current order SN", async (t) => {
 
   const result = await store.applyPart(
     "JXTH900001001",
-    { code: "00100123", name: "售后主刷电机", stock: 10, retailPrice: 29, repairLevel: "中修", returnRequired: true, isReplacementPart: true, sourceCode: "00999999" },
+    { code: "00100123", name: "售后主刷电机", stock: 10, retailPrice: 29, repairLevel: "中修", returnRequired: true, isReplacementPart: true, sourceCode: "00999999", catalogMatchScope: "ALL_CATALOG", catalogMatchLabel: "全表匹配·需瑞云确认" },
     2,
     USERS.sweep
   );
@@ -582,6 +571,8 @@ test("part application is bound to the current order SN", async (t) => {
   assert.equal(result.application.returnRequired, true);
   assert.equal(result.application.isReplacementPart, true);
   assert.equal(result.application.sourcePartCode, "00999999");
+  assert.equal(result.application.catalogMatchScope, "ALL_CATALOG");
+  assert.equal(result.application.catalogMatchLabel, "全表匹配·需瑞云确认");
   assert.equal(result.order.partApplications.length, 1);
 
   await assert.rejects(
@@ -804,6 +795,8 @@ test("live detection saves locally and responds before Recloud finishes in the b
   await store.completeReceipt("JXTH900001001", USERS.sweep);
   await store.saveWarrantyDecision("JXTH900001001", { technicianWarranty: "保内" }, USERS.sweep);
   await store.saveTreatmentDecision("JXTH900001001", { treatmentMode: "REPAIR", technicianWarranty: "保内" }, USERS.sweep);
+  await store.applyPart("JXTH900001001", { code: "13703", name: "售后电池包组件", stock: 10 }, 1, USERS.sweep);
+  await store.confirmParts("JXTH900001001", USERS.sweep);
 
   let confirmCount = 0;
   let releaseConfirmation;
@@ -816,7 +809,6 @@ test("live detection saves locally and responds before Recloud finishes in the b
       await confirmationGate;
       return { confirmed: true };
     },
-    startRepair: async () => ({ serviceOrderCreated: true, serviceOrderNo: "SO-900001001" }),
   };
   const url = await startServer(t, connector, store, USERS.sweep, {
     env: {
@@ -824,9 +816,6 @@ test("live detection saves locally and responds before Recloud finishes in the b
       DRY_RUN: "true",
       RECLOUD_WRITE_ENABLED: "false",
       RECLOUD_INSPECTION_WRITE_ENABLED: "true",
-    },
-    createAppOptions: {
-      recloudRepairPageAdapterFactory: () => readyRepairAdapterFixture(),
     },
   });
 
@@ -853,13 +842,7 @@ test("live detection saves locally and responds before Recloud finishes in the b
   assert.equal(statusResponse.status, 200);
   assert.equal(statusResult.data.recloudWriteEnabled, true);
   assert.equal(statusResult.data.recloudDetectionSyncStatus, "CONFIRMED");
-  await waitForValue(async () => {
-    const current = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
-    return current?.recloudRepairPreparation?.status;
-  }, "WAITING_PART_VERIFICATION");
-  const completed = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
-  assert.equal(completed.recloudServiceOrderNo, "SO-900001001");
-  assert.ok(completed.recloudServiceOrderCreatedAt);
+  assert.equal(statusResult.data.recloudServiceOrderAttemptedAt, "");
 });
 
 test("a failed Recloud detection remains a background failure and does not roll back FieldDesk", async (t) => {
@@ -873,6 +856,8 @@ test("a failed Recloud detection remains a background failure and does not roll 
   await store.completeReceipt("JXTH900001001", USERS.sweep);
   await store.saveWarrantyDecision("JXTH900001001", { technicianWarranty: "保内" }, USERS.sweep);
   await store.saveTreatmentDecision("JXTH900001001", { treatmentMode: "REPAIR", technicianWarranty: "保内" }, USERS.sweep);
+  await store.applyPart("JXTH900001001", { code: "13703", name: "售后电池包组件", stock: 10 }, 1, USERS.sweep);
+  await store.confirmParts("JXTH900001001", USERS.sweep);
 
   const connector = {
     openRecloud: async () => ({ loginRequired: false, page: {} }),
@@ -905,8 +890,7 @@ test("a failed Recloud detection remains a background failure and does not roll 
   }, "FAILED");
   const saved = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
   assert.equal(saved.status, "INSPECTION_COMPLETED_PENDING_REPAIR");
-  assert.equal(saved.resumeStep, "partsApplication");
-  assert.equal(saved.recloudServiceOrderCreatedAt || "", "");
+  assert.equal(saved.resumeStep, "repairProcess");
   assert.equal(saved.faultCategory, "产品质量 / 离线 / 电池包不良");
   assert.equal(saved.recloudDetectionLastError.code, "RECLOUD_DETECTION_OPTION_AMBIGUOUS");
 });
@@ -926,6 +910,8 @@ test("a hung detection is isolated and another order still reaches Recloud", asy
     await store.completeReceipt(rmaNo, USERS.sweep);
     await store.saveWarrantyDecision(rmaNo, { technicianWarranty: "保内" }, USERS.sweep);
     await store.saveTreatmentDecision(rmaNo, { treatmentMode: "REPAIR", technicianWarranty: "保内" }, USERS.sweep);
+    await store.applyPart(rmaNo, { code: "13703", name: "售后电池包组件", stock: 10 }, 1, USERS.sweep);
+    await store.confirmParts(rmaNo, USERS.sweep);
   }
 
   let confirmationCount = 0;
@@ -1867,9 +1853,9 @@ test("inspection page shows the required local order fields", async () => {
   assert.match(source, /待检测/);
   assert.match(source, /INSPECTION_COMPLETE/);
   assert.match(source, /瑞云预填复核清单/);
-  assert.match(source, /瑞云确认、建服务单和改派均按状态独立执行并可安全重试/);
-  assert.match(source, /进入瑞云配件/);
-  assert.match(source, /result\.nextStep === "partsApplication"/);
+  assert.match(source, /系统不会自动点击瑞云“确认”/);
+  assert.match(source, /返回添加配件/);
+  assert.match(source, /navigateToSavedStep\("partsApplication"\)/);
   assert.match(source, /saveRepairResumeStep/);
   assert.match(source, /getRepairSyncStatus/);
   assert.match(source, /\? "进入下一步"/);
@@ -1882,9 +1868,14 @@ test("inspection page shows the required local order fields", async () => {
   assert.doesNotMatch(source, /配件申请/);
 });
 
-test("parts page searches Feishu by model with a full-table fallback and binds applications to the SN", async () => {
+test("parts page restores the original Feishu selection flow with model-first full-catalog fallback", async () => {
   const source = await fs.readFile(
     path.join(__dirname, "../frontend/src/pages/PartsApplication.jsx"),
+    "utf8"
+  );
+  const serverSource = await fs.readFile(path.join(__dirname, "../server.js"), "utf8");
+  const repairStartSource = await fs.readFile(
+    path.join(__dirname, "../services/recloud-repair-start-orchestrator.js"),
     "utf8"
   );
 
@@ -1899,17 +1890,24 @@ test("parts page searches Feishu by model with a full-table fallback and binds a
   assert.match(source, /扫描物料条码/);
   assert.match(source, /输入或扫描物料条码 \/ 物料名称/);
   assert.match(source, /handlePartScan/);
-  assert.match(source, /正在查询飞书备件表/);
+  assert.match(source, /飞书备件表/);
   assert.match(source, /机型优先 · 全表兜底/);
-  assert.match(source, /catalogMatchLabel/);
+  assert.match(source, /全表匹配·需瑞云确认/);
   assert.match(source, /申请数量/);
   assert.match(source, /value=\{part\.quantity\}/);
   assert.match(source, /selectedPartsCount/);
   assert.match(source, /selectedPartAlreadyApplied/);
   assert.match(source, /disabled=\{alreadyApplied\}/);
-  assert.match(source, /该配件已添加，请直接修改上方数量/);
-  assert.match(source, /const backPage = recordOnly \? "repairDecision" : "repairProcess"/);
+  assert.match(source, /该配件已添加，请在上方改数量/);
+  assert.match(source, /添加到本工单/);
+  assert.match(source, /配件确认完成，下一步故障分类/);
+  assert.match(source, /const backPage = "repairDecision"/);
   assert.match(source, /saveRepairResumeStep\(repairOrder\.crmOrderNo, backPage\)/);
-  assert.match(source, /优先匹配当前机型；无结果时自动搜索飞书全表/);
-  assert.match(source, /能否使用最终以瑞云真实添加和回读结果为准/);
+  assert.match(source, /不写入瑞云/);
+  assert.doesNotMatch(source, /添加并在瑞云核实/);
+  assert.doesNotMatch(source, /配件后台核实中/);
+  assert.doesNotMatch(source, /recloudVerification/);
+  assert.match(serverSource, /feishuPartsCatalog\.searchWithFallback/);
+  assert.match(serverSource, /usedParts: order\.recloudRepairPreparation\?\.usedParts \|\| \[\]/);
+  assert.match(repairStartSource, /adapter\.addParts\(partsPlan\.additions/);
 });

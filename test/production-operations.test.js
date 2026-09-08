@@ -29,19 +29,6 @@ test("rate limiter rejects excess requests without logging request data", () => 
   assert.equal(payload.code, "RATE_LIMITED");
 });
 
-test("rate limiter can exempt a dedicated high-frequency read endpoint", () => {
-  const limiter = createRateLimiter({
-    limit: 1,
-    skip: (req) => req.method === "GET" && req.path === "/api/repairs/parts",
-  });
-  const res = { status() { assert.fail("exempt polling must not be rejected"); }, json() {} };
-  let passed = 0;
-  const req = { ip: "127.0.0.1", socket: {}, method: "GET", path: "/api/repairs/parts" };
-  limiter(req, res, () => { passed += 1; });
-  limiter(req, res, () => { passed += 1; });
-  assert.equal(passed, 2);
-});
-
 test("rotating logger writes structured safe records and rotates by size", async (t) => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "fielddesk-logs-"));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
@@ -91,7 +78,5 @@ test("server exposes liveness, readiness and operational security middleware", a
   assert.match(source, /\/api\/ready/);
   assert.match(source, /securityHeaders/);
   assert.match(source, /createRateLimiter/);
-  assert.match(source, /PARTS_POLL_RATE_LIMIT_PER_MINUTE/);
-  assert.match(source, /req\.method === "GET" && req\.path === "\/api\/repairs\/parts"/);
   assert.match(source, /loadTlsOptions/);
 });

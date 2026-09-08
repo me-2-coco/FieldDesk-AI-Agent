@@ -2,18 +2,14 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 
-function createRateLimiter({ windowMs = 60_000, limit = 120, code = "RATE_LIMITED", skip } = {}) {
+function createRateLimiter({ windowMs = 60_000, limit = 120, code = "RATE_LIMITED" } = {}) {
   const buckets = new Map();
   return (req, res, next) => {
-    if (typeof skip === "function" && skip(req)) return next();
     const key = req.ip || req.socket?.remoteAddress || "unknown";
     const now = Date.now();
     const bucket = buckets.get(key);
     if (!bucket || bucket.resetAt <= now) buckets.set(key, { count: 1, resetAt: now + windowMs });
-    else if (++bucket.count > limit) {
-      res.setHeader?.("Retry-After", String(Math.max(1, Math.ceil((bucket.resetAt - now) / 1000))));
-      return res.status(429).json({ success: false, code, message: "请求过于频繁，请稍后重试" });
-    }
+    else if (++bucket.count > limit) return res.status(429).json({ success: false, code, message: "请求过于频繁，请稍后重试" });
     next();
   };
 }
