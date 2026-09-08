@@ -9,6 +9,7 @@ const {
   readApprovalFlow,
   waitForDialog,
   waitForRepairSubmissionConfirmed,
+  waitForSelectedPartCode,
 } = require("../connectors/recloud-repair-page-adapter");
 
 test("missing required Recloud picklist is filled and verified", async () => {
@@ -68,6 +69,19 @@ test("Recloud autocomplete commits a lookup value with keyboard selection", asyn
 
   assert.equal(await ensurePicklistValue(page, item, "霍尔组件不良", "故障三级分类"), true);
   assert.deepEqual(keys, ["ArrowDown", "Enter"]);
+});
+
+test("candidate resolution waits for the newly selected full part code", async () => {
+  const values = ["20020100012884", "20020100012884", "20020100012883"];
+  const input = {
+    async inputValue() { return values.shift() || "20020100012883"; },
+  };
+  const page = { async waitForTimeout() {} };
+
+  assert.equal(await waitForSelectedPartCode(page, input, "", {
+    timeoutMs: 100,
+    previousCode: "20020100012884",
+  }), "20020100012883");
 });
 
 test("Recloud multi-select value is read from its visible selected tag", async () => {

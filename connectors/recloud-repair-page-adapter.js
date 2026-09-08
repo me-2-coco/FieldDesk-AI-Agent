@@ -286,6 +286,7 @@ async function waitForPartLookup(page, partCodeInput, requestedPartCode = "", op
   const timeoutMs = Number(options.timeoutMs || 2200);
   const deadline = Date.now() + timeoutMs;
   const expected = String(requestedPartCode || "").trim().toUpperCase();
+  const ignoreSelectedCode = options.ignoreSelectedCode === true;
   const lookup = await locateAutocompleteLookup(page, options.lookupInput);
   const optionsLocator = lookup.options;
   // Only trust an empty-state rendered inside the currently open lookup
@@ -296,7 +297,7 @@ async function waitForPartLookup(page, partCodeInput, requestedPartCode = "", op
     .filter({ visible: true });
   while (Date.now() < deadline) {
     const selectedCode = String(await partCodeInput?.inputValue?.().catch(() => "") || "").trim().toUpperCase();
-    if (selectedCode && (!expected || selectedCode === expected)) {
+    if (!ignoreSelectedCode && selectedCode && (!expected || selectedCode === expected)) {
       return { selectedCode, optionCount: await optionsLocator.count().catch(() => 0), explicitEmpty: false };
     }
     const optionCount = await optionsLocator.count().catch(() => 0);
@@ -314,12 +315,14 @@ async function waitForPartLookup(page, partCodeInput, requestedPartCode = "", op
 async function waitForSelectedPartCode(page, partCodeInput, requestedPartCode = "", options = {}) {
   const deadline = Date.now() + Number(options.timeoutMs || 1200);
   const expected = String(requestedPartCode || "").trim().toUpperCase();
+  const previousCode = String(options.previousCode || "").trim().toUpperCase();
   while (Date.now() < deadline) {
     const selectedCode = String(await partCodeInput?.inputValue?.().catch(() => "") || "").trim().toUpperCase();
-    if (selectedCode && (!expected || selectedCode === expected)) return selectedCode;
+    if (selectedCode && selectedCode !== previousCode && (!expected || selectedCode === expected)) return selectedCode;
     await page.waitForTimeout?.(80);
   }
-  return String(await partCodeInput?.inputValue?.().catch(() => "") || "").trim().toUpperCase();
+  const finalCode = String(await partCodeInput?.inputValue?.().catch(() => "") || "").trim().toUpperCase();
+  return finalCode && finalCode !== previousCode && (!expected || finalCode === expected) ? finalCode : "";
 }
 
 async function waitForRecloudPartPrice(page, salesPriceInput, options = {}) {
@@ -711,6 +714,7 @@ function createRecloudRepairPageAdapter(page, context = {}) {
         if (items.length === 0 && lookup.optionCount > 0 && !lookup.selectedCode) {
           const maxItems = Math.max(1, Math.min(10, Number(options.limit || 10)));
           const candidateCount = Math.min(lookup.optionCount, maxItems);
+          let previousSelectedCode = "";
           for (let index = 0; index < candidateCount; index += 1) {
             if (index > 0) {
               await partInput.fill("");
@@ -718,17 +722,22 @@ function createRecloudRepairPageAdapter(page, context = {}) {
               const reopened = await waitForPartLookup(page, partCodeInput, "", {
                 timeoutMs: 1200,
                 lookupInput: partInput,
+                ignoreSelectedCode: true,
               });
               if (reopened.optionCount <= index) break;
             }
             const optionLocator = (await locateAutocompleteLookup(page, partInput)).options;
             const optionName = String(await optionLocator.nth(index).innerText().catch(() => "") || "").replace(/\s+/g, " ").trim();
             await optionLocator.nth(index).click({ timeout: 3000 });
-            const selectedCode = await waitForSelectedPartCode(page, partCodeInput, "", { timeoutMs: 1200 });
+            const selectedCode = await waitForSelectedPartCode(page, partCodeInput, "", {
+              timeoutMs: 1200,
+              previousCode: previousSelectedCode,
+            });
             console.info(
               `RECLOUD_PART_PREFLIGHT_SELECTION: query=${query} index=${index} name=${optionName || "-"} selected=${selectedCode || "-"}`
             );
             if (!selectedCode || seen.has(selectedCode)) continue;
+            previousSelectedCode = selectedCode;
             const selectedName = String(await partInput.inputValue().catch(() => "") || optionName || query).trim();
             const salesPrice = await waitForRecloudPartPrice(page, salesPriceInput, { timeoutMs: 1200 });
             seen.add(selectedCode);

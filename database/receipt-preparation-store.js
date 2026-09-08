@@ -1268,6 +1268,7 @@ class JsonReceiptPreparationStore {
         recloudVerifiedAt: part.recloudConfirmed === true ? timestamp : "",
         recloudConfirmedAt: part.recloudConfirmed === true ? timestamp : "",
         recloudSource: part.recloudConfirmed === true ? "SERVICE_ORDER" : "",
+        recloudAddAuthorized: part.recloudAddAuthorized === true,
         quoteOnly,
         diagnosticOnly,
         recordOnly,
@@ -1764,6 +1765,7 @@ class JsonReceiptPreparationStore {
       if (!current) throw Object.assign(new Error("未找到待核实配件"), { code: "PART_APPLICATION_NOT_FOUND", status: 404 });
       const timestamp = new Date().toISOString();
       const status = normalizeRequired(input.status) || "FAILED";
+      const remotelyConfirmed = status === "AVAILABLE" && input.confirmed === true;
       const verifiedCode = normalizeRequired(input.partCode).toUpperCase();
       const verifiedName = normalizeRequired(input.partName);
       const verifiedRetailPrice = input.retailPrice === null || input.retailPrice === undefined || input.retailPrice === ""
@@ -1783,7 +1785,7 @@ class JsonReceiptPreparationStore {
         metadataSource: normalizeRequired(input.metadataSource) || part.metadataSource,
         verificationQuery: normalizeRequired(input.verificationQuery) || part.verificationQuery,
         status: status === "AVAILABLE"
-          ? "RECLOUD_PART_AVAILABLE"
+          ? remotelyConfirmed ? "RECLOUD_PART_CONFIRMED" : "RECLOUD_PART_AVAILABLE"
           : status === "OUT_OF_STOCK"
             ? "RECLOUD_PART_OUT_OF_STOCK"
             : status === "NEEDS_SELECTION"
@@ -1799,6 +1801,8 @@ class JsonReceiptPreparationStore {
           at: timestamp,
         } : null,
         recloudVerifiedAt: ["AVAILABLE", "OUT_OF_STOCK", "NEEDS_SELECTION"].includes(status) ? timestamp : part.recloudVerifiedAt || "",
+        recloudConfirmedAt: remotelyConfirmed ? timestamp : part.recloudConfirmedAt || "",
+        recloudSource: remotelyConfirmed ? "SERVICE_ORDER" : part.recloudSource || "",
         updatedAt: timestamp,
       });
       let partsShortage = existing.partsShortage || null;

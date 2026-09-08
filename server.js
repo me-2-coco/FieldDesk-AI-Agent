@@ -910,6 +910,7 @@ function createApp(
   const recloudPartSearchCache = new Map();
   const recloudPartOrderLocks = new Map();
   const RECLOUD_PART_SEARCH_CACHE_MS = 20_000;
+  const RECLOUD_PART_SELECTION_TTL_MS = 2 * 60_000;
 
   async function withRecloudPartOrderLock(rmaNo, operation) {
     const key = String(rmaNo || "").trim();
@@ -4451,7 +4452,47 @@ function createApp(
           if (typeof adapter.searchParts !== "function") {
             throw createApiError("RECLOUD_PARTS_SEARCH_UNAVAILABLE", "瑞云配件核实执行器未接入", 503);
           }
-          return adapter.searchParts(query, { limit: 30, timeoutMs: 2600 });
+          const lookup = await adapter.searchParts(query, { limit: 30, timeoutMs: 2600 });
+          const items = Array.isArray(lookup?.items) ? lookup.items : [];
+          const normalizedQuery = query.toUpperCase();
+          const exactMatches = items.filter((item) => String(item.code || "").trim().toUpperCase() === normalizedQuery);
+          const selected = exactMatches.length === 1 ? exactMatches[0] : items.length === 1 ? items[0] : null;
+          // 搜索接口永远只读。只有 POST /parts/apply 在师傅明确选择候选并
+          // 点击确认后写入的授权标记，才允许这里真实新增瑞云配件。
+          if (!selected || application.recloudAddAuthorized !== true) return lookup;
+          if (typeof adapter.readParts !== "function" || typeof adapter.addParts !== "function") {
+            throw createApiError("RECLOUD_PART_WRITE_UNAVAILABLE", "瑞云配件真实添加执行器未接入", 503);
+          }
+          const desiredQuantity = Number(application.quantity || 1);
+          let remoteParts = await adapter.readParts();
+          const matching = remoteParts.filter((part) =>
+            String(part.partCode || "").trim().toUpperCase() === String(selected.code || "").trim().toUpperCase()
+          );
+          if (matching.length > 1 || (matching.length === 1 && Number(matching[0].quantity) !== desiredQuantity)) {
+            throw createApiError("RECLOUD_REPAIR_PART_PRECHECK_FAILED", "瑞云配件数量与本单选择不一致，请人工核对", 409);
+          }
+          if (matching.length === 0) {
+            const addResult = await adapter.addParts([{
+              partCode: selected.code,
+              partName: selected.name,
+              quantity: desiredQuantity,
+            }]);
+            const missingParts = Array.isArray(addResult?.missingParts) ? addResult.missingParts : [];
+            if (missingParts.some((part) =>
+              String(part.partCode || "").trim().toUpperCase() === String(selected.code || "").trim().toUpperCase()
+            )) {
+              return { ...lookup, selected, missingParts, remotelyConfirmed: false };
+            }
+            remoteParts = await adapter.readParts();
+          }
+          const remotelyConfirmed = remoteParts.some((part) =>
+            String(part.partCode || "").trim().toUpperCase() === String(selected.code || "").trim().toUpperCase()
+              && Number(part.quantity) === desiredQuantity
+          );
+          if (!remotelyConfirmed) {
+            throw createApiError("RECLOUD_REPAIR_PART_POSTVERIFY_FAILED", "瑞云配件添加后回读未确认，后台将自动重试", 502);
+          }
+          return { ...lookup, selected, remotelyConfirmed: true };
         }, {
           ...businessWriteOptions,
           queuePriority: scheduleOptions.queuePriority ?? -80,
@@ -4462,7 +4503,20 @@ function createApp(
         const normalizedQuery = query.toUpperCase();
         const items = Array.isArray(result?.items) ? result.items : [];
         const exactMatches = items.filter((item) => String(item.code || "").trim().toUpperCase() === normalizedQuery);
-        const selected = exactMatches.length === 1 ? exactMatches[0] : items.length === 1 ? items[0] : null;
+        const selected = result?.selected || (exactMatches.length === 1 ? exactMatches[0] : items.length === 1 ? items[0] : null);
+        if (selected && Array.isArray(result?.missingParts) && result.missingParts.length > 0) {
+          await receiptStore.markRecloudPartVerification(rmaNo, applicationId, {
+            status: "OUT_OF_STOCK",
+            partCode: selected.code,
+            partName: selected.name,
+            retailPrice: selected.retailPrice,
+            metadataSource: selected.source,
+            reason: "瑞云真实添加时明确显示库存不足",
+          }, user);
+          partVerificationRetryAttempts.delete(key);
+          partVerificationRetryNextAt.delete(key);
+          return;
+        }
         if (selected) {
           await receiptStore.markRecloudPartVerification(rmaNo, applicationId, {
             status: "AVAILABLE",
@@ -4470,6 +4524,7 @@ function createApp(
             partName: selected.name,
             retailPrice: selected.retailPrice,
             metadataSource: selected.source,
+            confirmed: result?.remotelyConfirmed === true,
           }, user);
           if (application.replacesShortagePartCode) {
             await receiptStore.resolveRecloudPartShortageWithReplacement(
@@ -4542,8 +4597,24 @@ function createApp(
   async function queuePartForRecloudVerification(order, input, user) {
     const rmaNo = String(order.rmaNo || "").trim();
     const query = String(input?.partCode || input?.partQuery || input?.partName || "").trim();
+    const selectedPartCode = String(input?.partCode || "").trim().toUpperCase();
+    const selectedPartName = String(input?.partName || "").trim();
+    const selectedPartSource = String(input?.partSource || "").trim();
+    const selectedSearchKeyword = String(input?.searchKeyword || "").trim().toUpperCase();
     const requestedQuantity = Number(input?.quantity);
     if (query.length < 2) throw createApiError("RECLOUD_REPAIR_PART_QUERY_TOO_SHORT", "至少输入 2 个字符后再登记核实", 400);
+    if (input?.confirmRecloudAdd !== true || selectedPartSource !== "RECLOUD_SERVICE_ORDER" || !selectedPartCode || !selectedPartName) {
+      throw createApiError("RECLOUD_PART_SELECTION_REQUIRED", "请先从瑞云搜索结果中选择准确配件，再确认添加", 400);
+    }
+    const cachedSelection = recloudPartSearchCache.get(`${rmaNo}::${selectedSearchKeyword}`);
+    const selectionIsFresh = cachedSelection && Date.now() - cachedSelection.cachedAt < RECLOUD_PART_SELECTION_TTL_MS;
+    const cachedPart = selectionIsFresh && (cachedSelection.data?.items || []).find((item) =>
+      String(item.code || "").trim().toUpperCase() === selectedPartCode
+        && String(item.name || "").trim() === selectedPartName
+    );
+    if (!cachedPart) {
+      throw createApiError("RECLOUD_PART_SELECTION_EXPIRED", "瑞云配件候选已过期，请重新搜索并选择", 409);
+    }
     if (!Number.isInteger(requestedQuantity) || requestedQuantity < 1) {
       throw createApiError("PART_QUANTITY_INVALID", "申请数量必须是正整数", 400);
     }
@@ -4560,15 +4631,16 @@ function createApp(
     );
     if (duplicate) throw createApiError("PART_ALREADY_APPLIED", "该配件查询已登记，请勿重复操作", 409);
     const data = await receiptStore.applyPart(rmaNo, {
-      code: String(input?.partCode || query).trim().toUpperCase(),
-      name: String(input?.partName || query).trim(),
+      code: selectedPartCode,
+      name: String(cachedPart.name || selectedPartName).trim(),
       stock: requestedQuantity,
-      retailPrice: null,
+      retailPrice: cachedPart.retailPrice,
       repairLevel: "",
       returnRequired: false,
       projectCode: getSnProjectMatch(order.sn).projectCode,
       verificationQuery: query,
       verificationStatus: "PENDING",
+      recloudAddAuthorized: true,
       replacesShortagePartCode: requestedReplacementFor,
     }, requestedQuantity, user);
     const queued = scheduleRecloudPartVerification(data.order, data.application.id, user, { queuePriority: -80 });
@@ -4577,8 +4649,8 @@ function createApp(
       availability: "PENDING",
       verificationQueued: queued,
       message: queued
-        ? "配件已登记，正在瑞云后台优先核实"
-        : "配件已登记，服务单创建后将自动优先核实",
+        ? "配件已加入本单，正在瑞云真实添加并回读核实"
+        : "配件已加入本单，服务单创建后将自动真实添加并核实",
     };
   }
 
@@ -4694,7 +4766,7 @@ function createApp(
           items: (result.items || []).map((item) => ({
             code: item.code,
             name: item.name,
-            retailPrice: null,
+            retailPrice: item.retailPrice,
             repairLevel: "瑞云确认后补充",
             returnRequired: false,
             source: "RECLOUD_SERVICE_ORDER",

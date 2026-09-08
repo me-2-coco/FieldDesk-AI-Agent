@@ -1908,5 +1908,5 @@ test("parts page uses the live Recloud service order and binds applications to t
   assert.match(source, /该配件已添加，请直接修改上方数量/);
   assert.match(source, /const backPage = recordOnly \? "repairDecision" : "repairProcess"/);
   assert.match(source, /saveRepairResumeStep\(repairOrder\.crmOrderNo, backPage\)/);
-  assert.match(source, /配件编码、名称、可添加状态和库存结果均以当前瑞云服务单为准/);
+  assert.match(source, /配件编码、名称、价格、可添加状态和库存结果均以当前瑞云服务单为准/);
 });
