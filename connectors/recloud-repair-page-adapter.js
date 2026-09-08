@@ -159,9 +159,13 @@ async function dismissBlockingRepairMessageBoxes(page, options = {}) {
       );
     }
     await closeControls.first().click({ timeout: Number(options.clickTimeout || 5000) });
-    await dialog.waitFor({ state: "hidden", timeout: Number(options.hiddenTimeout || 8000) });
+    // `dialogs.last()` is a live locator. Recloud can replace the notice that
+    // was just closed with another message box immediately, which makes a
+    // `waitFor(hidden)` on that live locator silently retarget the new notice
+    // and time out even though the original one did close. Give the UI a short
+    // turn to reveal the next notice, then let the loop close it separately.
+    await page.waitForTimeout?.(Number(options.afterCloseMs || 250));
     dismissed += 1;
-    await page.waitForTimeout?.(150);
   }
   if (await page.locator(selector).count() > 0) {
     throw adapterError(
@@ -228,19 +232,29 @@ async function isRecloudRepairFullySubmitted(page) {
 }
 
 function createRecloudRepairPageAdapter(page, context = {}) {
+  let initialBlockingMessageSweepCompleted = false;
+  const dismissRepairNotices = async () => {
+    await dismissBlockingRepairMessageBoxes(page, {
+      // Some model-specific notices are mounted a few seconds after the
+      // service-order page appears. Wait for that delayed first notice once;
+      // subsequent reads only dismiss notices that are already visible.
+      settleMs: initialBlockingMessageSweepCompleted ? 0 : 3500,
+    });
+    initialBlockingMessageSweepCompleted = true;
+  };
   return {
     async waitForTimeout(timeoutMs) {
       await page.waitForTimeout?.(Number(timeoutMs || 0));
     },
 
     async readAssignee() {
-      await dismissBlockingRepairMessageBoxes(page);
+      await dismissRepairNotices();
       const assignee = await inspectCurrentAssignee(page);
       return assignee.currentAssignee;
     },
 
     async readRemoteState() {
-      await dismissBlockingRepairMessageBoxes(page);
+      await dismissRepairNotices();
       console.info("RECLOUD_REPAIR_REMOTE_READ: body_start");
       const bodyText = String(await page.locator("body").innerText().catch(() => ""));
       if (context.rmaNo && !bodyText.includes(String(context.rmaNo))) {
@@ -279,7 +293,7 @@ function createRecloudRepairPageAdapter(page, context = {}) {
     },
 
     async readRemoteAttachments(options = {}) {
-      await dismissBlockingRepairMessageBoxes(page);
+      await dismissRepairNotices();
       await openServiceReport(page);
       const target = String(options.target || "附件").trim();
       const attachments = await readExistingRepairAttachments(page, target).catch(() => []);

@@ -157,7 +157,6 @@ test("repair assignment closes a blocking Recloud model notice with the top-righ
         },
       };
     },
-    async waitFor(options) { assert.deepEqual(options, { state: "hidden", timeout: 8000 }); },
   };
   const page = {
     locator(selector) {
@@ -172,6 +171,41 @@ test("repair assignment closes a blocking Recloud model notice with the top-righ
 
   assert.equal(await dismissBlockingRepairMessageBoxes(page), 1);
   assert.deepEqual(clicks, [{ timeout: 5000 }]);
+});
+
+test("repair assignment closes consecutive model notices without waiting on a dynamic last locator", async () => {
+  const notices = ["第一条提示", "第二条提示"];
+  const closed = [];
+  const dynamicDialog = {
+    async innerText() { return notices.at(-1) || ""; },
+    locator() {
+      return {
+        async count() { return notices.length ? 1 : 0; },
+        first() {
+          return {
+            async click() {
+              closed.push(notices.pop());
+            },
+          };
+        },
+      };
+    },
+    async waitFor() {
+      throw new Error("must not wait on a dynamic last() locator");
+    },
+  };
+  const page = {
+    locator() {
+      return {
+        async count() { return notices.length; },
+        last() { return dynamicDialog; },
+      };
+    },
+    async waitForTimeout() {},
+  };
+
+  assert.equal(await dismissBlockingRepairMessageBoxes(page), 2);
+  assert.deepEqual(closed, ["第二条提示", "第一条提示"]);
 });
 
 test("repair assignment never confirms a model notice when the top-right X is unavailable", async () => {
