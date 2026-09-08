@@ -79,6 +79,7 @@ async function clickAfterLoadingSettles(page, button, options = {}) {
 }
 
 async function openServiceReport(page, timeoutMs = 15000) {
+  await dismissBlockingRepairMessageBoxes(page, { settleMs: 0 });
   const partsHeading = page.getByText("服务单更换件明细", { exact: true }).filter({ visible: true });
   if (await partsHeading.count() === 1) return;
   const tabs = page.getByText("服务报告", { exact: true }).filter({ visible: true });
@@ -95,7 +96,22 @@ async function openServiceReport(page, timeoutMs = 15000) {
   );
   const selected = await tab.getAttribute("aria-selected").catch(() => "");
   if (selected !== "true") {
-    await tab.click({ timeout: 5000 });
+    let lastError = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      // Model-specific notices can be mounted after the service-order page has
+      // already rendered. Clear them immediately before each tab-click retry.
+      await dismissBlockingRepairMessageBoxes(page, { settleMs: 0 });
+      try {
+        await tab.click({ timeout: 5000 });
+        lastError = null;
+        break;
+      } catch (error) {
+        lastError = error;
+        if (!String(error?.message || error).includes("intercepts pointer events")) throw error;
+        await page.waitForTimeout?.(150);
+      }
+    }
+    if (lastError) throw lastError;
     await page.waitForTimeout?.(500);
   }
 }
@@ -158,7 +174,24 @@ async function dismissBlockingRepairMessageBoxes(page, options = {}) {
         "ASSIGNMENT"
       );
     }
-    await closeControls.first().click({ timeout: Number(options.clickTimeout || 5000) });
+    try {
+      // The close glyph is animated and can continuously fail Playwright's
+      // stability check even though it is the only verified close control.
+      await closeControls.first().click({
+        timeout: Number(options.clickTimeout || 5000),
+        force: true,
+      });
+    } catch (error) {
+      // Recloud sometimes removes the notice while the click is in flight.
+      // Treat that as success only when the exact notice text is no longer
+      // present; otherwise preserve the error and stop safely.
+      await page.waitForTimeout?.(150);
+      const remainingTexts = await page.locator(selector).allInnerTexts().catch(() => []);
+      const originalStillVisible = remainingTexts.some((value) =>
+        String(value || "").replace(/\s+/g, " ").trim() === dialogText
+      );
+      if (originalStillVisible) throw error;
+    }
     // `dialogs.last()` is a live locator. Recloud can replace the notice that
     // was just closed with another message box immediately, which makes a
     // `waitFor(hidden)` on that live locator silently retarget the new notice
@@ -200,11 +233,81 @@ async function selectPicklistValue(page, item, value) {
     throw adapterError("瑞云下拉框结构发生变化", "RECLOUD_REPAIR_PICKLIST_CHANGED", "FIELDS");
   }
   await input.click({ timeout: 3000 });
-  await page.waitForTimeout?.(150);
-  const option = page.locator(".rtxpc-select-dropdown__item:visible, .el-select-dropdown__item:visible")
+  const inputType = typeof input.getAttribute === "function"
+    ? String(await input.getAttribute("type").catch(() => "") || "").toLowerCase()
+    : "";
+  if (inputType === "autocomplete") {
+    // Recloud lookup fields only commit the backing record id after keyboard
+    // selection. `fill()` alone changes the caption but leaves validation in
+    // the invalid state, which looks correct visually yet cannot be saved.
+    await input.fill(value);
+    await page.waitForTimeout?.(600);
+    await input.press("ArrowDown");
+    await input.press("Enter");
+    await page.waitForTimeout?.(250);
+    return;
+  }
+  await page.waitForTimeout?.(300);
+  // Recloud renders some fields as select dropdowns and others as remote
+  // autocomplete lookups. Both must be supported here because the fault
+  // classification fields use the latter.
+  const option = page.locator([
+    ".rtxpc-select-dropdown__item:visible",
+    ".el-select-dropdown__item:visible",
+    ".rtxpc-autocomplete-suggestion li:visible",
+    ".el-autocomplete-suggestion li:visible",
+    "[role='option']:visible",
+  ].join(", "))
     .filter({ hasText: exactText(value) });
+  const firstOption = option.first();
+  if (typeof firstOption.waitFor === "function") {
+    await firstOption.waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
+  }
   const target = await uniqueVisible(option, `瑞云下拉框缺少“${value}”`, "RECLOUD_REPAIR_PICKLIST_OPTION_AMBIGUOUS", "FIELDS");
   await target.click({ timeout: 3000 });
+}
+
+async function readPicklistValue(item) {
+  const selected = item?.locator(".rt-picklist__tags .rt-tag-text:visible, .el-select__tags .el-tag:visible");
+  if (selected && typeof selected.allInnerTexts === "function") {
+    const selectedValues = [...new Set((await selected.allInnerTexts())
+      .map((value) => String(value || "").replace(/\s+/g, " ").trim())
+      .filter(Boolean))];
+    if (selectedValues.length === 1) return selectedValues[0];
+    if (selectedValues.length > 1) {
+      throw adapterError("瑞云下拉框存在多个选中值", "RECLOUD_REPAIR_PICKLIST_SELECTED_AMBIGUOUS", "FIELDS");
+    }
+  }
+  const input = item?.locator("input:visible").first();
+  if (!input || await input.count() !== 1) return "";
+  const inputValue = String(await input.inputValue()).trim();
+  if (inputValue) return inputValue;
+  // Remote lookup controls can keep their selected caption in `tip-text`
+  // while leaving the search input value empty.
+  if (typeof input.getAttribute !== "function") return "";
+  return String(await input.getAttribute("tip-text").catch(() => "") || "").trim();
+}
+
+async function ensurePicklistValue(page, item, value, label) {
+  const expected = String(value || "").trim();
+  if (!expected) return false;
+  const input = item?.locator("input:visible").first();
+  if (!input || await input.count() !== 1) {
+    throw adapterError(`瑞云${label || "下拉"}结构发生变化`, "RECLOUD_REPAIR_PICKLIST_CHANGED", "FIELDS");
+  }
+  const current = await readPicklistValue(item);
+  if (current === expected) return false;
+  await selectPicklistValue(page, item, expected);
+  await page.waitForTimeout?.(250);
+  const confirmed = await readPicklistValue(item);
+  if (confirmed !== expected) {
+    throw adapterError(
+      `瑞云${label || "下拉"}写入后复核失败`,
+      "RECLOUD_REPAIR_PICKLIST_POSTVERIFY_FAILED",
+      "FIELDS"
+    );
+  }
+  return true;
 }
 
 function attachmentPath(rmaNo, fileName) {
@@ -645,15 +748,57 @@ function createRecloudRepairPageAdapter(page, context = {}) {
         "RECLOUD_REPAIR_MEASURE_DIALOG_AMBIGUOUS",
         "FIELDS"
       );
+      // The repair-detail drawer owns its own required classification fields.
+      // A service order created from an RMA can occasionally inherit only the
+      // first two levels, leaving level three blank. In that state Recloud
+      // silently keeps the drawer open when Save is clicked and the completion
+      // worker can never advance. FieldDesk is the source of truth, so repair
+      // every classification level in parent-to-child order before saving.
+      for (const [label, expected] of [
+        ["故障一级分类", fault.faultLevel1],
+        ["故障二级分类", fault.faultLevel2],
+        ["故障三级分类", fault.faultLevel3],
+      ]) {
+        const classification = await locateFormItemByText(dialog, label);
+        if (!classification) {
+          throw adapterError(`缺少${label}`, "RECLOUD_REPAIR_FAULT_CLASSIFICATION_NOT_FOUND", "FIELDS");
+        }
+        await ensurePicklistValue(page, classification, expected, label);
+      }
       const troubleshooting = await locateFormItemByText(dialog, "是否是排障问题");
       if (!troubleshooting) throw adapterError("缺少是否是排障问题", "RECLOUD_REPAIR_TROUBLESHOOTING_NOT_FOUND", "FIELDS");
-      await selectPicklistValue(page, troubleshooting, "否");
+      await ensurePicklistValue(page, troubleshooting, "否", "是否是排障问题");
       const measure = dialog.getByRole("textbox", { name: exactText("维修措施") }).filter({ visible: true });
       const measureInput = await uniqueVisible(measure, "维修措施输入框不唯一", "RECLOUD_REPAIR_MEASURE_CONTROL_AMBIGUOUS", "FIELDS");
       await measureInput.fill(value);
       const save = await uniqueVisible(dialog.getByRole("button", { name: exactText("保存") }).filter({ visible: true }), "维修措施保存按钮不唯一", "RECLOUD_REPAIR_MEASURE_SAVE_AMBIGUOUS", "FIELDS");
       await save.click({ timeout: 5000 });
-      await dialog.waitFor({ state: "hidden", timeout: 10000 });
+      try {
+        await dialog.waitFor({ state: "hidden", timeout: 10000 });
+      } catch (error) {
+        // Some Recloud drawer variants save the edited row but deliberately
+        // remain open. Close that drawer with its dedicated X, then persist the
+        // containing service order and verify from a fresh page below.
+        const validationMessages = await dialog
+          .locator(".el-form-item__error:visible, [role='alert']:visible")
+          .allInnerTexts()
+          .catch(() => []);
+        const validationMessage = validationMessages
+          .map((item) => String(item || "").replace(/\s+/g, " ").trim())
+          .filter(Boolean)
+          .join("；");
+        if (validationMessage) {
+          throw adapterError(
+            `瑞云维修措施保存校验失败：${validationMessage}`,
+            "RECLOUD_REPAIR_MEASURE_SAVE_VALIDATION_FAILED",
+            "FIELDS"
+          );
+        }
+        const closeDrawer = dialog.locator(".btn-close button:visible");
+        if (await closeDrawer.count() !== 1) throw error;
+        await closeDrawer.first().click({ timeout: 5000, force: true });
+        await dialog.waitFor({ state: "hidden", timeout: 5000 });
+      }
       // The row dialog only updates the page draft. Persist the whole service
       // order before any verification; otherwise the same DOM can look correct
       // even though a fresh Recloud page still contains the old values.
@@ -832,6 +977,7 @@ module.exports = {
   clickApprovalFlowInput,
   createRecloudRepairPageAdapter,
   dismissBlockingRepairMessageBoxes,
+  ensurePicklistValue,
   waitForDialog,
   isRecloudRepairFullySubmitted,
   readApprovalFlow,

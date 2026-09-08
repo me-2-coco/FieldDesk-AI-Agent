@@ -4,10 +4,87 @@ const {
   clickAfterLoadingSettles,
   clickApprovalFlowInput,
   dismissBlockingRepairMessageBoxes,
+  ensurePicklistValue,
   isRecloudRepairFullySubmitted,
   readApprovalFlow,
   waitForDialog,
 } = require("../connectors/recloud-repair-page-adapter");
+
+test("missing required Recloud picklist is filled and verified", async () => {
+  let value = "";
+  const input = {
+    async count() { return 1; },
+    async inputValue() { return value; },
+    async click() {},
+  };
+  const item = {
+    locator() { return { first() { return input; } }; },
+  };
+  const option = {
+    async click() { value = "霍尔组件不良"; },
+  };
+  const page = {
+    locator() {
+      return {
+        filter() { return this; },
+        async count() { return 1; },
+        first() { return option; },
+      };
+    },
+    async waitForTimeout() {},
+  };
+
+  assert.equal(await ensurePicklistValue(page, item, "霍尔组件不良", "故障三级分类"), true);
+  assert.equal(value, "霍尔组件不良");
+});
+
+test("matching Recloud picklist is left unchanged", async () => {
+  let clicked = false;
+  const input = {
+    async count() { return 1; },
+    async inputValue() { return "产品质量"; },
+    async click() { clicked = true; },
+  };
+  const item = { locator() { return { first() { return input; } }; } };
+
+  assert.equal(await ensurePicklistValue({}, item, "产品质量", "故障一级分类"), false);
+  assert.equal(clicked, false);
+});
+
+test("Recloud autocomplete commits a lookup value with keyboard selection", async () => {
+  let value = "";
+  const keys = [];
+  const input = {
+    async count() { return 1; },
+    async inputValue() { return value; },
+    async getAttribute(name) { return name === "type" ? "autocomplete" : value; },
+    async click() {},
+    async fill(next) { value = next; },
+    async press(key) { keys.push(key); },
+  };
+  const item = { locator() { return { first() { return input; } }; } };
+  const page = { async waitForTimeout() {} };
+
+  assert.equal(await ensurePicklistValue(page, item, "霍尔组件不良", "故障三级分类"), true);
+  assert.deepEqual(keys, ["ArrowDown", "Enter"]);
+});
+
+test("Recloud multi-select value is read from its visible selected tag", async () => {
+  const selected = { async allInnerTexts() { return [" 否 "]; } };
+  const input = {
+    async count() { return 1; },
+    async inputValue() { return ""; },
+    async click() { assert.fail("matching selected tag must not reopen the dropdown"); },
+  };
+  const item = {
+    locator(selector) {
+      if (selector.includes("rt-picklist__tags")) return selected;
+      return { first() { return input; } };
+    },
+  };
+
+  assert.equal(await ensurePicklistValue({}, item, "否", "是否是排障问题"), false);
+});
 
 test("dialog opened by an action stays bound when a later notice appears", async () => {
   const openedDialog = { id: "assignment" };
@@ -170,7 +247,39 @@ test("repair assignment closes a blocking Recloud model notice with the top-righ
   };
 
   assert.equal(await dismissBlockingRepairMessageBoxes(page), 1);
-  assert.deepEqual(clicks, [{ timeout: 5000 }]);
+  assert.deepEqual(clicks, [{ timeout: 5000, force: true }]);
+});
+
+test("repair assignment accepts a notice that disappears during the close click", async () => {
+  let visible = true;
+  const dialog = {
+    async innerText() { return "延迟出现的特殊服务项目"; },
+    locator() {
+      return {
+        async count() { return 1; },
+        first() {
+          return {
+            async click() {
+              visible = false;
+              throw new Error("element is not visible");
+            },
+          };
+        },
+      };
+    },
+  };
+  const page = {
+    locator() {
+      return {
+        async count() { return visible ? 1 : 0; },
+        last() { return dialog; },
+        async allInnerTexts() { return visible ? ["延迟出现的特殊服务项目"] : []; },
+      };
+    },
+    async waitForTimeout() {},
+  };
+
+  assert.equal(await dismissBlockingRepairMessageBoxes(page), 1);
 });
 
 test("repair assignment closes consecutive model notices without waiting on a dynamic last locator", async () => {

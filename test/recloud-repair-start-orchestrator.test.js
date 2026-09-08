@@ -126,6 +126,8 @@ test("warranty conversion is explicitly confirmed even when the product row alre
 
 test("every service-order read path closes blocking model notices before continuing", () => {
   const source = fs.readFileSync(path.join(__dirname, "../connectors/recloud-repair-page-adapter.js"), "utf8");
+  assert.match(source, /async function openServiceReport[\s\S]*await dismissBlockingRepairMessageBoxes\(page, \{ settleMs: 0 \}\)/);
+  assert.match(source, /维修措施保存校验失败[\s\S]*\.btn-close button:visible/);
   assert.match(source, /async readAssignee\(\) \{\s*await dismissRepairNotices\(\)/);
   assert.match(source, /async readRemoteState\(\) \{\s*await dismissRepairNotices\(\)/);
   assert.match(source, /async readRemoteAttachments\(options = \{\}\) \{\s*await dismissRepairNotices\(\)/);
