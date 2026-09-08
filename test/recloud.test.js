@@ -1780,6 +1780,21 @@ test("phone query uses the dedicated read-only connector path", async (t) => {
   assert.deepEqual(calls, [["open"], ["phone", "18788910883"]]);
 });
 
+test("dedicated phone connector prioritizes scan-sign before the all-RMA fallback", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../connectors/recloud.js"), "utf8");
+  const phoneQuerySource = source.slice(
+    source.indexOf("async function queryRmaByPhone("),
+    source.indexOf("async function queryRmaByIdentifier(")
+  );
+  assert.ok(phoneQuerySource.indexOf("await enterRmaQuery(page, normalizedPhone") >= 0);
+  assert.ok(
+    phoneQuerySource.indexOf("await enterRmaQuery(page, normalizedPhone")
+      < phoneQuerySource.indexOf("await enterAllRmaPhoneQuery(page, normalizedPhone")
+  );
+  assert.match(phoneQuerySource, /RECLOUD_PHONE_RESULT_UNVERIFIED/);
+  assert.match(phoneQuerySource, /RECLOUD_PHONE_RESULT_MISMATCH/);
+});
+
 test("phone detail parsing does not require a pickup logistics number", () => {
   const detail = parseRmaFieldPairs([
     ["寄修单号", "JXTH-PHONE-0002"],

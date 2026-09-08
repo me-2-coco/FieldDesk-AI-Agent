@@ -50,6 +50,27 @@ test('pending receipt store serializes concurrent sync and query writes', async 
   );
 });
 
+test('list-only index refresh does not overwrite a verified complete phone', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'rma-query-index-phone-'));
+  const store = new PendingReceiptStore(path.join(directory, 'cache.json'));
+  await store.upsert({
+    rmaNo: 'JXTH-PHONE-INDEX-1',
+    phone: '18984554298',
+    phoneVerified: true,
+    reportedFault: '已读取的完整故障',
+  });
+  await store.mergeIncremental([{
+    rmaNo: 'JXTH-PHONE-INDEX-1',
+    phone: '189****4298',
+    source: 'RECLOUD_RECENT_RMA_INDEX',
+  }]);
+
+  const [order] = await store.readAll();
+  assert.equal(order.phone, '18984554298');
+  assert.equal(order.phoneVerified, true);
+  assert.equal(order.reportedFault, '已读取的完整故障');
+});
+
 test('first daytime sync performs catch-up and later sync is incremental', async () => {
   const snapshots = [
     { syncedAt: '2026-08-30T14:55:00.000Z', orders: [{ rmaNo: 'OLD', phone: '13812345678' }] },

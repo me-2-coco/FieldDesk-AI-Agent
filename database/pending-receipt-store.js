@@ -69,8 +69,16 @@ class PendingReceiptStore {
           updatedAt: options.syncedAt || new Date().toISOString(),
         };
         if (previous) {
+          const previousPhone = String(previous.phone || previous.phoneMasked || '').trim();
+          const incomingPhone = String(raw.phone || raw.phoneMasked || '').trim();
+          const previousHasCompletePhone = /^1[3-9]\d{9}$/.test(previousPhone);
+          const incomingHasCompletePhone = /^1[3-9]\d{9}$/.test(incomingPhone);
+          if (previousHasCompletePhone && !incomingHasCompletePhone) {
+            merged.phone = previousPhone;
+            merged.phoneVerified = previous.phoneVerified === true;
+          }
           for (const key of [
-            'logisticsNo', 'phone', 'customerName', 'regionAddress', 'customerAddress', 'reportedFault',
+            'logisticsNo', 'customerName', 'regionAddress', 'customerAddress', 'reportedFault',
             'sn', 'productLine', 'productModel', 'pickupStatus', 'sourceCreatedAt',
             'phoneVerified',
           ]) {

@@ -71,6 +71,11 @@ const {
   monitorInterval,
 } = require("./services/recloud-supervision-monitor");
 const { PendingReceiptSync, pendingReceiptSyncEnabled, pendingReceiptSyncInterval } = require('./services/pending-receipt-sync');
+const {
+  RmaQueryIndexSync,
+  rmaQueryIndexSyncEnabled,
+  rmaQueryIndexSyncInterval,
+} = require('./services/rma-query-index-sync');
 const { buildInspectionFormDecision, resolveFaultContent } = require("./services/inspection-form-rules");
 const { resolveRecloudTechnician } = require("./services/recloud-technician-mapping");
 const {
@@ -316,6 +321,18 @@ function recentRmaBackfillStart(monthCount = 3, now = new Date()) {
   const values = Object.fromEntries(parts.map(({ type, value }) => [type, Number(value)]));
   const start = new Date(Date.UTC(values.year, values.month - monthCount, 1));
   return `${start.getUTCFullYear()}-${String(start.getUTCMonth() + 1).padStart(2, "0")}-01T00:00:00+08:00`;
+}
+
+function recentRmaIndexStart(dayCount = 7, now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, Number(value)]));
+  const start = new Date(Date.UTC(values.year, values.month - 1, values.day - Math.max(1, dayCount) + 1));
+  return `${start.getUTCFullYear()}-${String(start.getUTCMonth() + 1).padStart(2, "0")}-${String(start.getUTCDate()).padStart(2, "0")}T00:00:00+08:00`;
 }
 
 function buildFaultHierarchy(paths) {
@@ -5541,6 +5558,28 @@ if (require.main === module) {
   });
   const pendingReceiptStore = new PendingReceiptStore();
   const rmaQueryCacheStore = new RmaQueryCacheStore();
+  const rmaQueryIndexSync = new RmaQueryIndexSync({
+    store: rmaQueryCacheStore,
+    intervalMs: rmaQueryIndexSyncInterval(process.env),
+    readOrders: (context) => withRecloud(
+      recloudConnector,
+      (page, queue) => recloudConnector.readRecentRmaOrders(page, {
+        ...context,
+        dateFrom: process.env.RMA_QUERY_INDEX_FROM || recentRmaIndexStart(7),
+        listOnly: true,
+        maxRecords: Number(process.env.RMA_QUERY_CACHE_CAPACITY || 10000),
+        maxPages: Number(process.env.RMA_QUERY_INDEX_MAX_PAGES || 350),
+        pageDelay: Number(process.env.RMA_QUERY_INDEX_PAGE_DELAY_MS || 120),
+        shouldYield: queue.shouldYield,
+      }),
+      {
+        background: true,
+        channel: "background-query-index",
+        timeoutMs: 120000,
+        timeoutCode: "RECLOUD_QUERY_INDEX_TIMEOUT",
+      }
+    ),
+  });
   let rmaQueryBackfillRunning = false;
   let rmaQueryBackfillTimer = null;
   const scheduleRmaQueryBackfill = (delayMs = 0) => {
@@ -5682,6 +5721,9 @@ if (require.main === module) {
         pendingReceiptSync.start(orders.length === 0 || cacheExpired);
       });
     }
+    if (session && rmaQueryIndexSyncEnabled(process.env)) {
+      rmaQueryIndexSync.start(true);
+    }
     // 批量补全会长时间占用同一个瑞云页面。默认关闭自动补全，保证师傅的
     // 到店查询始终优先；需要维护历史缓存时再显式开启或运行独立脚本。
     if (session && String(process.env.RMA_QUERY_BACKFILL_ENABLED || "false").toLowerCase() === "true") {
@@ -5701,6 +5743,7 @@ if (require.main === module) {
     app.locals.stopRecloudRecoveryWatchdog?.();
     supervisionMonitor.stop();
     pendingReceiptSync.stop();
+    rmaQueryIndexSync.stop();
     if (rmaQueryBackfillTimer) clearTimeout(rmaQueryBackfillTimer);
     server.close();
     await recloudConnector.closeRecloud?.();

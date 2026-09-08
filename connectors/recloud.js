@@ -1524,7 +1524,9 @@ async function waitForPhoneQueryResult(page, phone, options = {}) {
     if (isRmaDetailReady(signals)) {
       const detail = await readRmaDetail(page, "", {
         ...options,
-        fastDomRead: true,
+        // A phone lookup must reveal and verify the complete phone from the
+        // detail page. The fast DOM reader cannot operate the reveal control.
+        fastDomRead: !isPhoneQuery,
         revealPhoneEnabled: isPhoneQuery,
         requirePickupLogisticsNo: false,
       });
@@ -1569,6 +1571,13 @@ async function waitForPhoneQueryResult(page, phone, options = {}) {
     }).catch(() => []);
 
     if (rows.length > 0) {
+      if (isPhoneQuery && rows.length === 1) {
+        const opened = await openUniqueRmaSearchResult(page, options.logger || console);
+        if (opened) {
+          await page.waitForTimeout(options.pollInterval ?? 200);
+          continue;
+        }
+      }
       // The scan-sign list does not expose a complete phone per row. A list
       // returned after typing a phone therefore cannot prove that any row
       // belongs to that phone; accepting it caused product lines to cross
@@ -1744,6 +1753,23 @@ async function queryRmaByPhone(page, phone, options = {}) {
         retryable: false,
       });
     }
+    // The scan-sign page accepts a complete mobile number directly and is the
+    // shortest path for the common single-order case. Only fall back to the
+    // all-RMA list when the scan result cannot be uniquely verified.
+    try {
+      await enterRmaQuery(page, normalizedPhone, options);
+      const direct = await waitForPhoneQueryResult(page, normalizedPhone, {
+        ...options,
+        queryMatchedBy: "PHONE",
+      });
+      if (direct?.rmaNo || Array.isArray(direct?.matches)) return direct;
+    } catch (error) {
+      if (!["RECLOUD_PHONE_RESULT_UNVERIFIED", "RECLOUD_PHONE_RESULT_MISMATCH"].includes(error?.code)) {
+        throw error;
+      }
+      (options.logger || console).warn?.(`RECLOUD_PHONE_QUERY: scan_fallback ${error.code}`);
+    }
+
     const rows = await enterAllRmaPhoneQuery(page, normalizedPhone, options);
     if (!rows.length) {
       throw new RecloudQueryError("RECLOUD_ORDER_NOT_FOUND", "没有查询到该手机号对应的瑞云工单", {
@@ -2003,6 +2029,11 @@ async function readRecentRmaOrders(page, options = {}) {
   const maxPages = options.maxPages ?? 500;
   const maxRecords = options.maxRecords ?? 10000;
   const dateFromTime = Date.parse(options.dateFrom || "");
+  const sinceTime = Date.parse(options.since || "");
+  const cutoffTime = Math.max(
+    Number.isFinite(dateFromTime) ? dateFromTime : -Infinity,
+    Number.isFinite(sinceTime) ? sinceTime : -Infinity
+  );
   const parseRowTime = (row) => {
     const value = row["寄修单创建时间"] || row["创建时间"] || "";
     const normalized = String(value).trim().replace(/年|月/g, "-").replace(/日/g, "").replace(/\//g, "-");
@@ -2011,7 +2042,9 @@ async function readRecentRmaOrders(page, options = {}) {
     return parseRmaDateTime(row["寄修单号"] || row["RMA单号"]);
   };
   for (let pageNumber = 0; pageNumber < maxPages && orders.size < maxRecords; pageNumber += 1) {
-    if (options.shouldYield?.()) break;
+    if (options.shouldYield?.()) {
+      return { orders: [], discovered: orders.size, pending: 0, yielded: true };
+    }
     const rows = await page.evaluate(() => {
       const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
       const tables = [...document.querySelectorAll("table")];
@@ -2027,13 +2060,13 @@ async function readRecentRmaOrders(page, options = {}) {
         return Object.fromEntries(headers.map((header, index) => [header, cells[index] || ""]));
       });
     });
-    let pageEntirelyOlder = rows.length > 0;
+    let pageEntirelyOlder = rows.length > 0 && Number.isFinite(cutoffTime);
     for (const row of rows) {
       const rowTime = parseRowTime(row);
-      if (!Number.isFinite(dateFromTime) || (Number.isFinite(rowTime) && rowTime >= dateFromTime)) {
+      if (!Number.isFinite(cutoffTime) || (Number.isFinite(rowTime) && rowTime > cutoffTime)) {
         pageEntirelyOlder = false;
       }
-      if (Number.isFinite(dateFromTime) && (!Number.isFinite(rowTime) || rowTime < dateFromTime)) continue;
+      if (Number.isFinite(cutoffTime) && (!Number.isFinite(rowTime) || rowTime <= cutoffTime)) continue;
       const rmaNo = row["寄修单号"] || row["RMA单号"] || "";
       if (!rmaNo) continue;
       orders.set(rmaNo, {
@@ -2059,6 +2092,17 @@ async function readRecentRmaOrders(page, options = {}) {
     if (!(await next.isVisible().catch(() => false)) || await next.isDisabled().catch(() => true)) break;
     await next.click();
     await page.waitForTimeout(options.pageDelay ?? 350);
+  }
+  if (options.listOnly) {
+    return {
+      orders: [...orders.values()].map((order) => ({
+        ...order,
+        source: "RECLOUD_RECENT_RMA_INDEX",
+      })),
+      discovered: orders.size,
+      pending: 0,
+      yielded: false,
+    };
   }
   const pendingDetails = [...orders.values()].filter((order) => !existingRmaNos.has(order.rmaNo));
   const completedOrders = [];
