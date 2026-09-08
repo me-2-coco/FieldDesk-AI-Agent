@@ -2,7 +2,6 @@ const crypto = require("crypto");
 const { buildRecloudRepairFormPlan } = require("../connectors/recloud-sync-mapping");
 const { buildRecloudRepairPartsPlan } = require("./recloud-repair-parts-plan");
 const { buildRecloudRepairAttachmentsPlan } = require("./recloud-repair-attachments-plan");
-const { isOptionalWhenOutOfStockPart } = require("./recloud-optional-parts-policy");
 const {
   RECLOUD_WORK_ORDER_OPERATION_POLICY,
   buildRecloudAssignmentPlan,
@@ -92,7 +91,10 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
   const desiredMainAttachments = (payload.attachments || []).filter((item) => item?.source !== "INSPECTION_REPORT");
   let attachmentsPlan = buildRecloudRepairAttachmentsPlan(desiredMainAttachments, remote.attachments);
   const knownMissingParts = Array.isArray(options.missingParts) ? [...options.missingParts] : [];
-  const blockingMissingParts = () => knownMissingParts.filter((part) => !isOptionalWhenOutOfStockPart(part));
+  // Every unavailable part follows the same terminal rule: omit that part,
+  // finish the service report, click Complete, never click Submit, and hand
+  // the order to the information clerk.
+  const blockingMissingParts = () => knownMissingParts;
   const authorizedSkippedPartCodes = new Set(
     [...(Array.isArray(options.authorizedSkippedPartCodes) ? options.authorizedSkippedPartCodes : []),
       ...knownMissingParts.map((part) => part?.partCode)]
@@ -334,7 +336,6 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
       stoppedBeforeSubmit: true,
     };
   }
-  if (knownMissingParts.length) completedSteps.push("OPTIONAL_OUT_OF_STOCK_PARTS_SKIPPED");
   await saveCheckpoint(options.checkpointStore, {
     orderKey, fingerprint, status: "WAITING_SUBMIT_READY", completedSteps: [...completedSteps],
   });

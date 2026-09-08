@@ -3,7 +3,6 @@ const { openRepairPartAddDialog } = require("./recloud-repair-part-dialog");
 const { readExistingRepairParts } = require("./recloud-repair-parts-reader");
 const { readExistingRepairAttachments } = require("./recloud-repair-attachments-reader");
 const { createRecloudRepairControlAdapter, normalizeRepairControlValue } = require("./recloud-repair-control-adapter");
-const { isOptionalWhenOutOfStockPart } = require("../services/recloud-optional-parts-policy");
 const path = require("path");
 const crypto = require("crypto");
 
@@ -452,22 +451,18 @@ function createRecloudRepairPageAdapter(page, context = {}) {
           selectedPartCode = String(await partCodeInput.inputValue().catch(() => "")).trim().toUpperCase();
         }
         if (selectedPartCode !== requestedPartCode) {
-          if (isOptionalWhenOutOfStockPart(part)) {
-            missingParts.push({
-              partCode: String(part.partCode || "").trim(),
-              partName: String(part.partName || "").trim(),
-              quantity: Number(part.quantity || 0),
-              reason: "瑞云添加配件搜索无结果，按通用物流箱无库存规则跳过",
-            });
-            await page.reload({ waitUntil: "domcontentloaded", timeout: 15000 });
-            await openServiceReport(page);
-            continue;
-          }
-          throw adapterError(
-            `瑞云新件列表没有可用配件 ${part.partCode}`,
-            "RECLOUD_REPAIR_PART_NOT_AVAILABLE",
-            "PARTS"
-          );
+          missingParts.push({
+            partCode: String(part.partCode || "").trim(),
+            partName: String(part.partName || "").trim(),
+            quantity: Number(part.quantity || 0),
+            reason: "瑞云添加配件连续搜索无结果，按网点库存不足规则跳过",
+          });
+          // Reload closes every known variant of the add-part dialog. The
+          // orchestrator persists this as PARTS_SHORTAGE, continues through
+          // Complete, and deliberately stops before Submit.
+          await page.reload({ waitUntil: "domcontentloaded", timeout: 15000 });
+          await openServiceReport(page);
+          continue;
         }
         await quantityInput.fill(String(part.quantity));
         const save = await uniqueVisible(

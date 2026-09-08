@@ -6,7 +6,9 @@ import AttachmentPreviewList from "../components/AttachmentPreviewList.jsx"
 import {
   downloadRepairAttachment,
   getRepairCompletionContext,
+  getRepairPreparationStatus,
   getRepairSyncOrderStatus,
+  retryRepairPreparation,
   saveRepairCompletionDraft,
   saveRepairResumeStep,
   submitRepairCompletion,
@@ -118,6 +120,7 @@ function RepairCompletion({ setPage }) {
   const [completionConfirmOpen, setCompletionConfirmOpen] = useState(false)
   const [contextLoading, setContextLoading] = useState(true)
   const [syncStatus, setSyncStatus] = useState(null)
+  const [preparationStatus, setPreparationStatus] = useState(null)
   const [warrantyConversion, setWarrantyConversion] = useState(repairOrder.manufacturerWarrantyConversion || null)
   const pricingSummaryRef = useRef(null)
 
@@ -187,8 +190,29 @@ function RepairCompletion({ setPage }) {
     getRepairSyncOrderStatus(repairOrder.crmOrderNo)
       .then((status) => active && setSyncStatus(status))
       .catch(() => active && setSyncStatus(null))
+    getRepairPreparationStatus(repairOrder.crmOrderNo)
+      .then((status) => active && setPreparationStatus(status))
+      .catch(() => active && setPreparationStatus(null))
     return () => { active = false }
   }, [repairOrder.crmOrderNo])
+
+  async function retryPreparation() {
+    try {
+      setBusy(true)
+      setErrorMessage("")
+      const result = await retryRepairPreparation(repairOrder.crmOrderNo)
+      setMessage(result.message || "已开始恢复瑞云维修准备")
+      setPreparationStatus((current) => current ? {
+        ...current,
+        recloudRepairPreparationStatus: "PENDING",
+        recloudRepairPreparationLastError: null,
+      } : current)
+    } catch (error) {
+      setErrorMessage(error.message)
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const partsText = usedParts.length
     ? usedParts.map((part) => `${part.partName}×${part.quantity}（${part.repairLevel || "等级待确认"}）`).join("、")
@@ -433,6 +457,12 @@ function RepairCompletion({ setPage }) {
       </div>
 
       <SupervisionNoticeCard rmaNo={repairOrder.crmOrderNo} />
+
+      {preparationStatus?.recloudRepairPreparationStatus === "FAILED" && <div className="card repair-sync-status-card">
+        <h2>瑞云维修准备未完成</h2>
+        <p className="error-message">{preparationStatus.recloudRepairPreparationLastError?.message || "上次准备失败，可从已有维修单继续。"}</p>
+        <button type="button" className="secondary-btn" disabled={busy} onClick={retryPreparation}>恢复瑞云维修准备</button>
+      </div>}
 
       {syncStatus && <div className="card repair-sync-status-card">
         <h2>瑞云同步状态</h2>

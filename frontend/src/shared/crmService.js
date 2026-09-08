@@ -289,6 +289,10 @@ export async function getRepairPreparationStatus(rmaNo) {
   return get(`/api/repairs/${encodeURIComponent(String(rmaNo || "").trim())}/sync-status`, { timeoutMs: 3000 })
 }
 
+export async function retryRepairPreparation(rmaNo) {
+  return request(`/api/repairs/${encodeURIComponent(String(rmaNo || "").trim())}/recloud-preparation/retry`, {})
+}
+
 export async function searchRecloudFaultCategories(payload) {
   const keyword = encodeURIComponent(String(payload?.faultKeyword || "").trim())
   const rmaNo = encodeURIComponent(String(payload?.rmaNo || "").trim())

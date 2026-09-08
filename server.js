@@ -52,7 +52,6 @@ const { evaluateWarranty } = require("./services/warranty-policy");
 const localFaultMappings = require("./knowledge/fault_mapping.json").mappings || {};
 const { resolvePartsFee, resolveOutOfWarrantyFee, buildPricingPreview } = require("./services/out-of-warranty-pricing");
 const { LOGISTICS_CHARGE_MODES, resolveRepairCharge } = require("./services/repair-charge-policy");
-const { onlyOptionalWhenOutOfStockParts } = require("./services/recloud-optional-parts-policy");
 const { analyzeSupervisionOrder } = require("./services/supervision-order-policy");
 const {
   queryRepairHistory,
@@ -763,8 +762,7 @@ function createApp(
         if (!order || !["REPAIR", "DEBUGGING", "ABANDONED", "INSPECTION_ONLY"].includes(order.treatmentMode)) return true;
         const preparationStatus = String(order.recloudRepairPreparation?.status || "NOT_STARTED");
         return preparationStatus === "CONFIRMED"
-          || (preparationStatus === "PARTS_SHORTAGE"
-            && onlyOptionalWhenOutOfStockParts(order.recloudRepairPreparation?.missingParts || order.partsShortage?.parts));
+          || preparationStatus === "PARTS_SHORTAGE";
       },
     }
   );
@@ -3554,8 +3552,7 @@ function createApp(
           recloudRepairPreparationLastError: order.recloudRepairPreparation?.lastError || null,
           recloudRepairPreparationCanComplete:
             order.recloudRepairPreparation?.status === "CONFIRMED"
-            || (order.recloudRepairPreparation?.status === "PARTS_SHORTAGE"
-              && onlyOptionalWhenOutOfStockParts(order.recloudRepairPreparation?.missingParts || order.partsShortage?.parts)),
+            || order.recloudRepairPreparation?.status === "PARTS_SHORTAGE",
           updatedAt: order.updatedAt || "",
         },
       });

@@ -270,7 +270,7 @@ test("parts shortage confirms completion but never touches submit", async () => 
   assert.equal(adapter.calls.some((call) => call.startsWith("submit:")), false);
 });
 
-test("an out-of-stock whitelisted logistics box is skipped and completion still submits", async () => {
+test("an out-of-stock logistics box also completes without submitting and notifies information", async () => {
   const optionalBox = {
     partCode: "20020100011511",
     partName: "售后通用主机物流箱",
@@ -284,11 +284,11 @@ test("an out-of-stock whitelisted logistics box is skipped and completion still 
     preparationCompleted: true,
     missingParts: [optionalBox],
   });
-  assert.equal(result.status, "SUCCESS");
-  assert.equal(result.completedSteps.includes("OPTIONAL_OUT_OF_STOCK_PARTS_SKIPPED"), true);
+  assert.equal(result.status, "AWAITING_PARTS");
+  assert.equal(result.completedSteps.includes("SUBMIT_SKIPPED_FOR_PARTS_SHORTAGE"), true);
   assert.equal(adapter.calls.includes("complete"), true);
-  assert.equal(adapter.calls.includes("wait-submit-ready"), true);
-  assert.equal(adapter.calls.some((call) => call.startsWith("submit:")), true);
+  assert.equal(adapter.calls.includes("wait-submit-ready"), false);
+  assert.equal(adapter.calls.some((call) => call.startsWith("submit:")), false);
 });
 
 test("repair orchestrator never submits when Recloud does not become submit-ready", async () => {
