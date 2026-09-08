@@ -46,6 +46,11 @@ const REVIEW_STEP_LABELS = {
 const ACTIONABLE_STATUSES = new Set(["FAILED", "MANUAL_REVIEW", "READY_DRY_RUN", "AWAITING_FINAL_CONFIRM"])
 const PAGE_SIZE = 30
 
+function isStoppedHandoff(task) {
+  return task.status === "SUCCESS"
+    && ["AWAITING_PARTS", "AWAITING_INFORMATION_CLERK"].includes(task.resultStatus)
+}
+
 function SyncTasks({ setPage, onOpenOrder }) {
   const [tasks, setTasks] = useState([])
   const [message, setMessage] = useState("")
@@ -184,9 +189,9 @@ function SyncTasks({ setPage, onOpenOrder }) {
           打开对应工单
         </button>
       )}
-      {["FAILED", "MANUAL_REVIEW", "READY_DRY_RUN"].includes(task.status) && (
+      {(["FAILED", "MANUAL_REVIEW", "READY_DRY_RUN"].includes(task.status) || isStoppedHandoff(task)) && (
         <button type="button" onClick={() => retry(task.id)}>
-          {task.status === "READY_DRY_RUN" ? "重新核对并执行" : "人工重试"}
+          {isStoppedHandoff(task) ? "重新核对瑞云状态" : task.status === "READY_DRY_RUN" ? "重新核对并执行" : "人工重试"}
         </button>
       )}
       </div>
