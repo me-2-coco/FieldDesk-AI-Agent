@@ -60,6 +60,13 @@ test("签收自动恢复只处理近期且仍处于维修前流程的工单", ()
   assert.equal(shouldAutoResumeReceipt({ ...base, recloudReceiptSyncStatus: "RESULT_UNKNOWN" }, NOW), false);
   assert.equal(shouldAutoResumeReceipt({
     ...base,
+    recloudProjectVerificationLastError: {
+      code: "RECLOUD_PRODUCT_SN_CORRECTION_READ_ONLY",
+      at: "2026-09-08T05:00:00.000Z",
+    },
+  }, NOW), false);
+  assert.equal(shouldAutoResumeReceipt({
+    ...base,
     recloudProjectVerificationLastError: { at: "2026-09-08T05:59:00.000Z" },
   }, NOW), false);
 });

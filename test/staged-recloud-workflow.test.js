@@ -67,8 +67,12 @@ test("Recloud detection and repair creation are separate explicit actions", asyn
   assert.match(connector, /async function startRepair[\s\S]*RECLOUD_REPAIR_SERVICE_ORDER_PAGE_NOT_READY/);
   assert.match(connector, /definitelyNotCreated[\s\S]*RECLOUD_REPAIR_START_NOT_CREATED/);
   assert.match(connector, /repairButtonCount >= 1[\s\S]*serviceOrderCandidates\.length === 0/);
+  assert.match(connector, /async function correctRmaProductSn[\s\S]*isEnabled\(\)[\s\S]*RECLOUD_PRODUCT_SN_CORRECTION_READ_ONLY/);
+  assert.match(connector, /async function fillReceiptFields[\s\S]*existingSerial[\s\S]*RECLOUD_PRODUCT_SN_CORRECTION_READ_ONLY/);
   assert.match(server, /function scheduleRecloudDetectionSync[\s\S]*connector\.confirmDetection/);
   assert.match(server, /function scheduleRecloudServiceOrderSync[\s\S]*connector\.startRepair/);
+  assert.match(server, /function scheduleRecloudDetectionSync[\s\S]*fastDomRead: true,[\s\S]*revealPhoneEnabled: false/);
+  assert.match(server, /function scheduleRecloudServiceOrderSync[\s\S]*fastDomRead: true,[\s\S]*revealPhoneEnabled: false/);
   assert.match(server, /reusedDetectionDetail = await isExpectedRmaStillOpen\(page, rmaNo\)/);
   assert.match(server, /RECLOUD_ACTION_NOT_FOUND[\s\S]*queryRmaByLogisticsNo\(page, order\.logisticsNo[\s\S]*connector\.startRepair/);
   assert.match(server, /recoveringPreparation[\s\S]*openExistingRepairServiceOrder/);

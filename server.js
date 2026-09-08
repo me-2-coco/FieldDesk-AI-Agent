@@ -106,6 +106,9 @@ const NON_RETRYABLE_DETECTION_ERRORS = new Set([
   "RECLOUD_DETECTION_OPTION_AMBIGUOUS",
   "RECLOUD_DETECTION_FIELD_AMBIGUOUS",
 ]);
+const NON_RETRYABLE_RECEIPT_ERRORS = new Set([
+  "RECLOUD_PRODUCT_SN_CORRECTION_READ_ONLY",
+]);
 const ACCOUNT_SESSION_COOKIE = "fielddesk_session";
 
 function resolvePersistedProjectAuthorization(modelAuthorization, currentProjectCode) {
@@ -692,6 +695,10 @@ function shouldAutoResumeReceipt(order, now = Date.now()) {
     || !order.recloudProjectVerificationConfirmedAt
     || ((order.receiptAttachments || []).length > 0 && !order.recloudReceiptAttachmentConfirmedAt);
   if (!missingDependency) return false;
+  const latestErrorCode = order.recloudReceiptAttachmentLastError?.code
+    || order.recloudProjectVerificationLastError?.code
+    || order.recloudReceiptLastError?.code;
+  if (NON_RETRYABLE_RECEIPT_ERRORS.has(latestErrorCode)) return false;
   const latestErrorTimestamp = [
     order.recloudReceiptAttachmentLastError?.at,
     order.recloudProjectVerificationLastError?.at,
@@ -1362,9 +1369,14 @@ function createApp(
           `RECLOUD_RECEIPT_BACKGROUND: failed ${error.code || "UNKNOWN"}`,
           JSON.stringify({ name: error.name || "Error", message: error.message || "" })
         );
-        const retryCount = (receiptRecoveryAttempts.get(rmaNo) || 0) + 1;
-        receiptRecoveryAttempts.set(rmaNo, retryCount);
-        const retryDelay = [2000, 5000, 15000][retryCount - 1];
+        const retryable = error.retryable !== false
+          && !NON_RETRYABLE_RECEIPT_ERRORS.has(failureCode);
+        const retryCount = retryable
+          ? (receiptRecoveryAttempts.get(rmaNo) || 0) + 1
+          : 0;
+        if (retryable) receiptRecoveryAttempts.set(rmaNo, retryCount);
+        else receiptRecoveryAttempts.delete(rmaNo);
+        const retryDelay = retryable ? [2000, 5000, 15000][retryCount - 1] : 0;
         if (retryDelay) {
           const retryTimer = setTimeout(async () => {
             const latest = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
@@ -1430,6 +1442,8 @@ function createApp(
         const liveResult = await withRecloud(connector, async (page) => {
           const detail = await connector.queryRmaByLogisticsNo(page, order.logisticsNo, {
             preserveDetailPage: true,
+            fastDomRead: true,
+            revealPhoneEnabled: false,
           });
           if (detail.rmaNo && detail.rmaNo !== rmaNo) {
             throw createApiError(
@@ -1585,7 +1599,11 @@ function createApp(
             // page, fall back to the authoritative query before writing.
             const reusedDetectionDetail = await isExpectedRmaStillOpen(page, rmaNo);
             if (!reusedDetectionDetail) {
-              const detail = await connector.queryRmaByLogisticsNo(page, order.logisticsNo, { preserveDetailPage: true });
+              const detail = await connector.queryRmaByLogisticsNo(page, order.logisticsNo, {
+                preserveDetailPage: true,
+                fastDomRead: true,
+                revealPhoneEnabled: false,
+              });
               if (detail.rmaNo && detail.rmaNo !== rmaNo) {
                 throw createApiError("RECLOUD_REPAIR_ORDER_MISMATCH", "瑞云查询结果与当前寄修单不一致", 409);
               }
@@ -1599,7 +1617,11 @@ function createApp(
               // action, rescan once and continue through the authoritative
               // path instead of retrying the same stale DOM.
               if (!reusedDetectionDetail || error.code !== "RECLOUD_ACTION_NOT_FOUND") throw error;
-              const detail = await connector.queryRmaByLogisticsNo(page, order.logisticsNo, { preserveDetailPage: true });
+              const detail = await connector.queryRmaByLogisticsNo(page, order.logisticsNo, {
+                preserveDetailPage: true,
+                fastDomRead: true,
+                revealPhoneEnabled: false,
+              });
               if (detail.rmaNo && detail.rmaNo !== rmaNo) {
                 throw createApiError("RECLOUD_REPAIR_ORDER_MISMATCH", "瑞云查询结果与当前寄修单不一致", 409);
               }

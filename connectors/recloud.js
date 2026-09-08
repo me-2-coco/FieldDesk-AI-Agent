@@ -10012,7 +10012,11 @@ async function openExistingRepairServiceOrder(page, context = {}, options = {}) 
     throw error;
   }
 
-  await queryRmaByLogisticsNo(page, logisticsNo || rmaNo, { preserveDetailPage: true });
+  await queryRmaByLogisticsNo(page, logisticsNo || rmaNo, {
+    preserveDetailPage: true,
+    fastDomRead: true,
+    revealPhoneEnabled: false,
+  });
   logger.info(`RECLOUD_REPAIR_ORDER_OPEN: rma_detail_ready rma=${rmaNo}`);
   bodyText = String(await readBody());
   if (!bodyText.includes(rmaNo)) {
@@ -10913,7 +10917,23 @@ async function fillReceiptFields(dialog, sn, remark) {
   // “产品序列号” field. Filling only the former closes the dialog after a
   // save-like response while leaving the row in “待签收”. Fill both whenever
   // the explicit product serial field is present.
-  if (productSerialInput) await productSerialInput.fill(sn);
+  if (productSerialInput) {
+    const editable = await productSerialInput.isEnabled().catch(() => false)
+      && await productSerialInput.getAttribute("readonly").catch(() => null) === null
+      && await productSerialInput.getAttribute("disabled").catch(() => null) === null;
+    if (editable) {
+      await productSerialInput.fill(sn);
+    } else {
+      const existingSerial = normalizeText(await productSerialInput.inputValue().catch(() => "")).toUpperCase();
+      if (existingSerial !== normalizeText(sn).toUpperCase()) {
+        const error = new Error("瑞云签收窗口中的产品序列号为只读且与 FieldDesk SN 不一致");
+        error.code = "RECLOUD_PRODUCT_SN_CORRECTION_READ_ONLY";
+        error.status = 409;
+        error.retryable = false;
+        throw error;
+      }
+    }
+  }
   await remarkInput.fill(remark);
 }
 
@@ -11468,6 +11488,20 @@ async function correctRmaProductSn(page, input = {}, options = {}) {
     const error = new Error("瑞云产品编辑窗口中的 SN 与目标产品行不一致");
     error.code = "RECLOUD_PRODUCT_SN_DIALOG_MISMATCH";
     error.status = 409;
+    throw error;
+  }
+  const snInputEnabled = await snInput.isEnabled().catch(() => false);
+  const snInputReadonly = await snInput.getAttribute("readonly").catch(() => null);
+  const snInputDisabled = await snInput.getAttribute("disabled").catch(() => null);
+  if (!snInputEnabled || snInputReadonly !== null || snInputDisabled !== null) {
+    const cancelButton = editDialog.getByRole("button", { name: /^(取消|关闭)$/ }).first();
+    if (await cancelButton.isVisible().catch(() => false)) {
+      await cancelButton.click({ timeout: 3000 }).catch(() => {});
+    }
+    const error = new Error("瑞云当前产品序列号为只读字段，无法自动修改；已停止重复重试");
+    error.code = "RECLOUD_PRODUCT_SN_CORRECTION_READ_ONLY";
+    error.status = 409;
+    error.retryable = false;
     throw error;
   }
   await snInput.fill(expectedSn);
