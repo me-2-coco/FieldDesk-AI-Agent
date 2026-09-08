@@ -10957,11 +10957,11 @@ async function confirmSign(page, sn, productType, remark, options = {}) {
       page.getByText(/签收成功/).waitFor({ state: "visible" }),
     ]);
     await page.waitForTimeout?.(1200);
-    if (options.logisticsNo) {
-      await queryRmaByLogisticsNo(page, options.logisticsNo, {
-        preserveDetailPage: true,
-      });
-    }
+    // Signing leaves the verified RMA detail open. Re-scanning the order here
+    // is both redundant and unsafe: Recloud can spend minutes refreshing its
+    // scanner after a successful write, causing the whole receipt job to time
+    // out before project verification and attachment upload. The remaining
+    // visible receipt action is the authoritative failure signal on this page.
     if (await hasVisibleReceiptAction(page)) {
       const verificationError = new Error("瑞云签收确认后仍显示签收入口");
       verificationError.code = "RECLOUD_RECEIPT_NOT_CONFIRMED";

@@ -42,6 +42,16 @@ test("receipt action detection distinguishes an absent button from a visible sig
   assert.equal(await hasVisibleReceiptAction(pageWithCount(1)), true);
 });
 
+test("successful receipt confirmation does not rescan before continuing downstream steps", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../connectors/recloud.js"), "utf8");
+  const confirmSignSource = source.slice(
+    source.indexOf("async function confirmSign("),
+    source.indexOf("function parseAttachmentSize(")
+  );
+  assert.doesNotMatch(confirmSignSource, /await queryRmaByLogisticsNo\(/);
+  assert.match(confirmSignSource, /await hasVisibleReceiptAction\(page\)/);
+});
+
 test("truncated Recloud serial numbers match only a sufficiently long unique prefix", () => {
   assert.equal(serialCellMatchesExpected("R2489X56HCNQ1...", "R2489X56HCNQ132701"), true);
   assert.equal(serialCellMatchesExpected("R2489X56HCNQ1…", "r2489x56hcnq132701"), true);
