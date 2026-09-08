@@ -84,6 +84,10 @@ const {
   getLocalCurrentUser,
 } = require("./config/local-users");
 const { hasBusinessRole, isBusinessRuleExempt } = require("./config/business-access-policy");
+const {
+  protectPreReceiptFaults,
+  restrictFaultVisibilityForUser,
+} = require("./services/pre-receipt-fault-visibility");
 
 const SUPPORTED_REPAIR_SPECIALTIES = Object.freeze(["扫地机", "洗地机"]);
 const RECLOUD_FAILED_RETRY_COOLDOWN_MS = 5 * 60 * 1000;
@@ -2039,6 +2043,9 @@ function createApp(
 
     try {
       const user = currentUserProvider(req);
+      const protectQueryFaults = (data) => protectPreReceiptFaults(data, {
+        restricted: restrictFaultVisibilityForUser(user),
+      });
       const allReceiptOrders = await receiptStore.readAll();
       const localOrders = await receiptStore.listOrdersForUser(user, USER_ROLES);
       const normalizedQuery = queryValue.toUpperCase();
@@ -2125,7 +2132,7 @@ function createApp(
       if (localMatches.length > 1) {
         return res.json({
           success: true,
-          data: {
+          data: protectQueryFaults({
             matches: localMatches.map((order) => withMachineHistory({
               logisticsNo: order.logisticsNo || "",
               pickupLogisticsNo: order.logisticsNo || "",
@@ -2150,7 +2157,7 @@ function createApp(
               cached: true,
             })),
             cached: true,
-          },
+          }),
         });
       }
       if (localMatches.length === 1) {
@@ -2181,7 +2188,7 @@ function createApp(
           cached: true,
         };
         if (localFallbackData.reportedFault && localFallbackData.productLine) {
-          return res.json({ success: true, data: withMachineHistory(localFallbackData) });
+          return res.json({ success: true, data: protectQueryFaults(withMachineHistory(localFallbackData)) });
         }
         onlineQueryValue = /^SF\d+$/i.test(String(order.logisticsNo || "").trim())
           ? order.logisticsNo
@@ -2284,7 +2291,7 @@ function createApp(
         if (Array.isArray(data?.matches)) await Promise.all(data.matches.map(cacheOne));
         else await cacheOne(data);
       }
-      return res.json({ success: true, data });
+      return res.json({ success: true, data: protectQueryFaults(data) });
     } catch (error) {
       return next(error);
     }
@@ -3158,6 +3165,16 @@ function createApp(
 
     try {
       const currentUser = currentUserProvider(req);
+      let reportedFault = String(req.body?.reportedFault || "").trim();
+      if (!reportedFault) {
+        const internalSources = [];
+        if (rmaQueryCacheStore) internalSources.push(...await rmaQueryCacheStore.readAll());
+        if (pendingReceiptStore) internalSources.push(...await pendingReceiptStore.readAll());
+        internalSources.push(...await receiptStore.readAll());
+        reportedFault = String(
+          internalSources.find((item) => String(item.rmaNo || "").trim() === rmaNo)?.reportedFault || ""
+        ).trim();
+      }
       const sn = validateReceiptSn(req.body?.sn, logisticsNo);
       const currentProjectCode = String(
         req.body?.currentProjectCode || req.body?.recloudProjectCode || ""
@@ -3204,7 +3221,7 @@ function createApp(
         remark,
         productLine: snProductLine || productLine || specialty,
         customerName: String(req.body?.customerName || "").trim(),
-        reportedFault: String(req.body?.reportedFault || "").trim(),
+        reportedFault,
         recloudProjectCode: currentProjectCode,
         recloudOrderStatus: verifiedRemoteDetail.orderStatus || "",
         recloudReceiptStatus: verifiedRemoteDetail.receiptStatus || verifiedReceiptState.label,
@@ -3225,24 +3242,27 @@ function createApp(
       );
       const supported = authorization.repairability === "SUPPORTED";
       const unsupported = authorization.repairability === "UNSUPPORTED";
+      const responseData = {
+        ...authorizedData,
+        authorization,
+        pricingPreparation: buildPricingPreview({
+          modelRepairFees: authorization.repairFees || {},
+          usedParts: [],
+          warrantyStatus: "",
+        }),
+        message: supported
+          ? "SN 已匹配下放机型，可以维修"
+          : unsupported
+              ? "未下放机型，需转寄总部"
+              : "机型数据异常，已停止并等待人工确认",
+        dryRun: true,
+        recloudSynced: false,
+      };
       return res.json({
         success: true,
-        data: {
-          ...authorizedData,
-          authorization,
-          pricingPreparation: buildPricingPreview({
-            modelRepairFees: authorization.repairFees || {},
-            usedParts: [],
-            warrantyStatus: "",
-          }),
-          message: supported
-            ? "SN 已匹配下放机型，可以维修"
-            : unsupported
-                ? "未下放机型，需转寄总部"
-                : "机型数据异常，已停止并等待人工确认",
-          dryRun: true,
-          recloudSynced: false,
-        },
+        data: protectPreReceiptFaults(responseData, {
+          restricted: restrictFaultVisibilityForUser(currentUser),
+        }),
       });
     } catch (error) {
       return next(error);
@@ -3271,17 +3291,18 @@ function createApp(
       });
     }
     try {
+      const currentUser = currentUserProvider(req);
       const data = await receiptStore.cancel(
         rmaNo,
-        currentUserProvider(req)
+        currentUser
       );
       return res.json({
         success: true,
-        data: {
+        data: protectPreReceiptFaults({
           ...data,
           message: "签收准备已取消，未操作瑞云",
           recloudSynced: false,
-        },
+        }, { restricted: restrictFaultVisibilityForUser(currentUser) }),
       });
     } catch (error) {
       return next(error);
@@ -4918,7 +4939,12 @@ function createApp(
           scheduleRecloudDetectionSync(order, user, { queuePriority: 0 });
         }
       }
-      res.json({ success: true, data: orders });
+      res.json({
+        success: true,
+        data: protectPreReceiptFaults(orders, {
+          restricted: restrictFaultVisibilityForUser(user),
+        }),
+      });
     } catch (error) { next(error); }
   });
 

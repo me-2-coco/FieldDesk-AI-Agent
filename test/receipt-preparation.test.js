@@ -45,6 +45,12 @@ const USERS = {
     role: "ADMIN",
     repairSpecialties: [],
   },
+  informationClerk: {
+    userId: "TEST-INFO",
+    displayName: "测试信息员",
+    role: "INFORMATION_CLERK",
+    repairSpecialties: [],
+  },
 };
 
 async function createTestStore(t) {
@@ -330,7 +336,59 @@ test("existing local order resumes without opening Recloud", async (t) => {
   assert.equal(result.data.source, "FIELDDESK_LOCAL");
   assert.equal(result.data.localWorkflow.status, "RECEIVED_PENDING_INSPECTION");
   assert.equal(result.data.localWorkflow.sn, "TEST-SN-A1");
+  assert.equal(result.data.reportedFault, "测试故障");
+  assert.equal(result.data.reportedFaultHiddenUntilReceipt, undefined);
   assert.equal(recloudQueries, 0);
+});
+
+test("unsigned fault is hidden from technicians including the Recloud test account and information clerk", async (t) => {
+  const store = await createTestStore(t);
+  await store.prepare({
+    ...validPayload(),
+    operatorId: USERS.dual.userId,
+    operatorName: USERS.dual.displayName,
+  });
+  const connector = {
+    openRecloud: async () => ({ loginRequired: false, page: {} }),
+    queryRmaByLogisticsNo: async () => ({
+      rmaNo: "JXTH900001001",
+      pickupLogisticsNo: "TEST-LOGISTICS-1001",
+      productLine: "扫地机",
+      reportedFault: "测试故障",
+    }),
+  };
+  const restrictedUsers = [
+    USERS.dual,
+    { ...USERS.dual, userId: "FieldDesk0004", displayName: "瑞云测试师傅" },
+    USERS.informationClerk,
+  ];
+  for (const user of restrictedUsers) {
+    const url = await startServer(t, connector, store, user);
+    const { response, result } = await post(url, "/api/crm/repairs/query", { queryValue: "JXTH900001001" });
+    assert.equal(response.status, 200);
+    assert.equal(result.data.reportedFault, "");
+    if (result.data.localWorkflow) assert.equal(result.data.localWorkflow.reportedFault, "");
+    assert.equal(result.data.reportedFaultHiddenUntilReceipt, true);
+  }
+});
+
+test("administrator sees unsigned fault and hidden client input cannot erase the stored value", async (t) => {
+  const store = await createTestStore(t);
+  await store.prepare({
+    ...validPayload(),
+    operatorId: USERS.dual.userId,
+    operatorName: USERS.dual.displayName,
+  });
+  const adminUrl = await startServer(t, { openRecloud: async () => assert.fail("local query must not open Recloud") }, store, USERS.admin);
+  const adminQuery = await post(adminUrl, "/api/crm/repairs/query", { queryValue: "JXTH900001001" });
+  assert.equal(adminQuery.result.data.reportedFault, "测试故障");
+
+  const technicianUrl = await startServer(t, { openRecloud: async () => assert.fail("must not open Recloud") }, store, USERS.dual);
+  const prepared = await post(technicianUrl, "/api/repairs/prepare-receipt", validPayload({ reportedFault: "" }));
+  assert.equal(prepared.response.status, 200);
+  assert.equal(prepared.result.data.reportedFault, "");
+  assert.equal(prepared.result.data.reportedFaultHiddenUntilReceipt, true);
+  assert.equal((await store.readAll()).find((item) => item.rmaNo === "JXTH900001001").reportedFault, "测试故障");
 });
 
 test("receipt preparation uses the validated specialty when CRM product line is empty", async (t) => {

@@ -33,7 +33,7 @@ function displayRepairTime(value) {
   return Number.isNaN(time.getTime()) ? value : time.toLocaleDateString("zh-CN")
 }
 
-function MachineRepairHistory({ history }) {
+function MachineRepairHistory({ history, hideFaultDescription = false }) {
   if (!history?.records?.length) return null
   return <section className={`machine-history-panel ${history.isRepeatRepair ? "is-repeat" : ""}`}>
     <div className="machine-history-heading">
@@ -48,7 +48,7 @@ function MachineRepairHistory({ history }) {
       {history.records.map((record) => <article key={`${record.rmaNo}-${record.completedAt}`}>
         <div><strong>{record.rmaNo || "寄修单号未记录"}</strong><span>{displayRepairTime(record.completedAt)}</span></div>
         <p>维修师傅：{record.technicianName || "未记录"}</p>
-        <p>故障描述：{record.reportedFault || "未记录"}</p>
+        {!hideFaultDescription && <p>故障描述：{record.reportedFault || "未记录"}</p>}
       </article>)}
     </div>
   </section>
@@ -666,12 +666,15 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
             </div>
           </dl>
 
-          <div className="mobile-record-description">
+          {!repairDetail.reportedFaultHiddenUntilReceipt && <div className="mobile-record-description">
             <span>用户报修描述</span>
             <p>{repairDetail.reportedFault || "未提供"}</p>
-          </div>
+          </div>}
 
-          <MachineRepairHistory history={machineHistory} />
+          <MachineRepairHistory
+            history={machineHistory}
+            hideFaultDescription={repairDetail.reportedFaultHiddenUntilReceipt}
+          />
 
           {receiptMessage && (
             <p className="receipt-status-message" role="status">
@@ -737,10 +740,10 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
               瑞云当前为“{repairDetail.receiptState.label}”，将跳过重复签收，直接核对项目号和机器 SN。
             </p>
           )}
-          <div className="mobile-record-description compact-note">
+          {!repairDetail.reportedFaultHiddenUntilReceipt && <div className="mobile-record-description compact-note">
             <span>报修描述</span>
             <p>{repairDetail.reportedFault || "未提供"}</p>
-          </div>
+          </div>}
 
           <label htmlFor="receipt-sn">机器 SN <span className="inline-required">必填</span></label>
           <div className="scan-input-row">
@@ -767,7 +770,10 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
               <ScanIcon />
             </button>
           </div>
-          <MachineRepairHistory history={machineHistory} />
+          <MachineRepairHistory
+            history={machineHistory}
+            hideFaultDescription={repairDetail.reportedFaultHiddenUntilReceipt}
+          />
           <div className="sn-secondary-actions">
             <button
               type="button"
