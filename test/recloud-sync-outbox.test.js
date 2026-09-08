@@ -241,6 +241,30 @@ test("inspection-only completion notifies the information clerk after Recloud co
   assert.equal(notices.length, 1);
 });
 
+test("recovery reopens only normal repairs stranded by the old no-submit rule", async (t) => {
+  const outbox = await outboxFixture(t);
+  const scheduled = [];
+  const service = new RecloudSyncService(outbox, {
+    async syncRepairCompleted() {
+      return { status: "AWAITING_INFORMATION_CLERK" };
+    },
+  }, { scheduler: (work) => scheduled.push(work) });
+  const normal = await service.enqueueOrderNode(ORDER, "REPAIR_COMPLETED", "OLD-NORMAL-HANDOFF");
+  const inspectionOnly = await service.enqueueOrderNode(
+    { ...ORDER, treatmentMode: "INSPECTION_ONLY" },
+    "REPAIR_COMPLETED",
+    "REAL-INSPECTION-HANDOFF"
+  );
+  await service.processTask(normal.id);
+  await service.processTask(inspectionOnly.id);
+  scheduled.length = 0;
+
+  assert.equal(await service.resumePendingTasks({ maxTasks: 5 }), 1);
+  assert.equal((await outbox.get(normal.id)).status, TASK_STATUS.PENDING);
+  assert.equal((await outbox.get(inspectionOnly.id)).status, TASK_STATUS.SUCCESS);
+  assert.equal(scheduled.length, 1);
+});
+
 test("repair manual review stores only safe conflict stage names", async (t) => {
   const outbox = await outboxFixture(t);
   const service = new RecloudSyncService(outbox, {
@@ -722,9 +746,15 @@ test("watchdog recovery limits each sweep and does not schedule an active task t
     scheduler: (work) => scheduled.push(work),
   });
   for (let index = 0; index < 3; index += 1) {
-    await service.enqueueOrderNode(ORDER, "RECEIPT", `WATCHDOG-${index}`);
+    await outbox.enqueue({
+      workOrderNo: ORDER.id,
+      rmaNo: `${ORDER.rmaNo}-${index}`,
+      nodeType: "RECEIPT",
+      localBusinessRecordId: `WATCHDOG-${index}`,
+      idempotencyKey: `RECEIPT:WATCHDOG-${index}`,
+      payload: buildNodePayload(ORDER, "RECEIPT"),
+    });
   }
-  scheduled.length = 0;
   assert.equal(await service.resumePendingTasks({ maxTasks: 2 }), 2);
   assert.equal(scheduled.length, 2);
   const running = scheduled[0]();

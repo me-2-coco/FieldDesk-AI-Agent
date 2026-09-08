@@ -58,6 +58,15 @@ class RecloudSyncService {
     this.taskFilter = typeof options.taskFilter === "function" ? options.taskFilter : () => true;
     this.staleProcessingMs = Number(options.staleProcessingMs || 45_000);
     this.activeTaskIds = new Set();
+    this.scheduledTaskIds = new Set();
+    this.resumeQueue = Promise.resolve();
+  }
+
+  scheduleTask(taskId, scheduler = this.scheduler) {
+    if (this.scheduledTaskIds.has(taskId)) return false;
+    this.scheduledTaskIds.add(taskId);
+    scheduler(() => this.processTask(taskId).catch(() => {}));
+    return true;
   }
 
   async enqueueOrderNode(order, nodeType, localBusinessRecordId) {
@@ -73,20 +82,40 @@ class RecloudSyncService {
       payload: buildNodePayload(order, nodeType),
     });
     if (task.status === TASK_STATUS.PENDING) {
-      if (this.taskFilter(task)) this.scheduler(() => this.processTask(task.id).catch(() => {}));
+      if (this.taskFilter(task)) this.scheduleTask(task.id);
     }
     return task;
   }
 
-  async resumePendingTasks(options = {}) {
+  resumePendingTasks(options = {}) {
+    const operation = this.resumeQueue.then(() => this.resumePendingTasksOnce(options));
+    this.resumeQueue = operation.catch(() => {});
+    return operation;
+  }
+
+  async resumePendingTasksOnce(options = {}) {
     const allTasks = await this.outbox.readAll();
     const now = Date.now();
     const minFailedAgeMs = Math.max(0, Number(options.minFailedAgeMs || 0));
     const maxTasks = Number.isFinite(Number(options.maxTasks))
       ? Math.max(0, Math.floor(Number(options.maxTasks)))
       : Infinity;
+    const stoppedNormalRepairs = allTasks.filter((task) =>
+      this.taskFilter(task)
+      && task.nodeType === "REPAIR_COMPLETED"
+      && task.status === TASK_STATUS.SUCCESS
+      && task.resultStatus === "AWAITING_INFORMATION_CLERK"
+      && String(task.payload?.treatmentMode || "").trim() !== "INSPECTION_ONLY"
+    ).slice(0, maxTasks);
+    for (const task of stoppedNormalRepairs) {
+      await this.outbox.reopenStoppedHandoff(task.id, {
+        lastError: "",
+        errorCategory: "RECOVERY",
+      });
+    }
     const staleProcessingTasks = allTasks.filter((task) =>
       !this.activeTaskIds.has(task.id)
+      && !this.scheduledTaskIds.has(task.id)
       && this.taskFilter(task)
       && task.status === TASK_STATUS.PROCESSING
       && Number.isFinite(Date.parse(task.updatedAt))
@@ -103,7 +132,7 @@ class RecloudSyncService {
       });
     }
     const tasks = (await this.outbox.readAll()).filter((task) =>
-      !this.activeTaskIds.has(task.id) && this.taskFilter(task) && (
+      !this.activeTaskIds.has(task.id) && !this.scheduledTaskIds.has(task.id) && this.taskFilter(task) && (
         task.status === TASK_STATUS.PENDING
         || (task.status === TASK_STATUS.FAILED
           && Number(task.retryCount || 0) < this.maxRetries
@@ -112,12 +141,13 @@ class RecloudSyncService {
     ).sort((left, right) => String(left.updatedAt || "").localeCompare(String(right.updatedAt || "")))
       .slice(0, maxTasks);
     for (const task of tasks) {
-      this.scheduler(() => this.processTask(task.id).catch(() => {}));
+      this.scheduleTask(task.id);
     }
     return tasks.length;
   }
 
   async processTask(taskId) {
+    this.scheduledTaskIds.delete(taskId);
     if (this.activeTaskIds.has(taskId)) return this.outbox.get(taskId);
     this.activeTaskIds.add(taskId);
     try {
@@ -135,7 +165,7 @@ class RecloudSyncService {
     // repair-preparation job has finished. Keep it pending without consuming a
     // retry or opening a competing browser flow until that dependency is ready.
     if (this.canProcessTask && !(await this.canProcessTask(task))) {
-      this.retryScheduler(() => this.processTask(task.id).catch(() => {}), this.dependencyPollMs);
+      this.scheduleTask(task.id, (work) => this.retryScheduler(work, this.dependencyPollMs));
       return task;
     }
     // A retry may happen minutes after the task was first queued.  Always rebuild
@@ -230,7 +260,7 @@ class RecloudSyncService {
     });
     if (nextStatus === TASK_STATUS.FAILED) {
       const delayMs = this.retryDelaysMs[Math.min(retryCount - 1, this.retryDelaysMs.length - 1)];
-      this.retryScheduler(() => this.processTask(task.id).catch(() => {}), delayMs);
+      this.scheduleTask(task.id, (work) => this.retryScheduler(work, delayMs));
     }
     return failed;
   }
@@ -255,7 +285,10 @@ class RecloudSyncService {
     const pending = canReconcileStoppedHandoff
       ? await this.outbox.reopenStoppedHandoff(taskId, retryFields)
       : await this.outbox.transition(taskId, TASK_STATUS.PENDING, retryFields);
-    this.scheduler(() => this.processTask(taskId).catch(() => {}));
+    // An explicit retry should not wait behind an older backoff timer. The
+    // active-task guard still prevents both callbacks from writing together.
+    this.scheduledTaskIds.delete(taskId);
+    this.scheduleTask(taskId);
     return pending;
   }
 

@@ -297,19 +297,32 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
         stoppedBeforeSubmit: true,
       };
     }
-    completedSteps.push("SUBMIT_RESERVED_FOR_INFORMATION_CLERK");
+    if (payload.treatmentMode === "INSPECTION_ONLY") {
+      completedSteps.push("SUBMIT_RESERVED_FOR_INFORMATION_CLERK");
+      await saveCheckpoint(options.checkpointStore, {
+        orderKey, fingerprint, status: "AWAITING_INFORMATION_CLERK", completedSteps: [...completedSteps],
+      });
+      return {
+        status: "AWAITING_INFORMATION_CLERK",
+        resumed,
+        completedSteps,
+        completeClicked: false,
+        finalConfirmClicked: false,
+        remoteAlreadyCompleted: true,
+        stoppedBeforeSubmit: true,
+        informationClerkAction: informationClerkActionFor(payload),
+      };
+    }
     await saveCheckpoint(options.checkpointStore, {
-      orderKey, fingerprint, status: "AWAITING_INFORMATION_CLERK", completedSteps: [...completedSteps],
+      orderKey, fingerprint, status: "SUCCESS", completedSteps: [...completedSteps],
     });
     return {
-      status: "AWAITING_INFORMATION_CLERK",
+      status: "SUCCESS",
       resumed,
       completedSteps,
-      completeClicked: false,
       finalConfirmClicked: false,
       remoteAlreadyCompleted: true,
-      stoppedBeforeSubmit: true,
-      informationClerkAction: informationClerkActionFor(payload),
+      recloudModified: true,
     };
   }
 
@@ -333,18 +346,62 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
       stoppedBeforeSubmit: true,
     };
   }
-  completedSteps.push("SUBMIT_RESERVED_FOR_INFORMATION_CLERK");
+  if (payload.treatmentMode === "INSPECTION_ONLY") {
+    completedSteps.push("SUBMIT_RESERVED_FOR_INFORMATION_CLERK");
+    await saveCheckpoint(options.checkpointStore, {
+      orderKey, fingerprint, status: "AWAITING_INFORMATION_CLERK", completedSteps: [...completedSteps],
+    });
+    return {
+      status: "AWAITING_INFORMATION_CLERK",
+      resumed,
+      completedSteps,
+      completeClicked: true,
+      finalConfirmClicked: false,
+      stoppedBeforeSubmit: true,
+      informationClerkAction: informationClerkActionFor(payload),
+    };
+  }
   await saveCheckpoint(options.checkpointStore, {
-    orderKey, fingerprint, status: "AWAITING_INFORMATION_CLERK", completedSteps: [...completedSteps],
+    orderKey, fingerprint, status: "WAITING_SUBMIT_READY", completedSteps: [...completedSteps],
+  });
+
+  const submitReady = await waitForRemoteSubmitReady(adapter, options);
+  if (!submitReady) {
+    throw orchestratorError("瑞云点击完工后未进入可提交状态", "RECLOUD_REPAIR_SUBMIT_NOT_READY", "WAIT_SUBMIT_READY");
+  }
+  completedSteps.push("SUBMIT_READY");
+
+  const isOutOfWarranty = String(payload.pricing?.warrantyStatus || "").trim() === "OUT_OF_WARRANTY"
+    || String(payload.responsibilityType || "").includes("保外");
+  const oldPartLabelParts = (payload.usedParts || []).filter((part) => part?.returnRequired === true);
+  if (!isOutOfWarranty && oldPartLabelParts.length > 0) {
+    if (typeof adapter.printOldPartLabels !== "function") {
+      throw orchestratorError("缺少旧件标签打印执行器", "RECLOUD_OLD_PART_LABEL_ADAPTER_INVALID", "OLD_PART_LABELS");
+    }
+    await adapter.printOldPartLabels(oldPartLabelParts);
+    completedSteps.push("OLD_PART_LABELS_PRINTED");
+  }
+
+  if (typeof adapter.clickSubmit !== "function") {
+    throw orchestratorError("缺少瑞云提交按钮执行器", "RECLOUD_REPAIR_SUBMIT_ADAPTER_INVALID", "SUBMIT");
+  }
+  await adapter.clickSubmit({
+    approvalFlow: RECLOUD_WORK_ORDER_OPERATION_POLICY.approvalFlow,
+    terminalAction: RECLOUD_WORK_ORDER_OPERATION_POLICY.terminalAction,
+    stopImmediately: true,
+  });
+  completedSteps.push("SUBMIT_CLICKED_STOPPED");
+  await saveCheckpoint(options.checkpointStore, {
+    orderKey, fingerprint, status: "SUCCESS", completedSteps: [...completedSteps],
   });
   return {
-    status: "AWAITING_INFORMATION_CLERK",
+    status: "SUCCESS",
     resumed,
     completedSteps,
     completeClicked: true,
-    finalConfirmClicked: false,
-    stoppedBeforeSubmit: true,
-    informationClerkAction: informationClerkActionFor(payload),
+    finalConfirmClicked: true,
+    stoppedImmediatelyAfterSubmit: true,
+    postSubmitActions: 0,
   };
 }
 

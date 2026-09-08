@@ -74,7 +74,7 @@ test("repair orchestrator dry-run plans work without touching Recloud", async ()
   assert.equal(result.recloudModified, false);
 });
 
-test("repair orchestrator uploads attachments before fields, clicks complete and reserves submit for information", async () => {
+test("normal repair uploads attachments, completes and submits Recloud", async () => {
   const adapter = remoteAdapter({ assignee: "唐张帅", parts: PAYLOAD.usedParts });
   const checkpoints = [];
   const result = await orchestrateRepairCompletion("ORDER-1", PAYLOAD, adapter, {
@@ -82,16 +82,16 @@ test("repair orchestrator uploads attachments before fields, clicks complete and
     preparationCompleted: true,
     checkpointStore: { async load() { return null; }, async save(value) { checkpoints.push(value); } },
   });
-  assert.equal(result.status, "AWAITING_INFORMATION_CLERK");
-  assert.deepEqual(result.completedSteps, ["ASSIGNEE_VERIFIED", "PARTS_VERIFIED", "ATTACHMENTS_VERIFIED", "FIELDS_VERIFIED", "COMPLETE_CLICKED", "SUBMIT_RESERVED_FOR_INFORMATION_CLERK"]);
-  assert.equal(result.finalConfirmClicked, false);
-  assert.equal(result.stoppedBeforeSubmit, true);
-  assert.equal(result.informationClerkAction, "核对维修资料并提交");
+  assert.equal(result.status, "SUCCESS");
+  assert.deepEqual(result.completedSteps, ["ASSIGNEE_VERIFIED", "PARTS_VERIFIED", "ATTACHMENTS_VERIFIED", "FIELDS_VERIFIED", "COMPLETE_CLICKED", "SUBMIT_READY", "SUBMIT_CLICKED_STOPPED"]);
+  assert.equal(result.finalConfirmClicked, true);
+  assert.equal(result.stoppedImmediatelyAfterSubmit, true);
   assert.deepEqual(adapter.calls, [
     "read", "read-attachments:附件", "attachments:附件", "read-attachments:附件",
-    "fields", "verify-fields", "complete",
+    "fields", "verify-fields", "complete", "wait-submit-ready",
+    "submit:内部维修单自动审批（成都欣益）:提交:true",
   ]);
-  assert.equal(checkpoints.at(-1).status, "AWAITING_INFORMATION_CLERK");
+  assert.equal(checkpoints.at(-1).status, "SUCCESS");
 });
 
 test("inspection-only ignores old generated reports and stops before submit for the information clerk", async () => {
@@ -142,7 +142,7 @@ test("repair orchestrator tolerates delayed Recloud field visibility", async () 
     preparationCompleted: true,
     fieldVerificationIntervalMs: 1,
   });
-  assert.equal(result.status, "AWAITING_INFORMATION_CLERK");
+  assert.equal(result.status, "SUCCESS");
   assert.equal(verificationCount, 3);
   assert.equal(adapter.calls.filter((call) => call === "wait-fields").length, 2);
 });
@@ -158,7 +158,7 @@ test("repair orchestrator updates fields but does not resubmit an already comple
     writeEnabled: true,
     preparationCompleted: true,
   });
-  assert.equal(result.status, "AWAITING_INFORMATION_CLERK");
+  assert.equal(result.status, "SUCCESS");
   assert.equal(result.remoteAlreadyCompleted, true);
   assert.equal(adapter.calls.includes("fields"), true);
   assert.equal(adapter.calls.includes("complete"), false);
@@ -206,8 +206,8 @@ test("repair orchestrator never retries assignment from the completion stage", a
 test("repair orchestrator reconciles an unconfirmed first-entry record from matching remote state", async () => {
   const adapter = remoteAdapter({ assignee: "唐张帅", parts: PAYLOAD.usedParts });
   const result = await orchestrateRepairCompletion("ORDER-1", PAYLOAD, adapter, { writeEnabled: true });
-  assert.equal(result.status, "AWAITING_INFORMATION_CLERK");
-  assert.equal(adapter.calls.some((call) => call.startsWith("submit:")), false);
+  assert.equal(result.status, "SUCCESS");
+  assert.equal(adapter.calls.some((call) => call.startsWith("submit:")), true);
 });
 
 test("repair orchestrator still blocks when an unconfirmed first-entry record differs remotely", async () => {
@@ -233,10 +233,10 @@ test("repair orchestrator recovers only missing parts for an explicitly failed p
     writeEnabled: true,
     allowPreparationRecovery: true,
   });
-  assert.equal(result.status, "AWAITING_INFORMATION_CLERK");
+  assert.equal(result.status, "SUCCESS");
   assert.equal(adapter.calls.some((call) => call.startsWith("assign:")), false);
   assert.equal(adapter.calls.some((call) => call.startsWith("parts:")), true);
-  assert.equal(adapter.calls.some((call) => call.startsWith("submit:")), false);
+  assert.equal(adapter.calls.some((call) => call.startsWith("submit:")), true);
 });
 
 test("repair orchestrator skips only an explicitly authorized missing part code", async () => {
@@ -245,10 +245,10 @@ test("repair orchestrator skips only an explicitly authorized missing part code"
     writeEnabled: true,
     authorizedSkippedPartCodes: ["PART-1"],
   });
-  assert.equal(result.status, "AWAITING_INFORMATION_CLERK");
+  assert.equal(result.status, "SUCCESS");
   assert.equal(result.completedSteps.includes("PARTS_VERIFIED_WITH_AUTHORIZED_SKIP"), true);
   assert.equal(adapter.calls.some((call) => call.startsWith("parts:")), false);
-  assert.equal(adapter.calls.some((call) => call.startsWith("submit:")), false);
+  assert.equal(adapter.calls.some((call) => call.startsWith("submit:")), true);
 });
 
 test("parts shortage confirms completion but never touches submit", async () => {
@@ -290,16 +290,18 @@ test("an out-of-stock logistics box also completes without submitting and notifi
   assert.equal(adapter.calls.some((call) => call.startsWith("submit:")), false);
 });
 
-test("repair orchestrator never waits for or clicks submit after completion", async () => {
+test("normal repair stops safely when Recloud never becomes submit-ready", async () => {
   const adapter = remoteAdapter({ assignee: "唐张帅", parts: PAYLOAD.usedParts });
   adapter.waitForSubmitReady = async () => { adapter.calls.push("wait-submit-ready"); return false; };
-  const result = await orchestrateRepairCompletion("ORDER-1", PAYLOAD, adapter, { writeEnabled: true, preparationCompleted: true });
-  assert.equal(result.status, "AWAITING_INFORMATION_CLERK");
-  assert.equal(adapter.calls.includes("wait-submit-ready"), false);
+  await assert.rejects(
+    orchestrateRepairCompletion("ORDER-1", PAYLOAD, adapter, { writeEnabled: true, preparationCompleted: true }),
+    { code: "RECLOUD_REPAIR_SUBMIT_NOT_READY", phase: "WAIT_SUBMIT_READY" }
+  );
+  assert.equal(adapter.calls.includes("wait-submit-ready"), true);
   assert.equal(adapter.calls.some((call) => call.startsWith("submit:")), false);
 });
 
-test("repair orchestrator leaves old-part label and submit work to information", async () => {
+test("normal in-warranty repair prints old-part labels before submit", async () => {
   const labelParts = PAYLOAD.usedParts.map((part) => ({ ...part, returnRequired: true }));
   const adapter = remoteAdapter({ assignee: "唐张帅", parts: labelParts });
   adapter.printOldPartLabels = async (parts) => adapter.calls.push(`labels:${parts.length}`);
@@ -307,10 +309,10 @@ test("repair orchestrator leaves old-part label and submit work to information",
     ...PAYLOAD,
     usedParts: labelParts,
   }, adapter, { writeEnabled: true, preparationCompleted: true });
-  assert.equal(result.status, "AWAITING_INFORMATION_CLERK");
-  assert.equal(result.completedSteps.includes("OLD_PART_LABELS_PRINTED"), false);
-  assert.equal(adapter.calls.some((call) => call.startsWith("labels:")), false);
-  assert.equal(adapter.calls.some((call) => call.startsWith("submit:")), false);
+  assert.equal(result.status, "SUCCESS");
+  assert.equal(result.completedSteps.includes("OLD_PART_LABELS_PRINTED"), true);
+  assert.equal(adapter.calls.some((call) => call.startsWith("labels:")), true);
+  assert.equal(adapter.calls.some((call) => call.startsWith("submit:")), true);
 });
 
 test("out-of-warranty repair skips old-part labels even when parts require return", async () => {
@@ -323,10 +325,10 @@ test("out-of-warranty repair skips old-part labels even when parts require retur
     pricing: { ...PAYLOAD.pricing, warrantyStatus: "OUT_OF_WARRANTY" },
     usedParts: labelParts,
   }, adapter, { writeEnabled: true, preparationCompleted: true });
-  assert.equal(result.status, "AWAITING_INFORMATION_CLERK");
+  assert.equal(result.status, "SUCCESS");
   assert.equal(result.completedSteps.includes("OLD_PART_LABELS_PRINTED"), false);
   assert.equal(adapter.calls.some((call) => call.startsWith("labels:")), false);
-  assert.equal(adapter.calls.some((call) => call.startsWith("submit:")), false);
+  assert.equal(adapter.calls.some((call) => call.startsWith("submit:")), true);
 });
 
 test("repair orchestrator never trusts a checkpoint without rereading Recloud", async () => {
