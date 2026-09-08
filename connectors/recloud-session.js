@@ -250,6 +250,11 @@ function createRecloudSessionManager(options = {}) {
   let releaseLock = null;
   let autoLoginAttempted = false;
 
+  function isRecoverablePageFailure(error) {
+    return /page crashed|target (?:page|context|browser).*closed|browser has been closed|page has been closed/i
+      .test(String(error?.message || ""));
+  }
+
   function findLivePage(channel = "foreground") {
     if (!context) return null;
     const assigned = channelPages.get(channel);
@@ -270,11 +275,31 @@ function createRecloudSessionManager(options = {}) {
         channelPages.set(channel, channelPage);
         page = channelPage;
         logSession("reused", logger);
-        await channelPage.goto(targetUrl, {
-          waitUntil: "domcontentloaded",
-          timeout: navigationTimeout,
-        });
-        return preparePage(channelPage, channel);
+        try {
+          await channelPage.goto(targetUrl, {
+            waitUntil: "domcontentloaded",
+            timeout: navigationTimeout,
+          });
+          return preparePage(channelPage, channel);
+        } catch (error) {
+          if (!isRecoverablePageFailure(error)) throw error;
+          channelPages.delete(channel);
+          await channelPage.close?.().catch(() => {});
+          const replacement = await context.newPage().catch(() => null);
+          if (!replacement) {
+            await close();
+            throw error;
+          }
+          replacement.setDefaultTimeout(defaultTimeout);
+          channelPages.set(channel, replacement);
+          page = replacement;
+          logger.warn?.(`RECLOUD_SESSION: recovered_crashed_page channel=${channel}`);
+          await replacement.goto(targetUrl, {
+            waitUntil: "domcontentloaded",
+            timeout: navigationTimeout,
+          });
+          return preparePage(replacement, channel);
+        }
       }
     }
     if (opening) {

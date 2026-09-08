@@ -1343,6 +1343,38 @@ test("a failed background Recloud receipt does not block the local workflow", as
   assert.ok(saved.receiptCompletedAt);
 });
 
+test("a Recloud page crash before the receipt action is persisted as a retryable failure", async (t) => {
+  const store = await createTestStore(t);
+  await store.prepare({
+    ...validPayload(),
+    operatorId: USERS.sweep.userId,
+    operatorName: USERS.sweep.displayName,
+  });
+  const connector = {
+    openRecloud: async () => ({ loginRequired: false, page: {} }),
+    queryRmaByLogisticsNo: async () => {
+      throw new Error("page.goto: Page crashed");
+    },
+  };
+  const url = await startServer(t, connector, store, USERS.sweep, {
+    env: {
+      ...process.env,
+      DRY_RUN: "true",
+      RECLOUD_WRITE_ENABLED: "false",
+      RECLOUD_RECEIPT_WRITE_ENABLED: "true",
+    },
+  });
+
+  const completed = await post(url, "/api/repairs/complete-local-receipt", { rmaNo: "JXTH900001001" });
+  assert.equal(completed.response.status, 200);
+  await waitForValue(async () => {
+    const current = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
+    return current?.recloudReceiptSyncStatus;
+  }, "FAILED");
+  const saved = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
+  assert.equal(saved.recloudReceiptLastError.code, "RECLOUD_PAGE_CRASHED");
+});
+
 test("an unknown background Recloud result enters reconciliation without blocking local work", async (t) => {
   const store = await createTestStore(t);
   await store.prepare({

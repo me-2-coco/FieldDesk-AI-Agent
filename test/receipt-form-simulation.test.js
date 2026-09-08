@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const {
   classifyRecloudRequest,
+  fillReceiptFields,
   sanitizeRecloudRequestPath,
   simulateReceiptForm,
 } = require("../connectors/recloud");
@@ -51,6 +52,32 @@ function editableControl(initialValue, role, onFill = async () => {}) {
     history,
   };
 }
+
+test("live receipt fills both SN verification and required product serial fields", async () => {
+  const snCheck = editableControl("", "sn-check");
+  const productSerial = editableControl("", "product-serial");
+  const remark = editableControl("", "remark");
+  const dialog = {
+    getByLabel(label) {
+      if (label === "产品序列号") return collection([productSerial]);
+      if (label instanceof RegExp && label.test("SN码核对")) return collection([snCheck]);
+      if (label instanceof RegExp && label.test("签收明细备注")) return collection([remark]);
+      return collection([]);
+    },
+    locator(selector) {
+      if (selector === "input:visible, textarea:visible") {
+        return collection([missingLocator(), missingLocator(), missingLocator(), snCheck, remark]);
+      }
+      return collection([]);
+    },
+  };
+
+  await fillReceiptFields(dialog, "TEST-SN-1001", "扫地机");
+
+  assert.deepEqual(snCheck.history, ["TEST-SN-1001"]);
+  assert.deepEqual(productSerial.history, ["TEST-SN-1001"]);
+  assert.deepEqual(remark.history, ["扫地机"]);
+});
 
 function createSimulationPage(options = {}) {
   let actionClicks = 0;

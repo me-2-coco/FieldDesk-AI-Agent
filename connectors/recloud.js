@@ -10866,9 +10866,12 @@ async function simulateReceiptForm(page, sn, remark, options = {}) {
 
 async function fillReceiptFields(dialog, sn, remark) {
   const inputs = dialog.locator("input:visible, textarea:visible");
+  const productSerialInput = await firstVisible([
+    dialog.getByLabel("产品序列号", { exact: true }).first(),
+  ]);
   const snCandidates = locateDialogField(
     dialog,
-    ["SN", "序列号", "设备序列号"],
+    ["SN码核对", "SN", "设备序列号"],
     ["SN", "序列号"]
   );
   const remarkCandidates = locateDialogField(
@@ -10889,9 +10892,14 @@ async function fillReceiptFields(dialog, sn, remark) {
     inputs.nth(4),
   ]);
 
-  if (!snInput) throw new Error("瑞云签收弹窗中未找到 SN 输入框");
+  if (!snInput && !productSerialInput) throw new Error("瑞云签收弹窗中未找到 SN 输入框");
   if (!remarkInput) throw new Error("瑞云签收弹窗中未找到备注输入框");
-  await snInput.fill(sn);
+  if (snInput) await snInput.fill(sn);
+  // The current Recloud form has both “SN码核对” and a separate required
+  // “产品序列号” field. Filling only the former closes the dialog after a
+  // save-like response while leaving the row in “待签收”. Fill both whenever
+  // the explicit product serial field is present.
+  if (productSerialInput) await productSerialInput.fill(sn);
   await remarkInput.fill(remark);
 }
 
@@ -10948,8 +10956,21 @@ async function confirmSign(page, sn, productType, remark, options = {}) {
       dialog.waitFor({ state: "hidden" }),
       page.getByText(/签收成功/).waitFor({ state: "visible" }),
     ]);
+    await page.waitForTimeout?.(1200);
+    if (options.logisticsNo) {
+      await queryRmaByLogisticsNo(page, options.logisticsNo, {
+        preserveDetailPage: true,
+      });
+    }
+    if (await hasVisibleReceiptAction(page)) {
+      const verificationError = new Error("瑞云签收确认后仍显示签收入口");
+      verificationError.code = "RECLOUD_RECEIPT_NOT_CONFIRMED";
+      verificationError.status = 502;
+      verificationError.resultUnknown = false;
+      throw verificationError;
+    }
   } catch (error) {
-    if (confirmationAttempted) {
+    if (confirmationAttempted && error.code !== "RECLOUD_RECEIPT_NOT_CONFIRMED") {
       error.code = "RECLOUD_RECEIPT_RESULT_UNKNOWN";
       error.status = 409;
       error.resultUnknown = true;

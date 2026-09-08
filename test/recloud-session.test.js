@@ -190,6 +190,58 @@ test("foreground and background channels use separate pages in one authenticated
   await manager.close();
 });
 
+test("a crashed channel page is replaced before the Recloud operation is retried", async (t) => {
+  const directory = await createTemporaryDirectory(t);
+  let firstClosed = false;
+  let firstGotoCount = 0;
+  let firstUrl = "https://crm2.recloud.com.cn/home";
+  const crashedPage = {
+    isClosed: () => firstClosed,
+    url: () => firstUrl,
+    setDefaultTimeout() {},
+    async close() { firstClosed = true; },
+    async goto(url) {
+      firstGotoCount += 1;
+      if (firstGotoCount > 1) throw new Error("page.goto: Page crashed");
+      firstUrl = url;
+    },
+  };
+  let replacementUrl = "https://crm2.recloud.com.cn/home";
+  const replacementPage = {
+    isClosed: () => false,
+    url: () => replacementUrl,
+    setDefaultTimeout() {},
+    async goto(url) { replacementUrl = url; },
+  };
+  const pages = [crashedPage];
+  const context = {
+    pages: () => pages,
+    newPage: async () => {
+      pages.push(replacementPage);
+      return replacementPage;
+    },
+    close: async () => {},
+  };
+  const logs = [];
+  const manager = createRecloudSessionManager({
+    chromium: { launchPersistentContext: async () => context },
+    profileDirectory: path.join(directory, "profile"),
+    lockPath: path.join(directory, "profile.lock"),
+    targetUrl: "https://crm2.recloud.com.cn/#/scanSignin/query",
+    isLoginPage: (url) => url.includes("auth4.recloud.com.cn"),
+    env: { RECLOUD_HEADLESS: "true" },
+    logger: { info() {}, warn: (message) => logs.push(message) },
+  });
+
+  const first = await manager.ensureOpen();
+  assert.equal(first.page, crashedPage);
+  const recovered = await manager.ensureOpen();
+  assert.equal(recovered.page, replacementPage);
+  assert.equal(firstClosed, true);
+  assert.match(logs[0], /recovered_crashed_page/);
+  await manager.close();
+});
+
 test("expired session enters login-required flow without keychain access", async (t) => {
   const directory = await createTemporaryDirectory(t);
   const browser = createSessionBrowser(

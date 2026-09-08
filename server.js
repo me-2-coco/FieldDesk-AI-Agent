@@ -1193,21 +1193,27 @@ function createApp(
         }
         return result;
       } catch (error) {
-        if (error.code === "RECLOUD_RECEIPT_TIMEOUT") {
-          const current = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
-          if (current && !current.recloudReceiptConfirmedAt && receiptNeedsSync) {
-            await receiptStore.markRecloudReceiptFailed(rmaNo, {
-              code: error.code,
-              resultUnknown: true,
-              operator,
-            }).catch(() => {});
-          }
-          if (current && !current.recloudReceiptAttachmentConfirmedAt && attachmentsNeedSync) {
-            await receiptStore.markRecloudReceiptAttachmentsFailed(rmaNo, {
-              code: error.code,
-              resultUnknown: attachmentUploadTriggered,
-            }).catch(() => {});
-          }
+        const current = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
+        const pageCrashed = /page crashed|target (?:page|context|browser).*closed|browser has been closed|page has been closed/i
+          .test(String(error?.message || ""));
+        const failureCode = error.code || (pageCrashed ? "RECLOUD_PAGE_CRASHED" : "RECLOUD_RECEIPT_FAILED");
+        if (current && !current.recloudReceiptConfirmedAt && receiptNeedsSync) {
+          await receiptStore.markRecloudReceiptFailed(rmaNo, {
+            code: failureCode,
+            resultUnknown:
+              error.resultUnknown === true
+              || error.code === "RECLOUD_RECEIPT_RESULT_UNKNOWN"
+              || error.code === "RECLOUD_RECEIPT_TIMEOUT",
+            operator,
+          }).catch(() => {});
+        }
+        if (current && !current.recloudReceiptAttachmentConfirmedAt && attachmentsNeedSync) {
+          await receiptStore.markRecloudReceiptAttachmentsFailed(rmaNo, {
+            code: failureCode,
+            resultUnknown:
+              attachmentUploadTriggered
+              && (error.resultUnknown === true || error.code === "RECLOUD_RECEIPT_TIMEOUT"),
+          }).catch(() => {});
         }
         console.error(
           `RECLOUD_RECEIPT_BACKGROUND: failed ${error.code || "UNKNOWN"}`,
