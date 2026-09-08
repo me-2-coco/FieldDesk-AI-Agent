@@ -816,13 +816,19 @@ class JsonReceiptPreparationStore {
     const operation = this.writeQueue.then(async () => {
       const records = await this.readAll();
       const existing = records.find((record) => record.rmaNo === rmaNo);
-      if (!existing) throw Object.assign(new Error("未找到只检测不维修工单"), { code: "RECEIPT_PREPARATION_NOT_FOUND", status: 404 });
+      if (!existing) throw Object.assign(new Error("未找到维修工单"), { code: "RECEIPT_PREPARATION_NOT_FOUND", status: 404 });
       const timestamp = new Date().toISOString();
+      const informationClerkAction = normalizeRequired(result.informationClerkAction)
+        || (existing.treatmentMode === "INSPECTION_ONLY"
+          ? "开检测报告、上传报告、修改地址并提交"
+          : "核对维修资料并提交");
+      const handoffMessage = `瑞云已完工确认，待信息员${informationClerkAction}`;
       const updated = {
         ...existing,
         inspectionOnlyHandoff: {
           status: "PENDING_INFORMATION",
-          message: "瑞云已完工确认，待信息员开检测报告、上传报告、修改地址并提交",
+          message: handoffMessage,
+          informationClerkAction,
           completedSteps: Array.isArray(result.completedSteps) ? result.completedSteps : [],
           requestedAt: existing.inspectionOnlyHandoff?.requestedAt || timestamp,
           updatedAt: timestamp,
@@ -830,7 +836,7 @@ class JsonReceiptPreparationStore {
         updatedAt: timestamp,
         timeline: existing.inspectionOnlyHandoff?.status === "PENDING_INFORMATION"
           ? existing.timeline || []
-          : [...(existing.timeline || []), timelineEvent("INSPECTION_ONLY_AWAITING_INFORMATION", "瑞云已完工确认，已通知信息员开检测报告、上传报告、修改地址并提交", operator, timestamp)],
+          : [...(existing.timeline || []), timelineEvent("RECLOUD_COMPLETED_AWAITING_INFORMATION", `瑞云已完工确认，已通知信息员${informationClerkAction}`, operator, timestamp)],
       };
       await this.writeAll(records.map((record) => record.rmaNo === rmaNo ? updated : record));
       return updated;

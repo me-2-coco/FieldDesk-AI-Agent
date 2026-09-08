@@ -12,7 +12,8 @@ const TYPE_NAMES = {
   RECLOUD_RECEIPT_RESULT_UNKNOWN: "签收结果待核对",
   SYNC_ATTENTION_REQUIRED: "同步待处理",
   PARTS_SHORTAGE_PENDING: "瑞云缺件待补录",
-  INSPECTION_ONLY_ADDRESS_AND_SUBMIT_PENDING: "只检测待改址提交"
+  INSPECTION_ONLY_ADDRESS_AND_SUBMIT_PENDING: "只检测待改址提交",
+  RECLOUD_COMPLETED_SUBMIT_PENDING: "瑞云已完工待提交"
 }
 
 function InformationExceptionCenter({ setPage, onOpenReport }) {
@@ -73,6 +74,7 @@ function InformationExceptionCenter({ setPage, onOpenReport }) {
       <div className="compact-record-detail"><div><small>物流单号</small><strong>{item.logisticsNo || "未记录"}</strong></div><div><small>负责师傅</small><strong>{item.technicianName || "未分配"}</strong></div><div><small>当前状态</small><strong>{item.status || "未记录"}</strong></div></div>
       {item.type === "SYNC_ATTENTION_REQUIRED" && <p><strong>处理方式：通知管理员进入同步任务页面处理，信息员不能修改或重试同步。</strong></p>}
       {item.type === "INSPECTION_ONLY_ADDRESS_AND_SUBMIT_PENDING" && <p><strong>处理方式：信息员开检测报告并上传到瑞云“附件（检测报告）”，再修改返件地址，确认无误后点击提交。</strong></p>}
+      {item.type === "RECLOUD_COMPLETED_SUBMIT_PENDING" && <p><strong>处理方式：信息员核对瑞云维修资料，确认无误后点击提交。</strong></p>}
       {item.type === "PARTS_SHORTAGE_PENDING" && <>
         <p><strong>缺件：{(item.missingParts || []).map((part) => `${part.partName || part.partCode}（${part.partCode}）×${part.quantity}`).join("、")}</strong></p>
         <p>请在瑞云到货后补加以上配件并点击提交，再回来标记完成。</p>

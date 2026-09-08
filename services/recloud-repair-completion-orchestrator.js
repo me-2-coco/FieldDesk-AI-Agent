@@ -61,6 +61,12 @@ async function readRemoteAttachments(adapter, target = "附件") {
   return target === "附件（检测报告）" ? remote.detectionReportAttachments || [] : remote.attachments || [];
 }
 
+function informationClerkActionFor(payload = {}) {
+  return String(payload.treatmentMode || "").trim() === "INSPECTION_ONLY"
+    ? "开检测报告、上传检测报告、修改地址并提交"
+    : "核对维修资料并提交";
+}
+
 function validateRemotePlans(formPlan, partsPlan, attachmentsPlan) {
   const reasons = [];
   if (!formPlan.readyToPrefill) reasons.push({ step: "FORM", reason: "MISSING_FIELDS", fields: formPlan.missingFields });
@@ -218,6 +224,32 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
   completedSteps.push(skippedAuthorizedMissingParts ? "PARTS_VERIFIED_WITH_AUTHORIZED_SKIP" : "PARTS_VERIFIED");
   await saveCheckpoint(options.checkpointStore, { orderKey, fingerprint, status: "RUNNING", completedSteps: [...completedSteps] });
 
+  // 瑞云会在没有维修附件时拒绝保存整张服务报告。必须先上传附件，
+  // 再写费用与维修字段，否则字段保存失败、附件步骤又永远无法执行。
+  let remoteAttachments = await readRemoteAttachments(adapter, RECLOUD_WORK_ORDER_OPERATION_POLICY.attachmentTarget);
+  attachmentsPlan = buildRecloudRepairAttachmentsPlan(desiredMainAttachments, remoteAttachments);
+  if (!attachmentsPlan.readyToUpload) {
+    throw orchestratorError("附件上传前远端状态冲突", "RECLOUD_REPAIR_ATTACHMENT_PRECHECK_FAILED", "ATTACHMENTS");
+  }
+  if (attachmentsPlan.additions.length) {
+    if (typeof adapter.uploadAttachments !== "function") {
+      throw orchestratorError("缺少附件上传执行器", "RECLOUD_REPAIR_ATTACHMENT_WRITE_ADAPTER_INVALID", "ATTACHMENTS");
+    }
+    assertRecloudOperationAllowed({ action: "上传附件", target: RECLOUD_WORK_ORDER_OPERATION_POLICY.attachmentTarget });
+    await adapter.uploadAttachments(attachmentsPlan, {
+      target: RECLOUD_WORK_ORDER_OPERATION_POLICY.attachmentTarget,
+    });
+    remoteAttachments = await readRemoteAttachments(adapter, RECLOUD_WORK_ORDER_OPERATION_POLICY.attachmentTarget);
+    attachmentsPlan = buildRecloudRepairAttachmentsPlan(desiredMainAttachments, remoteAttachments);
+    if (!attachmentsPlan.readyToUpload || attachmentsPlan.additions.length) {
+      throw orchestratorError("附件上传后远端复核失败", "RECLOUD_REPAIR_ATTACHMENT_POSTVERIFY_FAILED", "ATTACHMENTS");
+    }
+  }
+  completedSteps.push("ATTACHMENTS_VERIFIED");
+  await saveCheckpoint(options.checkpointStore, {
+    orderKey, fingerprint, status: "RUNNING", completedSteps: [...completedSteps],
+  });
+
   if (typeof adapter.applyRepairFields !== "function") {
     throw orchestratorError("缺少维修字段执行器", "RECLOUD_REPAIR_FIELD_WRITE_ADAPTER_INVALID", "FIELDS");
   }
@@ -243,70 +275,28 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
   }
   completedSteps.push("FIELDS_VERIFIED");
   await saveCheckpoint(options.checkpointStore, { orderKey, fingerprint, status: "RUNNING", completedSteps: [...completedSteps] });
-
-  // 字段保存可能更新附件区域，上传前只重读附件。负责人和配件已在
-  // 上面完成远端复核，不再重复扫描整张服务单。
-  let remoteAttachments = await readRemoteAttachments(adapter, RECLOUD_WORK_ORDER_OPERATION_POLICY.attachmentTarget);
-  attachmentsPlan = buildRecloudRepairAttachmentsPlan(desiredMainAttachments, remoteAttachments);
-  if (!attachmentsPlan.readyToUpload) {
-    throw orchestratorError("附件上传前远端状态冲突", "RECLOUD_REPAIR_ATTACHMENT_PRECHECK_FAILED", "ATTACHMENTS");
-  }
-  if (attachmentsPlan.additions.length) {
-    if (typeof adapter.uploadAttachments !== "function") {
-      throw orchestratorError("缺少附件上传执行器", "RECLOUD_REPAIR_ATTACHMENT_WRITE_ADAPTER_INVALID", "ATTACHMENTS");
-    }
-    assertRecloudOperationAllowed({ action: "上传附件", target: RECLOUD_WORK_ORDER_OPERATION_POLICY.attachmentTarget });
-    await adapter.uploadAttachments(attachmentsPlan, {
-      target: RECLOUD_WORK_ORDER_OPERATION_POLICY.attachmentTarget,
-    });
-    remoteAttachments = await readRemoteAttachments(adapter, RECLOUD_WORK_ORDER_OPERATION_POLICY.attachmentTarget);
-    attachmentsPlan = buildRecloudRepairAttachmentsPlan(desiredMainAttachments, remoteAttachments);
-    if (!attachmentsPlan.readyToUpload || attachmentsPlan.additions.length) {
-      throw orchestratorError("附件上传后远端复核失败", "RECLOUD_REPAIR_ATTACHMENT_POSTVERIFY_FAILED", "ATTACHMENTS");
-    }
-  }
-  completedSteps.push("ATTACHMENTS_VERIFIED");
   await saveCheckpoint(options.checkpointStore, {
     orderKey, fingerprint, status: "READY_TO_COMPLETE", completedSteps: [...completedSteps],
   });
 
   if (remote.completed === true) {
     completedSteps.push("REMOTE_ALREADY_COMPLETED");
-    if (payload.treatmentMode === "INSPECTION_ONLY") {
-      completedSteps.push("SUBMIT_RESERVED_FOR_INFORMATION_CLERK");
+    if (blockingMissingParts().length) {
+      completedSteps.push("SUBMIT_SKIPPED_FOR_PARTS_SHORTAGE");
       await saveCheckpoint(options.checkpointStore, {
-        orderKey, fingerprint, status: "AWAITING_INFORMATION_CLERK", completedSteps: [...completedSteps],
+        orderKey, fingerprint, status: "AWAITING_PARTS", completedSteps: [...completedSteps], missingParts: blockingMissingParts(),
       });
       return {
-        status: "AWAITING_INFORMATION_CLERK",
+        status: "AWAITING_PARTS",
         resumed,
         completedSteps,
+        missingParts: blockingMissingParts(),
         completeClicked: false,
         remoteAlreadyCompleted: true,
         finalConfirmClicked: false,
         stoppedBeforeSubmit: true,
-        informationClerkAction: "开检测报告、上传检测报告、修改地址并提交",
       };
     }
-    await saveCheckpoint(options.checkpointStore, {
-      orderKey, fingerprint, status: "SUCCESS", completedSteps: [...completedSteps],
-    });
-    return {
-      status: "SUCCESS",
-      resumed,
-      completedSteps,
-      finalConfirmClicked: false,
-      remoteAlreadyCompleted: true,
-      recloudModified: true,
-    };
-  }
-
-  if (typeof adapter.clickComplete !== "function") {
-    throw orchestratorError("缺少瑞云完工按钮执行器", "RECLOUD_REPAIR_COMPLETE_ADAPTER_INVALID", "COMPLETE");
-  }
-  await adapter.clickComplete();
-  completedSteps.push("COMPLETE_CLICKED");
-  if (payload.treatmentMode === "INSPECTION_ONLY") {
     completedSteps.push("SUBMIT_RESERVED_FOR_INFORMATION_CLERK");
     await saveCheckpoint(options.checkpointStore, {
       orderKey, fingerprint, status: "AWAITING_INFORMATION_CLERK", completedSteps: [...completedSteps],
@@ -315,12 +305,19 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
       status: "AWAITING_INFORMATION_CLERK",
       resumed,
       completedSteps,
-      completeClicked: true,
+      completeClicked: false,
       finalConfirmClicked: false,
+      remoteAlreadyCompleted: true,
       stoppedBeforeSubmit: true,
-      informationClerkAction: "开检测报告、上传检测报告、修改地址并提交",
+      informationClerkAction: informationClerkActionFor(payload),
     };
   }
+
+  if (typeof adapter.clickComplete !== "function") {
+    throw orchestratorError("缺少瑞云完工按钮执行器", "RECLOUD_REPAIR_COMPLETE_ADAPTER_INVALID", "COMPLETE");
+  }
+  await adapter.clickComplete();
+  completedSteps.push("COMPLETE_CLICKED");
   if (blockingMissingParts().length) {
     completedSteps.push("SUBMIT_SKIPPED_FOR_PARTS_SHORTAGE");
     await saveCheckpoint(options.checkpointStore, {
@@ -336,50 +333,18 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
       stoppedBeforeSubmit: true,
     };
   }
+  completedSteps.push("SUBMIT_RESERVED_FOR_INFORMATION_CLERK");
   await saveCheckpoint(options.checkpointStore, {
-    orderKey, fingerprint, status: "WAITING_SUBMIT_READY", completedSteps: [...completedSteps],
-  });
-
-  const submitReady = await waitForRemoteSubmitReady(adapter, options);
-  if (!submitReady) {
-    throw orchestratorError("瑞云点击完工后未进入可提交状态", "RECLOUD_REPAIR_SUBMIT_NOT_READY", "WAIT_SUBMIT_READY");
-  }
-  completedSteps.push("SUBMIT_READY");
-
-  const isOutOfWarranty = String(payload.pricing?.warrantyStatus || "").trim() === "OUT_OF_WARRANTY"
-    || String(payload.responsibilityType || "").includes("保外");
-  const oldPartLabelParts = (payload.usedParts || []).filter((part) => part?.returnRequired === true);
-  const hasOldPartLabels = !isOutOfWarranty && oldPartLabelParts.length > 0;
-  if (hasOldPartLabels) {
-    if (typeof adapter.printOldPartLabels !== "function") {
-      throw orchestratorError("缺少旧件标签打印执行器", "RECLOUD_OLD_PART_LABEL_ADAPTER_INVALID", "OLD_PART_LABELS");
-    }
-    await adapter.printOldPartLabels(oldPartLabelParts);
-    completedSteps.push("OLD_PART_LABELS_PRINTED");
-  }
-
-  if (typeof adapter.clickSubmit !== "function") {
-    throw orchestratorError("缺少瑞云提交按钮执行器", "RECLOUD_REPAIR_SUBMIT_ADAPTER_INVALID", "SUBMIT");
-  }
-  await adapter.clickSubmit({
-    approvalFlow: RECLOUD_WORK_ORDER_OPERATION_POLICY.approvalFlow,
-    terminalAction: RECLOUD_WORK_ORDER_OPERATION_POLICY.terminalAction,
-    stopImmediately: true,
-  });
-  // 点击签核流程中的“提交”即为本单终点。提交后禁止打开审批历史、
-  // 打印预览或其它页面做额外核验，避免完成后继续误操作。
-  completedSteps.push("SUBMIT_CLICKED_STOPPED");
-  await saveCheckpoint(options.checkpointStore, {
-    orderKey, fingerprint, status: "SUCCESS", completedSteps: [...completedSteps],
+    orderKey, fingerprint, status: "AWAITING_INFORMATION_CLERK", completedSteps: [...completedSteps],
   });
   return {
-    status: "SUCCESS",
+    status: "AWAITING_INFORMATION_CLERK",
     resumed,
     completedSteps,
     completeClicked: true,
-    finalConfirmClicked: true,
-    stoppedImmediatelyAfterSubmit: true,
-    postSubmitActions: 0,
+    finalConfirmClicked: false,
+    stoppedBeforeSubmit: true,
+    informationClerkAction: informationClerkActionFor(payload),
   };
 }
 

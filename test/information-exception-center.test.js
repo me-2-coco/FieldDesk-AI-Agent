@@ -40,6 +40,7 @@ test("inspection-only completion becomes a high-priority report address and subm
     rmaNo: "JXTH202609062811",
     logisticsNo: "SF5117998691836",
     status: "REPAIR_COMPLETED_PENDING_SHIPMENT",
+    treatmentMode: "INSPECTION_ONLY",
     technicianName: "卢连波",
     inspectionOnlyHandoff: { status: "PENDING_INFORMATION" },
     repairCompletion: {

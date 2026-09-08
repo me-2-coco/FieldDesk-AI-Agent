@@ -41,11 +41,14 @@ function detectOrderExceptions(order, options = {}) {
     });
   }
   if (order.inspectionOnlyHandoff?.status === "PENDING_INFORMATION") {
+    const isInspectionOnly = order.treatmentMode === "INSPECTION_ONLY";
     exceptions.push(baseException(
       order,
-      "INSPECTION_ONLY_ADDRESS_AND_SUBMIT_PENDING",
+      isInspectionOnly ? "INSPECTION_ONLY_ADDRESS_AND_SUBMIT_PENDING" : "RECLOUD_COMPLETED_SUBMIT_PENDING",
       "HIGH",
-      "只检测不维修：瑞云已完工确认，请信息员开检测报告、上传到附件（检测报告）、修改返件地址后点击提交"
+      isInspectionOnly
+        ? "只检测不维修：瑞云已完工确认，请信息员开检测报告、上传到附件（检测报告）、修改返件地址后点击提交"
+        : "瑞云已完工确认但未提交，请信息员核对维修资料后点击提交"
     ));
   }
   if (order.recloudReceiptSyncStatus === "RESULT_UNKNOWN") {
