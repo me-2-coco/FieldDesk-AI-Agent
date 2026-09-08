@@ -51,6 +51,7 @@ async function clickApprovalFlowInput(flowInput) {
 
 async function clickAfterLoadingSettles(page, button, options = {}) {
   const deadline = Date.now() + Number(options.timeoutMs || 30_000);
+  const successCheck = typeof options.successCheck === "function" ? options.successCheck : null;
   const loadingMasks = page.locator([
     ".rt-loading-mask:visible",
     ".el-loading-mask:visible",
@@ -58,24 +59,45 @@ async function clickAfterLoadingSettles(page, button, options = {}) {
   ].join(", "));
   let lastError = null;
   while (Date.now() < deadline) {
+    // 瑞云有时已经接收点击，但 Playwright 仍会因为随后出现的 loading
+    // 遮罩把本次 click 判成超时。优先核验业务终态，避免把成功操作整轮重试。
+    if (successCheck && await successCheck().catch(() => false)) {
+      return { clicked: false, alreadySucceeded: true };
+    }
     if (await loadingMasks.count() > 0) {
       await page.waitForTimeout?.(Number(options.pollIntervalMs || 250));
       continue;
     }
     try {
       await button.click({ timeout: Math.min(5000, Math.max(500, deadline - Date.now())) });
-      return;
+      return { clicked: true, alreadySucceeded: false };
     } catch (error) {
       lastError = error;
+      if (successCheck && await successCheck().catch(() => false)) {
+        return { clicked: false, alreadySucceeded: true };
+      }
       if (!String(error?.message || error).includes("intercepts pointer events")) throw error;
       await page.waitForTimeout?.(Number(options.pollIntervalMs || 250));
     }
+  }
+  if (successCheck && await successCheck().catch(() => false)) {
+    return { clicked: false, alreadySucceeded: true };
   }
   throw adapterError(
     `瑞云加载遮罩长时间未释放：${String(lastError?.message || "").slice(0, 300)}`,
     "RECLOUD_REPAIR_LOADING_MASK_TIMEOUT",
     "SUBMIT"
   );
+}
+
+async function waitForRepairSubmissionConfirmed(page, options = {}) {
+  const deadline = Date.now() + Number(options.timeoutMs || 15_000);
+  const pollIntervalMs = Number(options.pollIntervalMs || 200);
+  while (Date.now() < deadline) {
+    if (await isRecloudRepairFullySubmitted(page)) return true;
+    await page.waitForTimeout?.(pollIntervalMs);
+  }
+  return isRecloudRepairFullySubmitted(page);
 }
 
 async function openServiceReport(page, timeoutMs = 15000) {
@@ -1181,14 +1203,28 @@ function createRecloudRepairPageAdapter(page, context = {}) {
           "SUBMIT"
         );
         await flowOption.click({ timeout: 3000 });
-        selectedFlow = await readApprovalFlow(dialog, flowInput);
+        const flowDeadline = Date.now() + 2500;
+        while (Date.now() < flowDeadline) {
+          selectedFlow = await readApprovalFlow(dialog, flowInput);
+          if (selectedFlow === expectedFlow) break;
+          await page.waitForTimeout?.(100);
+        }
       }
       if (selectedFlow !== expectedFlow) {
         throw adapterError("瑞云签核流程不是预期流程", "RECLOUD_REPAIR_APPROVAL_FLOW_MISMATCH", "SUBMIT");
       }
       const submit = await uniqueVisible(dialog.getByRole("button", { name: exactText("提交") }).filter({ visible: true }), "签核流程提交按钮不唯一", "RECLOUD_REPAIR_APPROVAL_SUBMIT_AMBIGUOUS", "SUBMIT");
       if (!await submit.isEnabled()) throw adapterError("签核流程提交按钮不可用", "RECLOUD_REPAIR_APPROVAL_SUBMIT_DISABLED", "SUBMIT");
-      await clickAfterLoadingSettles(page, submit);
+      const clickResult = await clickAfterLoadingSettles(page, submit, {
+        timeoutMs: 15_000,
+        pollIntervalMs: 200,
+        successCheck: () => isRecloudRepairFullySubmitted(page),
+      });
+      if (clickResult?.alreadySucceeded) return { confirmed: true, reconciledAfterClickTimeout: true };
+      if (!await waitForRepairSubmissionConfirmed(page, { timeoutMs: 15_000, pollIntervalMs: 200 })) {
+        throw adapterError("瑞云已点击最终提交，但未确认进入已提交状态", "RECLOUD_REPAIR_SUBMIT_NOT_CONFIRMED", "SUBMIT");
+      }
+      return { confirmed: true, reconciledAfterClickTimeout: false };
     },
   };
 }
@@ -1203,6 +1239,7 @@ module.exports = {
   isRecloudRepairFullySubmitted,
   parseRecloudPartOptionText,
   readApprovalFlow,
+  waitForRepairSubmissionConfirmed,
   waitForPartLookup,
   waitForRecloudPartPrice,
   waitForSelectedPartCode,

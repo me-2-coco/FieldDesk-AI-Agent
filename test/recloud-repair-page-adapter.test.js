@@ -8,6 +8,7 @@ const {
   isRecloudRepairFullySubmitted,
   readApprovalFlow,
   waitForDialog,
+  waitForRepairSubmissionConfirmed,
 } = require("../connectors/recloud-repair-page-adapter");
 
 test("missing required Recloud picklist is filled and verified", async () => {
@@ -155,6 +156,45 @@ test("submit waits for the Recloud loading mask and retries intercepted clicks",
   await clickAfterLoadingSettles(page, button, { timeoutMs: 5000, pollIntervalMs: 10 });
   assert.equal(clickAttempts, 2);
   assert.deepEqual(waits, [10, 10]);
+});
+
+test("submit treats a Recloud terminal state as success while its loading mask remains", async () => {
+  let terminalChecks = 0;
+  let clickAttempts = 0;
+  const page = {
+    locator() {
+      return { async count() { return 1; } };
+    },
+    async waitForTimeout() {},
+  };
+  const button = { async click() { clickAttempts += 1; } };
+
+  const result = await clickAfterLoadingSettles(page, button, {
+    timeoutMs: 5000,
+    pollIntervalMs: 10,
+    async successCheck() {
+      terminalChecks += 1;
+      return terminalChecks === 2;
+    },
+  });
+
+  assert.deepEqual(result, { clicked: false, alreadySucceeded: true });
+  assert.equal(clickAttempts, 0);
+});
+
+test("final submit confirmation polls until the submitted state appears", async () => {
+  let checks = 0;
+  const visible = { async count() { checks += 1; return 1; } };
+  const pending = { async count() { return checks < 3 ? 1 : 0; } };
+  const chain = (result) => ({ filter() { return result; } });
+  const page = {
+    getByText() { return chain(visible); },
+    getByRole() { return chain(pending); },
+    async waitForTimeout() {},
+  };
+
+  assert.equal(await waitForRepairSubmissionConfirmed(page, { timeoutMs: 100, pollIntervalMs: 1 }), true);
+  assert.equal(checks, 3);
 });
 
 test("approval flow is read from the visible selected tag when the search input is empty", async () => {
