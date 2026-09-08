@@ -226,6 +226,29 @@ const RECLOUD_PART_OPTION_SELECTOR = [
   "[role='option']:visible",
 ].join(", ");
 
+async function locateAutocompleteLookup(page, input) {
+  const popperClass = String(await input?.getAttribute?.("popperclass").catch(() => "") || "");
+  const uniqueClass = popperClass.split(/\s+/).find((token) => /^el-autocomplete-suggestion_[A-Za-z0-9_-]+$/.test(token));
+  const popover = uniqueClass
+    ? page.locator(`.${uniqueClass}:visible`)
+    : page.locator([
+      ".rtxpc-autocomplete-suggestion:visible",
+      ".el-autocomplete-suggestion:visible",
+      ".rtxpc-select-dropdown:visible",
+      ".el-select-dropdown:visible",
+      "[role='listbox']:visible",
+    ].join(", "));
+  const rawOptions = uniqueClass
+    ? popover.locator("li:visible, [role='option']:visible")
+    : page.locator(RECLOUD_PART_OPTION_SELECTOR);
+  return {
+    popover,
+    // Recloud mounts an empty <li> while the remote lookup is loading. It is
+    // not a candidate and must not make the lookup finish early.
+    options: rawOptions.filter({ hasText: /\S/ }),
+  };
+}
+
 function parseRecloudPartOptionText(value) {
   const text = String(value || "").replace(/\s+/g, " ").trim();
   if (!text) return null;
@@ -241,18 +264,12 @@ async function waitForPartLookup(page, partCodeInput, requestedPartCode = "", op
   const timeoutMs = Number(options.timeoutMs || 2200);
   const deadline = Date.now() + timeoutMs;
   const expected = String(requestedPartCode || "").trim().toUpperCase();
-  const optionsLocator = page.locator(RECLOUD_PART_OPTION_SELECTOR);
+  const lookup = await locateAutocompleteLookup(page, options.lookupInput);
+  const optionsLocator = lookup.options;
   // Only trust an empty-state rendered inside the currently open lookup
   // popover. Other service-report sections may independently show “暂无数据”
   // and must never be mistaken for a parts shortage.
-  const lookupPopovers = page.locator([
-    ".rtxpc-autocomplete-suggestion:visible",
-    ".el-autocomplete-suggestion:visible",
-    ".rtxpc-select-dropdown:visible",
-    ".el-select-dropdown:visible",
-    "[role='listbox']:visible",
-  ].join(", "));
-  const explicitEmpty = lookupPopovers
+  const explicitEmpty = lookup.popover
     .getByText(/^(暂无数据|无数据|没有匹配数据|暂无匹配结果)$/)
     .filter({ visible: true });
   while (Date.now() < deadline) {
@@ -270,6 +287,29 @@ async function waitForPartLookup(page, partCodeInput, requestedPartCode = "", op
     optionCount: await optionsLocator.count().catch(() => 0),
     explicitEmpty: Boolean(await explicitEmpty.count().catch(() => 0)),
   };
+}
+
+async function waitForSelectedPartCode(page, partCodeInput, requestedPartCode = "", options = {}) {
+  const deadline = Date.now() + Number(options.timeoutMs || 1200);
+  const expected = String(requestedPartCode || "").trim().toUpperCase();
+  while (Date.now() < deadline) {
+    const selectedCode = String(await partCodeInput?.inputValue?.().catch(() => "") || "").trim().toUpperCase();
+    if (selectedCode && (!expected || selectedCode === expected)) return selectedCode;
+    await page.waitForTimeout?.(80);
+  }
+  return String(await partCodeInput?.inputValue?.().catch(() => "") || "").trim().toUpperCase();
+}
+
+async function waitForRecloudPartPrice(page, salesPriceInput, options = {}) {
+  if (!salesPriceInput) return null;
+  const deadline = Date.now() + Number(options.timeoutMs || 1200);
+  while (Date.now() < deadline) {
+    const value = String(await salesPriceInput.inputValue().catch(() => "") || "").trim();
+    const price = value === "" ? NaN : Number(value);
+    if (Number.isFinite(price) && price >= 0) return price;
+    await page.waitForTimeout?.(80);
+  }
+  return null;
 }
 
 async function locateFormItemByText(scope, labelText) {
@@ -618,6 +658,7 @@ function createRecloudRepairPageAdapter(page, context = {}) {
         const productInput = await locateDialogInput(dialog, "服务单产品明细");
         const partInput = await locateDialogInput(dialog, "新件名称");
         const partCodeInput = await locateDialogInput(dialog, "新件编码");
+        const salesPriceInput = await locateDialogInput(dialog, "销售价");
         if (!productInput || !partInput || !partCodeInput) {
           throw adapterError("配件窗口查询控件发生变化", "RECLOUD_REPAIR_PART_FORM_CHANGED", "PARTS");
         }
@@ -625,9 +666,11 @@ function createRecloudRepairPageAdapter(page, context = {}) {
         await partInput.fill(query);
         const lookup = await waitForPartLookup(page, partCodeInput, "", {
           timeoutMs: Number(options.timeoutMs || 2400),
+          lookupInput: partInput,
         });
+        const partLookup = await locateAutocompleteLookup(page, partInput);
         const optionTexts = lookup.optionCount > 0
-          ? await page.locator(RECLOUD_PART_OPTION_SELECTOR).allInnerTexts().catch(() => [])
+          ? await partLookup.options.allInnerTexts().catch(() => [])
           : [];
         const items = [];
         const seen = new Set();
@@ -638,18 +681,60 @@ function createRecloudRepairPageAdapter(page, context = {}) {
           items.push(item);
           if (items.length >= Math.max(1, Math.min(50, Number(options.limit || 30)))) break;
         }
+        // The current Recloud build renders only the part name in lookup
+        // suggestions. Its authoritative full material code and price are
+        // populated into disabled fields only after a suggestion is selected.
+        // Select name-only suggestions inside this unsaved preflight dialog,
+        // read the populated values, and never click Save here.
+        if (items.length === 0 && lookup.optionCount > 0 && !lookup.selectedCode) {
+          const maxItems = Math.max(1, Math.min(10, Number(options.limit || 10)));
+          const candidateCount = Math.min(lookup.optionCount, maxItems);
+          for (let index = 0; index < candidateCount; index += 1) {
+            if (index > 0) {
+              await partInput.fill("");
+              await partInput.fill(query);
+              const reopened = await waitForPartLookup(page, partCodeInput, "", {
+                timeoutMs: 1200,
+                lookupInput: partInput,
+              });
+              if (reopened.optionCount <= index) break;
+            }
+            const optionLocator = (await locateAutocompleteLookup(page, partInput)).options;
+            const optionName = String(await optionLocator.nth(index).innerText().catch(() => "") || "").replace(/\s+/g, " ").trim();
+            await optionLocator.nth(index).click({ timeout: 3000 });
+            const selectedCode = await waitForSelectedPartCode(page, partCodeInput, "", { timeoutMs: 1200 });
+            console.info(
+              `RECLOUD_PART_PREFLIGHT_SELECTION: query=${query} index=${index} name=${optionName || "-"} selected=${selectedCode || "-"}`
+            );
+            if (!selectedCode || seen.has(selectedCode)) continue;
+            const selectedName = String(await partInput.inputValue().catch(() => "") || optionName || query).trim();
+            const salesPrice = await waitForRecloudPartPrice(page, salesPriceInput, { timeoutMs: 1200 });
+            seen.add(selectedCode);
+            items.push({
+              code: selectedCode,
+              name: selectedName || selectedCode,
+              retailPrice: Number.isFinite(salesPrice) && salesPrice >= 0 ? salesPrice : null,
+              source: "RECLOUD_SERVICE_ORDER",
+            });
+          }
+        }
         // Some Recloud builds auto-select the only match and immediately hide
         // the suggestion list. In that case the full code is already written
         // to the read-only code field; treat it as an explicit single result
         // instead of reporting an empty lookup and retrying forever.
         if (items.length === 0 && lookup.selectedCode) {
           const selectedName = String(await partInput.inputValue().catch(() => "") || query).trim();
+          const salesPrice = await waitForRecloudPartPrice(page, salesPriceInput, { timeoutMs: 1200 });
           items.push({
             code: lookup.selectedCode,
             name: selectedName || lookup.selectedCode,
+            retailPrice: Number.isFinite(salesPrice) && salesPrice >= 0 ? salesPrice : null,
             source: "RECLOUD_SERVICE_ORDER",
           });
         }
+        console.info(
+          `RECLOUD_PART_PREFLIGHT: query=${query} options=${lookup.optionCount} selected=${lookup.selectedCode || "-"} resolved=${items.length}`
+        );
         return {
           items,
           explicitEmpty: lookup.explicitEmpty === true,
@@ -688,13 +773,13 @@ function createRecloudRepairPageAdapter(page, context = {}) {
           await partInput.fill(part.partCode);
           const lookup = await waitForPartLookup(page, partCodeInput, requestedPartCode, {
             timeoutMs: attempt === 0 ? 1800 : 2600,
+            lookupInput: partInput,
           });
           explicitEmpty ||= lookup.explicitEmpty === true;
           if (!lookup.optionCount && !lookup.selectedCode) continue;
           await partInput.press("ArrowDown");
           await partInput.press("Enter");
-          const selected = await waitForPartLookup(page, partCodeInput, requestedPartCode, { timeoutMs: 900 });
-          selectedPartCode = selected.selectedCode;
+          selectedPartCode = await waitForSelectedPartCode(page, partCodeInput, requestedPartCode, { timeoutMs: 1200 });
         }
         if (selectedPartCode !== requestedPartCode) {
           if (!explicitEmpty) {
@@ -1119,4 +1204,6 @@ module.exports = {
   parseRecloudPartOptionText,
   readApprovalFlow,
   waitForPartLookup,
+  waitForRecloudPartPrice,
+  waitForSelectedPartCode,
 };

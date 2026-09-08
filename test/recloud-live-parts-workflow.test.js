@@ -138,10 +138,46 @@ test("parts stay editable before service-order creation and Next waits for verif
   const adapterSource = await fs.readFile(path.join(__dirname, "../connectors/recloud-repair-page-adapter.js"), "utf8");
   assert.match(serverSource, /queuePartForRecloudVerification/);
   assert.match(serverSource, /scheduleRecloudPartVerification/);
+  assert.match(serverSource, /adapter\.searchParts\(query, \{ limit: 30, timeoutMs: 2600 \}\)/);
   assert.match(serverSource, /order\.treatmentMode === "REPAIR"\) assertRecloudPartInteractionReady\(order\)/);
   assert.match(pageSource, /登记并在瑞云核实/);
   assert.match(pageSource, /!partInteractionReady \|\| !partVerificationComplete/);
   assert.doesNotMatch(pageSource, /disabled=\{!recordOnly && !partInteractionReady\}/);
   assert.match(pageSource, /排队待核实[\s\S]*瑞云核实中[\s\S]*异常，自动重试中/);
   assert.match(adapterSource, /items\.length === 0 && lookup\.selectedCode/);
+  assert.match(adapterSource, /lookup\.optionCount > 0 && !lookup\.selectedCode/);
+  assert.match(adapterSource, /getAttribute\?\.\("popperclass"\)/);
+  assert.match(adapterSource, /locateAutocompleteLookup\(page, partInput\)/);
+  assert.match(adapterSource, /rawOptions\.filter\(\{ hasText: \/\\S\/ \}\)/);
+  assert.match(adapterSource, /await optionLocator\.nth\(index\)\.click/);
+  assert.match(adapterSource, /waitForSelectedPartCode\(page, partCodeInput/);
+  assert.match(adapterSource, /retailPrice: Number\.isFinite\(salesPrice\)/);
+  assert.match(adapterSource, /waitForRecloudPartPrice\(page, salesPriceInput/);
+});
+
+test("Recloud preflight price is authoritative and Feishu only fills missing metadata", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "fielddesk-recloud-price-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const store = new JsonReceiptPreparationStore(path.join(directory, "orders.json"));
+  await repairOrder(store, "LIVE-PART-PRICE");
+  const queued = await store.applyPart("LIVE-PART-PRICE", {
+    code: "12884",
+    name: "12884",
+    stock: 1,
+    verificationStatus: "PENDING",
+  }, 1, TECH);
+  await store.markRecloudPartVerification("LIVE-PART-PRICE", queued.application.id, {
+    status: "AVAILABLE",
+    partCode: "20020100012884",
+    partName: "售后主机自动进水回充组件",
+    retailPrice: 33,
+    metadataSource: "RECLOUD_SERVICE_ORDER",
+  }, TECH);
+  const enriched = await store.enrichRecloudPartApplication("LIVE-PART-PRICE", queued.application.id, {
+    retailPrice: 99,
+    repairLevel: "中修",
+  });
+  assert.equal(enriched.partApplications[0].retailPrice, 33);
+  assert.equal(enriched.partApplications[0].repairLevel, "中修");
+  assert.equal(enriched.partApplications[0].metadataSource, "RECLOUD_SERVICE_ORDER");
 });

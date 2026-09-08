@@ -4451,11 +4451,11 @@ function createApp(
           if (typeof adapter.searchParts !== "function") {
             throw createApiError("RECLOUD_PARTS_SEARCH_UNAVAILABLE", "瑞云配件核实执行器未接入", 503);
           }
-          return adapter.searchParts(query, { limit: 30, timeoutMs: 1400 });
+          return adapter.searchParts(query, { limit: 30, timeoutMs: 2600 });
         }, {
           ...businessWriteOptions,
           queuePriority: scheduleOptions.queuePriority ?? -80,
-          timeoutMs: 10_000,
+          timeoutMs: 15_000,
           timeoutCode: "RECLOUD_PART_VERIFY_TIMEOUT",
           resultUnknownOnTimeout: false,
         }));
@@ -4468,6 +4468,8 @@ function createApp(
             status: "AVAILABLE",
             partCode: selected.code,
             partName: selected.name,
+            retailPrice: selected.retailPrice,
+            metadataSource: selected.source,
           }, user);
           if (application.replacesShortagePartCode) {
             await receiptStore.resolveRecloudPartShortageWithReplacement(

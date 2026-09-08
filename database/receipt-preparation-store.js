@@ -1766,6 +1766,9 @@ class JsonReceiptPreparationStore {
       const status = normalizeRequired(input.status) || "FAILED";
       const verifiedCode = normalizeRequired(input.partCode).toUpperCase();
       const verifiedName = normalizeRequired(input.partName);
+      const verifiedRetailPrice = input.retailPrice === null || input.retailPrice === undefined || input.retailPrice === ""
+        ? null
+        : Number(input.retailPrice);
       const options = (Array.isArray(input.options) ? input.options : []).map((item) => ({
         code: normalizeRequired(item?.code).toUpperCase(),
         name: normalizeRequired(item?.name),
@@ -1774,6 +1777,10 @@ class JsonReceiptPreparationStore {
         ...part,
         partCode: verifiedCode || part.partCode,
         partName: verifiedName || part.partName,
+        retailPrice: Number.isFinite(verifiedRetailPrice) && verifiedRetailPrice >= 0
+          ? verifiedRetailPrice
+          : part.retailPrice,
+        metadataSource: normalizeRequired(input.metadataSource) || part.metadataSource,
         verificationQuery: normalizeRequired(input.verificationQuery) || part.verificationQuery,
         status: status === "AVAILABLE"
           ? "RECLOUD_PART_AVAILABLE"
@@ -1840,16 +1847,21 @@ class JsonReceiptPreparationStore {
       const timestamp = new Date().toISOString();
       const partApplications = (existing.partApplications || []).map((part) => {
         if (part.id !== applicationId) return part;
-        const price = metadata.retailPrice === null || metadata.retailPrice === undefined || metadata.retailPrice === ""
-          ? part.retailPrice
-          : Number(metadata.retailPrice);
+        const hasAuthoritativeRecloudPrice = part.metadataSource === "RECLOUD_SERVICE_ORDER"
+          && part.retailPrice !== null && part.retailPrice !== undefined && part.retailPrice !== ""
+          && Number.isFinite(Number(part.retailPrice));
+        const price = hasAuthoritativeRecloudPrice
+          ? Number(part.retailPrice)
+          : metadata.retailPrice === null || metadata.retailPrice === undefined || metadata.retailPrice === ""
+            ? part.retailPrice
+            : Number(metadata.retailPrice);
         return {
           ...part,
           retailPrice: Number.isFinite(price) && price >= 0 ? price : part.retailPrice,
           repairLevel: normalizeRequired(metadata.repairLevel) || part.repairLevel,
           returnRequired: metadata.returnRequired === undefined ? part.returnRequired : Boolean(metadata.returnRequired),
           projectCode: normalizeRequired(metadata.projectCode) || part.projectCode,
-          metadataSource: "FEISHU_OPTIONAL",
+          metadataSource: hasAuthoritativeRecloudPrice ? "RECLOUD_SERVICE_ORDER" : "FEISHU_OPTIONAL",
           updatedAt: timestamp,
         };
       });
