@@ -10,14 +10,14 @@ const {
   pendingReceiptSyncInterval,
 } = require('../services/pending-receipt-sync');
 
-test('pending receipt schedule runs continuously every thirty seconds', () => {
+test('pending receipt schedule runs continuously every minute', () => {
   assert.equal(isActiveSyncTime(new Date('2026-08-30T22:59:59+08:00')), true);
   assert.equal(isActiveSyncTime(new Date('2026-08-30T23:00:00+08:00')), true);
   assert.equal(isActiveSyncTime(new Date('2026-08-31T06:59:59+08:00')), true);
   assert.equal(isActiveSyncTime(new Date('2026-08-31T07:00:00+08:00')), true);
-  assert.equal(pendingReceiptSyncInterval({}), 30000);
-  assert.equal(pendingReceiptSyncInterval({ PENDING_RECEIPT_SYNC_INTERVAL_MS: '1000' }), 15000);
-  assert.equal(millisecondsUntilNextWindow(new Date('2026-08-30T23:00:00+08:00')), 30000);
+  assert.equal(pendingReceiptSyncInterval({}), 60000);
+  assert.equal(pendingReceiptSyncInterval({ PENDING_RECEIPT_SYNC_INTERVAL_MS: '1000' }), 30000);
+  assert.equal(millisecondsUntilNextWindow(new Date('2026-08-30T23:00:00+08:00')), 60000);
 });
 
 test('three-month backfill starts at the first day of the oldest included Shanghai month', () => {
@@ -71,7 +71,7 @@ test('first daytime sync performs catch-up and later sync is incremental', async
   assert.deepEqual(result.options.activeRmaNos, ['OLD', 'NEW']);
 });
 
-test('backend startup refreshes the full list even when cache was synced earlier the same day', async () => {
+test('same-day backend startup continues incrementally from the persisted cursor', async () => {
   const contexts = [];
   const store = {
     readSnapshot: async () => ({
@@ -90,12 +90,12 @@ test('backend startup refreshes the full list even when cache was synced earlier
     logger: { info() {}, error() {} },
   });
 
-  assert.equal((await sync.syncNow()).catchUp, true);
+  assert.equal((await sync.syncNow()).catchUp, false);
   assert.equal((await sync.syncNow()).catchUp, false);
   assert.equal(contexts.length, 2);
 });
 
-test('foreground work yields without advancing the cache timestamp or losing startup catch-up', async () => {
+test('foreground work yields without advancing the cache timestamp', async () => {
   let merges = 0;
   const store = {
     readSnapshot: async () => ({ syncedAt: '2026-08-31T01:00:00.000Z', orders: [] }),
@@ -113,7 +113,7 @@ test('foreground work yields without advancing the cache timestamp or losing sta
 
   assert.equal((await sync.syncNow()).reason, 'FOREGROUND_QUERY_PRIORITY');
   assert.equal(merges, 0);
-  assert.equal((await sync.syncNow()).catchUp, true);
+  assert.equal((await sync.syncNow()).catchUp, false);
   assert.equal(merges, 1);
 });
 

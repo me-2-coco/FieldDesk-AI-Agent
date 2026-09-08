@@ -63,6 +63,21 @@ async function orchestrateRepairStart(payload, adapter, options = {}) {
     completedWhen: "HIDDEN",
   });
 
+  // The first remote-state read already proved that an order without local
+  // parts has no conflicting Recloud part rows. The conversion adapter verifies
+  // its own write, so another full service-report/attachment read is redundant.
+  if (partsPlan.additions.length === 0) {
+    return {
+      status: "SUCCESS",
+      assignee: assignmentPlan.servicePerson,
+      assignmentSource: payload.assignmentSource || "",
+      warrantyConversionRequested: payload.warrantyConversionRequested === true,
+      warrantyConfirmationVersion: 2,
+      partsVerified: true,
+      completedSteps: ["ASSIGNEE_VERIFIED", "WARRANTY_CONVERSION_CONFIRMED", "PARTS_VERIFIED"],
+    };
+  }
+
   remote = await adapter.readRemoteState();
   partsPlan = buildRecloudRepairPartsPlan(payload.usedParts, remote.parts);
   if (!partsPlan.readyToAdd) {

@@ -90,6 +90,17 @@ test("assignment finishes before any page-switching remote-state read", async ()
   assert.deepEqual(adapter.calls.slice(0, 4), ["assignee", "assign:瑞云师傅", "assignee", "read"]);
 });
 
+test("repair preparation without parts skips the redundant second remote-state read", async () => {
+  const adapter = adapterFixture();
+  const result = await orchestrateRepairStart({
+    assignee: "瑞云师傅", usedParts: [], warrantyConversionRequested: false,
+  }, adapter, { writeEnabled: true });
+  assert.equal(result.status, "SUCCESS");
+  assert.deepEqual(adapter.calls, [
+    "assignee", "assign:瑞云师傅", "assignee", "read", "conversion:false",
+  ]);
+});
+
 test("repair assignment adapter never targets the dispatch action", () => {
   const source = fs.readFileSync(path.join(__dirname, "../connectors/recloud-repair-page-adapter.js"), "utf8");
   assert.doesNotMatch(source, /getByRole\([^\n]+name:\s*exactText\("派单"\)/);

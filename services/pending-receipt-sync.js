@@ -1,5 +1,5 @@
-const REALTIME_SYNC_INTERVAL = 30 * 1000;
-const MINIMUM_SYNC_INTERVAL = 15 * 1000;
+const REALTIME_SYNC_INTERVAL = 60 * 1000;
+const MINIMUM_SYNC_INTERVAL = 30 * 1000;
 const DEFAULT_TIME_ZONE = 'Asia/Shanghai';
 
 function pendingReceiptSyncEnabled(env = process.env) {
@@ -48,7 +48,6 @@ class PendingReceiptSync {
     this.timer = null;
     this.stopped = true;
     this.running = false;
-    this.initialSync = true;
   }
 
   async syncNow({ force = false } = {}) {
@@ -58,9 +57,11 @@ class PendingReceiptSync {
     try {
       const snapshot = await this.store.readSnapshot();
       const lastDate = snapshot.syncedAt ? shanghaiDateKey(new Date(snapshot.syncedAt)) : '';
-      // Every backend start first refreshes the complete pending list. Later
-      // runs only scan newly-created rows, keeping near-real-time polling cheap.
-      const catchUp = force || this.initialSync || !lastDate || lastDate !== shanghaiDateKey(current);
+      // A same-day restart continues incrementally from the persisted cursor.
+      // A full refresh is reserved for an empty cache, a new Shanghai day, or
+      // an explicit recovery request so background work does not monopolize a
+      // Recloud browser channel while technicians are submitting work orders.
+      const catchUp = force || !lastDate || lastDate !== shanghaiDateKey(current);
       const result = await this.readOrders({
         existingRmaNos: snapshot.orders
           .filter((order) => /^1[3-9]\d{9}$/.test(String(order.phone || '').trim()))
@@ -77,7 +78,6 @@ class PendingReceiptSync {
         syncedAt: current.toISOString(),
       });
       this.logger.info?.(`PENDING_RECEIPT_SYNC: added ${merged.added}, updated ${merged.updated}, total ${merged.total}`);
-      this.initialSync = false;
       return { skipped: false, catchUp, ...merged };
     } catch (error) {
       this.logger.error?.(`PENDING_RECEIPT_SYNC: failed ${error.code || 'UNKNOWN'}`);
