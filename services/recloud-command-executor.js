@@ -54,6 +54,7 @@ function createRecloudCommandExecutor(options = {}) {
             preparationCompleted: Boolean(task.payload?.repairPreparationCompletedAt),
             allowPreparationRecovery: task.payload?.repairPreparationStatus === "FAILED",
             authorizedSkippedPartCodes: task.payload?.completionAuthorizedSkippedPartCodes || [],
+            authorizedExistingPartCodes: task.payload?.completionAuthorizedExistingPartCodes || [],
             missingParts: task.payload?.missingParts || [],
           }
         );

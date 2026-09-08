@@ -67,9 +67,14 @@ function indexExistingParts(parts) {
   return indexed;
 }
 
-function buildRecloudRepairPartsPlan(desiredParts, existingParts) {
+function buildRecloudRepairPartsPlan(desiredParts, existingParts, options = {}) {
   const desired = compactDesiredParts(desiredParts);
   const existing = indexExistingParts(existingParts);
+  const authorizedExistingPartCodes = new Set(
+    (Array.isArray(options.authorizedExistingPartCodes) ? options.authorizedExistingPartCodes : [])
+      .map(normalizePartCode)
+      .filter(Boolean)
+  );
   const additions = [];
   const skipped = [];
   const conflicts = [];
@@ -93,6 +98,14 @@ function buildRecloudRepairPartsPlan(desiredParts, existingParts) {
     }
   }
   for (const found of existing.values()) {
+    if (authorizedExistingPartCodes.has(found.partCode)) {
+      skipped.push({
+        partCode: found.partCode,
+        quantity: found.quantity,
+        reason: "AUTHORIZED_EXISTING_PART",
+      });
+      continue;
+    }
     // 瑞云可能在创建维修服务单时自动附带通用物流箱。这六种物流箱
     // 本来就允许“有库存则保留、无库存则跳过”，不能因为它不在
     // FieldDesk 的实际维修用件中而阻断后续完工；其它未知配件仍拦截。

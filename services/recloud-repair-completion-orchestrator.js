@@ -91,7 +91,12 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
   const assignmentPlan = buildRecloudAssignmentPlan(payload.assignee);
   let assignmentRequired = String(remote.assignee || "").trim() !== assignmentPlan.servicePerson;
   const formPlan = buildRecloudRepairFormPlan(payload);
-  let partsPlan = buildRecloudRepairPartsPlan(payload.usedParts, remote.parts);
+  const authorizedExistingPartCodes = Array.isArray(options.authorizedExistingPartCodes)
+    ? options.authorizedExistingPartCodes
+    : [];
+  let partsPlan = buildRecloudRepairPartsPlan(payload.usedParts, remote.parts, {
+    authorizedExistingPartCodes,
+  });
   // 检测报告由信息员人工制作并上传；即使历史草稿仍带有系统报告附件，
   // FieldDesk 完工编排也不得把它写入瑞云。
   const desiredMainAttachments = (payload.attachments || []).filter((item) => item?.source !== "INSPECTION_REPORT");
@@ -197,7 +202,9 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
           knownMissingParts.push(part);
         }
       }
-      partsPlan = buildRecloudRepairPartsPlan(payload.usedParts, remote.parts);
+      partsPlan = buildRecloudRepairPartsPlan(payload.usedParts, remote.parts, {
+        authorizedExistingPartCodes,
+      });
       skippedAuthorizedMissingParts = partsPlan.additions.length > 0
         && unapprovedMissingParts().length === 0;
       preparationVerifiedByRemote = partsPlan.readyToAdd

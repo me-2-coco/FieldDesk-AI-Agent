@@ -46,7 +46,7 @@ test("command executor delegates repair completion to the guarded two-step orche
   const result = await executor.syncRepairCompleted(task);
   assert.equal(result.status, "SUCCESS");
   assert.deepEqual(calls, [
-    "open:JXTH900001234", "read", "fields", "verify-fields", "read",
+    "open:JXTH900001234", "read", "read", "fields", "verify-fields",
     "complete", "wait", "submit:true", "release",
   ]);
 });
@@ -78,7 +78,7 @@ test("command executor can keep the Recloud page lock for the full completion ru
   const result = await executor.syncRepairCompleted(task);
   assert.equal(result.status, "SUCCESS");
   assert.deepEqual(calls, [
-    "run:JXTH900001234", "read", "fields", "verify-fields", "read",
+    "run:JXTH900001234", "read", "read", "fields", "verify-fields",
     "complete", "wait", "submit:true",
   ]);
 });

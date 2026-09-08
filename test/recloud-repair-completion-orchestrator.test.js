@@ -251,6 +251,23 @@ test("repair orchestrator skips only an explicitly authorized missing part code"
   assert.equal(adapter.calls.some((call) => call.startsWith("submit:")), true);
 });
 
+test("repair orchestrator preserves an explicitly authorized existing Recloud part", async () => {
+  const adapter = remoteAdapter({
+    assignee: "唐张帅",
+    parts: [
+      { partCode: "PART-1", quantity: 1 },
+      { partCode: "KEEP-REMOTE", quantity: 1 },
+    ],
+  });
+  const result = await orchestrateRepairCompletion("ORDER-AUTHORIZED-EXISTING", PAYLOAD, adapter, {
+    writeEnabled: true,
+    preparationCompleted: true,
+    authorizedExistingPartCodes: ["KEEP-REMOTE"],
+  });
+  assert.equal(result.status, "SUCCESS");
+  assert.equal(adapter.calls.some((call) => call.startsWith("submit:")), true);
+});
+
 test("parts shortage confirms completion but never touches submit", async () => {
   const adapter = remoteAdapter({ assignee: "唐张帅", parts: [] });
   const missingParts = [{ ...PAYLOAD.usedParts[0], reason: "瑞云库存不足" }];

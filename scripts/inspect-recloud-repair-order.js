@@ -12,7 +12,11 @@ async function main() {
     opened = await recloud.openRecloud({ headless: true });
     if (opened.loginRequired) throw Object.assign(new Error("login required"), { code: "RECLOUD_LOGIN_REQUIRED" });
     process.stderr.write("DIAGNOSTIC_STAGE: locating_rma\n");
-    const detail = await recloud.queryRmaByLogisticsNo(opened.page, logisticsNo);
+    const detail = await recloud.queryRmaByLogisticsNo(opened.page, logisticsNo, {
+      preserveDetailPage: true,
+      fastDomRead: true,
+      revealPhoneEnabled: false,
+    });
     let existingServiceOrder = null;
     try {
       process.stderr.write("DIAGNOSTIC_STAGE: checking_existing_service_order\n");

@@ -39,6 +39,21 @@ test("repair parts plan stops when Recloud contains an unplanned part", () => {
   assert.equal(plan.conflicts[0].reason, "UNPLANNED_EXISTING_PART");
 });
 
+test("repair parts plan preserves one explicitly authorized Recloud-only part", () => {
+  const plan = buildRecloudRepairPartsPlan(
+    [{ partCode: "PLANNED", quantity: 1 }],
+    [{ partCode: "PLANNED", quantity: 1 }, { partCode: "KEEP-REMOTE", quantity: 1 }],
+    { authorizedExistingPartCodes: ["keep-remote"] }
+  );
+  assert.equal(plan.readyToAdd, true);
+  assert.deepEqual(plan.conflicts, []);
+  assert.deepEqual(plan.skipped.at(-1), {
+    partCode: "KEEP-REMOTE",
+    quantity: 1,
+    reason: "AUTHORIZED_EXISTING_PART",
+  });
+});
+
 test("repair parts plan permits a Recloud-added optional logistics box", () => {
   const plan = buildRecloudRepairPartsPlan(
     [{ partCode: "20020100030341", quantity: 1 }],
