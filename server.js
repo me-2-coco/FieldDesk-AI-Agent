@@ -969,7 +969,14 @@ function createApp(
   // expands to roughly 134MB in JSON, so leave enough headroom for the body.
   app.use(express.json({ limit: runtimeEnv.REQUEST_BODY_LIMIT || "140mb" }));
   app.use(securityHeaders);
-  app.use(createRateLimiter({ limit: Number(runtimeEnv.API_RATE_LIMIT_PER_MINUTE || 120) }));
+  app.use("/api/repairs/parts", createRateLimiter({
+    limit: Number(runtimeEnv.PARTS_POLL_RATE_LIMIT_PER_MINUTE || 300),
+    code: "PARTS_POLL_RATE_LIMITED",
+  }));
+  app.use(createRateLimiter({
+    limit: Number(runtimeEnv.API_RATE_LIMIT_PER_MINUTE || 120),
+    skip: (req) => req.method === "GET" && req.path === "/api/repairs/parts",
+  }));
   app.use("/api/auth", createRateLimiter({ windowMs: 15 * 60_000, limit: Number(runtimeEnv.LOGIN_RATE_LIMIT_PER_15_MINUTES || 10), code: "LOGIN_RATE_LIMITED" }));
   app.use(requestLogger(operationalLogger));
 

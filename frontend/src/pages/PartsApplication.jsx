@@ -66,7 +66,7 @@ function PartsApplication({ setPage }) {
           setPage("repairProcess")
           return
         }
-        if (!recordOnly && (result.recloudPartInteractionReady !== true || result.recloudPartVerificationComplete !== true)) timer = window.setTimeout(refresh, 650)
+        if (!recordOnly && (result.recloudPartInteractionReady !== true || result.recloudPartVerificationComplete !== true)) timer = window.setTimeout(refresh, 1000)
       })
       .catch((error) => {
         if (!active) return
