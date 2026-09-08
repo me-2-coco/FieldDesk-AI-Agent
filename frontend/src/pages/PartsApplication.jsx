@@ -258,7 +258,7 @@ function PartsApplication({ setPage }) {
   }
 
   async function continueToCompletion() {
-    if (!recordOnly && (!partInteractionReady || !partVerificationComplete)) return
+    if (!recordOnly && !partInteractionReady) return
     if (!selectedParts.length && !partsShortage && !noParts) return
     if (noParts && !noPartsReason.trim()) {
       setErrorMessage("选择无需配件时必须填写原因")
@@ -444,8 +444,8 @@ function PartsApplication({ setPage }) {
           <label><input type="checkbox" checked={noParts} onChange={(event) => setNoParts(event.target.checked)} /> 本单确认无需更换配件</label>
           {noParts && <textarea value={noPartsReason} onChange={(event) => setNoPartsReason(event.target.value)} placeholder="必填：说明无需配件的原因，系统将记录操作人和时间" maxLength={500} />}
         </div>}
-        <button className="primary-btn" onClick={continueToCompletion} disabled={isSaving || (!recordOnly && (!partInteractionReady || !partVerificationComplete)) || (!selectedParts.length && !partsShortage && !noParts) || (noParts && !noPartsReason.trim())}>
-          {selectedParts.length || partsShortage || noParts ? (quoteOnly ? "弃修报价确认，下一步故障分类" : diagnosticOnly ? "故障配件确认，下一步填写检测" : "确认配件状态，进入维修完工") : (recordOnly ? "请先添加故障配件" : "请添加配件或说明无需配件")}
+        <button className="primary-btn" onClick={continueToCompletion} disabled={isSaving || (!recordOnly && !partInteractionReady) || (!selectedParts.length && !partsShortage && !noParts) || (noParts && !noPartsReason.trim())}>
+          {selectedParts.length || partsShortage || noParts ? (quoteOnly ? "弃修报价确认，下一步故障分类" : diagnosticOnly ? "故障配件确认，下一步填写检测" : !partVerificationComplete ? "配件后台核实中，先进入维修完工" : "确认配件状态，进入维修完工") : (recordOnly ? "请先添加故障配件" : "请添加配件或说明无需配件")}
         </button>
       </section>
       <ScannerModal

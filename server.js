@@ -4512,7 +4512,7 @@ function createApp(
         const exactMatches = items.filter((item) => String(item.code || "").trim().toUpperCase() === normalizedQuery);
         const selected = result?.selected || (exactMatches.length === 1 ? exactMatches[0] : items.length === 1 ? items[0] : null);
         if (selected && Array.isArray(result?.missingParts) && result.missingParts.length > 0) {
-          await receiptStore.markRecloudPartVerification(rmaNo, applicationId, {
+          const updated = await receiptStore.markRecloudPartVerification(rmaNo, applicationId, {
             status: "OUT_OF_STOCK",
             partCode: selected.code,
             partName: selected.name,
@@ -4522,10 +4522,16 @@ function createApp(
           }, user);
           partVerificationRetryAttempts.delete(key);
           partVerificationRetryNextAt.delete(key);
+          if (updated.partsConfirmedAt && updated.recloudRepairPreparation?.status === "PENDING") {
+            setImmediate(() => scheduleRecloudServiceOrderSync(updated, user, {
+              queuePriority: -70,
+              forcePreparationRecovery: true,
+            }));
+          }
           return;
         }
         if (selected) {
-          await receiptStore.markRecloudPartVerification(rmaNo, applicationId, {
+          const updated = await receiptStore.markRecloudPartVerification(rmaNo, applicationId, {
             status: "AVAILABLE",
             partCode: selected.code,
             partName: selected.name,
@@ -4556,6 +4562,12 @@ function createApp(
           });
           partVerificationRetryAttempts.delete(key);
           partVerificationRetryNextAt.delete(key);
+          if (updated.partsConfirmedAt && updated.recloudRepairPreparation?.status === "PENDING") {
+            setImmediate(() => scheduleRecloudServiceOrderSync(updated, user, {
+              queuePriority: -70,
+              forcePreparationRecovery: true,
+            }));
+          }
           return;
         }
         if (items.length > 1) {
@@ -4870,13 +4882,21 @@ function createApp(
         noPartsReason: req.body?.noPartsReason,
       });
       if (data.order?.treatmentMode === "REPAIR") {
-        scheduleRecloudServiceOrderSync(data.order, user, {
-          queuePriority: -70,
-          forcePreparationRecovery: true,
-        });
+        if (data.order.recloudRepairPreparation?.status === "PENDING") {
+          scheduleRecloudServiceOrderSync(data.order, user, {
+            queuePriority: -70,
+            forcePreparationRecovery: true,
+          });
+        } else {
+          for (const application of (data.order.partApplications || [])) {
+            if (["PENDING", "FAILED", "VERIFYING"].includes(application.recloudVerificationStatus)) {
+              scheduleRecloudPartVerification(data.order, application.id, user, { queuePriority: -80 });
+            }
+          }
+        }
       }
       if (data.order?.treatmentMode === "ABANDONED") scheduleFreightWaiverApplicationRefresh(data.order, user);
-      res.json({ success: true, data: { ...data, message: data.nextStep === "repairCompletion" ? "瑞云配件状态已确认，进入维修完工" : "配件已确认，进入检测登记" } });
+      res.json({ success: true, data: { ...data, message: data.nextStep === "repairCompletion" ? data.order.recloudRepairPreparation?.status === "WAITING_PART_VERIFICATION" ? "配件选择已保存，瑞云将在后台继续核实" : "瑞云配件状态已确认，进入维修完工" : "配件已确认，进入检测登记" } });
     } catch (error) { next(error); }
   });
 

@@ -107,7 +107,7 @@ test("a successful Recloud substitute resolves the original shortage", async (t)
   assert.deepEqual(buildNodePayload(resolved, "REPAIR_COMPLETED").missingParts, []);
 });
 
-test("Recloud availability must be confirmed before the repair can advance", async (t) => {
+test("the technician can advance while Recloud continues part verification in the background", async (t) => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "fielddesk-part-preflight-"));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   const store = new JsonReceiptPreparationStore(path.join(directory, "orders.json"));
@@ -120,16 +120,19 @@ test("Recloud availability must be confirmed before the repair can advance", asy
     verificationStatus: "PENDING",
   }, 1, TECH);
   assert.equal(queued.application.recloudVerificationStatus, "PENDING");
-  await assert.rejects(store.confirmParts("LIVE-PART-4", TECH), { code: "RECLOUD_PART_VERIFICATION_PENDING" });
+  const advanced = await store.confirmParts("LIVE-PART-4", TECH);
+  assert.equal(advanced.nextStep, "repairCompletion");
+  assert.equal(advanced.order.status, "REPAIR_COMPLETION_DRAFT");
+  assert.equal(advanced.order.recloudRepairPreparation.status, "WAITING_PART_VERIFICATION");
+  assert.equal(advanced.order.partApplications[0].recloudVerificationStatus, "PENDING");
   const verified = await store.markRecloudPartVerification("LIVE-PART-4", queued.application.id, {
     status: "AVAILABLE",
     partCode: "20020100013826",
     partName: "风机及线束组件",
   }, TECH);
   assert.equal(verified.partApplications[0].recloudConfirmedAt, "");
-  const confirmed = await store.confirmParts("LIVE-PART-4", TECH);
-  assert.equal(confirmed.order.recloudRepairPreparation.status, "PENDING");
-  assert.equal(confirmed.order.recloudRepairPreparation.usedParts[0].partCode, "20020100013826");
+  assert.equal(verified.recloudRepairPreparation.status, "PENDING");
+  assert.equal(verified.recloudRepairPreparation.usedParts[0].partCode, "20020100013826");
 });
 
 test("an explicitly authorized live add is locked after Recloud confirms the saved row", async (t) => {
@@ -165,7 +168,7 @@ test("an explicitly authorized live add is locked after Recloud confirms the sav
   );
 });
 
-test("Feishu candidates stay searchable before service-order creation and Next waits for Recloud verification", async () => {
+test("Feishu candidates stay searchable and pending Recloud verification does not lock the completion page", async () => {
   const serverSource = await fs.readFile(path.join(__dirname, "../server.js"), "utf8");
   const pageSource = await fs.readFile(path.join(__dirname, "../frontend/src/pages/PartsApplication.jsx"), "utf8");
   const adapterSource = await fs.readFile(path.join(__dirname, "../connectors/recloud-repair-page-adapter.js"), "utf8");
@@ -186,7 +189,8 @@ test("Feishu candidates stay searchable before service-order creation and Next w
   assert.match(serverSource, /await adapter\.addParts/);
   assert.match(serverSource, /remotelyConfirmed: true/);
   assert.match(serverSource, /retailPrice: cachedPart\.retailPrice/);
-  assert.match(pageSource, /!partInteractionReady \|\| !partVerificationComplete/);
+  assert.doesNotMatch(pageSource, /!partInteractionReady \|\| !partVerificationComplete/);
+  assert.match(pageSource, /配件后台核实中，先进入维修完工/);
   assert.doesNotMatch(pageSource, /disabled=\{!recordOnly && !partInteractionReady\}/);
   assert.match(pageSource, /排队待核实[\s\S]*瑞云核实中[\s\S]*异常，自动重试中/);
   assert.match(adapterSource, /items\.length === 0 && lookup\.selectedCode/);

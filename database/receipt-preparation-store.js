@@ -1386,11 +1386,6 @@ class JsonReceiptPreparationStore {
       const unresolvedParts = existing.treatmentMode === "REPAIR"
         ? selectedParts.filter((part) => !["AVAILABLE", "OUT_OF_STOCK"].includes(normalizeRequired(part.recloudVerificationStatus)))
         : [];
-      if (unresolvedParts.length) {
-        throw Object.assign(new Error("配件仍在瑞云核实中，请等待全部返回可用或缺件结果"), {
-          code: "RECLOUD_PART_VERIFICATION_PENDING", status: 409,
-        });
-      }
       if (noParts && shortagePending) {
         throw Object.assign(new Error("瑞云已确认缺件，不能改为无需配件绕过处理"), { code: "PARTS_SHORTAGE_BYPASS_FORBIDDEN", status: 409 });
       }
@@ -1425,7 +1420,7 @@ class JsonReceiptPreparationStore {
           recloudRepairPreparation: {
             ...(existing.recloudRepairPreparation || {}),
             usedParts: noParts ? [] : verifiedParts,
-            status: "PENDING",
+            status: unresolvedParts.length ? "WAITING_PART_VERIFICATION" : "PENDING",
             requestedAt: timestamp,
             failedAt: "",
             lastError: null,
@@ -1434,7 +1429,7 @@ class JsonReceiptPreparationStore {
         updatedAt: timestamp,
         timeline: [...(existing.timeline || []), timelineEvent(
           quoteOnly ? "ABANDONED_QUOTE_CONFIRMED" : diagnosticOnly ? "DIAGNOSTIC_PARTS_CONFIRMED" : noParts ? "NO_PARTS_CONFIRMED" : "PARTS_CONFIRMED",
-          quoteOnly ? "弃修报价配件已确认，进入检测" : diagnosticOnly ? "只检测故障配件已确认，进入检测" : noParts ? `已确认无需配件：${noPartsReason}` : shortagePending ? "瑞云缺件已保留，进入维修完工" : "瑞云配件已确认，进入维修完工",
+          quoteOnly ? "弃修报价配件已确认，进入检测" : diagnosticOnly ? "只检测故障配件已确认，进入检测" : noParts ? `已确认无需配件：${noPartsReason}` : shortagePending ? "瑞云缺件已保留，进入维修完工" : unresolvedParts.length ? "配件选择已确认，瑞云后台继续核实，进入维修完工" : "瑞云配件已确认，进入维修完工",
           operator,
           timestamp
         )],
@@ -1827,10 +1822,26 @@ class JsonReceiptPreparationStore {
           resolvedBy: null,
         };
       }
+      const verificationResolved = partApplications.every((part) =>
+        ["AVAILABLE", "OUT_OF_STOCK"].includes(normalizeRequired(part.recloudVerificationStatus))
+      );
+      const shouldRefreshPreparation = Boolean(
+        existing.partsConfirmedAt
+        && !["CONFIRMED", "PARTS_SHORTAGE"].includes(existing.recloudRepairPreparation?.status)
+      );
       const updated = {
         ...existing,
         partApplications,
         partsShortage,
+        ...(shouldRefreshPreparation ? {
+          recloudRepairPreparation: {
+            ...(existing.recloudRepairPreparation || {}),
+            usedParts: partApplications.filter((part) => part.recloudVerificationStatus === "AVAILABLE"),
+            status: verificationResolved ? "PENDING" : "WAITING_PART_VERIFICATION",
+            failedAt: "",
+            lastError: null,
+          },
+        } : {}),
         updatedAt: timestamp,
         timeline: [...(existing.timeline || []), timelineEvent(
           status === "AVAILABLE" ? "RECLOUD_PART_AVAILABLE" : status === "OUT_OF_STOCK" ? "RECLOUD_PART_OUT_OF_STOCK" : "RECLOUD_PART_VERIFICATION_UPDATED",
