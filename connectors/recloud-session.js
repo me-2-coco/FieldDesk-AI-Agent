@@ -246,6 +246,7 @@ function createRecloudSessionManager(options = {}) {
   let context = null;
   let page = null;
   const channelPages = new Map();
+  const channelReleaseTimers = new Map();
   let opening = null;
   let releaseLock = null;
   let autoLoginAttempted = false;
@@ -264,8 +265,41 @@ function createRecloudSessionManager(options = {}) {
     return context.pages().find((candidate) => !candidate.isClosed() && !claimedPages.has(candidate)) || null;
   }
 
+  function cancelScheduledRelease(channel) {
+    const timer = channelReleaseTimers.get(channel);
+    if (timer) clearTimeout(timer);
+    channelReleaseTimers.delete(channel);
+  }
+
+  function scheduleChannelRelease(channelValue, releaseOptions = {}) {
+    const channel = String(channelValue || "foreground");
+    const idleMs = Math.max(0, Number(releaseOptions.idleMs) || 0);
+    cancelScheduledRelease(channel);
+    const assignedPage = channelPages.get(channel);
+    if (!assignedPage) return false;
+    const timer = setTimeout(async () => {
+      channelReleaseTimers.delete(channel);
+      if (channelPages.get(channel) !== assignedPage) return;
+      channelPages.delete(channel);
+      const sharedByAnotherChannel = [...channelPages.values()]
+        .some((candidate) => candidate === assignedPage);
+      const loginPage = typeof isLoginPage === "function"
+        && isLoginPage(assignedPage.url?.() || "");
+      if (!sharedByAnotherChannel && !loginPage && !assignedPage.isClosed?.()) {
+        await assignedPage.close?.().catch(() => {});
+      }
+      if (page === assignedPage && !sharedByAnotherChannel) {
+        page = context?.pages?.().find((candidate) => !candidate.isClosed?.()) || null;
+      }
+    }, idleMs);
+    timer.unref?.();
+    channelReleaseTimers.set(channel, timer);
+    return true;
+  }
+
   async function ensureOpen(openOptions = {}) {
     const channel = String(openOptions.channel || "foreground");
+    cancelScheduledRelease(channel);
     const navigationTimeout =
       openOptions.navigationTimeout ?? defaultTimeout;
     if (context) {
@@ -427,6 +461,8 @@ function createRecloudSessionManager(options = {}) {
     const activeContext = context;
     context = null;
     page = null;
+    for (const timer of channelReleaseTimers.values()) clearTimeout(timer);
+    channelReleaseTimers.clear();
     channelPages.clear();
     if (activeContext) await activeContext.close().catch(() => {});
     if (releaseLock) {
@@ -439,6 +475,7 @@ function createRecloudSessionManager(options = {}) {
   return {
     close,
     ensureOpen,
+    scheduleChannelRelease,
     get autoLoginAttempted() {
       return autoLoginAttempted;
     },

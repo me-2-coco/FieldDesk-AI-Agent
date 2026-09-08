@@ -118,6 +118,10 @@ async function closeRecloud() {
   await sessionManager.close();
 }
 
+function releaseRecloudChannel(channel, options = {}) {
+  return sessionManager.scheduleChannelRelease(channel, options);
+}
+
 function isRecloudLoginPage(url) {
   try {
     return new URL(url).hostname.toLowerCase() === "auth4.recloud.com.cn";
@@ -11664,6 +11668,7 @@ module.exports = {
   LOGISTICS_INPUT_PLACEHOLDER,
   openRecloud,
   closeRecloud,
+  releaseRecloudChannel,
   isRecloudLoginPage,
   assertRecloudAuthenticated,
   getLogisticsInput,

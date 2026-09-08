@@ -190,6 +190,81 @@ test("foreground and background channels use separate pages in one authenticated
   await manager.close();
 });
 
+test("idle background channel page is released without closing the authenticated context", async (t) => {
+  const directory = await createTemporaryDirectory(t);
+  const pages = [];
+  const createPage = () => {
+    let currentUrl = "https://crm2.recloud.com.cn/home";
+    let closed = false;
+    const created = {
+      isClosed: () => closed,
+      url: () => currentUrl,
+      setDefaultTimeout() {},
+      async goto(url) { currentUrl = url; },
+      async close() { closed = true; },
+    };
+    pages.push(created);
+    return created;
+  };
+  createPage();
+  let contextCloseCount = 0;
+  const context = {
+    pages: () => pages,
+    newPage: async () => createPage(),
+    close: async () => { contextCloseCount += 1; },
+  };
+  const manager = createRecloudSessionManager({
+    chromium: { launchPersistentContext: async () => context },
+    profileDirectory: path.join(directory, "profile"),
+    lockPath: path.join(directory, "profile.lock"),
+    targetUrl: "https://crm2.recloud.com.cn/#/scanSignin/query",
+    isLoginPage: (url) => url.includes("auth4.recloud.com.cn"),
+    env: { RECLOUD_HEADLESS: "true" },
+    logger: { info() {} },
+  });
+
+  const foreground = await manager.ensureOpen({ channel: "foreground" });
+  const background = await manager.ensureOpen({ channel: "business-write:1" });
+  assert.equal(manager.scheduleChannelRelease("business-write:1", { idleMs: 10 }), true);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+
+  assert.equal(background.page.isClosed(), true);
+  assert.equal(foreground.page.isClosed(), false);
+  assert.equal(contextCloseCount, 0);
+  await manager.close();
+});
+
+test("reusing a channel cancels its pending idle release", async (t) => {
+  const directory = await createTemporaryDirectory(t);
+  let currentUrl = "https://crm2.recloud.com.cn/home";
+  let closed = false;
+  const page = {
+    isClosed: () => closed,
+    url: () => currentUrl,
+    setDefaultTimeout() {},
+    async goto(url) { currentUrl = url; },
+    async close() { closed = true; },
+  };
+  const context = { pages: () => [page], newPage: async () => page, close: async () => {} };
+  const manager = createRecloudSessionManager({
+    chromium: { launchPersistentContext: async () => context },
+    profileDirectory: path.join(directory, "profile"),
+    lockPath: path.join(directory, "profile.lock"),
+    targetUrl: "https://crm2.recloud.com.cn/#/scanSignin/query",
+    isLoginPage: (url) => url.includes("auth4.recloud.com.cn"),
+    env: { RECLOUD_HEADLESS: "true" },
+    logger: { info() {} },
+  });
+
+  await manager.ensureOpen({ channel: "business-write:1" });
+  manager.scheduleChannelRelease("business-write:1", { idleMs: 20 });
+  await manager.ensureOpen({ channel: "business-write:1" });
+  await new Promise((resolve) => setTimeout(resolve, 40));
+
+  assert.equal(closed, false);
+  await manager.close();
+});
+
 test("a crashed channel page is replaced before the Recloud operation is retried", async (t) => {
   const directory = await createTemporaryDirectory(t);
   let firstClosed = false;
@@ -806,12 +881,16 @@ test("backend startup initializes once and logs only a safe failure code", async
 
 test("business writes use a separate priority channel and make background reads yield", async () => {
   const channels = [];
+  const releasedChannels = [];
   let releaseBackground;
   let backgroundQueue;
   const connector = {
     async openRecloud({ channel }) {
       channels.push(channel);
       return { loginRequired: false, page: { channel } };
+    },
+    releaseRecloudChannel(channel, options) {
+      releasedChannels.push({ channel, idleMs: options.idleMs });
     },
   };
   const backgroundStarted = new Promise((resolve) => {
@@ -834,6 +913,8 @@ test("business writes use a separate priority channel and make background reads 
   releaseBackground();
   assert.equal(await background, "background-complete");
   assert.deepEqual(channels.sort(), ["background", "business-write"]);
+  assert.deepEqual(releasedChannels.map((item) => item.channel).sort(), ["background", "business-write"]);
+  assert.ok(releasedChannels.every((item) => item.idleMs === 10_000));
 });
 
 test("business write pool accepts thirty orders without exceeding its fixed limit", async () => {

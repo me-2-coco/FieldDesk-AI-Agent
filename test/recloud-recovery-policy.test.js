@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const {
   recloudBusinessWriteConcurrency,
+  recloudIdleChannelReleaseMs,
   shouldAutoResumeReceipt,
   shouldAutoResumeDetection,
   shouldAutoResumeServiceOrder,
@@ -19,11 +20,17 @@ test("瑞云业务写入默认五路并保持五路安全上限", () => {
   assert.equal(recloudBusinessWriteConcurrency({ RECLOUD_BUSINESS_WRITE_CONCURRENCY: "5" }), 5);
 });
 
-test("恢复巡检默认每分钟限量五单并限制配置边界", () => {
+test("正常写入保持五路，空闲通道十秒释放", () => {
+  assert.equal(recloudIdleChannelReleaseMs({}), 10_000);
+  assert.equal(recloudIdleChannelReleaseMs({ RECLOUD_IDLE_CHANNEL_RELEASE_MS: "3000" }), 3_000);
+  assert.equal(recloudIdleChannelReleaseMs({ RECLOUD_IDLE_CHANNEL_RELEASE_MS: "100" }), 10_000);
+});
+
+test("恢复巡检默认每分钟限量两单并限制配置边界", () => {
   assert.equal(recloudRecoverySweepIntervalMs({}), 60_000);
   assert.equal(recloudRecoverySweepIntervalMs({ RECLOUD_RECOVERY_SWEEP_INTERVAL_MS: "30000" }), 30_000);
   assert.equal(recloudRecoverySweepIntervalMs({ RECLOUD_RECOVERY_SWEEP_INTERVAL_MS: "1000" }), 60_000);
-  assert.equal(recloudRecoverySweepBatchSize({}), 5);
+  assert.equal(recloudRecoverySweepBatchSize({}), 2);
   assert.equal(recloudRecoverySweepBatchSize({ RECLOUD_RECOVERY_SWEEP_BATCH_SIZE: "12" }), 12);
   assert.equal(recloudRecoverySweepBatchSize({ RECLOUD_RECOVERY_SWEEP_BATCH_SIZE: "100" }), 20);
 });

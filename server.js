@@ -92,7 +92,8 @@ const {
 const SUPPORTED_REPAIR_SPECIALTIES = Object.freeze(["扫地机", "洗地机"]);
 const RECLOUD_FAILED_RETRY_COOLDOWN_MS = 5 * 60 * 1000;
 const RECLOUD_RECOVERY_SWEEP_INTERVAL_MS = 60 * 1000;
-const RECLOUD_RECOVERY_SWEEP_BATCH_SIZE = 5;
+const RECLOUD_RECOVERY_SWEEP_BATCH_SIZE = 2;
+const RECLOUD_IDLE_CHANNEL_RELEASE_MS = 10_000;
 const RECEIPT_RECOVERY_STATUSES = new Set([
   "RECEIVED_PENDING_INSPECTION",
   "INSPECTION_IN_PROGRESS",
@@ -514,38 +515,46 @@ function validateReceiptSn(value, logisticsNo = "") {
 }
 
 async function executeRecloudOperation(connector, operation, options, coordinator, channel) {
-  const session = await connector.openRecloud({ channel });
-  if (session.loginRequired) {
-    const error = new Error("请重新初始化瑞云登录状态");
-    error.code = "RECLOUD_LOGIN_REQUIRED";
-    throw error;
-  }
-  const operationPromise = Promise.resolve().then(() => operation(session.page, {
-    shouldYield: () => options.background === true && coordinator.foregroundWaiting > 0,
-  }));
-  const timeoutMs = Number(options.timeoutMs || 0);
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return await operationPromise;
-
+  let session;
   let timer;
-  const timeoutPromise = new Promise((_, reject) => {
-    timer = setTimeout(async () => {
-      await session.page?.close?.().catch(() => {});
-      const error = new Error(`瑞云操作超过 ${timeoutMs}ms，已隔离当前通道`);
-      error.code = options.timeoutCode || "RECLOUD_OPERATION_TIMEOUT";
-      error.status = 504;
-      error.resultUnknown = options.resultUnknownOnTimeout === true;
-      // The caller is released now, but this lane cannot be reused until the
-      // aborted operation really settles. A non-cooperative task therefore
-      // loses one worker instead of contaminating another order.
-      error.recloudDrainPromise = operationPromise.catch(() => {});
-      reject(error);
-    }, timeoutMs);
-    timer.unref?.();
-  });
   try {
+    session = await connector.openRecloud({ channel });
+    if (session.loginRequired) {
+      const error = new Error("请重新初始化瑞云登录状态");
+      error.code = "RECLOUD_LOGIN_REQUIRED";
+      throw error;
+    }
+    const operationPromise = Promise.resolve().then(() => operation(session.page, {
+      shouldYield: () => options.background === true && coordinator.foregroundWaiting > 0,
+    }));
+    const timeoutMs = Number(options.timeoutMs || 0);
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return await operationPromise;
+    const timeoutPromise = new Promise((_, reject) => {
+      timer = setTimeout(async () => {
+        await session.page?.close?.().catch(() => {});
+        const error = new Error(`瑞云操作超过 ${timeoutMs}ms，已隔离当前通道`);
+        error.code = options.timeoutCode || "RECLOUD_OPERATION_TIMEOUT";
+        error.status = 504;
+        error.resultUnknown = options.resultUnknownOnTimeout === true;
+        // The caller is released now, but this lane cannot be reused until the
+        // aborted operation really settles. A non-cooperative task therefore
+        // loses one worker instead of contaminating another order.
+        error.recloudDrainPromise = operationPromise.catch(() => {});
+        reject(error);
+      }, timeoutMs);
+      timer.unref?.();
+    });
     return await Promise.race([operationPromise, timeoutPromise]);
   } finally {
     clearTimeout(timer);
+    const idleReleaseMs = options.idleReleaseMs === undefined
+      ? recloudIdleChannelReleaseMs(process.env)
+      : Number(options.idleReleaseMs);
+    if (Number.isFinite(idleReleaseMs) && idleReleaseMs >= 1_000) {
+      connector.releaseRecloudChannel?.(channel, {
+        idleMs: idleReleaseMs,
+      });
+    }
   }
 }
 
@@ -664,6 +673,13 @@ function recloudBusinessWriteConcurrency(env = process.env) {
     : 5;
 }
 
+function recloudIdleChannelReleaseMs(env = process.env) {
+  const configured = Number(env.RECLOUD_IDLE_CHANNEL_RELEASE_MS);
+  return Number.isFinite(configured) && configured >= 1_000
+    ? Math.floor(configured)
+    : RECLOUD_IDLE_CHANNEL_RELEASE_MS;
+}
+
 function timestampAgeMs(value, now = Date.now()) {
   const timestamp = Date.parse(String(value || ""));
   return Number.isFinite(timestamp) ? Math.max(0, now - timestamp) : Infinity;
@@ -778,6 +794,7 @@ function createApp(
     queuePriority: 100,
     concurrency: recloudBusinessWriteConcurrency(runtimeEnv),
     timeoutMs: recloudBusinessWriteTimeoutMs(runtimeEnv),
+    idleReleaseMs: recloudIdleChannelReleaseMs(runtimeEnv),
     resultUnknownOnTimeout: true,
   };
   const foregroundQueryOptions = {
@@ -5604,6 +5621,7 @@ if (require.main === module) {
         priority: true,
         concurrency: recloudBusinessWriteConcurrency(process.env),
         timeoutMs: recloudBusinessWriteTimeoutMs(process.env),
+        idleReleaseMs: recloudIdleChannelReleaseMs(process.env),
         timeoutCode: "RECLOUD_REPAIR_COMPLETION_TIMEOUT",
         resultUnknownOnTimeout: true,
       }),
@@ -5632,6 +5650,11 @@ if (require.main === module) {
     // 到店查询始终优先；需要维护历史缓存时再显式开启或运行独立脚本。
     if (session && String(process.env.RMA_QUERY_BACKFILL_ENABLED || "false").toLowerCase() === "true") {
       scheduleRmaQueryBackfill(5000);
+    }
+    if (session?.channel) {
+      recloudConnector.releaseRecloudChannel?.(session.channel, {
+        idleMs: recloudIdleChannelReleaseMs(process.env),
+      });
     }
   }).finally(() => {
     // 监测服务必须持续运行；即使启动时瑞云尚未登录，也要定时重试，
@@ -5675,6 +5698,7 @@ module.exports = {
   validateReceiptSn,
   recloudBusinessWriteConcurrency,
   recloudBusinessWriteTimeoutMs,
+  recloudIdleChannelReleaseMs,
   shouldAutoResumeReceipt,
   shouldAutoResumeDetection,
   shouldAutoResumeServiceOrder,
