@@ -5523,7 +5523,8 @@ if (require.main === module) {
     resumePendingRecloudReceipts: false,
     resumePendingRecloudDetections: false,
     resumePendingRecloudServiceOrders: false,
-    recloudRecoveryWatchdogEnabled: true,
+    recloudRecoveryWatchdogEnabled:
+      String(process.env.RECLOUD_RECOVERY_WATCHDOG_ENABLED || "true").toLowerCase() !== "false",
     recloudRepairPageAdapterFactory: createRecloudRepairPageAdapter,
     recloudRepairAdapterProvider: {
       run: (task, work) => withRecloud(recloudConnector, async (page) => {

@@ -1212,6 +1212,12 @@ async function readRmaProductIdentity(page, options = {}) {
       && identity?.projectCode
     );
     if (matches.length === 1) return matches[0];
+    // When the RMA has exactly one populated product row, return that row even
+    // if its SN differs. The receipt orchestrator can then report the real SN
+    // mismatch instead of repeatedly misclassifying it as a missing project.
+    // Multi-product RMAs remain fail-closed because no unique row is safe.
+    const populated = candidates.filter((identity) => identity?.sn && identity?.projectCode);
+    if (populated.length === 1) return populated[0];
   }
   return { sn: "", projectCode: "", productLine: "", productModel: "", productName: "" };
 }

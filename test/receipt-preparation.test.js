@@ -1134,6 +1134,7 @@ test("project identity reader does not depend on the receipt button after signin
   const block = source.slice(source.indexOf("async function readRmaProductIdentity"), source.indexOf("function selectCellByHeaderCoordinate"));
   assert.match(block, /activateReceiptDetailTabs/);
   assert.doesNotMatch(block, /findMappedReceiptControl/);
+  assert.match(block, /populated\.length === 1/);
 });
 
 test("receipt attachment sync can compare Recloud with the persisted SN authorization", () => {
