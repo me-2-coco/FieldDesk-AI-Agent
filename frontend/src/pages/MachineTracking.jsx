@@ -26,7 +26,7 @@ function MachineTracking({ setPage }) {
   const activeCount = machines.filter((machine) => !["COMPLETED", "CLOSED"].includes(machine.status)).length
 
   return <div className="page machine-tracking-page">
-    <div className="top-bar backoffice-page-header"><button className="arrow-back" onClick={() => setPage("home")}>←</button><div><small>查询与档案</small><h1>机器去向</h1></div></div>
+    <div className="top-bar backoffice-page-header"><button className="arrow-back" aria-label="返回维修管理" onClick={() => setPage("orders")}>←</button><div><small>查询与档案</small><h1>机器去向</h1></div></div>
     <div className="card backoffice-intro-card">
       <div className="backoffice-intro-icon">机</div>
       <div><strong>查询网点在手机器</strong><p>通过联系电话或物流单号，快速确认机器当前负责人和处理状态。</p></div>

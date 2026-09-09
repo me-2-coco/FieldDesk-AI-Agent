@@ -60,7 +60,7 @@ function InformationExceptionCenter({ setPage, onOpenReport }) {
   }
 
   return <div className="page information-exception-page">
-    <div className="top-bar"><button className="arrow-back" onClick={() => setPage("home")}>←</button><div><small>发货与异常</small><h1>问题工单</h1></div></div>
+    <div className="top-bar"><button className="arrow-back" aria-label="返回维修管理" onClick={() => setPage("orders")}>←</button><div><small>发货与异常</small><h1>问题工单</h1></div></div>
     <div className="backoffice-metric-grid exception-metric-grid"><div><span>全部异常</span><strong>{items.length}</strong></div><div><span>尽快处理</span><strong>{highCount}</strong></div><div><span>需要跟进</span><strong>{mediumCount}</strong></div></div>
     <div className="card compact-search-card exception-filter-card">
       <div className="section-title-row"><div><small>本页只读汇总</small><h2>筛选异常</h2></div><button type="button" className="mini-refresh-button" onClick={refresh} disabled={loading}>{loading ? "检查中" : "刷新"}</button></div>

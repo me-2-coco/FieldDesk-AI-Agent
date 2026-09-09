@@ -114,7 +114,7 @@ function InformationRepairReports({ setPage, initialRmaNo = "" }) {
   const pricing = report?.repairCompletion?.pricing
 
   return <div className="page information-report-page">
-    <div className="top-bar backoffice-page-header"><button className="arrow-back" onClick={() => report ? setReport(null) : setPage("home")}>←</button><div><small>查询与档案</small><h1>维修档案</h1></div></div>
+    <div className="top-bar backoffice-page-header"><button className="arrow-back" aria-label={report ? "返回档案列表" : "返回维修管理"} onClick={() => report ? setReport(null) : setPage("orders")}>←</button><div><small>查询与档案</small><h1>维修档案</h1></div></div>
     {!report && <>
       <div className="card backoffice-intro-card"><div className="backoffice-intro-icon">档</div><div><strong>完整维修档案</strong><p>信息员只读查看本地维修报告，不能修改师傅填写的内容。</p></div></div>
       <div className="card compact-data-card">

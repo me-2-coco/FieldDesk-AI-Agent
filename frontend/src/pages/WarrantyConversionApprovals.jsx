@@ -48,7 +48,7 @@ function WarrantyConversionApprovals({ setPage }) {
   }
 
   return <div className="page warranty-approval-page">
-    <div className="top-bar"><button className="arrow-back" onClick={() => setPage("home")}>←</button><div><small>信息员待办</small><h1>保外转保内申请</h1></div></div>
+    <div className="top-bar"><button className="arrow-back" aria-label="返回维修管理" onClick={() => setPage("orders")}>←</button><div><small>信息员待办</small><h1>保外转保内申请</h1></div></div>
     <div className="card compact-search-card">
       <div className="section-title-row"><div><small>师傅提交后自动到这里</small><h2>申请凭证</h2></div><span>{items.filter((item) => item.status === "PENDING_APPROVAL").length} 待处理</span></div>
       <div className="segmented-control"><button className={filter === "PENDING_APPROVAL" ? "active" : ""} onClick={() => setFilter("PENDING_APPROVAL")}>待申请</button><button className={filter === "APPROVED" ? "active" : ""} onClick={() => setFilter("APPROVED")}>已上传</button><button className={filter === "ALL" ? "active" : ""} onClick={() => setFilter("ALL")}>全部</button></div>

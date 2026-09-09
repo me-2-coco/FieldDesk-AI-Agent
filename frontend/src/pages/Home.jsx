@@ -346,7 +346,7 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
       <div className="home-identity-glow" />
       <div className="home-brand-row">
         <div className="home-brand-mark">FD</div>
-        <div><span>FieldDesk 工作台</span><h1>{ordersHub ? "工单" : "网点维修管理"}</h1></div>
+        <div><span>FieldDesk 工作台</span><h1>{ordersHub ? "维修管理" : "网点维修管理"}</h1></div>
       </div>
       <div className="home-user-panel">
         <div className="home-user-avatar">{accountName.slice(0, 1)}</div>
@@ -358,7 +358,7 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
         <div>{(currentUser.repairSpecialties?.length ? currentUser.repairSpecialties : ["未配置"]).map((item) => <strong key={item}>{item}</strong>)}</div>
       </div>}
     </div>
-    {ordersHub && <h1>工单</h1>}
+    {ordersHub && <h1>维修管理</h1>}
     <div className="desktop-app-groups">
       {desktopGroups.map((group, groupIndex) => <section className="desktop-app-group" key={group.title}>
         <h2>{group.title}</h2>

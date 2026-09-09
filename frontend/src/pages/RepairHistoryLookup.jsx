@@ -9,7 +9,7 @@ function displayTime(value) {
   return Number.isNaN(time.getTime()) ? value : time.toLocaleString("zh-CN", { hour12: false })
 }
 
-function RepairHistoryLookup() {
+function RepairHistoryLookup({ setPage }) {
   const [keyword, setKeyword] = useState("")
   const [records, setRecords] = useState([])
   const [message, setMessage] = useState("")
@@ -50,6 +50,7 @@ function RepairHistoryLookup() {
 
   return <div className="page repair-history-page">
     <header className="history-page-header">
+      <button type="button" className="arrow-back" aria-label="返回维修管理" onClick={() => setPage("orders")}>←</button>
       <span>维修档案</span>
       <h1>历史工单</h1>
       <p>查询客户全部历史维修记录</p>
