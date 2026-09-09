@@ -110,14 +110,14 @@ function AccountManagement({ setPage }) {
     <div className="top-bar"><button className="arrow-back" onClick={() => setPage("home")}>←</button><div><small>账号与权限</small><h1>账号管理</h1></div></div>
     <div className="card account-editor-card">
       <div className="section-title-row"><div><small>账号配置</small><h2>{form.userId ? "编辑账号" : "新增账号"}</h2></div><span>仅管理员</span></div>
-      <p className="section-description">FieldDesk0004 为瑞云姓名识别测试账号；正常账号从 FieldDesk0005 开始按顺序生成。姓名、电话、角色和对应权限均为必填。</p>
+      <p className="section-description">FieldDesk0004 为瑞云姓名识别测试账号；正常账号从 FieldDesk0005 开始按顺序生成。姓名、电话选填，可之后补充；账号角色与对应权限必选。</p>
       <form onSubmit={submit}>
         {form.userId
           ? <label>FieldDesk 账号<input value={form.userId} readOnly aria-readonly="true" /></label>
           : <label>FieldDesk 账号<div className="account-id-editor"><span>FieldDesk</span><input aria-label="账号数字" inputMode="numeric" value={accountSuffix} onChange={(event) => setAccountSuffix(event.target.value.replace(/\D/g, "").slice(0, 8))} onBlur={() => setAccountSuffix((value) => (value || nextAccount.replace(/^FieldDesk/, "")).padStart(4, "0"))} placeholder={nextAccount.replace(/^FieldDesk/, "")} required /></div><small className="account-id-hint">默认使用下一个编号；手动填写 0004 可创建瑞云对接测试账号</small></label>}
         {!form.userId && <label>初始密码<input value="000000" readOnly aria-readonly="true" /></label>}
-        <label>{recloudTestAccount ? "测试师傅姓名" : "姓名"}<input value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })} placeholder="请输入姓名" required disabled={form.accountAuthority === "OWNER"} />{recloudTestAccount && <small className="account-id-hint">保存后，该姓名会直接用于瑞云负责人识别测试</small>}</label>
-        <label>电话<input type="tel" inputMode="numeric" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="请输入11位手机号" required disabled={form.accountAuthority === "OWNER"} /></label>
+        <label>{recloudTestAccount ? "测试师傅姓名（选填）" : "姓名（选填）"}<input value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })} placeholder="可稍后补充姓名" disabled={form.accountAuthority === "OWNER"} />{recloudTestAccount && <small className="account-id-hint">保存后，该姓名会直接用于瑞云负责人识别测试</small>}</label>
+        <label>电话（选填）<input type="tel" inputMode="numeric" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="可稍后补充11位手机号" disabled={form.accountAuthority === "OWNER"} /></label>
         <fieldset className="account-role-picker"><legend>账号角色与权限</legend><div className="account-role-grid">
           {availableRoleChoices.map((choice) => <button type="button" key={choice.value} disabled={form.accountAuthority === "OWNER"} className={`account-role-option ${choice.tone} ${permissionValue(form) === choice.value ? "is-selected" : ""}`} aria-pressed={permissionValue(form) === choice.value} onClick={() => setForm({ ...form, ...permissionFields(choice.value) })}>
             <span className="account-role-icon"><AppIcon name={choice.icon} size={20} /></span>

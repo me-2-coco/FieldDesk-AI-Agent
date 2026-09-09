@@ -13,6 +13,20 @@ const owner = { userId: "FieldDesk0001", displayName: "负责人", role: USER_RO
 const sweep = { userId: "TECH-S", displayName: "扫地机师傅", role: USER_ROLES.TECHNICIAN };
 const wash = { userId: "TECH-W", displayName: "洗地机师傅", role: USER_ROLES.TECHNICIAN };
 
+test("managed accounts allow blank names and phones while requiring a role", async () => {
+  const store = new AccountStore({ backend: new MemoryDocumentBackend({ users: [] }) });
+  const first = await store.createManagedAccount({ role: USER_ROLES.ADMIN }, owner);
+  const second = await store.createManagedAccount({ role: USER_ROLES.WAREHOUSE }, owner);
+  assert.notEqual(first.userId, second.userId);
+  assert.equal(first.displayName, "");
+  assert.equal(first.phone, "");
+  assert.ok(await store.findByCredentials(first.userId, "000000"));
+  const saved = await store.upsert({ ...first, displayName: "", phone: "" }, owner);
+  assert.equal(saved.displayName, "");
+  assert.throws(() => store.createManagedAccount({}, owner), { code: "ACCOUNT_ROLE_INVALID" });
+  assert.throws(() => store.createManagedAccount({ role: USER_ROLES.WAREHOUSE, phone: "123" }, owner), { code: "ACCOUNT_PHONE_INVALID" });
+});
+
 test("local frontend user IDs map to the matching backend development accounts", () => {
   const user = getLocalCurrentUser({}, "USER-004");
   assert.equal(user.userId, "LOCAL-TECH-WASH");
@@ -98,7 +112,6 @@ test("administrator creates managed FieldDesk accounts from 0005 with required r
   assert.equal((await store.findByCredentials("FieldDesk0005", "000000")).mustChangePassword, true);
   assert.throws(() => store.changePassword("FieldDesk0005", "000000"), { code: "ACCOUNT_PASSWORD_UNCHANGED" });
   await assert.rejects(() => store.createManagedAccount({ displayName: "重复", phone: "13800138000", role: USER_ROLES.WAREHOUSE }, admin), { code: "ACCOUNT_PHONE_EXISTS" });
-  assert.throws(() => store.createManagedAccount({ displayName: "", phone: "13900139001", role: USER_ROLES.WAREHOUSE }, admin), { code: "ACCOUNT_DISPLAY_NAME_REQUIRED" });
   assert.throws(() => store.createManagedAccount({ displayName: "测试丙", phone: "123", role: USER_ROLES.WAREHOUSE }, admin), { code: "ACCOUNT_PHONE_INVALID" });
   assert.throws(() => store.createManagedAccount({ displayName: "测试丙", phone: "13700137000", role: USER_ROLES.TECHNICIAN }, admin), { code: "ACCOUNT_SPECIALTY_REQUIRED" });
   assert.throws(() => store.createManagedAccount({ displayName: "测试丙", phone: "13700137000", role: USER_ROLES.TECHNICIAN, repairSpecialties: ["扫地机", "洗地机"] }, admin), { code: "ACCOUNT_SPECIALTY_REQUIRED" });

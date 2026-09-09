@@ -181,8 +181,7 @@ class AccountStore {
     const requestedUserId = String(input.userId || "").trim();
     const isRecloudTestAccount = requestedUserId === RECLOUD_TEST_USER_ID;
     const specialties = [...new Set(input.repairSpecialties || [])];
-    if (!displayName) throw Object.assign(new Error("请填写姓名"), { code: "ACCOUNT_DISPLAY_NAME_REQUIRED", status: 400 });
-    if (!/^1[3-9]\d{9}$/.test(phone)) throw Object.assign(new Error("请填写正确的11位手机号"), { code: "ACCOUNT_PHONE_INVALID", status: 400 });
+    if (phone && !/^1[3-9]\d{9}$/.test(phone)) throw Object.assign(new Error("请填写正确的11位手机号"), { code: "ACCOUNT_PHONE_INVALID", status: 400 });
     if (!MANAGED_ACCOUNT_ROLES.has(role)) throw Object.assign(new Error("请选择账号角色"), { code: "ACCOUNT_ROLE_INVALID", status: 400 });
     if (role === USER_ROLES.ADMIN && !isOwner(operator)) throw Object.assign(new Error("只有负责人可以创建管理员账号"), { code: "ACCOUNT_OWNER_REQUIRED", status: 403 });
     if (isRecloudTestAccount && !isOwner(operator)) throw Object.assign(new Error("只有负责人可以创建和管理 FieldDesk0004 测试账号"), { code: "ACCOUNT_OWNER_REQUIRED", status: 403 });
@@ -198,7 +197,7 @@ class AccountStore {
       if (data.users.some((item) => item.userId === userId)) {
         throw Object.assign(new Error("该 FieldDesk 账号已被使用，请更换后面的数字"), { code: "ACCOUNT_USER_ID_EXISTS", status: 409 });
       }
-      if (data.users.some((item) => !item.deletedAt && normalizeTechnicianPhone(item.phone) === phone)) {
+      if (phone && data.users.some((item) => !item.deletedAt && normalizeTechnicianPhone(item.phone) === phone)) {
         throw Object.assign(new Error("该手机号已创建 FieldDesk 账号"), { code: "ACCOUNT_PHONE_EXISTS", status: 409 });
       }
       const now = new Date().toISOString();
@@ -319,7 +318,7 @@ class AccountStore {
       const passwordHash = password
         ? crypto.createHash("sha256").update(String(password)).digest("hex")
         : existing?.passwordHash || existing?.tokenHash;
-      if (!userId || !input.displayName || !passwordHash) throw Object.assign(new Error("账号资料不完整"), { code: "ACCOUNT_FIELDS_REQUIRED", status: 400 });
+      if (!userId || !passwordHash) throw Object.assign(new Error("账号资料不完整"), { code: "ACCOUNT_FIELDS_REQUIRED", status: 400 });
       const next = { userId, displayName, phone: normalizeTechnicianPhone(input.phone ?? existing?.phone), role, accountPurpose: isRecloudTestAccount ? "RECLOUD_TECHNICIAN_TEST" : existing?.accountPurpose || "", repairSpecialties: specialties, recloudAssignmentMode, recloudAssigneeName, recloudFallbackAssigneeName: isRecloudTestAccount ? "" : recloudFallbackAssigneeName, active: input.active !== false, allowBearer: false, tokenHash: null, passwordHash, mustChangePassword: password ? true : existing?.mustChangePassword === true, tokenExpiresAt: null, updatedAt: new Date().toISOString() };
       if (existing) Object.assign(existing, next); else data.users.push({ ...next, createdAt: next.updatedAt });
       const { tokenHash: ignoredToken, passwordHash: ignoredPassword, ...safe } = next;
