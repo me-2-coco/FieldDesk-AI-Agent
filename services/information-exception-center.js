@@ -67,7 +67,9 @@ function detectOrderExceptions(order, options = {}) {
     exceptions.push(baseException(order, "UNASSIGNED_TECHNICIAN", "HIGH", "机器已签收但尚未分配负责师傅"));
   }
   const updatedAt = Date.parse(order.updatedAt || order.createdAt || "");
-  if (!CLOSED_STATUSES.has(order.status) && Number.isFinite(updatedAt) && now - updatedAt > stalledAfterMs) {
+  // Completed repairs have moved into shipping/closure; those stages have
+  // their own explicit exceptions and must not be labelled repair stagnation.
+  if (!CLOSED_STATUSES.has(order.status) && !COMPLETION_STATUSES.has(order.status) && Number.isFinite(updatedAt) && now - updatedAt > stalledAfterMs) {
     exceptions.push(baseException(order, "WORKFLOW_STALLED", "MEDIUM", "工单超过24小时没有流程更新"));
   }
   if (COMPLETION_STATUSES.has(order.status)) {

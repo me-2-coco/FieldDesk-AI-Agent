@@ -13,7 +13,17 @@ test("exception rules detect stalled incomplete media parts assignment and shipp
   assert.equal(partsMismatch(order), true);
   const result = detectOrderExceptions(order, { now: Date.parse("2026-08-24T00:00:00Z") });
   const types = new Set(result.map((item) => item.type));
-  for (const type of ["UNASSIGNED_TECHNICIAN", "WORKFLOW_STALLED", "REPORT_INCOMPLETE", "COMPLETION_MEDIA_MISSING", "PARTS_MISMATCH", "SHIPPED_NOT_COMPLETED"]) assert.equal(types.has(type), true);
+  for (const type of ["UNASSIGNED_TECHNICIAN", "REPORT_INCOMPLETE", "COMPLETION_MEDIA_MISSING", "PARTS_MISMATCH", "SHIPPED_NOT_COMPLETED"]) assert.equal(types.has(type), true);
+  assert.equal(types.has("WORKFLOW_STALLED"), false);
+});
+
+test("completed repairs do not stall, but shortage and submit handoffs remain visible", () => {
+  const base = { rmaNo:"SYNTH-COMPLETE", technicianId:"T1", status:"REPAIR_COMPLETED_PENDING_SHIPMENT", updatedAt:"2026-01-01T00:00:00Z", treatmentMode:"DEBUGGING", repairCompletion:{repairMeasure:"调试完成",operatorName:"测试师傅",attachments:[{id:"SYNTH-PHOTO"}]} };
+  const now=Date.parse("2026-09-09T00:00:00Z");
+  assert.deepEqual(detectOrderExceptions(base,{now}),[]);
+  const types=detectOrderExceptions({...base,partsShortage:{status:"PENDING_INFORMATION",parts:[]},inspectionOnlyHandoff:{status:"PENDING_INFORMATION"}},{now}).map(e=>e.type);
+  assert.deepEqual(types,["PARTS_SHORTAGE_PENDING","RECLOUD_COMPLETED_SUBMIT_PENDING"]);
+  assert.ok(detectOrderExceptions({...base,status:"RECEIVED_PENDING_INSPECTION",repairCompletion:undefined},{now}).some(e=>e.type==="WORKFLOW_STALLED"));
 });
 
 test("sync exceptions expose safe status messages without raw failures", () => {
