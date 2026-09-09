@@ -335,6 +335,7 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
     ...workspaceGroups.filter((group) => !["库存与库房", "库房作业", "系统管理"].includes(group.title)).map((group) => ({ ...group, actions: group.actions.filter((action) => action.page !== "records") }))
   ].filter((group) => group.actions.length) : [
     { title: "工作", actions: [
+      ...((isAdmin || isTechnician) ? [{ view: "dailyBoard", title: "当日看板", icon: "records" }] : []),
       ...(canViewTechnicians ? [{ view: "team", title: "师傅工作台", icon: "accounts" }] : []),
       ...(isTechnician ? [
         { view: "work", title: "我的维修", icon: "work" },
@@ -345,7 +346,7 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
   ].filter((group) => group.actions.length)
 
   return <div className="page home-page home-desktop">
-    {desktopView !== "desktop" && <div className="desktop-subpage-heading"><button type="button" onClick={() => detailStatus ? setDetailStatus("") : selectedTechnicianId ? setSelectedTechnicianId("") : openDesktopView("desktop")}>← {detailStatus ? "返回维修概览" : selectedTechnicianId ? "返回师傅列表" : "返回首页"}</button><h1>{({ team: "师傅工作台", work: "我的维修", stats: "维修统计", messages: "督办消息" })[desktopView]}</h1></div>}
+    {desktopView !== "desktop" && <div className="desktop-subpage-heading"><button type="button" onClick={() => detailStatus ? setDetailStatus("") : selectedTechnicianId ? setSelectedTechnicianId("") : openDesktopView("desktop")}>← {detailStatus ? "返回维修概览" : selectedTechnicianId ? "返回师傅列表" : "返回首页"}</button><h1>{({ dailyBoard: "当日看板", team: "师傅工作台", work: "我的维修", stats: "维修统计", messages: "督办消息" })[desktopView]}</h1></div>}
     {desktopView === "desktop" && <><div className="card home-identity-card">
       <div className="home-identity-glow" />
       <div className="home-brand-row">
@@ -363,7 +364,6 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
       </div>}
     </div>
     {ordersHub && <h1>维修管理</h1>}
-    {!ordersHub && (isAdmin || isTechnician) && <DailyWorkloadBoard orders={workflows} technicians={technicians} user={currentUser} now={boardNow} loading={workloadLoading} error={technicianLoadError} />}
     <div className="desktop-app-groups">
       {desktopGroups.map((group, groupIndex) => <section className="desktop-app-group" key={group.title}>
         <h2>{group.title}</h2>
@@ -375,6 +375,7 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
     </div></>}
 
 
+    {desktopView === "dailyBoard" && !ordersHub && (isAdmin || isTechnician) && <DailyWorkloadBoard orders={workflows} technicians={technicians} user={currentUser} now={boardNow} loading={workloadLoading} error={technicianLoadError} />}
     {desktopView === "team" && canViewTechnicians && !selectedTechnician && <section className="card home-technician-directory">
       <div className="home-section-heading">
         <div><span>人员工作量</span><h2>师傅</h2></div>

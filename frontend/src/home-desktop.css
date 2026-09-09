@@ -36,3 +36,34 @@
 .daily-product-board tbody th { font-weight: 500; color: #34465e; }
 .daily-product-board td:last-child { color: #1d6bcc; font-weight: 700; }
 .daily-product-board tfoot { background: #eef5ff; font-weight: 700; }
+.daily-product-tabs { display: flex; background: #e7edf6; padding: 4px; border-radius: 14px; margin: 16px 0; }
+.daily-product-tabs button { flex: 1; border: 0; border-radius: 10px; background: transparent; color: #697b93; padding: 11px; font-size: 14px; font-weight: 600; }
+.daily-product-tabs button[aria-pressed="true"] { background: white; color: #1c68d7; box-shadow: 0 2px 8px #264b7710; }
+.daily-summary { border-radius: 22px; padding: 22px 18px; background: linear-gradient(120deg, #155bd4, #3784ec); color: white; }
+.daily-summary-wash { background: linear-gradient(120deg, #087e76, #25a79d); }
+.daily-summary-total { display: flex; align-items: center; justify-content: space-between; font-size: 12px; }
+.daily-summary-total p { margin: 4px 0 14px; }
+.daily-summary-total strong { font-size: 42px; font-weight: 700; letter-spacing: -1px; }
+.daily-summary-metrics { display: grid; grid-template-columns: repeat(2, 1fr); border-top: 1px solid #ffffff35; padding-top: 15px; gap: 4px; }
+.daily-summary-metrics > div { display: flex; flex-direction: column; gap: 5px; }
+.daily-summary-metrics strong { font-size: 22px; }
+.daily-summary-metrics span { font-size: 11px; opacity: .85; }
+.daily-list-heading { display: flex; justify-content: space-between; align-items: center; margin-top: 24px; }
+.daily-list-heading h2 { font-size: 17px; margin: 0; }
+.daily-list-heading > span { font-size: 12px; color: #788aa1; }
+.daily-person-search { width: 100%; box-sizing: border-box; border: 1px solid #e0e7f1; background: white; border-radius: 12px; padding: 12px; margin: 12px 0 4px; font-size: 13px; }
+.daily-people-list { margin-top: 12px; border-radius: 18px; background: white; padding: 0 14px; }
+.daily-person { padding: 12px 0; border-bottom: 1px solid #eef2f7; }
+.daily-person:last-child { border: 0; }
+.daily-person-heading { display: flex; gap: 9px; align-items: center; }
+.daily-person-avatar { flex-shrink: 0; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; background: #ecf3ff; color: #2c70cb; font-size: 14px; }
+.daily-person-heading h3 { margin: 0; flex: 1; min-width: 0; font-size: 14px; overflow-wrap: anywhere; color: #30445d; }
+.daily-person-total { color: #718399; font-size: 11px; white-space: nowrap; }
+.daily-person-total strong { font-size: 23px; color: #1a65ca; }
+.daily-person-metrics { display: flex; gap: 20px; margin: 2px 0 0 41px; line-height: 18px; }
+.daily-person-metrics > span { color: #8492a6; font-size: 10px; white-space: nowrap; }
+.daily-person-metrics b { color: #425670; margin-left: 4px; font-size: 12px; }
+.daily-pagination { display: flex; justify-content: space-between; align-items: center; margin-top: 16px; font-size: 12px; color: #6d809a; }
+.daily-pagination button { flex: 0 0 auto; width: auto; min-width: 84px; border: 1px solid #dce5f2; background: white; color: #276aca; border-radius: 10px; padding: 9px 14px; font-size: 12px; }
+.daily-pagination > span { white-space: nowrap; padding: 0 12px; }
+.daily-pagination button:disabled { opacity: .4; }
