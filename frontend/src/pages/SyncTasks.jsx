@@ -133,7 +133,7 @@ function SyncTasks({ setPage, onOpenOrder }) {
 
   return <div className="page sync-tasks-page">
     <div className="top-bar">
-      <button className="arrow-back" onClick={() => setPage("profile")}>←</button>
+      <button className="arrow-back" onClick={() => setPage("appBack")}>←</button>
       <div><small>系统管理</small><h1>瑞云同步</h1></div>
     </div>
     <div className="backoffice-metric-grid sync-metric-grid">

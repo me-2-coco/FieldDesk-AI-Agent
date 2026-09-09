@@ -12,7 +12,6 @@ function ReturnShipping({ setPage }) {
     getShippingOrders().then((rows) => {
       if (!active) return
       setOrders(rows)
-      setSelectedRmaNo(rows[0]?.rmaNo || "")
     }).catch((error) => active && setErrorMessage(error.message))
     return () => { active = false }
   }, [])
@@ -39,7 +38,7 @@ function ReturnShipping({ setPage }) {
 
   return <div className="page return-shipping-page">
     <div className="top-bar backoffice-page-header">
-      <button className="arrow-back" aria-label="返回维修管理" onClick={() => setPage("orders")}>←</button>
+      <button className="arrow-back" aria-label={selectedRmaNo ? "返回发货列表" : "退出发货进度"} onClick={() => selectedRmaNo ? (setSelectedRmaNo(""), setContext(null)) : setPage("appBack")}>←</button>
       <div><small>发货与异常</small><h1>后台发货进度</h1></div>
     </div>
     <div className="backoffice-metric-grid shipping-metrics">

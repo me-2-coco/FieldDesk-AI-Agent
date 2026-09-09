@@ -74,7 +74,7 @@ function InventoryContent({ setPage }) {
 
   return <div className="page inventory-page compact-backoffice-page">
     <header className="inventory-app-hero">
-      <button className="inventory-hero-back" onClick={() => setPage("home")} aria-label="返回首页">←</button>
+      <button className="inventory-hero-back" onClick={() => recloudResult ? setRecloudResult(null) : setPage("appBack")} aria-label={recloudResult ? "返回库存查询" : "返回库存"}>←</button>
       <span className="inventory-hero-icon"><AppIcon name="inventory" size={24} /></span>
       <div className="inventory-hero-copy">
         <small>RECLOUD PARTS</small>
@@ -140,9 +140,14 @@ function stringOrFallback(name) {
 function Inventory({ setPage }) {
   const [view, setView] = useState("apps")
   const canUseWarehouse = canAccessPage("warehouse", getCurrentUser())
+  function navigateInside(next) {
+    if (next !== "appBack") { setPage(next); return }
+    const expanded = [...document.querySelectorAll(".page details[open]")].at(-1)
+    if (expanded) { expanded.open = false; return }
+    setView("apps")
+  }
   if (view !== "apps") return <>
-    <div className="page home-desktop"><div className="desktop-subpage-heading"><button type="button" onClick={() => setView("apps")}>← 返回库存</button></div></div>
-    {view === "warehouse" && canUseWarehouse ? <Warehouse setPage={setPage} /> : <InventoryContent setPage={setPage} />}
+    {view === "warehouse" && canUseWarehouse ? <Warehouse setPage={navigateInside} /> : <InventoryContent setPage={navigateInside} />}
   </>
   return <div className="page home-desktop">
     <h1>库存</h1>

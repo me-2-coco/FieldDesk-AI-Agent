@@ -107,7 +107,7 @@ function AccountManagement({ setPage }) {
   }
 
   return <div className="page account-management-page">
-    <div className="top-bar"><button className="arrow-back" onClick={() => setPage("home")}>←</button><div><small>账号与权限</small><h1>账号管理</h1></div></div>
+    <div className="top-bar"><button className="arrow-back" onClick={() => form.userId ? setForm(EMPTY) : setPage("appBack")}>←</button><div><small>账号与权限</small><h1>账号管理</h1></div></div>
     <div className="card account-editor-card">
       <div className="section-title-row"><div><small>账号配置</small><h2>{form.userId ? "编辑账号" : "新增账号"}</h2></div><span>仅管理员</span></div>
       <p className="section-description">FieldDesk0004 为瑞云姓名识别测试账号；正常账号从 FieldDesk0005 开始按顺序生成。姓名、电话选填，可之后补充；账号角色与对应权限必选。</p>

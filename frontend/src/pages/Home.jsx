@@ -341,7 +341,7 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
   ].filter((group) => group.actions.length)
 
   return <div className="page home-page home-desktop">
-    {desktopView !== "desktop" && <div className="desktop-subpage-heading"><button type="button" onClick={() => openDesktopView("desktop")}>← 返回首页</button><h1>{({ team: "师傅工作台", work: "我的维修", stats: "维修统计", messages: "督办消息" })[desktopView]}</h1></div>}
+    {desktopView !== "desktop" && <div className="desktop-subpage-heading"><button type="button" onClick={() => detailStatus ? setDetailStatus("") : selectedTechnicianId ? setSelectedTechnicianId("") : openDesktopView("desktop")}>← {detailStatus ? "返回维修概览" : selectedTechnicianId ? "返回师傅列表" : "返回首页"}</button><h1>{({ team: "师傅工作台", work: "我的维修", stats: "维修统计", messages: "督办消息" })[desktopView]}</h1></div>}
     {desktopView === "desktop" && <><div className="card home-identity-card">
       <div className="home-identity-glow" />
       <div className="home-brand-row">
@@ -396,7 +396,7 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
     </section>}
 
     {desktopView === "team" && canViewTechnicians && selectedTechnician && <section className="card home-technician-selected">
-      <button type="button" className="home-technician-back" onClick={() => { setSelectedTechnicianId(""); setDetailStatus("") }}>← 返回师傅列表</button>
+      <button type="button" className="home-technician-back" onClick={() => detailStatus ? setDetailStatus("") : setSelectedTechnicianId("")}>← {detailStatus ? "返回维修概览" : "返回师傅列表"}</button>
       <div className="home-technician-profile">
         <span className="home-technician-avatar">{selectedTechnician.displayName.slice(0, 1)}</span>
         <div><span>当前查看师傅</span><strong>{selectedTechnician.displayName}</strong><small>{selectedTechnician.repairSpecialties.length ? selectedTechnician.repairSpecialties.join(" + ") : "维修品类未配置"} · {selectedTechnician.userId}</small></div>

@@ -108,7 +108,7 @@ function SyncDiagnostics({ setPage }) {
 
   return <div className="page sync-diagnostics-page">
     <div className="top-bar">
-      <button className="arrow-back" onClick={() => setPage("profile")}>←</button>
+      <button className="arrow-back" onClick={() => setPage("appBack")}>←</button>
       <div><small>系统管理</small><h1>同步检查</h1></div>
     </div>
     <div className="backoffice-metric-grid diagnostic-metric-grid">

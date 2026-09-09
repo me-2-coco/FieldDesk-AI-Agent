@@ -50,7 +50,7 @@ function RepairHistoryLookup({ setPage }) {
 
   return <div className="page repair-history-page">
     <header className="history-page-header">
-      <button type="button" className="arrow-back" aria-label="返回维修管理" onClick={() => setPage("orders")}>←</button>
+      <button type="button" className="arrow-back" aria-label="退出应用" onClick={() => setPage("appBack")}>←</button>
       <span>维修档案</span>
       <h1>历史工单</h1>
       <p>查询客户全部历史维修记录</p>

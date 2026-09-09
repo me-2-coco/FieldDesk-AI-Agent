@@ -66,7 +66,7 @@ function RepairFinish({ setPage }) {
     <div className="page repair-finish-page">
 
       <div className="top-bar">
-        <button className="arrow-back" onClick={() => setPage(completedDetail ? "home" : "repairWork")}>
+        <button className="arrow-back" onClick={() => setPage(completedDetail ? "repair" : "repairWork", { withinApp: true })}>
           ←
         </button>
         <h1>{completedDetail ? "维修完成详情" : "提交确认"}</h1>

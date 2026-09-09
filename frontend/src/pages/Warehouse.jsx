@@ -37,7 +37,7 @@ function Warehouse({ setPage }) {
   if (!inventory) return <div className="page"><p>正在读取本地库存...</p></div>
   const pendingReturns = inventory.returnRequests.filter((item) => item.status === "PENDING_WAREHOUSE_CONFIRMATION")
   return <div className="page warehouse-page compact-backoffice-page">
-    <div className="top-bar"><button className="arrow-back" onClick={() => setPage("home")}>←</button><div><small>库存与库房</small><h1>库房作业</h1></div></div>
+    <div className="top-bar"><button className="arrow-back" onClick={() => setPage("appBack")}>←</button><div><small>库存与库房</small><h1>库房作业</h1></div></div>
     <div className="card compact-data-card warehouse-pending-card"><div className="section-title-row"><div><small>优先处理</small><h2>待确认退还</h2></div><span>{pendingReturns.length} 单</span></div>
       {!pendingReturns.length && <p className="empty-compact-state">当前没有待确认退件</p>}
       <div className="compact-scroll-list">{pendingReturns.map((item) =>

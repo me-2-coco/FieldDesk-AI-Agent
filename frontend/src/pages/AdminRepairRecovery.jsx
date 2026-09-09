@@ -106,7 +106,7 @@ function AdminRepairRecovery({ setPage }) {
 
   return <div className="page admin-recovery-page">
     <div className="top-bar">
-      <button type="button" className="arrow-back" aria-label="返回维修管理" onClick={() => setPage("orders")}>←</button>
+      <button type="button" className="arrow-back" aria-label="退出应用" onClick={() => setPage("appBack")}>←</button>
       <div><small>管理员 / 负责人权限</small><h1>工单恢复</h1></div>
     </div>
 

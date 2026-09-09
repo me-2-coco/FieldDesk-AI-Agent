@@ -54,7 +54,7 @@ function RepairWarranty({ setPage }) {
   const determined = decision?.status === "DETERMINED"
   return <div className="page repair-warranty-page">
     <div className="top-bar">
-      <button className="arrow-back" onClick={() => setPage("repair")}>←</button>
+      <button className="arrow-back" onClick={() => setPage("repair", { withinApp: true })}>←</button>
       <h1>确认保修状态</h1>
     </div>
     <SupervisionNoticeCard rmaNo={repairOrder.crmOrderNo} />

@@ -418,7 +418,7 @@ function RepairCompletion({ setPage }) {
 
   async function leaveCompletion() {
     if (completedDetail) {
-      setPage("home")
+      setPage("repair", { withinApp: true })
       return
     }
     // Always return one page at a time. No-parts flows are:

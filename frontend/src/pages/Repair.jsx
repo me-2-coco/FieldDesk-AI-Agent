@@ -483,7 +483,14 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
     <div className="page repair-query-page">
 
       <div className="page-top-header repair-query-header">
-        <button type="button" className="arrow-back" aria-label="返回维修管理" onClick={() => setPage("orders")}>←</button>
+        <button type="button" className="arrow-back" disabled={isSaving || isLoading} aria-label={repairDetail ? "返回上一步" : "退出维修"} onClick={() => {
+          if (photoCameraOpen) { setPhotoCameraOpen(false); return }
+          if (scannerMode) { setScannerMode(""); return }
+          if (receiptStep === "form") { setReceiptStep("detail"); return }
+          if (repairDetail) { setRepairDetail(null); return }
+          if (searchMatches.length) { setSearchMatches([]); return }
+          setPage("appBack")
+        }}>←</button>
         <div>
           <span>工单工作台</span>
           <h1>到店查询</h1>

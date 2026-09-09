@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
+import { enterApp, exitApp } from "./shared/appNavigation.js"
 
 import Login from "./pages/Login.jsx"
 import Home from "./pages/Home.jsx"
@@ -68,6 +69,7 @@ function App() {
 
 
   const [page, setPageState] = useState("home")
+  const appTrail = useRef([])
 
 
   const [permissionMessage, setPermissionMessage] =
@@ -297,6 +299,7 @@ function App() {
 
 
   function handleLogin(user) {
+    appTrail.current = []
 
     setCurrentUser(user)
 
@@ -321,6 +324,7 @@ function App() {
 
 
   async function handleLogout() {
+    appTrail.current = []
 
     await logoutFieldDeskAccount().catch(() => {})
 
@@ -345,6 +349,13 @@ function App() {
 
 
   function setPage(nextPage, options = {}) {
+    if (nextPage === "appBack") {
+      const expanded = [...document.querySelectorAll(".page details[open]")].at(-1)
+      if (expanded) { expanded.open = false; return }
+    }
+    const returning = nextPage === "appBack"
+    const destination = returning ? exitApp(appTrail.current, page) : null
+    if (returning) nextPage = destination.page
 
 
    const latestUser = getCurrentUser()
@@ -367,7 +378,7 @@ function App() {
         setPermissionMessage("当前工单必须先完成、弃修、调试、只检测、转寄总部或暂存，才能返回首页")
         return
       }
-      if (nextPage === "repair") {
+      if (nextPage === "repair" && !options.withinApp) {
         setPermissionMessage("")
         setPageState(resumePageForLocalWorkflow(activeOrder) || pageForRepairStatus(activeOrder.status))
         return
@@ -397,6 +408,7 @@ function App() {
     }
 
 
+    appTrail.current = returning ? destination.trail : enterApp(appTrail.current, page, nextPage)
     setPageState(nextPage)
 
 

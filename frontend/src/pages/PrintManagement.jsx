@@ -128,7 +128,7 @@ function PrintManagement({ setPage }) {
   const installCommand = credential ? `.\\Install-FieldDesk-Print-Agent.ps1 -ApiBaseUrl "${window.location.origin}" -TerminalId "${credential.terminal.id}" -TerminalToken "${credential.token}" -PrinterName "${credential.terminal.printerName}"` : ""
 
   return <div className="page print-management-page">
-    <div className="top-bar"><button className="arrow-back" onClick={() => setPage("home")}>←</button><div><small>Windows 共享打印</small><h1>打印终端</h1></div></div>
+    <div className="top-bar"><button className="arrow-back" onClick={() => credential ? setCredential(null) : form.id ? setForm(EMPTY_FORM) : setPage("appBack")}>←</button><div><small>Windows 共享打印</small><h1>打印终端</h1></div></div>
 
     {credential && <section className="card print-credential-card">
       <div className="section-title-row"><div><small>只显示一次</small><h2>安装密钥已生成</h2></div><span>请立即保存</span></div>
