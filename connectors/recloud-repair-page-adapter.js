@@ -1,5 +1,5 @@
 const { inspectCurrentAssignee, locateUniqueTargetTechnicianRow } = require("./recloud-repair-execution-inspector");
-const { openRepairPartAddDialog } = require("./recloud-repair-part-dialog");
+const { openRepairPartAddDialog, confirmPartQuantityWarning } = require("./recloud-repair-part-dialog");
 const { readExistingRepairParts } = require("./recloud-repair-parts-reader");
 const { readExistingRepairAttachments } = require("./recloud-repair-attachments-reader");
 const { createRecloudRepairControlAdapter, normalizeRepairControlValue } = require("./recloud-repair-control-adapter");
@@ -611,6 +611,7 @@ function createRecloudRepairPageAdapter(page, context = {}) {
           "PARTS"
         );
         await save.click({ timeout: 5000 });
+        await confirmPartQuantityWarning(page, part.quantity);
         await page.waitForTimeout?.(400);
         const immediateMessages = await page
           .locator(".el-message:visible, .el-notification:visible, [role='alert']:visible")

@@ -82,7 +82,27 @@ async function inspectAndCloseRepairPartAddDialog(page, dialog) {
   };
 }
 
+async function confirmPartQuantityWarning(page, quantity) {
+  if (!(Number(quantity) > 1)) return false;
+  const warning = page.locator(".el-message-box:visible, [role='alertdialog']:visible, [role='dialog']:visible, .ant-modal:visible")
+    .filter({ hasText: /核销数量超出[，,\s]*是否继续添加[？?]?/ });
+  try {
+    await warning.first().waitFor({ state: "visible", timeout: 4000 });
+  } catch (error) {
+    if (error.name !== "TimeoutError") throw error;
+    return false;
+  }
+  const confirm = warning.getByRole("button", { name: /^\s*确定\s*$/ }).filter({ visible: true });
+  if (await confirm.count() !== 1) {
+    throw partDialogError("配件数量确认按钮不唯一", "RECLOUD_REPAIR_PART_QUANTITY_CONFIRM_AMBIGUOUS");
+  }
+  await confirm.click({ timeout: 5000 });
+  await warning.first().waitFor({ state: "hidden", timeout: 5000 });
+  return true;
+}
+
 module.exports = {
+  confirmPartQuantityWarning,
   chooseUniqueNearbyAddButton,
   openRepairPartAddDialog,
   inspectAndCloseRepairPartAddDialog,
