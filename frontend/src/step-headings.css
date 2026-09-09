@@ -1,0 +1,75 @@
+/* Page-level headings only: keep section headings and modal toolbars unchanged. */
+.page :is(.top-bar, .repair-query-header, .repair-decision-header, .history-page-header, .desktop-subpage-heading, .records-page-heading):has(h1) {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  align-items: center;
+  column-gap: 16px;
+  row-gap: 4px;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 128px;
+  margin: 0 0 24px;
+  padding: 24px 22px;
+  border: 0;
+  border-radius: 26px;
+  background: linear-gradient(125deg, #155dda, #247cec 65%, #5b9fff);
+  color: #fff;
+  box-shadow: 0 14px 32px rgba(28, 102, 213, .18);
+  text-align: center;
+}
+.page :is(.top-bar, .repair-query-header, .repair-decision-header, .history-page-header, .desktop-subpage-heading, .records-page-heading):has(h1)::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  width: 240px;
+  height: 240px;
+  right: -80px;
+  top: -120px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.13);
+  box-shadow: -50px 235px 0 45px rgba(255,255,255,.07);
+  pointer-events: none;
+}
+.page :is(.top-bar, .repair-query-header, .repair-decision-header, .history-page-header, .desktop-subpage-heading, .records-page-heading):has(h1) > button {
+  position: static;
+  grid-column: 1;
+  grid-row: 1 / span 3;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 15px;
+  background: #fff;
+  color: #1768e5;
+  font-size: 24px;
+  box-shadow: 0 6px 16px rgba(13,65,144,.12);
+}
+.page :is(.top-bar, .repair-query-header, .repair-decision-header, .history-page-header, .desktop-subpage-heading, .records-page-heading):has(h1) > :not(button) { grid-column: 2; min-width: 0; }
+.page :is(.top-bar, .repair-query-header, .repair-decision-header, .history-page-header, .desktop-subpage-heading, .records-page-heading):has(h1) h1 {
+  margin: 3px 0 !important;
+  color: #fff !important;
+  font-size: clamp(21px, 5.5vw, 26px) !important;
+  line-height: 1.35;
+  font-weight: 700;
+  text-align: center !important;
+  overflow-wrap: anywhere;
+}
+.page :is(.top-bar, .repair-query-header, .repair-decision-header, .history-page-header, .desktop-subpage-heading, .records-page-heading):has(h1) :is(small, span, p) {
+  color: rgba(255,255,255,.75) !important;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+}
+.page .desktop-subpage-heading > button { font-size: 0 !important; }
+.page .desktop-subpage-heading > button::before { content: "←"; font-size: 24px; }
+.page :is(.top-bar, .repair-query-header, .repair-decision-header, .desktop-subpage-heading, .records-page-heading):has(h1) > :not(button) { grid-row: 1 / span 3; }
+@media (max-width: 360px) {
+  .page :is(.top-bar, .repair-query-header, .repair-decision-header, .history-page-header, .desktop-subpage-heading, .records-page-heading):has(h1) { padding: 20px 16px; column-gap: 12px; }
+}

@@ -53,6 +53,7 @@ import {
 import { isTechnicianWorkflowLocked, pageForRepairStatus, resumePageForLocalWorkflow } from "./shared/repairNavigation.js"
 
 import "./App.css"
+import "./step-headings.css"
 
 
 function App() {

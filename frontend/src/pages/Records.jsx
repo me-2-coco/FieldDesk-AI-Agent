@@ -65,7 +65,7 @@ function getRecordTime(record) {
 }
 
 
-function Records() {
+function Records({ setPage }) {
 
   const currentTechnician = "张师傅"
 
@@ -392,9 +392,12 @@ function Records() {
     <div className="page records-page">
 
 
+      <header className="records-page-heading">
+      <button type="button" aria-label="返回上一步" onClick={() => setPage("appBack")}>←</button>
       <h1>
         维修记录
       </h1>
+      </header>
 
 
       <div className="card records-filter-card">

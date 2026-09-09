@@ -493,7 +493,7 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
         }}>←</button>
         <div>
           <span>工单工作台</span>
-          <h1>到店查询</h1>
+          <h1>{receiptStep === "form" ? "签收准备" : repairDetail ? "寄修单资料" : searchMatches.length ? "选择工单" : "到店查询"}</h1>
         </div>
 
       </div>
