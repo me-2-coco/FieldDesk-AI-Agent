@@ -1,4 +1,5 @@
 const express = require("express");
+const { monthlyStatistics, canExportMonthly, exportMonthly } = require("./shared/monthly-statistics");
 const crypto = require("crypto");
 const http = require("http");
 const https = require("https");
@@ -5019,6 +5020,22 @@ function createApp(
           restricted: restrictFaultVisibilityForUser(user),
         }),
       });
+    } catch (error) { next(error); }
+  });
+
+  app.get(["/api/repairs/monthly-statistics", "/api/repairs/monthly-statistics/export"], async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      const exporting = req.path.endsWith("/export");
+      if ((!canExportMonthly(user) && user?.role !== USER_ROLES.TECHNICIAN) || (exporting && !canExportMonthly(user))) {
+        throw createApiError("MONTHLY_STATISTICS_FORBIDDEN", "当前账号无权执行此操作", 403);
+      }
+      if (req.query.month && !/^\d{4}-(0[1-9]|1[0-2])$/.test(String(req.query.month))) throw createApiError("MONTH_INVALID", "请选择有效月份", 400);
+      const data = monthlyStatistics(await receiptStore.readAll(), user, { ...req.query, includeDetails: exporting });
+      if (!exporting) return res.json({ success: true, data });
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename="monthly-${data.month}.xlsx"`);
+      res.send(Buffer.from(await exportMonthly(data)));
     } catch (error) { next(error); }
   });
 

@@ -13,7 +13,11 @@
     "data:export": "node scripts/database-maintenance.js export",
     "test": "node --test test/*.test.js"
   },
+  "overrides": {
+    "exceljs": { "uuid": "^11.1.1" }
+  },
   "dependencies": {
+    "exceljs": "^4.4.0",
     "express": "^5.2.1",
     "playwright": "^1.61.1"
   }

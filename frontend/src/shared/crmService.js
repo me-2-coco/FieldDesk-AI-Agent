@@ -212,6 +212,14 @@ export async function getTechnicianWorkloads() {
   return get("/api/repairs/technician-workloads")
 }
 
+export function getMonthlyStatistics(filters) {
+  return get(`/api/repairs/monthly-statistics?${new URLSearchParams(filters)}`)
+}
+
+export function downloadMonthlyStatistics(filters) {
+  return downloadFile(`/api/repairs/monthly-statistics/export?${new URLSearchParams(filters)}`, "月度统计.xlsx")
+}
+
 export async function saveRepairResumeStep(rmaNo, resumeStep) {
   return request("/api/repairs/resume-step", { rmaNo, resumeStep })
 }

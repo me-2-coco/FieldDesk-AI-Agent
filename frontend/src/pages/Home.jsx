@@ -6,22 +6,12 @@ import { USER_ROLES } from "../shared/userStore.js"
 import { buildTechnicianDirectory, categorizeTechnicianWorkflows, technicianWorkloadStatusLabel } from "../shared/homeWorkload.js"
 import SupervisionInbox from "../components/SupervisionInbox.jsx"
 import DailyWorkloadBoard from "../components/DailyWorkloadBoard.jsx"
+import MonthlyStatistics from "../components/MonthlyStatistics.jsx"
 import { AppIcon } from "../components/AppIcons.jsx"
 import "../home-desktop.css"
 
 const COMPLETED_WORKFLOW_STATUSES = new Set(["REPAIR_COMPLETED_PENDING_SHIPMENT", "SHIPPED_PENDING_COMPLETION", "COMPLETED"])
 
-function localDateKey(value) {
-  const date = value ? new Date(value) : null
-  if (!date || Number.isNaN(date.getTime())) return ""
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, "0")
-  const day = String(date.getDate()).padStart(2, "0")
-  return `${year}-${month}-${day}`
-}
-
-function completionDate(order) { return order.repairCompletion?.submittedAt || order.completedAt || "" }
-function isAbandoned(order) { return /弃修/.test(`${order.repairCompletion?.repairMeasure || ""} ${order.repairCompletion?.speechTemplate || ""}`) }
 function fullLocalPhone(workflow) {
   const directPhone = String(workflow.phone || "").trim()
   if (/^1[3-9]\d{9}$/.test(directPhone)) return directPhone
@@ -43,8 +33,6 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
   const [technicians, setTechnicians] = useState([])
   const [selectedTechnicianId, setSelectedTechnicianId] = useState("")
   const [technicianLoadError, setTechnicianLoadError] = useState("")
-  const [statStartDate, setStatStartDate] = useState(() => `${localDateKey(new Date()).slice(0, 7)}-01`)
-  const [statEndDate, setStatEndDate] = useState(() => localDateKey(new Date()))
   const [detailStatus, setDetailStatus] = useState("")
   const [liveSyncEnabled, setLiveSyncEnabled] = useState(null)
   const [boardNow, setBoardNow] = useState(() => new Date())
@@ -230,13 +218,6 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
   const waitingMaterial = workload.waitingMaterial
   const outOfWarranty = workload.outOfWarranty
   const otherHeld = workload.otherHeld
-  const currentMonth = localDateKey(new Date()).slice(0, 7)
-  const summarize = (rows) => ({ repaired: rows.filter((item) => !isAbandoned(item)).length, abandoned: rows.filter(isAbandoned).length, total: rows.length })
-  const monthSummary = summarize(completedOrders.filter((item) => localDateKey(completionDate(item)).startsWith(currentMonth)))
-  const selectedSummary = summarize(completedOrders.filter((item) => {
-    const date = localDateKey(completionDate(item))
-    return date && (!statStartDate || date >= statStartDate) && (!statEndDate || date <= statEndDate)
-  }))
   const detailOrders = detailStatus === "unfinished"
     ? unfinished
     : detailStatus === "waiting"
@@ -335,18 +316,17 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
     ...workspaceGroups.filter((group) => !["库存与库房", "库房作业", "系统管理"].includes(group.title)).map((group) => ({ ...group, actions: group.actions.filter((action) => action.page !== "records") }))
   ].filter((group) => group.actions.length) : [
     { title: "工作", actions: [
-      ...((isAdmin || isTechnician) ? [{ view: "dailyBoard", title: "当日看板", icon: "records" }] : []),
+      ...((isAdmin || isTechnician) ? [{ view: "dailyBoard", title: "当日看板", icon: "records" }, { view: "stats", title: "月度统计", icon: "records" }] : []),
       ...(canViewTechnicians ? [{ view: "team", title: "师傅工作台", icon: "accounts" }] : []),
       ...(isTechnician ? [
         { view: "work", title: "我的维修", icon: "work" },
-        { view: "stats", title: "维修统计", icon: "records" },
         { view: "messages", title: "督办消息", icon: "alert" }
       ] : [])
     ] },
   ].filter((group) => group.actions.length)
 
   return <div className="page home-page home-desktop">
-    {desktopView !== "desktop" && <div className="desktop-subpage-heading"><button type="button" onClick={() => detailStatus ? setDetailStatus("") : selectedTechnicianId ? setSelectedTechnicianId("") : openDesktopView("desktop")}>← {detailStatus ? "返回维修概览" : selectedTechnicianId ? "返回师傅列表" : "返回首页"}</button><h1>{({ dailyBoard: "当日看板", team: "师傅工作台", work: "我的维修", stats: "维修统计", messages: "督办消息" })[desktopView]}</h1></div>}
+    {desktopView !== "desktop" && <div className="desktop-subpage-heading"><button type="button" onClick={() => detailStatus ? setDetailStatus("") : selectedTechnicianId ? setSelectedTechnicianId("") : openDesktopView("desktop")}>← {detailStatus ? "返回维修概览" : selectedTechnicianId ? "返回师傅列表" : "返回首页"}</button><h1>{({ dailyBoard: "当日看板", team: "师傅工作台", work: "我的维修", stats: "月度统计", messages: "督办消息" })[desktopView]}</h1></div>}
     {desktopView === "desktop" && <><div className="card home-identity-card">
       <div className="home-identity-glow" />
       <div className="home-brand-row">
@@ -381,7 +361,7 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
         <div><span>人员工作量</span><h2>师傅</h2></div>
         <small>{technicianDirectory.length} 人</small>
       </div>
-      <p className="home-technician-hint">选择师傅，查看他名下的实时维修执行和维修统计。</p>
+      <p className="home-technician-hint">选择师傅，查看他名下的在手机器及维修进度。</p>
       {technicianLoadError && <p className="error-text">师傅数据读取失败：{technicianLoadError}</p>}
       {!technicianLoadError && !technicianDirectory.length && <p className="empty-state">当前没有可查看的师傅账号</p>}
       <div className="home-technician-list">
@@ -440,23 +420,7 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
       </>}
     </div>}
 
-    {(desktopView === "team" || desktopView === "stats") && showTechnicianDashboard && <div className="card home-performance-card">
-      <div className="home-section-heading"><div><span>{currentMonth.replace("-", "年")}月</span><h2>维修统计</h2></div></div>
-      <div className="home-performance-summary">
-        <div><span>维修完成</span><strong>{monthSummary.repaired}</strong><small>台</small></div>
-        <div><span>弃修</span><strong>{monthSummary.abandoned}</strong><small>台</small></div>
-        <div><span>总计</span><strong>{monthSummary.total}</strong><small>台</small></div>
-      </div>
-      <div className="home-stat-filter">
-        <div className="home-filter-heading"><strong>日期范围</strong><span>可筛选任意时间段</span></div>
-        <div className="home-filter-controls">
-          <label><span>开始日期</span><input type="date" value={statStartDate} max={statEndDate || undefined} onChange={(event) => setStatStartDate(event.target.value)} aria-label="开始日期" /></label>
-          <i>至</i>
-          <label><span>结束日期</span><input type="date" value={statEndDate} min={statStartDate || undefined} onChange={(event) => setStatEndDate(event.target.value)} aria-label="结束日期" /></label>
-        </div>
-        <div className="home-filter-result"><span>{statStartDate || "不限"} 至 {statEndDate || "不限"}</span><strong>{selectedSummary.total} 台</strong><small>完成 {selectedSummary.repaired} · 弃修 {selectedSummary.abandoned}</small></div>
-      </div>
-    </div>}
+    {desktopView === "stats" && !ordersHub && (isAdmin || isTechnician) && <MonthlyStatistics />}
 
     {liveSyncEnabled === false && <p className="dry-run-notice">当前保持演练模式，本地业务操作不会写入瑞云。</p>}
     {liveSyncEnabled === true && <p className="dry-run-notice">瑞云实时同步已开启，任务将在后台执行并自动重试。</p>}
