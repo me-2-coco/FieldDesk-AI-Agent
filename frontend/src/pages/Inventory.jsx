@@ -12,7 +12,7 @@ import {
 } from "../shared/crmService.js"
 import { getCurrentRepairOrder, REPAIR_STATUS, updateRepairOrder } from "../shared/repairOrderStore.js"
 
-function InventoryContent({ setPage }) {
+function InventoryContent({ setPage, view }) {
   const [user, setUser] = useState(null)
   const [inventory, setInventory] = useState(null)
   const [quantities, setQuantities] = useState({})
@@ -67,9 +67,10 @@ function InventoryContent({ setPage }) {
     }
   }
 
-  if (!inventory || !user) return <div className="page"><p>正在读取本地库存...</p></div>
+  if (!inventory || !user) return <div className="page"><button className="header-back" onClick={() => setPage("appBack")}>← 返回库存</button><p>{message || "正在读取本地库存..."}</p></div>
   const personalEntries = Object.entries(inventory.technicianStock || {})
   const isTechnicianRole = String(user.role || "").toUpperCase() === "TECHNICIAN"
+  const title = view === "query" ? "备件库存查询" : view === "personal" ? (isTechnicianRole ? "个人库存" : "师傅库存") : "库存流水"
   const personalPartCount = personalEntries.reduce((total, [, stock]) => total + stock.parts.reduce((sum, part) => sum + Number(part.stock || 0), 0), 0)
 
   return <div className="page inventory-page compact-backoffice-page">
@@ -78,13 +79,13 @@ function InventoryContent({ setPage }) {
       <span className="inventory-hero-icon"><AppIcon name="inventory" size={24} /></span>
       <div className="inventory-hero-copy">
         <small>RECLOUD PARTS</small>
-        <h1>库存查询</h1>
-        <p>实时查询备件与个人领用记录</p>
+        <h1>{title}</h1>
+        <p>{view === "query" ? "实时查询瑞云备件库存" : view === "personal" ? "查看领用备件与库存数量" : "查看库存变动记录"}</p>
       </div>
-      <span className="inventory-live-badge"><i />实时</span>
+      {view === "query" && <span className="inventory-live-badge"><i />实时</span>}
     </header>
 
-    <section className="card compact-data-card inventory-search-card">
+    {view === "query" && <section className="card compact-data-card inventory-search-card">
       <div className="section-title-row inventory-section-title"><div><small>瑞云备件管理</small><h2>备件库存查询</h2></div><span><AppIcon name="sync" size={12} />只读实时</span></div>
       <form className="recloud-inventory-search" onSubmit={searchRecloudInventory}>
         <label className="inventory-search-field">
@@ -105,9 +106,9 @@ function InventoryContent({ setPage }) {
           </div>)}
         </div>
       </>}
-    </section>
+    </section>}
 
-    <section className="card compact-data-card inventory-person-card">
+    {view === "personal" && <section className="card compact-data-card inventory-person-card">
       <div className="section-title-row inventory-section-title"><div><small>PERSONAL STOCK</small><h2>{isTechnicianRole ? "个人库存" : "全部师傅库存"}</h2></div><span>{personalPartCount} 件</span></div>
       <div className="compact-scroll-list inventory-person-list">
       {personalEntries.map(([technicianId, stock]) => <div className="inventory-item" key={technicianId}>
@@ -125,10 +126,10 @@ function InventoryContent({ setPage }) {
           </div>}
         </div>)}
       </div>)}</div>
-    </section>
-    <details className="card compact-data-card compact-details inventory-ledger-card"><summary><span className="inventory-ledger-icon"><AppIcon name="history" size={19} /></span><span><small>INVENTORY LOG</small><strong>库存流水</strong></span><b>{inventory.transactions.length} 条</b><i>⌄</i></summary><div className="compact-scroll-list transaction-list">
+    </section>}
+    {view === "ledger" && <section className="card compact-data-card inventory-ledger-card"><div className="section-title-row"><h2>库存流水</h2><span>{inventory.transactions.length} 条</span></div><div className="compact-scroll-list transaction-list">
       {inventory.transactions.length === 0 ? <p>暂无流水</p> : inventory.transactions.slice().reverse().map((item) => <p key={item.id}><strong>{item.type} · {item.partName} × {item.quantity}</strong><small>SN {item.sn || "--"} · {item.technicianName || "--"} · {item.createdAt}</small></p>)}
-    </div></details>
+    </div></section>}
     {message && <div className="card"><p>{message}</p></div>}
   </div>
 }
@@ -140,6 +141,7 @@ function stringOrFallback(name) {
 function Inventory({ setPage }) {
   const [view, setView] = useState("apps")
   const canUseWarehouse = canAccessPage("warehouse", getCurrentUser())
+  const isTechnician = String(getCurrentUser()?.role || "").toUpperCase() === "TECHNICIAN"
   function navigateInside(next) {
     if (next !== "appBack") { setPage(next); return }
     const expanded = [...document.querySelectorAll(".page details[open]")].at(-1)
@@ -147,12 +149,14 @@ function Inventory({ setPage }) {
     setView("apps")
   }
   if (view !== "apps") return <>
-    {view === "warehouse" && canUseWarehouse ? <Warehouse setPage={navigateInside} /> : <InventoryContent setPage={navigateInside} />}
+    {view === "warehouse" && canUseWarehouse ? <Warehouse setPage={navigateInside} /> : <InventoryContent key={view} view={view} setPage={navigateInside} />}
   </>
   return <div className="page home-desktop">
     <h1>库存</h1>
     <section className="desktop-app-group"><h2>库存与库房</h2><div className="desktop-app-grid">
-      <button type="button" className="desktop-app" onClick={() => setView("overview")}><span className="desktop-app-icon desktop-tone-0"><AppIcon name="inventory" size={27} /></span><span>库存总览</span></button>
+      <button type="button" className="desktop-app" onClick={() => setView("query")}><span className="desktop-app-icon desktop-tone-0"><AppIcon name="inventory" size={27} /></span><span>备件库存查询</span></button>
+      <button type="button" className="desktop-app" onClick={() => setView("personal")}><span className="desktop-app-icon desktop-tone-2"><AppIcon name="profile" size={27} /></span><span>{isTechnician ? "个人库存" : "师傅库存"}</span></button>
+      <button type="button" className="desktop-app" onClick={() => setView("ledger")}><span className="desktop-app-icon desktop-tone-3"><AppIcon name="history" size={27} /></span><span>库存流水</span></button>
       {canUseWarehouse && <button type="button" className="desktop-app" onClick={() => setView("warehouse")}><span className="desktop-app-icon desktop-tone-1"><AppIcon name="warehouse" size={27} /></span><span>库房作业</span></button>}
     </div></section>
   </div>
