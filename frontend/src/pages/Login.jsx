@@ -1,16 +1,12 @@
 import { useState } from "react"
 
 import {
-  getUsers,
-  setAuthenticatedUser,
-  setCurrentUser
+  setAuthenticatedUser
 } from "../shared/userStore.js"
 import { changeFieldDeskPassword, loginFieldDeskAccount } from "../shared/crmService.js"
 
 
 function Login({ onLogin }) {
-
-  const users = getUsers()
 
   const [account, setAccount] = useState("")
   const [password, setPassword] = useState("")
@@ -35,6 +31,9 @@ function Login({ onLogin }) {
 
   async function handleLogin() {
 
+    if (!account.trim()) { setMessage("请输入账号"); return }
+    if (!password) { setMessage("请输入登录密码，账号需要通过后台验证"); return }
+
     if (password) {
       try {
         const profile = await loginFieldDeskAccount(account, password)
@@ -51,49 +50,6 @@ function Login({ onLogin }) {
         return
       }
     }
-
-    const inputAccount = account.trim().toLowerCase()
-
-    if (inputAccount === "") {
-      setMessage("请输入账号")
-      return
-    }
-
-
-    const user = users.find(
-      (item) =>
-        item.account.toLowerCase() === inputAccount
-    )
-
-
-    if (!user) {
-      setMessage("没有找到该账号")
-      return
-    }
-
-
-    const loggedInUser = setCurrentUser(user.id)
-
-    if (!loggedInUser) {
-      setMessage("登录失败")
-      return
-    }
-
-
-    localStorage.setItem(
-      "isLoggedIn",
-      "true"
-    )
-
-
-    setMessage("登录成功")
-
-
-    setTimeout(() => {
-
-      onLogin(loggedInUser)
-
-    }, 300)
 
   }
 
@@ -189,7 +145,7 @@ function Login({ onLogin }) {
         {!passwordChangeProfile && <div className="login-demo-accounts">
 
           <strong>
-            测试账号
+            账号快捷填写（仍需输入密码）
           </strong>
 
 
