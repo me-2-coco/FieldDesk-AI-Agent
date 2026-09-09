@@ -43,10 +43,6 @@ function BottomNav({
               : item.page === "repair" ? "返回当前工单操作进度" : ""
             : ""}
           onClick={() => {
-            if (item.page === "home" && supervisionUnreadCount > 0 && onOpenSupervision) {
-              onOpenSupervision()
-              return
-            }
             setPage(item.page)
           }}
         >

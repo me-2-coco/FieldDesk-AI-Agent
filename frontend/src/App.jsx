@@ -72,6 +72,16 @@ function App() {
 
   const [page, setPageState] = useState("home")
   const appTrail = useRef([])
+  const [activeTab, setActiveTab] = useState("home")
+  const tabSnapshots = useRef({})
+  const tabScroll = useRef({})
+  const tabUser = useRef(currentUser?.id)
+  if (tabUser.current !== currentUser?.id) {
+    tabSnapshots.current = {}
+    tabScroll.current = {}
+    tabUser.current = currentUser?.id
+  }
+  tabSnapshots.current[activeTab] = { page, trail: [...appTrail.current] }
 
 
   const [permissionMessage, setPermissionMessage] =
@@ -99,6 +109,7 @@ function App() {
     const activeOrder = getCurrentRepairOrder()
     if (!isTechnicianWorkflowLocked(activeOrder) || page !== "home") return
     queueMicrotask(() => {
+      setActiveTab("orders")
       setPageState(resumePageForLocalWorkflow(activeOrder) || pageForRepairStatus(activeOrder.status))
       setPermissionMessage("当前工单尚未形成处理结果，请先完成或暂存本单")
     })
@@ -289,6 +300,9 @@ function App() {
 
   function handleLogin(user) {
     appTrail.current = []
+    tabSnapshots.current = {}
+    tabScroll.current = {}
+    setActiveTab("home")
 
     setCurrentUser(user)
 
@@ -314,6 +328,9 @@ function App() {
 
   async function handleLogout() {
     appTrail.current = []
+    tabSnapshots.current = {}
+    tabScroll.current = {}
+    setActiveTab("home")
 
     await logoutFieldDeskAccount().catch(() => {})
 
@@ -337,9 +354,23 @@ function App() {
 
 
 
+  function switchTab(tab) {
+    if (tab === activeTab) return
+    if (workflowLocked && tab === "home") { setPermissionMessage("当前工单处理完成或暂存后才能返回首页"); return }
+    const target = tabSnapshots.current[tab] || { page: tab, trail: [] }
+    if (!canAccessPage(target.page, getCurrentUser())) return
+    tabScroll.current[activeTab] = window.scrollY
+    tabSnapshots.current[activeTab] = { page, trail: [...appTrail.current] }
+    appTrail.current = [...target.trail]
+    setPermissionMessage("")
+    setActiveTab(tab)
+    setPageState(target.page)
+    requestAnimationFrame(() => window.scrollTo(0, tabScroll.current[tab] || 0))
+  }
+
   function setPage(nextPage, options = {}) {
     if (nextPage === "appBack") {
-      const expanded = [...document.querySelectorAll(".page details[open]")].at(-1)
+      const expanded = [...document.querySelectorAll(".tab-surface:not([hidden]) .page details[open]")].at(-1)
       if (expanded) { expanded.open = false; return }
     }
     const returning = nextPage === "appBack"
@@ -450,6 +481,9 @@ function App() {
 
 
       <main className="app-content">
+        {Object.entries(tabSnapshots.current).map(([tab, snapshot]) => {
+          const page = snapshot.page
+          return <div className="tab-surface" key={`${currentUser?.id}:${tab}`} hidden={tab !== activeTab}>
 
 
 
@@ -642,6 +676,8 @@ function App() {
 
 
 
+          </div>
+        })}
       </main>
 
       <NotificationCenter
@@ -665,9 +701,9 @@ function App() {
 
       <BottomNav
 
-        page={page}
+        page={activeTab}
 
-        setPage={setPage}
+        setPage={switchTab}
 
         supervisionUnreadCount={supervisionUnreadCount}
 

@@ -1,5 +1,18 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+
+test("bottom tabs retain mounted pages, trails and scroll instead of reopening the hub", () => {
+  const app = fs.readFileSync(path.join(__dirname, "../frontend/src/App.jsx"), "utf8");
+  const nav = fs.readFileSync(path.join(__dirname, "../frontend/src/components/BottomNav.jsx"), "utf8");
+  assert.match(app, /setPage=\{switchTab\}/);
+  assert.match(app, /hidden=\{tab !== activeTab\}/);
+  assert.match(app, /appTrail\.current = \[\.\.\.target\.trail\]/);
+  assert.match(app, /setPageState\(target\.page\)/);
+  assert.match(app, /window\.scrollTo\(0, tabScroll\.current\[tab\]/);
+  assert.doesNotMatch(nav, /onOpenSupervision\(\)/);
+});
 
 test("app exits return to the originating hub, not a hard-coded hub", async () => {
   const { enterApp, exitApp, APP_ROOTS } = await import("../frontend/src/shared/appNavigation.js");
