@@ -67,6 +67,19 @@
 .daily-pagination button { flex: 0 0 auto; width: auto; min-width: 84px; border: 1px solid #dce5f2; background: white; color: #276aca; border-radius: 10px; padding: 9px 14px; font-size: 12px; }
 .daily-pagination > span { white-space: nowrap; padding: 0 12px; }
 .daily-pagination button:disabled { opacity: .4; }
+.daily-product-identity { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 18px; margin-bottom: 16px; background: #edf4ff; border: 1px solid #dce8fa; border-radius: 16px; }
+.daily-product-identity > span { color: #2464ac; font-size: 16px; font-weight: 700; white-space: nowrap; }
+.daily-product-identity small { color: #74869e; font-size: 11px; text-align: right; }
+.daily-workload-board .daily-summary { background: #fff; color: #415570; border: 1px solid #e1e9f4; border-radius: 22px; box-shadow: 0 10px 26px rgba(32,73,128,.06); }
+.daily-workload-board .daily-summary-total strong { color: #1b6bdb; }
+.daily-workload-board .daily-summary-total span { color: #7b8da4; }
+.daily-workload-board .daily-summary-metrics { border-top: 1px solid #eaf0f7; }
+.daily-workload-board .daily-summary-metrics > div { background: #f3f8ff; border-radius: 14px; padding: 12px 16px; }
+.daily-workload-board .daily-summary-metrics strong { color: #18776e; }
+.daily-workload-board .daily-summary-metrics > div:last-child { background: #fff7ed; }
+.daily-workload-board .daily-summary-metrics > div:last-child strong { color: #bd7422; }
+.daily-workload-board .daily-summary-metrics span { color: #74869e; }
+.daily-workload-board .daily-list-heading h2 { color: #344d6a; font-size: 16px; }
 .home-technician-search { display: block; box-sizing: border-box; width: 100%; margin: 14px 0; padding: 12px 14px; border: 1px solid #dce5f2; border-radius: 12px; background: #f7f9fd; color: #253853; font: inherit; }
 .home-technician-search:focus { outline: 2px solid #b6d3ff; outline-offset: 1px; }
 .inventory-hub-heading { position: relative; isolation: isolate; overflow: hidden; display: flex; align-items: center; gap: 16px; min-height: 140px; box-sizing: border-box; padding: 28px 24px; margin-bottom: 44px; border-radius: 28px; background: linear-gradient(125deg, #155dda, #247cec 65%, #5b9fff); box-shadow: 0 14px 32px rgba(28, 102, 213, .18); text-align: left; }

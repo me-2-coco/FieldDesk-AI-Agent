@@ -7,13 +7,17 @@ export function shanghaiDay(value = new Date()) {
 }
 const MODES = { REPAIR: "repair", ABANDONED: "abandoned", DEBUGGING: "debugging", INSPECTION_ONLY: "inspection" }
 const emptyCounts = () => ({ repair: 0, abandoned: 0, debugging: 0, inspection: 0, total: 0 })
+export function workloadProducts(user) {
+  const admin = String(user?.role || "").toLowerCase() === "admin" || user?.accountAuthority === "OWNER"
+  return ["扫地机", "洗地机"].filter(product => admin || (user?.repairSpecialties || []).includes(product))
+}
 
 export function dailyWorkload({ orders = [], technicians = [], user, day = shanghaiDay() }) {
   const ownId = String(user?.userId || user?.id || "")
   const admin = String(user?.role || "").toLowerCase() === "admin" || user?.accountAuthority === "OWNER"
-  const rows = admin ? orders : orders.filter(o => String(o.technicianId || o.operatorId || "") === ownId)
+  const rows = admin ? orders : orders.filter(o => ownId && String(o.technicianId || o.operatorId || "") === ownId)
   const directory = buildTechnicianDirectory(admin ? technicians : [{ userId: ownId, displayName: user?.name || user?.displayName || ownId, repairSpecialties: user?.repairSpecialties || [] }], rows)
-  return ["扫地机", "洗地机"].map(product => {
+  return workloadProducts(user).map(product => {
     const byId = new Map(directory.filter(t => admin ? t.repairSpecialties.includes(product) || rows.some(o => (o.technicianId || o.operatorId) === t.userId && (o.productLine || o.specialty) === product) : t.userId === ownId).map(t => [t.userId, { ...t, ...emptyCounts() }]))
     const seen = new Set()
     for (const o of rows) {

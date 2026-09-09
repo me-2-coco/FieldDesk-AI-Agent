@@ -18,7 +18,18 @@ test('four categories, product separation, deduplication, zero rows and excluded
 });
 test('technician only sees their own rows even if response contains others',async()=>{
   const {dailyWorkload}=await import('../frontend/src/shared/dailyWorkload.js');
-  const boards=dailyWorkload({orders:[row('1','REPAIR'),row('2','REPAIR',{technicianId:'b'})],technicians,user:{id:'a',name:'甲',role:'technician'},day:'2026-09-09'});
+  const boards=dailyWorkload({orders:[row('1','REPAIR'),row('2','REPAIR',{technicianId:'b'})],technicians,user:{id:'a',name:'甲',role:'technician',repairSpecialties:['扫地机']},day:'2026-09-09'});
   assert.equal(boards[0].people.length,1);
   assert.equal(boards[0].totals.total,1);
+  assert.equal(boards.length,1);
+});
+test('product choices follow account specialties, not other technicians or historical orders', async()=>{
+ const {workloadProducts,dailyWorkload}=await import('../frontend/src/shared/dailyWorkload.js');
+ assert.deepEqual(workloadProducts({role:'technician',repairSpecialties:['洗地机']}),['洗地机']);
+ assert.deepEqual(workloadProducts({role:'technician',repairSpecialties:['扫地机']}),['扫地机']);
+ assert.deepEqual(workloadProducts({role:'ADMIN'}),['扫地机','洗地机']);
+ assert.deepEqual(workloadProducts({accountAuthority:'OWNER'}),['扫地机','洗地机']);
+ assert.deepEqual(workloadProducts({role:'technician'}),[]);
+ const boards=dailyWorkload({orders:[row('wash','REPAIR',{productLine:'洗地机'}),row('other','REPAIR',{technicianId:'b',productLine:'洗地机'})],technicians,user:{id:'a',role:'technician',repairSpecialties:['洗地机']},day:'2026-09-09'});
+ assert.equal(boards.length,1);assert.equal(boards[0].product,'洗地机');assert.equal(boards[0].totals.total,1);
 });
