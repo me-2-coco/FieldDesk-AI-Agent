@@ -29,7 +29,7 @@ function fullLocalPhone(workflow) {
   return workflow.phoneMasked || directPhone || "电话未记录"
 }
 
-function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetRmaNo = "" }) {
+function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0, supervisionTargetRmaNo = "" }) {
   const [desktopView, setDesktopView] = useState("desktop")
   useEffect(() => {
     if (supervisionOpenKey) queueMicrotask(() => setDesktopView("messages"))
@@ -242,11 +242,6 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
         : detailStatus === "held"
           ? otherHeld
           : detailStatus === "completed" ? completedOrders : []
-  const quickActions = isTechnician ? [
-    { page: "repair", title: "扫码签收", description: "查询物流并开始寄修", icon: "work" },
-    { page: "records", title: "工单查询", description: "查找历史工单", icon: "records" },
-    { page: "inventory", title: "个人库存", description: "查看配件和流水", icon: "inventory" }
-  ] : []
   const workspaceGroups = isWarehouse ? [
     {
       title: "库房作业",
@@ -328,9 +323,14 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
     setDetailStatus("")
     window.scrollTo({ top: 0, behavior: "instant" })
   }
-  const desktopGroups = [
+  const desktopGroups = ordersHub ? [
+    { title: "工单", actions: [
+      ...((isAdmin || isTechnician) ? [{ page: "repair", title: "维修", icon: "work", description: "签收、检测、维修与完工" }] : []),
+      { page: "records", title: "历史记录", icon: "history", description: "查询历史工单" }
+    ] },
+    ...workspaceGroups.filter((group) => !["库存与库房", "库房作业", "系统管理"].includes(group.title)).map((group) => ({ ...group, actions: group.actions.filter((action) => action.page !== "records") }))
+  ].filter((group) => group.actions.length) : [
     { title: "工作", actions: [
-      ...quickActions.filter((action) => action.page !== "inventory"),
       ...(canViewTechnicians ? [{ view: "team", title: "师傅工作台", icon: "accounts" }] : []),
       ...(isTechnician ? [
         { view: "work", title: "我的维修", icon: "work" },
@@ -338,7 +338,6 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
         { view: "messages", title: "督办消息", icon: "alert" }
       ] : [])
     ] },
-    ...workspaceGroups.filter((group) => !["库存与库房", "库房作业", "系统管理"].includes(group.title))
   ].filter((group) => group.actions.length)
 
   return <div className="page home-page home-desktop">
@@ -347,7 +346,7 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
       <div className="home-identity-glow" />
       <div className="home-brand-row">
         <div className="home-brand-mark">FD</div>
-        <div><span>FieldDesk 工作台</span><h1>网点维修管理</h1></div>
+        <div><span>FieldDesk 工作台</span><h1>{ordersHub ? "工单" : "网点维修管理"}</h1></div>
       </div>
       <div className="home-user-panel">
         <div className="home-user-avatar">{accountName.slice(0, 1)}</div>
@@ -359,6 +358,7 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
         <div>{(currentUser.repairSpecialties?.length ? currentUser.repairSpecialties : ["未配置"]).map((item) => <strong key={item}>{item}</strong>)}</div>
       </div>}
     </div>
+    {ordersHub && <h1>工单</h1>}
     <div className="desktop-app-groups">
       {desktopGroups.map((group, groupIndex) => <section className="desktop-app-group" key={group.title}>
         <h2>{group.title}</h2>

@@ -236,6 +236,7 @@ export function canAccessPage(
 ) {
 
   // 负责人不受普通角色页面规则限制；测试账号可跨业务页面，但账号治理仍只归负责人。
+  if (page === "orders") return ["admin", "technician", "information_clerk"].includes(String(user?.role || "").toLowerCase())
   if (isOwnerAccount(user)) return true
   if (isRecloudTestAccount(user)) return page !== "accountManagement"
 
@@ -321,7 +322,7 @@ export function getNavigationItems(
 
     technician: [
       { page: "home", label: "首页", icon: "home" },
-      { page: "repair", label: "工单", icon: "work" },
+      { page: "orders", label: "工单", icon: "work" },
       { page: "inventory", label: "库存", icon: "inventory" },
       { page: "profile", label: "我的", icon: "profile" }
     ],
@@ -336,13 +337,13 @@ export function getNavigationItems(
     information_clerk: [
       { page: "home", label: "首页", icon: "home" },
       { page: "returnShipping", label: "发货", icon: "shipping" },
-      { page: "repairReports", label: "档案", icon: "archive" },
+      { page: "orders", label: "工单", icon: "work" },
       { page: "profile", label: "我的", icon: "profile" }
     ],
 
     admin: [
       { page: "home", label: "首页", icon: "home" },
-      { page: "records", label: "工单", icon: "work" },
+      { page: "orders", label: "工单", icon: "work" },
       { page: "inventory", label: "库存", icon: "inventory" },
       { page: "profile", label: "我的", icon: "profile" }
     ]

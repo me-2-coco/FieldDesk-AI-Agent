@@ -95,7 +95,7 @@ test("inventory API enforces technician and warehouse role boundaries", async ()
     path.join(__dirname, "../server.js"),
     "utf8"
   );
-  assert.match(source, /hasBusinessRole\(user, USER_ROLES\.TECHNICIAN\)/);
+  assert.match(source, /hasBusinessRole\(user, USER_ROLES\.TECHNICIAN, USER_ROLES\.ADMIN\)/);
   assert.match(source, /hasBusinessRole\(user, USER_ROLES\.ADMIN, USER_ROLES\.WAREHOUSE\)/);
   assert.match(source, /INVENTORY_ACTION_FORBIDDEN/);
   assert.doesNotMatch(source, /confirmSign[\s\S]{0,100}api\/inventory/);

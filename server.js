@@ -4343,7 +4343,7 @@ function createApp(
     }
     try {
       const user = currentUserProvider(req);
-      if (!hasBusinessRole(user, USER_ROLES.TECHNICIAN)) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有维修师傅可以申请配件", 403);
+      if (!hasBusinessRole(user, USER_ROLES.TECHNICIAN, USER_ROLES.ADMIN)) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有维修师傅可以申请配件", 403);
       const order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
       if (!order || !["RECEIVED_PENDING_INSPECTION", "INSPECTION_COMPLETED_PENDING_REPAIR", "REPAIR_COMPLETION_DRAFT"].includes(order.status)) throw createApiError("PART_APPLICATION_NOT_ALLOWED", "当前工单不能选择维修配件", 409);
       const quoteOnly = order.treatmentMode === "ABANDONED";
@@ -4442,7 +4442,7 @@ function createApp(
   app.post("/api/repairs/parts/update", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      if (!hasBusinessRole(user, USER_ROLES.TECHNICIAN)) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有维修师傅可以修改配件", 403);
+      if (!hasBusinessRole(user, USER_ROLES.TECHNICIAN, USER_ROLES.ADMIN)) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有维修师傅可以修改配件", 403);
       const data = await receiptStore.updatePartApplication(
         String(req.body?.rmaNo || "").trim(),
         String(req.body?.applicationId || "").trim(),
@@ -4467,7 +4467,7 @@ function createApp(
   app.post("/api/repairs/parts/confirm", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      if (!hasBusinessRole(user, USER_ROLES.TECHNICIAN)) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有维修师傅可以确认配件", 403);
+      if (!hasBusinessRole(user, USER_ROLES.TECHNICIAN, USER_ROLES.ADMIN)) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有维修师傅可以确认配件", 403);
       const data = await receiptStore.confirmParts(String(req.body?.rmaNo || "").trim(), user);
       if (data.order?.treatmentMode === "ABANDONED") scheduleFreightWaiverApplicationRefresh(data.order, user);
       res.json({ success: true, data: { ...data, message: data.nextStep === "repairCompletion" ? "配件已确认，进入维修完工" : "配件已确认，进入检测登记" } });
@@ -4528,7 +4528,7 @@ function createApp(
   app.post("/api/inventory/use", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      if (!hasBusinessRole(user, USER_ROLES.TECHNICIAN)) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有维修师傅可以使用配件", 403);
+      if (!hasBusinessRole(user, USER_ROLES.TECHNICIAN, USER_ROLES.ADMIN)) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有维修师傅可以使用配件", 403);
       const data = await inventoryStore.use(await inventoryContext(req), String(req.body?.partCode || ""), req.body?.quantity, user);
       res.json({ success: true, data: { ...data, message: "配件使用已记录" } });
     } catch (error) { next(error); }
@@ -4537,7 +4537,7 @@ function createApp(
   app.post("/api/inventory/returns", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      if (!hasBusinessRole(user, USER_ROLES.TECHNICIAN)) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有维修师傅可以申请退还", 403);
+      if (!hasBusinessRole(user, USER_ROLES.TECHNICIAN, USER_ROLES.ADMIN)) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有维修师傅可以申请退还", 403);
       const data = await inventoryStore.requestReturn(await inventoryContext(req), String(req.body?.partCode || ""), req.body?.quantity, user);
       res.json({ success: true, data: { ...data, message: "退还申请已提交，等待库房确认" } });
     } catch (error) { next(error); }
@@ -5052,7 +5052,7 @@ function createApp(
   app.post("/api/repairs/resume-step", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      if (!hasBusinessRole(user, USER_ROLES.TECHNICIAN)) {
+      if (!hasBusinessRole(user, USER_ROLES.TECHNICIAN, USER_ROLES.ADMIN)) {
         throw createApiError("REPAIR_RESUME_STEP_FORBIDDEN", "只有维修师傅可以更新工单操作位置", 403);
       }
       const data = await receiptStore.setResumeStep(

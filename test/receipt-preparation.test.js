@@ -1505,6 +1505,18 @@ test("sweep and wash accounts generate their authorized remarks", () => {
   assert.equal(resolveReceiptSpecialty(USERS.wash, "洗地机", ""), "洗地机");
 });
 
+test("repair progress accepts admin and owner but rejects information clerk", async (t) => {
+  for (const user of [USERS.admin, { ...USERS.admin, userId: "FieldDesk0001", accountAuthority: "OWNER" }, USERS.informationClerk]) {
+    const store = await createTestStore(t);
+    let saved = false;
+    store.setResumeStep = async (rmaNo, resumeStep) => { saved = true; return { resumeStep }; };
+    const url = await startServer(t, {}, store, user);
+    const result = await post(url, "/api/repairs/resume-step", { rmaNo: "TEST-REPAIR", resumeStep: "repairCompletion" });
+    assert.equal(result.response.status, user.role === "ADMIN" ? 200 : 403);
+    assert.equal(saved, user.role === "ADMIN");
+  }
+});
+
 test("admin can handle both specialties but must determine this order specialty", () => {
   const admin = {
     userId: "TEST-ADMIN",

@@ -465,6 +465,7 @@ function App() {
 
 
 
+        {page === "orders" && <Home key="orders" setPage={setPage} currentUser={currentUser} ordersHub />}
         {page === "home" && (
 
           <Home
