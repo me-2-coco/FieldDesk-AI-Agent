@@ -8,6 +8,7 @@ import SupervisionInbox from "../components/SupervisionInbox.jsx"
 import DailyWorkloadBoard from "../components/DailyWorkloadBoard.jsx"
 import MonthlyStatistics from "../components/MonthlyStatistics.jsx"
 import HomeTodos from "../components/HomeTodos.jsx"
+import ContinuingRepairs from "../components/ContinuingRepairs.jsx"
 import { AppIcon } from "../components/AppIcons.jsx"
 import "../home-desktop.css"
 
@@ -161,6 +162,7 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
       busy = true
       try {
         const data = isTechnician ? { orders: await getLocalRepairOrders(), technicians: [] } : await getTechnicianWorkloads()
+        if (ordersHub && isAdmin) data.orders = await getLocalRepairOrders()
         if (!active) return
         setTechnicians(Array.isArray(data?.technicians) ? data.technicians : [])
         setWorkflows(Array.isArray(data?.orders) ? data.orders : [])
@@ -177,7 +179,7 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
     const timer = window.setInterval(() => { setBoardNow(new Date()); refresh() }, 30000)
     window.addEventListener("focus", refresh)
     return () => { active = false; window.clearInterval(timer); window.removeEventListener("focus", refresh) }
-  }, [isTechnician, isInformationClerk, isAdmin, currentUser?.id])
+  }, [isTechnician, isInformationClerk, isAdmin, currentUser?.id, ordersHub])
 
   useEffect(() => {
     if (!isInformationClerk && !isAdmin) return undefined
@@ -306,6 +308,14 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
     setPage(targetPage || pageForRepairStatus(restored.status))
   }
 
+  async function continueWorkflow(item) {
+    const rows = await getLocalRepairOrders()
+    const latest = rows.find(row => row.rmaNo === item.rmaNo)
+    if (!latest || (!isAdmin && (latest.technicianId || latest.operatorId) !== (currentUser?.userId || currentUser?.id))) throw new Error("工单已变更或不属于当前账号，请刷新后查看")
+    if (latest.repairCompletion?.submittedAt || COMPLETED_WORKFLOW_STATUSES.has(latest.status) || ['ON_HOLD', 'CANCELLED', 'TRANSFERRED_TO_HEADQUARTERS'].includes(latest.status)) throw new Error("工单状态已更新，当前不能直接继续维修")
+    openWorkflow(latest)
+  }
+
   function openDesktopView(view) {
     setDesktopView(view)
     setSelectedTechnicianId("")
@@ -338,7 +348,7 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
     ] },
   ].filter((group) => group.actions.length)
 
-  return <div className="page home-page home-desktop">
+  return <div className={`page home-page home-desktop ${ordersHub ? "orders-hub" : ""}`}>
     {desktopView !== "desktop" && <div className="desktop-subpage-heading"><button type="button" onClick={() => detailStatus ? setDetailStatus("") : selectedTechnicianId ? setSelectedTechnicianId("") : openDesktopView("desktop")}>← {detailStatus ? "返回维修概览" : selectedTechnicianId ? "返回师傅列表" : "返回首页"}</button><h1>{({ dailyBoard: "当日看板", team: "师傅工作台", work: "师傅工作台", stats: "月度统计", messages: "督办消息" })[desktopView]}</h1></div>}
     {desktopView === "desktop" && <><div className="card home-identity-card">
       <div className="home-identity-glow" />
@@ -346,17 +356,16 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
         <div className="home-brand-mark">FD</div>
         <div><span>FieldDesk 工作台</span><h1>{ordersHub ? "维修管理" : "网点维修管理"}</h1></div>
       </div>
-      <div className="home-user-panel">
+      {ordersHub ? <div className="orders-hub-title"><span>FieldDesk · {roleName}</span><h1>维修管理</h1><p>{accountName}{isTechnician ? ` · ${(currentUser.repairSpecialties || []).join(' / ')}` : ''}</p></div> : <div className="home-user-panel">
         <div className="home-user-avatar">{accountName.slice(0, 1)}</div>
         <div className="home-user-copy"><span>欢迎回来</span><strong>{accountName}</strong></div>
         <span className="home-role-badge">{roleName}</span>
-      </div>
-      {isTechnician && <div className="home-specialty-row">
+      </div>}
+      {isTechnician && !ordersHub && <div className="home-specialty-row">
         <span>维修品类</span>
         <div>{(currentUser.repairSpecialties?.length ? currentUser.repairSpecialties : ["未配置"]).map((item) => <strong key={item}>{item}</strong>)}</div>
       </div>}
     </div>
-    {ordersHub && <h1>维修管理</h1>}
     <div className="desktop-app-groups">
       {desktopGroups.map((group, groupIndex) => <section className="desktop-app-group" key={group.title}>
         <h2>{group.title}</h2>
@@ -366,6 +375,8 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
         </button>)}</div>
       </section>)}
     </div></>}
+
+    {ordersHub && desktopView === "desktop" && (isAdmin || isTechnician) && <ContinuingRepairs orders={workflows} user={currentUser} technicians={technicianDirectory} loading={workloadLoading} error={technicianLoadError} now={boardNow} onOpen={continueWorkflow} />}
 
 
     {desktopView === "dailyBoard" && !ordersHub && (isAdmin || isTechnician) && <DailyWorkloadBoard orders={workflows} technicians={technicians} user={currentUser} now={boardNow} loading={workloadLoading} error={technicianLoadError} />}
