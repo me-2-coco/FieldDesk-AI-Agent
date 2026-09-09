@@ -32,6 +32,7 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
   const [workflows, setWorkflows] = useState([])
   const [technicians, setTechnicians] = useState([])
   const [selectedTechnicianId, setSelectedTechnicianId] = useState("")
+  const [technicianSearch, setTechnicianSearch] = useState("")
   const [technicianLoadError, setTechnicianLoadError] = useState("")
   const [detailStatus, setDetailStatus] = useState("")
   const [liveSyncEnabled, setLiveSyncEnabled] = useState(null)
@@ -205,9 +206,10 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
   const accountName = currentUser?.name || "未识别"
   const canViewTechnicians = isInformationClerk || isAdmin
   const technicianDirectory = buildTechnicianDirectory(technicians, workflows)
+  const searchedTechnicians = technicianDirectory.filter(item => item.displayName.toLocaleLowerCase().includes(technicianSearch.trim().toLocaleLowerCase()))
   const selectedTechnician = technicianDirectory.find((item) => item.userId === selectedTechnicianId) || null
   const visibleWorkflows = isTechnician
-    ? workflows
+    ? workflows.filter(item => (item.technicianId || item.operatorId) === (currentUser?.userId || currentUser?.id))
     : selectedTechnicianId
       ? workflows.filter((item) => (item.technicianId || item.operatorId) === selectedTechnicianId)
       : []
@@ -319,14 +321,14 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
       ...((isAdmin || isTechnician) ? [{ view: "dailyBoard", title: "当日看板", icon: "records" }, { view: "stats", title: "月度统计", icon: "records" }] : []),
       ...(canViewTechnicians ? [{ view: "team", title: "师傅工作台", icon: "accounts" }] : []),
       ...(isTechnician ? [
-        { view: "work", title: "我的维修", icon: "work" },
+        { view: "work", title: "师傅工作台", icon: "accounts" },
         { view: "messages", title: "督办消息", icon: "alert" }
       ] : [])
     ] },
   ].filter((group) => group.actions.length)
 
   return <div className="page home-page home-desktop">
-    {desktopView !== "desktop" && <div className="desktop-subpage-heading"><button type="button" onClick={() => detailStatus ? setDetailStatus("") : selectedTechnicianId ? setSelectedTechnicianId("") : openDesktopView("desktop")}>← {detailStatus ? "返回维修概览" : selectedTechnicianId ? "返回师傅列表" : "返回首页"}</button><h1>{({ dailyBoard: "当日看板", team: "师傅工作台", work: "我的维修", stats: "月度统计", messages: "督办消息" })[desktopView]}</h1></div>}
+    {desktopView !== "desktop" && <div className="desktop-subpage-heading"><button type="button" onClick={() => detailStatus ? setDetailStatus("") : selectedTechnicianId ? setSelectedTechnicianId("") : openDesktopView("desktop")}>← {detailStatus ? "返回维修概览" : selectedTechnicianId ? "返回师傅列表" : "返回首页"}</button><h1>{({ dailyBoard: "当日看板", team: "师傅工作台", work: "师傅工作台", stats: "月度统计", messages: "督办消息" })[desktopView]}</h1></div>}
     {desktopView === "desktop" && <><div className="card home-identity-card">
       <div className="home-identity-glow" />
       <div className="home-brand-row">
@@ -362,10 +364,12 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
         <small>{technicianDirectory.length} 人</small>
       </div>
       <p className="home-technician-hint">选择师傅，查看他名下的在手机器及维修进度。</p>
+      <input className="home-technician-search" type="search" aria-label="搜索师傅姓名" placeholder="输入师傅姓名搜索" value={technicianSearch} onChange={event => setTechnicianSearch(event.target.value)} />
       {technicianLoadError && <p className="error-text">师傅数据读取失败：{technicianLoadError}</p>}
       {!technicianLoadError && !technicianDirectory.length && <p className="empty-state">当前没有可查看的师傅账号</p>}
       <div className="home-technician-list">
-        {technicianDirectory.map((technician) => {
+        {!!technicianDirectory.length && !searchedTechnicians.length && <p className="empty-state">没有找到匹配的师傅，请更换姓名搜索</p>}
+        {searchedTechnicians.map((technician) => {
           const rows = workflows.filter((item) => (item.technicianId || item.operatorId) === technician.userId)
           const technicianWorkload = categorizeTechnicianWorkflows(rows)
           return <button type="button" key={technician.userId} onClick={() => { setSelectedTechnicianId(technician.userId); setDetailStatus("") }}>
@@ -382,13 +386,17 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
     </section>}
 
     {desktopView === "team" && canViewTechnicians && selectedTechnician && <section className="card home-technician-selected">
-      <button type="button" className="home-technician-back" onClick={() => detailStatus ? setDetailStatus("") : setSelectedTechnicianId("")}>← {detailStatus ? "返回维修概览" : "返回师傅列表"}</button>
       <div className="home-technician-profile">
         <span className="home-technician-avatar">{selectedTechnician.displayName.slice(0, 1)}</span>
         <div><span>当前查看师傅</span><strong>{selectedTechnician.displayName}</strong><small>{selectedTechnician.repairSpecialties.length ? selectedTechnician.repairSpecialties.join(" + ") : "维修品类未配置"} · {selectedTechnician.userId}</small></div>
         <em>只读</em>
       </div>
     </section>}
+
+    {desktopView === "work" && isTechnician && <section className="card home-technician-selected"><div className="home-technician-profile">
+      <span className="home-technician-avatar">{accountName.slice(0, 1)}</span>
+      <div><span>我的工作台</span><strong>{accountName}</strong><small>{(currentUser.repairSpecialties || []).join(" + ")} · {currentUser.userId || currentUser.id}</small></div><em>仅本人</em>
+    </div></section>}
 
 
     {desktopView === "messages" && isTechnician && <SupervisionInbox openKey={supervisionOpenKey} targetRmaNo={supervisionTargetRmaNo} />}

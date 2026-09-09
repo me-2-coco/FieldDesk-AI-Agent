@@ -67,3 +67,5 @@
 .daily-pagination button { flex: 0 0 auto; width: auto; min-width: 84px; border: 1px solid #dce5f2; background: white; color: #276aca; border-radius: 10px; padding: 9px 14px; font-size: 12px; }
 .daily-pagination > span { white-space: nowrap; padding: 0 12px; }
 .daily-pagination button:disabled { opacity: .4; }
+.home-technician-search { display: block; box-sizing: border-box; width: 100%; margin: 14px 0; padding: 12px 14px; border: 1px solid #dce5f2; border-radius: 12px; background: #f7f9fd; color: #253853; font: inherit; }
+.home-technician-search:focus { outline: 2px solid #b6d3ff; outline-offset: 1px; }
