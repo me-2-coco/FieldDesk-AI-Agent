@@ -5,6 +5,7 @@ import { pageForRepairStatus, repairStatusForLocalWorkflow, resumePageForLocalWo
 import { USER_ROLES } from "../shared/userStore.js"
 import { buildTechnicianDirectory, categorizeTechnicianWorkflows, technicianWorkloadStatusLabel } from "../shared/homeWorkload.js"
 import SupervisionInbox from "../components/SupervisionInbox.jsx"
+import DailyWorkloadBoard from "../components/DailyWorkloadBoard.jsx"
 import { AppIcon } from "../components/AppIcons.jsx"
 import "../home-desktop.css"
 
@@ -46,6 +47,8 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
   const [statEndDate, setStatEndDate] = useState(() => localDateKey(new Date()))
   const [detailStatus, setDetailStatus] = useState("")
   const [liveSyncEnabled, setLiveSyncEnabled] = useState(null)
+  const [boardNow, setBoardNow] = useState(() => new Date())
+  const [workloadLoading, setWorkloadLoading] = useState(true)
   const isTechnician = currentUser?.role === USER_ROLES.TECHNICIAN
   const isWarehouse = currentUser?.role === USER_ROLES.WAREHOUSE
   const isAdmin = currentUser?.role === USER_ROLES.ADMIN
@@ -159,30 +162,31 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
   }, [order?.crmOrderNo, restoreLocalOrder])
 
   useEffect(() => {
-    if (!isTechnician) return undefined
+    if (!isTechnician && !isInformationClerk && !isAdmin) return undefined
     let active = true
-    getLocalRepairOrders().then((rows) => active && setWorkflows(Array.isArray(rows) ? rows : [])).catch(() => active && setWorkflows([]))
-    return () => { active = false }
-  }, [isTechnician])
-
-  useEffect(() => {
-    if (!isInformationClerk && !isAdmin) return undefined
-    let active = true
-    getTechnicianWorkloads()
-      .then((data) => {
+    let busy = false
+    async function refresh() {
+      if (busy) return
+      busy = true
+      try {
+        const data = isTechnician ? { orders: await getLocalRepairOrders(), technicians: [] } : await getTechnicianWorkloads()
         if (!active) return
         setTechnicians(Array.isArray(data?.technicians) ? data.technicians : [])
         setWorkflows(Array.isArray(data?.orders) ? data.orders : [])
         setTechnicianLoadError("")
-      })
-      .catch((error) => {
+      } catch (error) {
         if (!active) return
-        setTechnicians([])
-        setWorkflows([])
         setTechnicianLoadError(error.message)
-      })
-    return () => { active = false }
-  }, [isInformationClerk, isAdmin])
+      } finally {
+        busy = false
+        if (active) { setWorkloadLoading(false); setBoardNow(new Date()) }
+      }
+    }
+    refresh()
+    const timer = window.setInterval(() => { setBoardNow(new Date()); refresh() }, 30000)
+    window.addEventListener("focus", refresh)
+    return () => { active = false; window.clearInterval(timer); window.removeEventListener("focus", refresh) }
+  }, [isTechnician, isInformationClerk, isAdmin, currentUser?.id])
 
   useEffect(() => {
     if (!isInformationClerk && !isAdmin) return undefined
@@ -359,6 +363,7 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
       </div>}
     </div>
     {ordersHub && <h1>维修管理</h1>}
+    {!ordersHub && (isAdmin || isTechnician) && <DailyWorkloadBoard orders={workflows} technicians={technicians} user={currentUser} now={boardNow} loading={workloadLoading} error={technicianLoadError} />}
     <div className="desktop-app-groups">
       {desktopGroups.map((group, groupIndex) => <section className="desktop-app-group" key={group.title}>
         <h2>{group.title}</h2>

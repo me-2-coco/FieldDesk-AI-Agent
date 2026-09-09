@@ -19,3 +19,20 @@
 .home-desktop .desktop-subpage-heading button { width: auto; margin: 0; padding: 8px 12px; background: #e9f1ff; color: #2169cc; border: 0; box-shadow: none; font-size: 13px; }
 .desktop-subpage-heading h1 { margin: 0; font-size: 20px; }
 @media (max-width: 360px) { .desktop-app-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.daily-workload-board { margin: 22px 0; text-align: left; }
+.daily-board-heading, .daily-product-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.daily-board-heading h2 { font-size: 20px; margin: 0; }
+.daily-board-heading > span, .daily-board-note { color: #75859c; font-size: 12px; }
+.daily-board-note { line-height: 1.6; margin: 8px 0 12px; }
+.daily-product-board { background: white; border: 1px solid #dde6f3; border-radius: 20px; padding: 16px 12px; margin-top: 14px; overflow: hidden; }
+.daily-product-heading h3 { margin: 0; font-size: 17px; color: #2266b9; }
+.daily-product-heading > span { color: #61728b; font-size: 12px; }
+.daily-product-heading strong { color: #1873ed; font-size: 24px; }
+.daily-product-board:nth-of-type(2) h3, .daily-product-board:nth-of-type(2) strong { color: #168a7b; }
+.daily-product-board table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 12px; font-size: 13px; }
+.daily-product-board th, .daily-product-board td { padding: 10px 2px; text-align: center; border-bottom: 1px solid #edf1f7; overflow-wrap: anywhere; }
+.daily-product-board th:first-child { width: 26%; text-align: left; padding-left: 5px; }
+.daily-product-board thead { background: #f5f8fd; color: #728198; font-size: 11px; }
+.daily-product-board tbody th { font-weight: 500; color: #34465e; }
+.daily-product-board td:last-child { color: #1d6bcc; font-weight: 700; }
+.daily-product-board tfoot { background: #eef5ff; font-weight: 700; }
