@@ -75,6 +75,12 @@
 .inventory-hub-heading::after { width: 300px; height: 180px; right: -75px; bottom: -140px; }
 .inventory-hub-avatar { display: grid; place-items: center; flex: 0 0 52px; height: 52px; border-radius: 17px; background: #fff; color: #1768e5; box-shadow: 0 8px 20px rgba(13,65,144,.12); }
 .inventory-hub-copy { min-width: 0; }
+.inventory-inline-content { margin-top: 24px; text-align: left; }
+.inventory-inline-content > div { width: 100%; min-width: 0; }
+.inventory-switcher[data-active="query"] .desktop-app:nth-child(1),
+.inventory-switcher[data-active="personal"] .desktop-app:nth-child(2),
+.inventory-switcher[data-active="ledger"] .desktop-app:nth-child(3),
+.inventory-switcher[data-active="warehouse"] .desktop-app:nth-child(4) { background: #e5efff; border-radius: 16px; color: #1768e5; }
 .inventory-hub-copy small { color: rgba(255,255,255,.72); font-size: 12px; }
 .inventory-hub-heading h1 { margin: 4px 0 0; color: #fff; font-size: 25px; font-weight: 700; line-height: 1.4; text-align: left; }
 .inventory-hub-heading p { margin: 6px 0 0; color: rgba(255,255,255,.78); font-size: 11px; line-height: 1.6; text-align: left; }

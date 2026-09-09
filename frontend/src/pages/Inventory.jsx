@@ -12,7 +12,7 @@ import {
 } from "../shared/crmService.js"
 import { getCurrentRepairOrder, REPAIR_STATUS, updateRepairOrder } from "../shared/repairOrderStore.js"
 
-function InventoryContent({ setPage, view }) {
+function InventoryContent({ view }) {
   const [user, setUser] = useState(null)
   const [inventory, setInventory] = useState(null)
   const [quantities, setQuantities] = useState({})
@@ -67,23 +67,12 @@ function InventoryContent({ setPage, view }) {
     }
   }
 
-  if (!inventory || !user) return <div className="page"><button className="header-back" onClick={() => setPage("appBack")}>← 返回库存</button><p>{message || "正在读取本地库存..."}</p></div>
+  if (!inventory || !user) return <p role="status">{message || "正在读取本地库存..."}</p>
   const personalEntries = Object.entries(inventory.technicianStock || {})
   const isTechnicianRole = String(user.role || "").toUpperCase() === "TECHNICIAN"
-  const title = view === "query" ? "备件库存查询" : view === "personal" ? (isTechnicianRole ? "个人库存" : "师傅库存") : "库存流水"
   const personalPartCount = personalEntries.reduce((total, [, stock]) => total + stock.parts.reduce((sum, part) => sum + Number(part.stock || 0), 0), 0)
 
-  return <div className="page inventory-page compact-backoffice-page">
-    <header className="inventory-app-hero">
-      <button className="inventory-hero-back" onClick={() => recloudResult ? setRecloudResult(null) : setPage("appBack")} aria-label={recloudResult ? "返回库存查询" : "返回库存"}>←</button>
-      <span className="inventory-hero-icon"><AppIcon name="inventory" size={24} /></span>
-      <div className="inventory-hero-copy">
-        <small>RECLOUD PARTS</small>
-        <h1>{title}</h1>
-        <p>{view === "query" ? "实时查询瑞云备件库存" : view === "personal" ? "查看领用备件与库存数量" : "查看库存变动记录"}</p>
-      </div>
-      {view === "query" && <span className="inventory-live-badge"><i />实时</span>}
-    </header>
+  return <div className="inventory-page compact-backoffice-page">
 
     {view === "query" && <section className="card compact-data-card inventory-search-card">
       <div className="section-title-row inventory-section-title"><div><small>瑞云备件管理</small><h2>备件库存查询</h2></div><span><AppIcon name="sync" size={12} />只读实时</span></div>
@@ -139,29 +128,23 @@ function stringOrFallback(name) {
 }
 
 function Inventory({ setPage }) {
-  const [view, setView] = useState("apps")
+  const [view, setView] = useState("query")
   const canUseWarehouse = canAccessPage("warehouse", getCurrentUser())
   const isTechnician = String(getCurrentUser()?.role || "").toUpperCase() === "TECHNICIAN"
-  function navigateInside(next) {
-    if (next !== "appBack") { setPage(next); return }
-    const expanded = [...document.querySelectorAll(".page details[open]")].at(-1)
-    if (expanded) { expanded.open = false; return }
-    setView("apps")
-  }
-  if (view !== "apps") return <>
-    {view === "warehouse" && canUseWarehouse ? <Warehouse setPage={navigateInside} /> : <InventoryContent key={view} view={view} setPage={navigateInside} />}
-  </>
   return <div className="page home-desktop">
     <header className="inventory-hub-heading">
       <span className="inventory-hub-avatar"><AppIcon name="inventory" size={28} /></span>
       <div className="inventory-hub-copy"><small>FieldDesk 库存工作台</small><h1>库存管理</h1><p>备件查询 · 领用管理 · 库存流水</p></div>
     </header>
-    <section className="desktop-app-group" aria-label="库存功能"><div className="desktop-app-grid">
+    <section className="desktop-app-group inventory-switcher" data-active={view} aria-label="库存功能"><div className="desktop-app-grid">
       <button type="button" className="desktop-app" onClick={() => setView("query")}><span className="desktop-app-icon desktop-tone-0"><AppIcon name="inventory" size={27} /></span><span>备件库存查询</span></button>
       <button type="button" className="desktop-app" onClick={() => setView("personal")}><span className="desktop-app-icon desktop-tone-2"><AppIcon name="profile" size={27} /></span><span>{isTechnician ? "个人库存" : "师傅库存"}</span></button>
       <button type="button" className="desktop-app" onClick={() => setView("ledger")}><span className="desktop-app-icon desktop-tone-3"><AppIcon name="history" size={27} /></span><span>库存流水</span></button>
       {canUseWarehouse && <button type="button" className="desktop-app" onClick={() => setView("warehouse")}><span className="desktop-app-icon desktop-tone-1"><AppIcon name="warehouse" size={27} /></span><span>库房作业</span></button>}
     </div></section>
+    <div className="inventory-inline-content">
+      {view === "warehouse" && canUseWarehouse ? <Warehouse embedded setPage={setPage} /> : <InventoryContent view={view} />}
+    </div>
   </div>
 }
 
