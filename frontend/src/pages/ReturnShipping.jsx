@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react"
 import { getShippingContext, getShippingOrders } from "../shared/crmService.js"
+import { filterShippingOrders } from "../shared/shippingSearch.js"
 
 function ReturnShipping({ setPage }) {
   const [orders, setOrders] = useState([])
+  const [search, setSearch] = useState("")
   const [selectedRmaNo, setSelectedRmaNo] = useState("")
   const [context, setContext] = useState(null)
   const [errorMessage, setErrorMessage] = useState("")
@@ -35,6 +37,7 @@ function ReturnShipping({ setPage }) {
     : "无实际使用配件"
   const pendingCount = orders.filter((item) => item.status !== "SHIPPED_PENDING_COMPLETION").length
   const shippedCount = orders.length - pendingCount
+  const filteredOrders = filterShippingOrders(orders, search)
 
   return <div className="page return-shipping-page">
     <div className="top-bar backoffice-page-header">
@@ -48,12 +51,21 @@ function ReturnShipping({ setPage }) {
     </div>
     <div className="card compact-data-card">
       <div className="section-title-row"><div><small>工单队列</small><h2>选择工单</h2></div><span>{orders.length} 单</span></div>
+      <label htmlFor="shipping-search">搜索工单</label>
+      <input id="shipping-search" type="search" value={search} placeholder="单号 / 姓名 / 电话 / SN（支持部分输入）" onChange={(event) => {
+        setSearch(event.target.value)
+        setSelectedRmaNo("")
+        setContext(null)
+        setErrorMessage("")
+      }} />
+      <p className="field-hint" role="status">找到 {filteredOrders.length} 单，共 {orders.length} 单</p>
       <label htmlFor="shipping-order">待发货与待完结工单</label>
       <select id="shipping-order" value={selectedRmaNo} onChange={(event) => setSelectedRmaNo(event.target.value)}>
         <option value="">请选择工单</option>
-        {orders.map((item) => <option key={item.rmaNo} value={item.rmaNo}>{item.rmaNo}｜{item.status === "SHIPPED_PENDING_COMPLETION" ? "已发货/待完结" : "维修完成/后台待发货"}</option>)}
+        {filteredOrders.map((item) => <option key={item.rmaNo} value={item.rmaNo}>{item.rmaNo}{item.customerName ? `｜${item.customerName}` : ""}｜{item.status === "SHIPPED_PENDING_COMPLETION" ? "已发货/待完结" : "维修完成/后台待发货"}</option>)}
       </select>
       {!orders.length && <p className="empty-compact-state">当前没有后台待发货或待完结工单</p>}
+      {!!orders.length && !filteredOrders.length && <p className="empty-compact-state">没有匹配的工单，请更换关键词或清空搜索</p>}
     </div>
     {order && <>
       <div className="card shipping-status-hero">
