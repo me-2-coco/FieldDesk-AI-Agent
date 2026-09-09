@@ -9,6 +9,7 @@ import {
   USER_ROLES
 } from "../shared/userStore.js"
 import { AppIcon } from "../components/AppIcons.jsx"
+import "../home-desktop.css"
 import { updateRecloudOperatorName } from "../shared/crmService.js"
 
 
@@ -107,7 +108,7 @@ function Profile({
 
   return (
 
-    <div className="page profile-page">
+    <div className="page profile-page home-desktop">
 
       <div className="card profile-identity-card">
         <div className="profile-identity-glow" />
@@ -140,12 +141,11 @@ function Profile({
           <div><span>个人工作</span><h2>我的功能</h2></div>
           <small>{getRoleName(currentUser.role)}</small>
         </div>
-        <div className="profile-action-list">
-          {personalActions.map((action) => (
-            <button type="button" key={action.page} onClick={() => setPage(action.page)}>
-              <span className="profile-action-icon"><AppIcon name={action.icon} size={19} /></span>
-              <span><strong>{action.title}</strong><small>{action.description}</small></span>
-              <b>›</b>
+        <div className="desktop-app-grid">
+          {personalActions.map((action, index) => (
+            <button type="button" className="desktop-app" key={action.page} title={action.description} onClick={() => setPage(action.page)}>
+              <span className={`desktop-app-icon desktop-tone-${index % 5}`}><AppIcon name={action.icon} size={27} /></span>
+              <span>{action.title}</span>
             </button>
           ))}
         </div>
@@ -157,12 +157,13 @@ function Profile({
             <div><span>管理工具</span><h2>系统管理</h2></div>
             <small>管理员</small>
           </div>
-          <p className="profile-section-description">查看本地业务节点的瑞云同步记录和失败重试。</p>
-          <div className="profile-management-grid">
-            <button type="button" onClick={() => setPage("syncTasks")}><AppIcon name="sync" size={20} /><strong>瑞云同步</strong><span>查看任务</span></button>
-            <button type="button" onClick={() => setPage("syncDiagnostics")}><AppIcon name="diagnostic" size={20} /><strong>同步检查</strong><span>运行诊断</span></button>
-            <button type="button" onClick={() => setPage("printManagement")}><AppIcon name="inventory" size={20} /><strong>打印终端</strong><span>共享打印</span></button>
-            <button type="button" onClick={() => setPage("accountManagement")}><AppIcon name="accounts" size={20} /><strong>账号管理</strong><span>权限设置</span></button>
+          <div className="desktop-app-grid">
+            {[
+              { page: "syncTasks", title: "瑞云同步", icon: "sync" },
+              { page: "syncDiagnostics", title: "同步检查", icon: "diagnostic" },
+              { page: "printManagement", title: "打印终端", icon: "inventory" },
+              { page: "accountManagement", title: "账号管理", icon: "accounts" }
+            ].map((action, index) => <button type="button" className="desktop-app" key={action.page} onClick={() => setPage(action.page)}><span className={`desktop-app-icon desktop-tone-${index}`}><AppIcon name={action.icon} size={27} /></span><span>{action.title}</span></button>)}
           </div>
         </div>
       )}

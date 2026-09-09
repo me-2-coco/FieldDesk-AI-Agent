@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react"
 import { AppIcon } from "../components/AppIcons.jsx"
+import { canAccessPage, getCurrentUser } from "../shared/userStore.js"
+import Warehouse from "./Warehouse.jsx"
+import "../home-desktop.css"
 import {
   getCurrentFieldDeskUser,
   getLocalInventory,
@@ -9,7 +12,7 @@ import {
 } from "../shared/crmService.js"
 import { getCurrentRepairOrder, REPAIR_STATUS, updateRepairOrder } from "../shared/repairOrderStore.js"
 
-function Inventory({ setPage }) {
+function InventoryContent({ setPage }) {
   const [user, setUser] = useState(null)
   const [inventory, setInventory] = useState(null)
   const [quantities, setQuantities] = useState({})
@@ -132,6 +135,22 @@ function Inventory({ setPage }) {
 
 function stringOrFallback(name) {
   return String(name || "库").trim().slice(0, 1) || "库"
+}
+
+function Inventory({ setPage }) {
+  const [view, setView] = useState("apps")
+  const canUseWarehouse = canAccessPage("warehouse", getCurrentUser())
+  if (view !== "apps") return <>
+    <div className="page home-desktop"><div className="desktop-subpage-heading"><button type="button" onClick={() => setView("apps")}>← 返回库存</button></div></div>
+    {view === "warehouse" && canUseWarehouse ? <Warehouse setPage={setPage} /> : <InventoryContent setPage={setPage} />}
+  </>
+  return <div className="page home-desktop">
+    <h1>库存</h1>
+    <section className="desktop-app-group"><h2>库存与库房</h2><div className="desktop-app-grid">
+      <button type="button" className="desktop-app" onClick={() => setView("overview")}><span className="desktop-app-icon desktop-tone-0"><AppIcon name="inventory" size={27} /></span><span>库存总览</span></button>
+      {canUseWarehouse && <button type="button" className="desktop-app" onClick={() => setView("warehouse")}><span className="desktop-app-icon desktop-tone-1"><AppIcon name="warehouse" size={27} /></span><span>库房作业</span></button>}
+    </div></section>
+  </div>
 }
 
 export default Inventory

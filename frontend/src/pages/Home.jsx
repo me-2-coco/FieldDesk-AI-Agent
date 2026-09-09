@@ -330,7 +330,7 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
   }
   const desktopGroups = [
     { title: "工作", actions: [
-      ...quickActions,
+      ...quickActions.filter((action) => action.page !== "inventory"),
       ...(canViewTechnicians ? [{ view: "team", title: "师傅工作台", icon: "accounts" }] : []),
       ...(isTechnician ? [
         { view: "work", title: "我的维修", icon: "work" },
@@ -338,7 +338,7 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
         { view: "messages", title: "督办消息", icon: "alert" }
       ] : [])
     ] },
-    ...workspaceGroups
+    ...workspaceGroups.filter((group) => !["库存与库房", "库房作业", "系统管理"].includes(group.title))
   ].filter((group) => group.actions.length)
 
   return <div className="page home-page home-desktop">
