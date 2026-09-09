@@ -331,8 +331,8 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
     { title: "工作", actions: [
       ...((isAdmin || isTechnician) ? [{ view: "dailyBoard", title: "当日看板", icon: "records" }, { view: "stats", title: "月度统计", icon: "records" }] : []),
       ...(canViewTechnicians ? [{ view: "team", title: "师傅工作台", icon: "accounts" }] : []),
-      ...(isTechnician ? [
-        { view: "work", title: "师傅工作台", icon: "accounts" },
+      ...(isTechnician ? [{ view: "work", title: "师傅工作台", icon: "accounts" }] : []),
+      ...((isTechnician || isInformationClerk) ? [
         { view: "messages", title: "督办消息", icon: "alert" }
       ] : [])
     ] },
@@ -411,6 +411,7 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
 
 
     {desktopView === "messages" && isTechnician && <SupervisionInbox openKey={supervisionOpenKey} targetRmaNo={supervisionTargetRmaNo} />}
+    {desktopView === "messages" && isInformationClerk && <section className="card"><p>信息员督办消息入口已准备好，消息查看范围尚待授权配置。</p></section>}
 
     {(desktopView === "team" || desktopView === "work") && showTechnicianDashboard && <div className="card">
       <div className="home-section-heading"><div><span>实时工作量</span><h2>维修执行</h2></div><small>手上共 {unfinished.length} 台</small></div>
