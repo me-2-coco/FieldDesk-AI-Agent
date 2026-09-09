@@ -152,8 +152,11 @@ function Inventory({ setPage }) {
     {view === "warehouse" && canUseWarehouse ? <Warehouse setPage={navigateInside} /> : <InventoryContent key={view} view={view} setPage={navigateInside} />}
   </>
   return <div className="page home-desktop">
-    <h1>库存</h1>
-    <section className="desktop-app-group"><h2>库存与库房</h2><div className="desktop-app-grid">
+    <header className="inventory-hub-heading">
+      <h1>库存管理</h1>
+      <p>备件查询 · 领用管理 · 库存流水</p>
+    </header>
+    <section className="desktop-app-group" aria-label="库存功能"><div className="desktop-app-grid">
       <button type="button" className="desktop-app" onClick={() => setView("query")}><span className="desktop-app-icon desktop-tone-0"><AppIcon name="inventory" size={27} /></span><span>备件库存查询</span></button>
       <button type="button" className="desktop-app" onClick={() => setView("personal")}><span className="desktop-app-icon desktop-tone-2"><AppIcon name="profile" size={27} /></span><span>{isTechnician ? "个人库存" : "师傅库存"}</span></button>
       <button type="button" className="desktop-app" onClick={() => setView("ledger")}><span className="desktop-app-icon desktop-tone-3"><AppIcon name="history" size={27} /></span><span>库存流水</span></button>

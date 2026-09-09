@@ -69,3 +69,6 @@
 .daily-pagination button:disabled { opacity: .4; }
 .home-technician-search { display: block; box-sizing: border-box; width: 100%; margin: 14px 0; padding: 12px 14px; border: 1px solid #dce5f2; border-radius: 12px; background: #f7f9fd; color: #253853; font: inherit; }
 .home-technician-search:focus { outline: 2px solid #b6d3ff; outline-offset: 1px; }
+.inventory-hub-heading { padding: 12px 0 8px; margin-bottom: 20px; text-align: center; }
+.inventory-hub-heading h1 { margin: 0; color: #245b9e; font-size: 26px; font-weight: 650; line-height: 1.4; letter-spacing: .04em; text-align: center; }
+.inventory-hub-heading p { margin: 8px 0 0; color: #8996a8; font-size: 12px; line-height: 1.6; text-align: center; }
