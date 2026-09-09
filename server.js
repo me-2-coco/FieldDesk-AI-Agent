@@ -5031,7 +5031,8 @@ function createApp(
         throw createApiError("MONTHLY_STATISTICS_FORBIDDEN", "当前账号无权执行此操作", 403);
       }
       if (req.query.month && !/^\d{4}-(0[1-9]|1[0-2])$/.test(String(req.query.month))) throw createApiError("MONTH_INVALID", "请选择有效月份", 400);
-      const data = monthlyStatistics(await receiptStore.readAll(), user, { ...req.query, includeDetails: exporting });
+      const [monthlyOrders, monthlyAccounts] = await Promise.all([receiptStore.readAll(), accountStore.list()]);
+      const data = monthlyStatistics(require('./shared/monthly-statistics').formalMonthlyOrders(monthlyOrders, monthlyAccounts), user, { ...req.query, includeDetails: exporting });
       if (!exporting) return res.json({ success: true, data });
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
       res.setHeader("Content-Disposition", `attachment; filename="monthly-${data.month}.xlsx"`);

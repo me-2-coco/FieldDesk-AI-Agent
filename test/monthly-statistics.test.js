@@ -2,7 +2,12 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const ExcelJS = require('exceljs');
 const { createApp } = require('../server');
-const { monthlyStatistics, exportMonthly } = require('../shared/monthly-statistics');
+const { monthlyStatistics, exportMonthly, formalMonthlyOrders } = require('../shared/monthly-statistics');
+test('only managed formal accounts count; disabled accounts retain historical work',()=>{
+  const ids=['LOCAL-TECH-SWEEP','FieldDesk0004','FieldDesk0005','FieldDesk0006','FieldDesk0007'];
+  const accounts=ids.slice(0,4).map(userId=>({userId,active:false}));
+  assert.deepEqual(formalMonthlyOrders(ids.map(technicianId=>({technicianId})),accounts).map(o=>o.technicianId),['FieldDesk0005','FieldDesk0006']);
+});
 const orders = ['REPAIR','ABANDONED','DEBUGGING','INSPECTION_ONLY'].map((mode,i)=>({
   rmaNo:`TEST-${i}`,technicianId:i===3?'OTHER':'TECH',technicianName:'测试师傅',productLine:i===3?'洗地机':'扫地机',
   sn:'0000123',logisticsNo:'0000456',customerName:'合成客户',phone:'00000000000',customerAddress:'测试地址',
@@ -33,12 +38,13 @@ test('XLSX preserves identifiers, customer details, quantities and three sheets'
 });
 test('HTTP export is admin/owner only, including test technician account',async t=>{
   for(const [userId,role,readStatus,exportStatus] of [['TECH','TECHNICIAN',200,403],['FieldDesk0004','TECHNICIAN',200,403],['INFO','INFORMATION_CLERK',403,403],['ADMIN','ADMIN',200,200],['FieldDesk0001','ADMIN',200,200]]) {
-    const app=createApp({}, {readAll:async()=>orders}, {getCurrentUser:()=>({userId,role})});
+    const formalOrders=orders.map(o=>({...o,technicianId:'FieldDesk0005'}));
+    const app=createApp({}, {readAll:async()=>[...orders,...formalOrders]}, {accountStore:{list:async()=>[{userId:'FieldDesk0005'},{userId:'FieldDesk0004'}]},getCurrentUser:()=>({userId,role})});
     const server=await new Promise(resolve=>{const s=app.listen(0,'127.0.0.1',()=>resolve(s))});
     t.after(()=>{server.closeAllConnections();server.close()});
     const url=`http://127.0.0.1:${server.address().port}/api/repairs/monthly-statistics`;
     const response=await fetch(url+'?month=2026-09&includeDetails=true'); assert.equal(response.status,readStatus);
-    if(readStatus===200){ const {data}=await response.json(); assert.ok(data.rows.every(r=>!r.customerName)); if(role==='TECHNICIAN') assert.ok(data.rows.every(r=>r.technicianId===userId)); }
+    if(readStatus===200){ const {data}=await response.json(); assert.ok(data.rows.every(r=>!r.customerName)); if(role==='TECHNICIAN') assert.ok(data.rows.every(r=>r.technicianId===userId)); else assert.equal(data.summary.total,4); }
     const exported=await fetch(url+'/export?month=2026-09'); assert.equal(exported.status,exportStatus);
     if(exportStatus===200) assert.match(exported.headers.get('content-type'),/spreadsheetml/);
   }

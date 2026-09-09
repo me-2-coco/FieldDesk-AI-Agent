@@ -5,10 +5,10 @@
 .monthly-filters input, .monthly-filters select { display: block; width: 100%; min-width: 0; box-sizing: border-box; margin-top: 8px; padding: 12px; background: #f6f8fc; border: 1px solid #dfe6f0; border-radius: 12px; font: inherit; color: #253850; }
 .monthly-statistics h2 { font-size: 18px; margin-top: 26px; }
 .monthly-statistics h2 small { font-size: 12px; color: #8795aa; font-weight: normal; }
-.monthly-table-wrap { overflow: auto; max-height: 390px; }
+.monthly-table-wrap { overflow: auto; max-height: min(340px, 42dvh); overscroll-behavior: contain; scrollbar-width: thin; border: 1px solid #edf1f7; border-radius: 12px; }
 .monthly-statistics table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .monthly-statistics th { position: sticky; top: 0; background: #f4f7fc; color: #76859e; font-size: 12px; }
-.monthly-statistics td, .monthly-statistics th { padding: 12px 8px; text-align: right; border-bottom: 1px solid #edf1f7; }
+.monthly-statistics td, .monthly-statistics th { padding: 9px 10px; text-align: right; border-bottom: 1px solid #edf1f7; }
 .monthly-statistics td:first-child, .monthly-statistics th:first-child { text-align: left; }
 .monthly-statistics td small { display: block; color: #8d9aaf; margin-top: 4px; }
 .monthly-details article { padding: 14px 0; border-bottom: 1px solid #edf1f7; overflow-wrap: anywhere; }
@@ -18,3 +18,15 @@
 .monthly-pagination { display: flex; justify-content: space-between; align-items: center; margin-top: 18px; }
 .monthly-pagination button { padding: 9px 14px; border: 0; border-radius: 10px; color: #2166b5; background: #edf4ff; }
 .monthly-pagination button:disabled { opacity: .4; }
+.monthly-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 20px 0 12px; }
+.monthly-toolbar h2 { margin: 0 0 4px; font-size: 16px; text-align: left; }
+.monthly-toolbar small { font-size: 11px; color: #8a99af; }
+.monthly-export { flex-shrink: 0; padding: 9px 13px; width: auto; border: 1px solid #dce8fa; border-radius: 10px; background: #edf4ff; color: #226bd0; font-size: 12px; font-weight: 600; cursor: pointer; }
+.monthly-export:disabled { opacity: .45; cursor: default; }
+.monthly-statistics .home-performance-summary { gap: 8px; margin: 12px 0; }
+.monthly-statistics .home-performance-summary > div { padding: 12px 8px; border-radius: 12px; }
+.monthly-statistics .home-performance-summary strong { font-size: 26px; }
+.monthly-statistics .home-performance-summary span { font-size: 12px; }
+.monthly-statistics table { font-size: 13px; }
+.monthly-statistics td:last-child { color: #216bd0; font-weight: 600; }
+.monthly-statistics tbody tr:nth-child(even) { background: #fafcff; }

@@ -1,6 +1,10 @@
 const { isOwnerAccount } = require('../config/business-access-policy');
 const canExportMonthly = user => user?.role === 'ADMIN' || isOwnerAccount(user || {});
 const dayOf = value => new Intl.DateTimeFormat('en-CA', {timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(value));
+function formalMonthlyOrders(orders, accounts) {
+  const ids = new Set(accounts.filter(account => /^FieldDesk\d{4,}$/.test(account.userId || '') && account.userId !== 'FieldDesk0004' && !/TEST/i.test(account.accountPurpose || '')).map(account => account.userId));
+  return orders.filter(order => ids.has(order.technicianId || order.operatorId));
+}
 function monthlyStatistics(orders, user, filters = {}) {
   const month = String(filters.month || dayOf(new Date()).slice(0,7));
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw Object.assign(new Error('请选择有效月份'),{status:400});
@@ -60,4 +64,4 @@ async function exportMonthly(data) {
   for(const sheet of [summary,details,parts]){sheet.views=[{state:'frozen',ySplit:1}];sheet.autoFilter={from:{row:1,column:1},to:{row:Math.max(1,sheet.rowCount),column:sheet.columnCount}};sheet.getRow(1).height=28;sheet.getRow(1).eachCell(cell=>{cell.font={bold:true,color:{argb:'FFFFFFFF'}};cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF2469BE'}}});}
   return workbook.xlsx.writeBuffer();
 }
-module.exports={monthlyStatistics,canExportMonthly,exportMonthly};
+module.exports={monthlyStatistics,canExportMonthly,exportMonthly,formalMonthlyOrders};
