@@ -7,6 +7,7 @@ import { buildTechnicianDirectory, categorizeTechnicianWorkflows, technicianWork
 import SupervisionInbox from "../components/SupervisionInbox.jsx"
 import DailyWorkloadBoard from "../components/DailyWorkloadBoard.jsx"
 import MonthlyStatistics from "../components/MonthlyStatistics.jsx"
+import HomeTodos from "../components/HomeTodos.jsx"
 import { AppIcon } from "../components/AppIcons.jsx"
 import "../home-desktop.css"
 
@@ -27,6 +28,7 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
   }, [supervisionOpenKey])
   const [order, setOrder] = useState(() => getCurrentRepairOrder())
   const [resumeError, setResumeError] = useState("")
+  const [todoError, setTodoError] = useState("")
   const [backgroundShippingCount, setBackgroundShippingCount] = useState(0)
   const [pendingWarrantyCount, setPendingWarrantyCount] = useState(0)
   const [workflows, setWorkflows] = useState([])
@@ -217,7 +219,7 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
   const workload = categorizeTechnicianWorkflows(visibleWorkflows)
   const completedOrders = workload.completed
   const unfinished = workload.unfinished
-  const waitingMaterial = workload.waitingMaterial
+  const waitingMaterial = [...new Map([...workload.waitingMaterial, ...visibleWorkflows.filter(o => o.partsShortage?.status === "PENDING_INFORMATION")].map(o => [o.rmaNo, o])).values()]
   const outOfWarranty = workload.outOfWarranty
   const otherHeld = workload.otherHeld
   const detailOrders = detailStatus === "unfinished"
@@ -309,6 +311,15 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
     setSelectedTechnicianId("")
     setDetailStatus("")
     window.scrollTo({ top: 0, behavior: "instant" })
+  }
+  function openTodo(item) {
+    setTodoError("")
+    if (!isTechnician) { setPage(item.group === "warranty" ? "warrantyApprovals" : item.group === "sync" ? "syncTasks" : "exceptionCenter"); return }
+    if (item.group === "messages") { openDesktopView("messages"); return }
+    const workflow = workflows.find(order => order.rmaNo === item.rmaNo && (order.technicianId || order.operatorId) === (currentUser.userId || currentUser.id))
+    if (!workflow) { setTodoError("工单进度正在更新，请稍后重试"); return }
+    if (item.group === "shortage" || workflow.status === "ON_HOLD") { openDesktopView("work"); setDetailStatus("waiting"); return }
+    openWorkflow(workflow)
   }
   const desktopGroups = ordersHub ? [
     { title: "工单", actions: [
@@ -430,8 +441,11 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
 
     {desktopView === "stats" && !ordersHub && (isAdmin || isTechnician) && <MonthlyStatistics />}
 
+    {desktopView === "desktop" && !ordersHub && (isAdmin || isTechnician || isInformationClerk) && <HomeTodos key={currentUser.userId || currentUser.id} technician={isTechnician} onOpen={openTodo} />}
+    {todoError && <p className="error-text">{todoError}</p>}
+
     {liveSyncEnabled === false && <p className="dry-run-notice">当前保持演练模式，本地业务操作不会写入瑞云。</p>}
-    {liveSyncEnabled === true && <p className="dry-run-notice">瑞云实时同步已开启，任务将在后台执行并自动重试。</p>}
+    {liveSyncEnabled === true && <p className="home-sync-status">● 瑞云后台同步已开启</p>}
   </div>
 }
 

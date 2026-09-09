@@ -1,0 +1,21 @@
+.home-todos { margin-top: 26px; text-align: left; }
+.home-todos header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.home-todos header h2 { margin:0 0 5px; font-size:19px; text-align:left; }
+.home-todos header small { font-size:11px; color:#8795ab; }
+.home-todos header button { border:0; background:none; color:#2875d3; font-size:12px; padding:8px 0; }
+.todo-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:18px; }
+.todo-grid button { text-align:left; border:1px solid #e7edf6; background:#f8faff; border-radius:14px; padding:13px; color:#50637e; }
+.todo-grid button.active { border-color:#8ab8f8; background:#edf5ff; }
+.todo-grid span { display:block; font-size:12px; }
+.todo-grid strong { display:block; margin-top:8px; color:#2769bd; font-size:24px; }
+.todo-grid strong small { font-size:11px; color:#8c9ab0; font-weight:normal; }
+.todo-list { margin-top:14px; max-height:310px; overflow:auto; overscroll-behavior:contain; }
+.todo-list button { display:flex; align-items:center; justify-content:space-between; width:100%; gap:12px; padding:12px 0; background:none; border:0; border-bottom:1px solid #edf1f7; text-align:left; }
+.todo-list span { min-width:0; }
+.todo-list small,.todo-list strong,.todo-list em { display:block; font-style:normal; }
+.todo-list small { font-size:11px; color:#8a97aa; }
+.todo-list strong { font-size:13px; color:#32465f; margin:5px 0; }
+.todo-list em { font-size:12px; color:#73849b; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.todo-list b { color:#8c9db4; }
+.todo-empty { text-align:center; padding:20px 0 8px; font-size:13px; color:#8d9aae; }
+.home-sync-status { margin:16px 4px; color:#779188; font-size:12px; text-align:center; }

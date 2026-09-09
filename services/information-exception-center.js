@@ -31,6 +31,9 @@ function detectOrderExceptions(order, options = {}) {
   const stalledAfterMs = Number(options.stalledAfterMs || 24 * 60 * 60 * 1000);
   const missingAttachmentIds = new Set(options.missingAttachmentIds || []);
   const exceptions = [];
+  if (order.status === "ON_HOLD" && ["网点缺件", "总部缺件"].includes(order.hold?.reason) && order.partsShortage?.status !== "PENDING_INFORMATION") {
+    exceptions.push(baseException(order, "MATERIAL_HOLD_PENDING", "MEDIUM", `待料：${order.hold.reason}`));
+  }
   if (order.partsShortage?.status === "PENDING_INFORMATION") {
     const missingParts = Array.isArray(order.partsShortage.parts) ? order.partsShortage.parts : [];
     const summary = missingParts.map((part) => `${part.partName || part.partCode}（${part.partCode}）×${Number(part.quantity || 0)}`).join("、");

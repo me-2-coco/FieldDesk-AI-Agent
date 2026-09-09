@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { getInformationExceptions, resolveInformationPartsShortage } from "../shared/crmService.js"
 
 const TYPE_NAMES = {
+  MATERIAL_HOLD_PENDING: "缺件待料",
   UNASSIGNED_TECHNICIAN: "未分配师傅",
   WORKFLOW_STALLED: "流程停滞",
   REPORT_INCOMPLETE: "报告缺项",

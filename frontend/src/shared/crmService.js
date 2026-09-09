@@ -216,6 +216,8 @@ export function getMonthlyStatistics(filters) {
   return get(`/api/repairs/monthly-statistics?${new URLSearchParams(filters)}`)
 }
 
+export function getHomeTodos() { return get('/api/home/todos') }
+
 export function downloadMonthlyStatistics(filters) {
   return downloadFile(`/api/repairs/monthly-statistics/export?${new URLSearchParams(filters)}`, "月度统计.xlsx")
 }

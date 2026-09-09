@@ -5244,6 +5244,15 @@ function createApp(
     } catch (error) { next(error); }
   });
 
+  app.get("/api/home/todos", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      if (![USER_ROLES.ADMIN, USER_ROLES.TECHNICIAN, USER_ROLES.INFORMATION_CLERK].includes(user?.role)) throw createApiError("HOME_TODOS_FORBIDDEN", "无权查看待办", 403);
+      const [orders, tasks] = await Promise.all([receiptStore.readAll(), syncService.outbox.readAll()]);
+      res.json({success:true,data:require('./services/home-todos').buildHomeTodos(orders,tasks,user)});
+    } catch(error) { next(error); }
+  });
+
   app.get("/api/information/exceptions", async (req, res, next) => {
     try {
       assertInformationReportAccess(currentUserProvider(req));
