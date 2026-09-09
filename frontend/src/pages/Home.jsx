@@ -6,6 +6,7 @@ import { USER_ROLES } from "../shared/userStore.js"
 import { buildTechnicianDirectory, categorizeTechnicianWorkflows, technicianWorkloadStatusLabel } from "../shared/homeWorkload.js"
 import SupervisionInbox from "../components/SupervisionInbox.jsx"
 import { AppIcon } from "../components/AppIcons.jsx"
+import "../home-desktop.css"
 
 const COMPLETED_WORKFLOW_STATUSES = new Set(["REPAIR_COMPLETED_PENDING_SHIPMENT", "SHIPPED_PENDING_COMPLETION", "COMPLETED"])
 
@@ -29,6 +30,10 @@ function fullLocalPhone(workflow) {
 }
 
 function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetRmaNo = "" }) {
+  const [desktopView, setDesktopView] = useState("desktop")
+  useEffect(() => {
+    if (supervisionOpenKey) queueMicrotask(() => setDesktopView("messages"))
+  }, [supervisionOpenKey])
   const [order, setOrder] = useState(() => getCurrentRepairOrder())
   const [resumeError, setResumeError] = useState("")
   const [backgroundShippingCount, setBackgroundShippingCount] = useState(0)
@@ -317,8 +322,28 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
     setPage(targetPage || pageForRepairStatus(restored.status))
   }
 
-  return <div className="page home-page">
-    <div className="card home-identity-card">
+  function openDesktopView(view) {
+    setDesktopView(view)
+    setSelectedTechnicianId("")
+    setDetailStatus("")
+    window.scrollTo({ top: 0, behavior: "instant" })
+  }
+  const desktopGroups = [
+    { title: "工作", actions: [
+      ...quickActions,
+      ...(canViewTechnicians ? [{ view: "team", title: "师傅工作台", icon: "accounts" }] : []),
+      ...(isTechnician ? [
+        { view: "work", title: "我的维修", icon: "work" },
+        { view: "stats", title: "维修统计", icon: "records" },
+        { view: "messages", title: "督办消息", icon: "alert" }
+      ] : [])
+    ] },
+    ...workspaceGroups
+  ].filter((group) => group.actions.length)
+
+  return <div className="page home-page home-desktop">
+    {desktopView !== "desktop" && <div className="desktop-subpage-heading"><button type="button" onClick={() => openDesktopView("desktop")}>← 返回首页</button><h1>{({ team: "师傅工作台", work: "我的维修", stats: "维修统计", messages: "督办消息" })[desktopView]}</h1></div>}
+    {desktopView === "desktop" && <><div className="card home-identity-card">
       <div className="home-identity-glow" />
       <div className="home-brand-row">
         <div className="home-brand-mark">FD</div>
@@ -334,22 +359,18 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
         <div>{(currentUser.repairSpecialties?.length ? currentUser.repairSpecialties : ["未配置"]).map((item) => <strong key={item}>{item}</strong>)}</div>
       </div>}
     </div>
+    <div className="desktop-app-groups">
+      {desktopGroups.map((group, groupIndex) => <section className="desktop-app-group" key={group.title}>
+        <h2>{group.title}</h2>
+        <div className="desktop-app-grid">{group.actions.map((action, index) => <button type="button" className="desktop-app" key={action.page || action.view} title={action.description || action.title} onClick={() => action.view ? openDesktopView(action.view) : setPage(action.page)}>
+          <span className={`desktop-app-icon desktop-tone-${(groupIndex + index) % 5}`}><AppIcon name={action.icon} size={27} /></span>
+          <span>{action.title}</span>
+        </button>)}</div>
+      </section>)}
+    </div></>}
 
-    {isTechnician && <div className="card home-quick-card">
-      <div className="home-section-heading">
-        <div><span>{roleName}工作台</span><h2>快捷操作</h2></div>
-        <small>{quickActions.length} 个入口</small>
-      </div>
-      <div className="home-quick-grid">
-        {quickActions.map((action) => <button type="button" key={action.page} onClick={() => setPage(action.page)}>
-          <span className="home-quick-icon"><AppIcon name={action.icon} size={19} /></span>
-          <span className="home-quick-copy"><strong>{action.title}</strong><small>{action.description}</small></span>
-          <b>›</b>
-        </button>)}
-      </div>
-    </div>}
 
-    {canViewTechnicians && !selectedTechnician && <section className="card home-technician-directory">
+    {desktopView === "team" && canViewTechnicians && !selectedTechnician && <section className="card home-technician-directory">
       <div className="home-section-heading">
         <div><span>人员工作量</span><h2>师傅</h2></div>
         <small>{technicianDirectory.length} 人</small>
@@ -374,7 +395,7 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
       </div>
     </section>}
 
-    {canViewTechnicians && selectedTechnician && <section className="card home-technician-selected">
+    {desktopView === "team" && canViewTechnicians && selectedTechnician && <section className="card home-technician-selected">
       <button type="button" className="home-technician-back" onClick={() => { setSelectedTechnicianId(""); setDetailStatus("") }}>← 返回师傅列表</button>
       <div className="home-technician-profile">
         <span className="home-technician-avatar">{selectedTechnician.displayName.slice(0, 1)}</span>
@@ -383,26 +404,10 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
       </div>
     </section>}
 
-    {!isTechnician && !selectedTechnician && <div className="home-workspace-groups">
-      <div className="home-workspace-heading">
-        <div><span>{roleName}工作台</span><h2>全部功能</h2></div>
-        <small>{workspaceGroups.reduce((count, group) => count + group.actions.length, 0)} 项</small>
-      </div>
-      {workspaceGroups.map((group) => <section className="card home-workspace-card" key={group.title}>
-        <div className="home-workspace-group-heading"><div><h3>{group.title}</h3><p>{group.description}</p></div><span>{group.actions.length}</span></div>
-        <div className="home-workspace-list">
-          {group.actions.map((action) => <button type="button" key={action.page} onClick={() => setPage(action.page)}>
-            <span className="home-workspace-icon"><AppIcon name={action.icon} size={20} /></span>
-            <span className="home-workspace-copy"><strong>{action.title}</strong><small>{action.description}</small></span>
-            <b>›</b>
-          </button>)}
-        </div>
-      </section>)}
-    </div>}
 
-    {isTechnician && <SupervisionInbox openKey={supervisionOpenKey} targetRmaNo={supervisionTargetRmaNo} />}
+    {desktopView === "messages" && isTechnician && <SupervisionInbox openKey={supervisionOpenKey} targetRmaNo={supervisionTargetRmaNo} />}
 
-    {showTechnicianDashboard && <div className="card">
+    {(desktopView === "team" || desktopView === "work") && showTechnicianDashboard && <div className="card">
       <div className="home-section-heading"><div><span>实时工作量</span><h2>维修执行</h2></div><small>手上共 {unfinished.length} 台</small></div>
       <div className="home-workload-grid">
         <button type="button" className={`workload-unfinished ${detailStatus === "unfinished" ? "active" : ""}`} onClick={() => setDetailStatus(detailStatus === "unfinished" ? "" : "unfinished")}><span>未完成维修</span><strong>{unfinished.length}</strong><small>台</small></button>
@@ -429,7 +434,7 @@ function Home({ setPage, currentUser, supervisionOpenKey = 0, supervisionTargetR
       </>}
     </div>}
 
-    {showTechnicianDashboard && <div className="card home-performance-card">
+    {(desktopView === "team" || desktopView === "stats") && showTechnicianDashboard && <div className="card home-performance-card">
       <div className="home-section-heading"><div><span>{currentMonth.replace("-", "年")}月</span><h2>维修统计</h2></div></div>
       <div className="home-performance-summary">
         <div><span>维修完成</span><strong>{monthSummary.repaired}</strong><small>台</small></div>

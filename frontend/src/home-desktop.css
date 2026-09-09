@@ -1,0 +1,21 @@
+.home-desktop .home-identity-card { padding: 18px; margin-bottom: 18px; }
+.home-desktop .home-brand-row { display: none; }
+.home-desktop .home-user-panel { margin: 0; padding: 0; background: transparent; border: 0; }
+.home-desktop .home-user-avatar { width: 42px; height: 42px; border-radius: 14px; }
+.home-desktop .home-user-copy strong { font-size: 19px; }
+.desktop-app-groups { display: grid; gap: 20px; padding: 0 4px 24px; }
+.desktop-app-group h2 { margin: 0 0 12px; text-align: left; font-size: 13px; font-weight: 600; color: #65738a; }
+.desktop-app-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px 8px; }
+.home-desktop .desktop-app { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 0; margin: 0; min-width: 0; width: 100%; border: 0; background: transparent; box-shadow: none; color: #28364d; font-size: 12px; font-weight: 600; line-height: 1.4; }
+.desktop-app-icon { width: 56px; height: 56px; display: grid; place-items: center; border-radius: 17px; color: white; box-shadow: 0 5px 12px #344d7a16; transition: transform .15s; }
+.desktop-app:hover .desktop-app-icon { transform: translateY(-2px); }
+.desktop-app:focus-visible { outline: 2px solid #2877ef; outline-offset: 4px; border-radius: 10px; }
+.desktop-tone-0 { background: linear-gradient(145deg, #469aff, #1c65e0); }
+.desktop-tone-1 { background: linear-gradient(145deg, #38bcac, #16897b); }
+.desktop-tone-2 { background: linear-gradient(145deg, #a08aeb, #7555cd); }
+.desktop-tone-3 { background: linear-gradient(145deg, #f1ac58, #d47d2e); }
+.desktop-tone-4 { background: linear-gradient(145deg, #7293b4, #466786); }
+.desktop-subpage-heading { display: flex; align-items: center; gap: 16px; margin-bottom: 18px; }
+.home-desktop .desktop-subpage-heading button { width: auto; margin: 0; padding: 8px 12px; background: #e9f1ff; color: #2169cc; border: 0; box-shadow: none; font-size: 13px; }
+.desktop-subpage-heading h1 { margin: 0; font-size: 20px; }
+@media (max-width: 360px) { .desktop-app-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
