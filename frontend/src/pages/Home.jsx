@@ -22,7 +22,7 @@ function fullLocalPhone(workflow) {
   return workflow.phoneMasked || directPhone || "电话未记录"
 }
 
-function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0, supervisionTargetRmaNo = "" }) {
+function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0, supervisionTargetRmaNo = "", supervisionUnreadCount = 0 }) {
   const [desktopView, setDesktopView] = useState("desktop")
   useEffect(() => {
     if (supervisionOpenKey) queueMicrotask(() => setDesktopView("messages"))
@@ -370,7 +370,7 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
       {desktopGroups.map((group, groupIndex) => <section className="desktop-app-group" key={group.title}>
         <h2>{group.title}</h2>
         <div className="desktop-app-grid">{group.actions.map((action, index) => <button type="button" className="desktop-app" key={action.page || action.view} title={action.description || action.title} onClick={() => action.view ? openDesktopView(action.view) : setPage(action.page)}>
-          <span className={`desktop-app-icon desktop-tone-${(groupIndex + index) % 5}`}><AppIcon name={action.icon} size={27} /></span>
+          <span className={`desktop-app-icon desktop-tone-${(groupIndex + index) % 5}`}><AppIcon name={action.icon} size={27} />{action.view === "messages" && supervisionUnreadCount > 0 && <b className="desktop-message-badge" aria-label={`${supervisionUnreadCount}条未读督办消息`}>{supervisionUnreadCount > 99 ? "99+" : supervisionUnreadCount}</b>}</span>
           <span>{action.title}</span>
         </button>)}</div>
       </section>)}

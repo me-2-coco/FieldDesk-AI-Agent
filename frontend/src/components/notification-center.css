@@ -1,0 +1,14 @@
+.notification-center { position: fixed; top: 12px; right: max(12px, calc((100vw - 440px) / 2)); z-index: 1100; }
+.notification-center .notification-bell { position: relative; display: grid; place-items: center; width: 40px; height: 40px; margin: 0; padding: 0; border: 1px solid #dce6f4; border-radius: 50%; background: #fff; color: #3277d7; box-shadow: 0 3px 12px #18395717; }
+.notification-bell b, .desktop-message-badge { position: absolute; right: -5px; top: -5px; min-width: 18px; height: 18px; padding: 0 4px; box-sizing: border-box; border-radius: 12px; background: #ef4949; color: #fff; border: 2px solid white; font-size: 10px; line-height: 14px; text-align: center; }
+.desktop-app-icon { position: relative; }
+.notification-hint { position: absolute; right: 48px; top: 4px; width: 190px; padding: 10px; background: #283e5e; color: white; border-radius: 12px; font-size: 12px; pointer-events: none; }
+.notification-panel { position: absolute; right: 0; top: 48px; width: min(360px, calc(100vw - 24px)); background: white; border: 1px solid #e1e8f1; border-radius: 18px; box-shadow: 0 12px 40px #142e5930; padding: 16px; box-sizing: border-box; text-align: left; }
+.notification-panel header { display: flex; justify-content: space-between; align-items: center; color: #304562; }
+.notification-panel header button { width: 30px; height: 30px; padding: 0; margin: 0; background: #f2f5fa; color: #6f8099; border: 0; border-radius: 50%; }
+.notification-panel p { font-size: 11px; color: #8492a7; }
+.notification-items { max-height: min(480px, 65vh); overflow-y: auto; overscroll-behavior: contain; }
+.notification-items button { display: block; width: 100%; margin: 0; padding: 14px 0; border: 0; border-bottom: 1px solid #edf1f6; border-radius: 0; background: transparent; text-align: left; box-shadow: none; }
+.notification-items strong { display: block; color: #345174; font-size: 13px; overflow-wrap: anywhere; }
+.notification-items span { display: block; margin-top: 6px; color: #78889d; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.notification-warning { padding: 10px; background: #fff7e4; border-radius: 9px; color: #94681b; font-size: 12px; margin: 8px 0; }

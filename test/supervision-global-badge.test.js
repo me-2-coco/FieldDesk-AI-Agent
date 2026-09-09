@@ -18,7 +18,8 @@ test("师傅可从任意页面直接打开并查看未读督办", async () => {
   const app = await fs.readFile(path.join(__dirname, "../frontend/src/App.jsx"), "utf8");
   const home = await fs.readFile(path.join(__dirname, "../frontend/src/pages/Home.jsx"), "utf8");
   const inbox = await fs.readFile(path.join(__dirname, "../frontend/src/components/SupervisionInbox.jsx"), "utf8");
-  assert.match(app, /global-supervision-alert/);
+  assert.match(app, /<NotificationCenter/);
+  assert.match(home, /desktop-message-badge/);
   assert.match(app, /openSupervisionInbox/);
   assert.match(app, /supervisionOpenKey/);
   assert.match(home, /openKey=\{supervisionOpenKey\}/);
@@ -31,7 +32,7 @@ test("全局提醒显示最新督办摘要并精确打开对应寄修单", async
   const home = await fs.readFile(path.join(__dirname, "../frontend/src/pages/Home.jsx"), "utf8");
   const inbox = await fs.readFile(path.join(__dirname, "../frontend/src/components/SupervisionInbox.jsx"), "utf8");
   assert.match(app, /latestSupervision/);
-  assert.match(app, /originalContent/);
+  assert.match(app, /latestSupervision=\{latestSupervision\}/);
   assert.match(app, /openSupervisionInbox\(latestSupervision\?\.rmaNo\)/);
   assert.match(home, /targetRmaNo=\{supervisionTargetRmaNo\}/);
   assert.match(inbox, /targetRmaNo \? rmaNo === targetRmaNo/);
@@ -44,12 +45,9 @@ test("督办监测异常时全局提示师傅但不阻断维修", async () => {
   assert.match(service, /getSupervisionMonitorStatus/);
   assert.match(service, /\/api\/supervision\/monitor\/status/);
   assert.match(app, /RECLOUD_LOGIN_REQUIRED/);
-  assert.match(app, /瑞云登录状态/);
-  assert.match(app, /督办单监测状态/);
   assert.match(app, /督办单监测已失效/);
-  assert.match(app, /global-status-warning-stack/);
+  assert.match(app, /warnings=\{\[recloudLoginWarning, supervisionMonitorWarning\]/);
   assert.match(app, /督办监测长时间未成功检查/);
-  assert.match(app, /global-monitor-warning/);
   assert.match(css, /\.global-monitor-warning/);
   assert.doesNotMatch(app, /回复督办|提交回复/);
 });

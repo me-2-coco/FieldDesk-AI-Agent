@@ -7,6 +7,7 @@ function SupervisionInbox({ openKey = 0, targetRmaNo = "" }) {
   const [items, setItems] = useState([])
   const [expandedOrders, setExpandedOrders] = useState([])
   const sectionRef = useRef(null)
+  const handledOpenKey = useRef(0)
 
   useEffect(() => {
     let active = true
@@ -51,12 +52,14 @@ function SupervisionInbox({ openKey = 0, targetRmaNo = "" }) {
     }
     if (markedIds.length) {
       setItems((current) => current.map((item) => markedIds.includes(item.id) ? { ...item, isRead: true } : item))
+      window.dispatchEvent(new Event("supervision-read-changed"))
     }
   }
 
   useEffect(() => {
-    if (!openKey || !groups.length) return
+    if (!openKey || !groups.length || handledOpenKey.current === openKey) return
     const timer = window.setTimeout(() => {
+      handledOpenKey.current = openKey
       sectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
       for (const [rmaNo, orderItems] of groups) {
         if (targetRmaNo ? rmaNo === targetRmaNo : orderItems.some((item) => !item.isRead)) {
@@ -67,9 +70,9 @@ function SupervisionInbox({ openKey = 0, targetRmaNo = "" }) {
     return () => window.clearTimeout(timer)
   // 点击全局提醒时执行一次；收件箱轮询更新不应重复自动展开。
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openKey])
+  }, [openKey, groups])
 
-  if (!groups.length) return null
+  if (!groups.length) return <section className="card"><h2>督办消息</h2><p>当前暂无督办消息</p></section>
   const totalUnread = items.filter((item) => !item.isRead).length
 
   return <section ref={sectionRef} className="card supervision-notice-card" aria-live="polite">

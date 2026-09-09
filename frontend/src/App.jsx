@@ -27,6 +27,7 @@ import AdminRepairRecovery from "./pages/AdminRepairRecovery.jsx"
 import PrintManagement from "./pages/PrintManagement.jsx"
 
 import BottomNav from "./components/BottomNav.jsx"
+import NotificationCenter from "./components/NotificationCenter.jsx"
 
 import {
   canAccessPage,
@@ -84,8 +85,6 @@ function App() {
   const [supervisionMonitorWarning, setSupervisionMonitorWarning] = useState("")
   const [syncAttentionTasks, setSyncAttentionTasks] = useState([])
   const [mySyncAlerts, setMySyncAlerts] = useState([])
-  const [dismissedOperationAlertKey, setDismissedOperationAlertKey] = useState("")
-  const [dismissedSyncAlertKey, setDismissedSyncAlertKey] = useState("")
   const [partsShortageNotices, setPartsShortageNotices] = useState([])
   const [selectedInformationReportRmaNo, setSelectedInformationReportRmaNo] = useState("")
 
@@ -94,24 +93,6 @@ function App() {
   const workflowLocked = workflowRestricted
     && isTechnicianWorkflowLocked(currentRepairOrder)
   const notificationUserId = String(currentUser?.id || "anonymous")
-  const operationAlertKey = mySyncAlerts.length > 0
-    ? [notificationUserId, mySyncAlerts.length, mySyncAlerts[0]?.rmaNo, mySyncAlerts[0]?.stageLabel, mySyncAlerts[0]?.message].join("|")
-    : ""
-  const syncAlertKey = syncAttentionTasks.length > 0
-    ? [notificationUserId, syncAttentionTasks.length, syncAttentionTasks[0]?.id, syncAttentionTasks[0]?.status, syncAttentionTasks[0]?.updatedAt].join("|")
-    : ""
-
-  useEffect(() => {
-    setDismissedOperationAlertKey(sessionStorage.getItem(`fielddesk-dismissed-operation-alert:${notificationUserId}`) || "")
-    setDismissedSyncAlertKey(sessionStorage.getItem(`fielddesk-dismissed-sync-alert:${notificationUserId}`) || "")
-  }, [notificationUserId])
-
-  function dismissGlobalAlert(type, key) {
-    if (!key) return
-    sessionStorage.setItem(`fielddesk-dismissed-${type}-alert:${notificationUserId}`, key)
-    if (type === "operation") setDismissedOperationAlertKey(key)
-    if (type === "sync") setDismissedSyncAlertKey(key)
-  }
 
   useEffect(() => {
     if (!isLoggedIn || !workflowRestricted) return
@@ -192,7 +173,11 @@ function App() {
     if (!canReceiveSupervision) return undefined
     let active = true
     let timer
+    let busy = false
     const refresh = async () => {
+      if (busy) return
+      busy = true
+      if (timer) window.clearTimeout(timer)
       try {
         const items = await getSupervisionInbox()
         if (active) {
@@ -206,13 +191,16 @@ function App() {
       } catch {
         // 全局红点不可用时不阻断业务操作，下一轮自动重试。
       } finally {
+        busy = false
         if (active) timer = window.setTimeout(refresh, 10000)
       }
     }
     refresh()
+    window.addEventListener("supervision-read-changed", refresh)
     return () => {
       active = false
       if (timer) window.clearTimeout(timer)
+      window.removeEventListener("supervision-read-changed", refresh)
     }
   }, [isLoggedIn, currentUser?.id, currentUser?.role])
 
@@ -485,6 +473,7 @@ function App() {
             setPage={setPage}
             currentUser={currentUser}
             supervisionOpenKey={supervisionOpenKey}
+            supervisionUnreadCount={supervisionUnreadCount}
             supervisionTargetRmaNo={supervisionTargetRmaNo}
           />
 
@@ -655,98 +644,20 @@ function App() {
 
       </main>
 
-      {(recloudLoginWarning || supervisionMonitorWarning) && (
-        <div className="global-status-warning-stack" role="status">
-          {recloudLoginWarning && (
-            <div className="global-monitor-warning global-login-warning">
-              <b>瑞云登录状态</b>
-              <span>{recloudLoginWarning}</span>
-            </div>
-          )}
-          {supervisionMonitorWarning && (
-            <div className="global-monitor-warning">
-              <b>督办单监测状态</b>
-              <span>{supervisionMonitorWarning}</span>
-            </div>
-          )}
-        </div>
-      )}
-
-      {supervisionUnreadCount > 0 && (
-        <button
-          type="button"
-          className="global-supervision-alert"
-          onClick={() => openSupervisionInbox(latestSupervision?.rmaNo)}
-          aria-label={`查看${supervisionUnreadCount}条未读督办通知`}
-        >
-          <span className="global-supervision-alert-text">
-            <b>新督办 · {latestSupervision?.rmaNo || "待查看"}</b>
-            <small>{String(latestSupervision?.originalContent || "点击查看督办内容").slice(0, 28)}</small>
-          </span>
-          <strong>{supervisionUnreadCount > 99 ? "99+" : supervisionUnreadCount}</strong>
-        </button>
-      )}
-
-      {mySyncAlerts.length > 0 && operationAlertKey !== dismissedOperationAlertKey && (
-        <div className="global-operation-alert is-dismissible" role="status">
-          <button
-            type="button"
-            className="global-alert-main"
-            onClick={() => openRepairOrderFromSyncTask(mySyncAlerts[0]?.rmaNo)}
-            aria-label={`账号${String(currentUser?.id || "").replace(/^FieldDesk/, "")}有${mySyncAlerts.length}条工单同步异常`}
-          >
-            <span>
-              <b>{String(currentUser?.id || "").replace(/^FieldDesk/, "")} · {mySyncAlerts[0]?.stageLabel}异常</b>
-              <small>{mySyncAlerts[0]?.rmaNo} · {mySyncAlerts[0]?.message}</small>
-            </span>
-            <strong>{mySyncAlerts.length > 99 ? "99+" : mySyncAlerts.length}</strong>
-          </button>
-          <button
-            type="button"
-            className="global-alert-close"
-            aria-label="关闭工单同步异常通知"
-            onClick={() => dismissGlobalAlert("operation", operationAlertKey)}
-          >×</button>
-        </div>
-      )}
-
-      {hasBusinessRole(currentUser, USER_ROLES.ADMIN) && syncAttentionTasks.length > 0 && page !== "syncTasks" && syncAlertKey !== dismissedSyncAlertKey && (
-        <div className={`global-sync-alert is-dismissible${supervisionUnreadCount > 0 ? " with-supervision" : ""}`} role="status">
-          <button
-            type="button"
-            className="global-alert-main"
-            onClick={() => setPage("syncTasks")}
-            aria-label={`查看${syncAttentionTasks.length}个待处理同步任务`}
-          >
-            <span>
-              <b>同步任务待处理 · {syncAttentionTasks[0]?.rmaNo || "待查看"}</b>
-              <small>人工复核、执行失败或等待最终确认</small>
-            </span>
-            <strong>{syncAttentionTasks.length > 99 ? "99+" : syncAttentionTasks.length}</strong>
-          </button>
-          <button
-            type="button"
-            className="global-alert-close"
-            aria-label="关闭待处理同步任务通知"
-            onClick={() => dismissGlobalAlert("sync", syncAlertKey)}
-          >×</button>
-        </div>
-      )}
-
-      {currentUser?.role === USER_ROLES.INFORMATION_CLERK && partsShortageNotices.length > 0 && page !== "exceptionCenter" && (
-        <button
-          type="button"
-          className="global-sync-alert"
-          onClick={() => setPage("exceptionCenter")}
-          aria-label={`查看${partsShortageNotices.length}张信息员待办`}
-        >
-          <span>
-            <b>{partsShortageNotices[0]?.type === "INSPECTION_ONLY_ADDRESS_AND_SUBMIT_PENDING" ? "只检测工单待处理" : "瑞云缺件待补录"} · {partsShortageNotices[0]?.rmaNo || "待查看"}</b>
-            <small>{partsShortageNotices[0]?.message || "请进入信息员异常中心处理"}</small>
-          </span>
-          <strong>{partsShortageNotices.length > 99 ? "99+" : partsShortageNotices.length}</strong>
-        </button>
-      )}
+      <NotificationCenter
+        key={notificationUserId}
+        userId={notificationUserId}
+        operations={mySyncAlerts}
+        tasks={hasBusinessRole(currentUser, USER_ROLES.ADMIN) ? syncAttentionTasks : []}
+        shortages={currentUser?.role === USER_ROLES.INFORMATION_CLERK ? partsShortageNotices : []}
+        supervisionCount={supervisionUnreadCount}
+        latestSupervision={latestSupervision}
+        warnings={[recloudLoginWarning, supervisionMonitorWarning].filter(Boolean)}
+        onRepair={openRepairOrderFromSyncTask}
+        onSync={() => setPage("syncTasks")}
+        onShortage={() => setPage("exceptionCenter")}
+        onSupervision={() => openSupervisionInbox(latestSupervision?.rmaNo)}
+      />
 
 
 
