@@ -1,11 +1,9 @@
 import { useState } from "react"
 
 import {
-  getUsers,
   getCurrentUser,
   getRoleName,
   setAuthenticatedUser,
-  setCurrentUser,
   USER_ROLES
 } from "../shared/userStore.js"
 import { AppIcon } from "../components/AppIcons.jsx"
@@ -19,15 +17,10 @@ function Profile({
   onProfileChange
 }) {
 
-  const [users] = useState(() =>
-    getUsers()
-  )
-
   const [currentUser, setCurrentUserState] = useState(() =>
     getCurrentUser()
   )
 
-  const [message, setMessage] = useState("")
   const [recloudMessage, setRecloudMessage] = useState("")
   const [isSavingRecloudName, setIsSavingRecloudName] = useState(false)
   const canSetRecloudOperatorName = ["FieldDesk0001", "FieldDesk0004"].includes(currentUser.id)
@@ -53,25 +46,6 @@ function Profile({
   ]
 
 
-  function changeUser(userId) {
-
-    const updatedUser = setCurrentUser(userId)
-
-    if (!updatedUser) {
-      setMessage("账号切换失败")
-      return
-    }
-
-    setCurrentUserState(updatedUser)
-
-    setMessage(
-      `已切换为：${updatedUser.name}`
-    )
-
-    setTimeout(() => {
-      setPage("home")
-    }, 500)
-  }
 
 
   function handleLogout() {
@@ -169,48 +143,6 @@ function Profile({
       )}
 
 
-      {isAdmin && <details className="card profile-section-card profile-account-details">
-
-        <summary className="profile-section-heading">
-          <div><span>账号管理</span><h2>切换测试账号</h2></div>
-          <small>{users.length} 个账号 · 展开</small>
-        </summary>
-
-        <p className="profile-section-description">
-          当前阶段用于测试不同角色的菜单和权限。
-        </p>
-
-
-        {users.map((user) => (
-
-          <button
-            type="button"
-            key={user.id}
-            className={
-              currentUser.id === user.id
-                ? "account-switch-button active"
-                : "account-switch-button"
-            }
-            onClick={() =>
-              changeUser(user.id)
-            }
-          >
-
-            <span className="account-switch-avatar">{user.name.slice(0, 1)}</span>
-            <span className="account-switch-copy">
-              <strong>{user.name}</strong>
-              <small>@{user.account}</small>
-            </span>
-            <span className="account-switch-role">
-              {getRoleName(user.role)}
-            </span>
-            <span className="account-switch-arrow">›</span>
-
-          </button>
-
-        ))}
-
-      </details>}
 
       {canSetRecloudOperatorName && <div className="card profile-section-card">
         <div className="profile-section-heading">
@@ -238,17 +170,6 @@ function Profile({
       </div>
 
 
-      {message && (
-
-        <div className="card message-card">
-
-          <p>
-            {message}
-          </p>
-
-        </div>
-
-      )}
 
 
       <button
