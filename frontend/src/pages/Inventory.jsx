@@ -153,8 +153,8 @@ function Inventory({ setPage }) {
   </>
   return <div className="page home-desktop">
     <header className="inventory-hub-heading">
-      <h1>库存管理</h1>
-      <p>备件查询 · 领用管理 · 库存流水</p>
+      <span className="inventory-hub-avatar"><AppIcon name="inventory" size={28} /></span>
+      <div className="inventory-hub-copy"><small>FieldDesk 库存工作台</small><h1>库存管理</h1><p>备件查询 · 领用管理 · 库存流水</p></div>
     </header>
     <section className="desktop-app-group" aria-label="库存功能"><div className="desktop-app-grid">
       <button type="button" className="desktop-app" onClick={() => setView("query")}><span className="desktop-app-icon desktop-tone-0"><AppIcon name="inventory" size={27} /></span><span>备件库存查询</span></button>

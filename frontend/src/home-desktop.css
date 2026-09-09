@@ -69,6 +69,12 @@
 .daily-pagination button:disabled { opacity: .4; }
 .home-technician-search { display: block; box-sizing: border-box; width: 100%; margin: 14px 0; padding: 12px 14px; border: 1px solid #dce5f2; border-radius: 12px; background: #f7f9fd; color: #253853; font: inherit; }
 .home-technician-search:focus { outline: 2px solid #b6d3ff; outline-offset: 1px; }
-.inventory-hub-heading { padding: 12px 0 8px; margin-bottom: 20px; text-align: center; }
-.inventory-hub-heading h1 { margin: 0; color: #245b9e; font-size: 26px; font-weight: 650; line-height: 1.4; letter-spacing: .04em; text-align: center; }
-.inventory-hub-heading p { margin: 8px 0 0; color: #8996a8; font-size: 12px; line-height: 1.6; text-align: center; }
+.inventory-hub-heading { position: relative; isolation: isolate; overflow: hidden; display: flex; align-items: center; gap: 16px; min-height: 140px; box-sizing: border-box; padding: 28px 24px; margin-bottom: 24px; border-radius: 28px; background: linear-gradient(125deg, #155dda, #247cec 65%, #5b9fff); box-shadow: 0 14px 32px rgba(28, 102, 213, .18); text-align: left; }
+.inventory-hub-heading::before, .inventory-hub-heading::after { content: ""; position: absolute; z-index: -1; border-radius: 50%; background: rgba(255,255,255,.1); pointer-events: none; }
+.inventory-hub-heading::before { width: 210px; height: 210px; right: -65px; top: -90px; }
+.inventory-hub-heading::after { width: 300px; height: 180px; right: -75px; bottom: -140px; }
+.inventory-hub-avatar { display: grid; place-items: center; flex: 0 0 52px; height: 52px; border-radius: 17px; background: #fff; color: #1768e5; box-shadow: 0 8px 20px rgba(13,65,144,.12); }
+.inventory-hub-copy { min-width: 0; }
+.inventory-hub-copy small { color: rgba(255,255,255,.72); font-size: 12px; }
+.inventory-hub-heading h1 { margin: 4px 0 0; color: #fff; font-size: 25px; font-weight: 700; line-height: 1.4; text-align: left; }
+.inventory-hub-heading p { margin: 6px 0 0; color: rgba(255,255,255,.78); font-size: 11px; line-height: 1.6; text-align: left; }
