@@ -22,10 +22,21 @@ test("history is read-only and machine tracking is restricted to information cle
   const home = await source("frontend/src/pages/Home.jsx");
   assert.match(server, /USER_ROLES\.TECHNICIAN, USER_ROLES\.INFORMATION_CLERK, USER_ROLES\.ADMIN/);
   assert.match(server, /USER_ROLES\.INFORMATION_CLERK, USER_ROLES\.ADMIN/);
-  assert.match(history, /只读，不能修改历史工单/);
+  assert.match(history, /不能修改历史工单/);
   assert.doesNotMatch(history + tracking, /method:\s*["'](?:POST|PUT|PATCH|DELETE)/i);
   assert.match(accounts, /INFORMATION_CLERK/);
   assert.match(home, /isInformationClerk \? "信息员"/);
+});
+
+test("history and repeat lookup are shared across repair roles but exclude warehouse", async () => {
+  const server = await source("server.js");
+  for (const route of ["/api/repairs/history", "/api/repairs/repeat-repair"]) {
+    const handler = server.slice(server.indexOf(`app.get("${route}"`)).split(/\napp\./)[0];
+    assert.doesNotMatch(handler, /USER_ROLES\.WAREHOUSE/);
+    assert.match(handler, /USER_ROLES\.TECHNICIAN/);
+    assert.match(handler, /receiptStore\.readAll\(\)/);
+    assert.doesNotMatch(handler, /listOrdersForUser/);
+  }
 });
 
 test("repeat repair requires the same SN within one natural month and still returns older history", () => {

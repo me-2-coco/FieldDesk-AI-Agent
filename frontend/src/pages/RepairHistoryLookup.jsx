@@ -53,7 +53,7 @@ function RepairHistoryLookup({ setPage }) {
       <button type="button" className="arrow-back" aria-label="退出应用" onClick={() => setPage("appBack")}>←</button>
       <span>维修档案</span>
       <h1>历史工单</h1>
-      <p>查询客户全部历史维修记录</p>
+      <p>全员共享 · 追溯历次维修</p>
     </header>
     <section className="history-query-hero">
       <span className="history-query-hero-icon">历</span>
@@ -73,7 +73,7 @@ function RepairHistoryLookup({ setPage }) {
         </div>
         <button className="primary-btn history-query-submit" type="submit" disabled={loading}>{loading ? "正在查询..." : "查询历史记录"}</button>
       </form>
-      <div className="history-readonly-tip"><span>✓</span><p><strong>安全只读模式</strong>本页面只读，不能修改历史工单</p></div>
+      <div className="history-readonly-tip"><span>✓</span><p><strong>全员共享 · 安全只读</strong>可查询其他师傅的历史维修记录；按 SN 查看同一机器的历次维修，不能修改历史工单。</p></div>
     </section>
     {records.length > 0 && <section className="card history-results-card">
       <div className="history-results-heading">
