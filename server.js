@@ -1,4 +1,5 @@
 const express = require("express");
+const { resolveReportedFault } = require("./services/reported-fault");
 const { monthlyStatistics, canExportMonthly, exportMonthly } = require("./shared/monthly-statistics");
 const crypto = require("crypto");
 const http = require("http");
@@ -2331,6 +2332,10 @@ function createApp(
       if (liveQueryStore) {
         const cacheOne = async (detail) => {
           if (!detail?.rmaNo) return;
+          if (detail.reportedFault && typeof receiptStore.saveReportedFault === "function") {
+            const saved = await receiptStore.saveReportedFault(detail.rmaNo, detail.reportedFault);
+            if (saved && detail.localWorkflow) detail.localWorkflow = { ...detail.localWorkflow, reportedFault: saved.reportedFault };
+          }
           await liveQueryStore.upsert({
             rmaNo: detail.rmaNo,
             logisticsNo: detail.pickupLogisticsNo || detail.logisticsNo || '',
@@ -3232,9 +3237,7 @@ function createApp(
         if (rmaQueryCacheStore) internalSources.push(...await rmaQueryCacheStore.readAll());
         if (pendingReceiptStore) internalSources.push(...await pendingReceiptStore.readAll());
         internalSources.push(...await receiptStore.readAll());
-        reportedFault = String(
-          internalSources.find((item) => String(item.rmaNo || "").trim() === rmaNo)?.reportedFault || ""
-        ).trim();
+        reportedFault = resolveReportedFault(rmaNo, internalSources);
       }
       const sn = validateReceiptSn(req.body?.sn, logisticsNo);
       const currentProjectCode = String(
@@ -4419,6 +4422,13 @@ function createApp(
       const rmaNo = String(req.query.rmaNo || "").trim();
       const order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
       if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到当前工单", 404);
+      if (!String(order.reportedFault || "").trim()) {
+        const sources = [];
+        if (rmaQueryCacheStore) sources.push(...await rmaQueryCacheStore.readAll());
+        if (pendingReceiptStore) sources.push(...await pendingReceiptStore.readAll());
+        order.reportedFault = resolveReportedFault(rmaNo, sources);
+        if (order.reportedFault && typeof receiptStore.saveReportedFault === "function") await receiptStore.saveReportedFault(rmaNo, order.reportedFault);
+      }
       const quoteOnly = order.treatmentMode === "ABANDONED";
       const diagnosticOnly = order.treatmentMode === "INSPECTION_ONLY" && order.inspectionFaultOutcome === "FAULT_REPRODUCED";
       const items = quoteOnly
@@ -4435,6 +4445,7 @@ function createApp(
           items,
           pricing,
           diagnosticPartsConfirmedAt: diagnosticOnly ? order.diagnosticPartsConfirmedAt || null : null,
+          reportedFault: protectPreReceiptFaults(order, { restricted: restrictFaultVisibilityForUser(currentUserProvider(req)) }).reportedFault || "",
         },
       });
     } catch (error) { next(error); }

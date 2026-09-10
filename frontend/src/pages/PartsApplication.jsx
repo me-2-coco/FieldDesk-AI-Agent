@@ -37,6 +37,7 @@ function PartsApplication({ setPage }) {
       .then((result) => {
         if (!active) return
         setSelectedParts(result.items || [])
+        if (result.reportedFault) setRepairOrder(updateRepairOrder({ originalFault: result.reportedFault }))
         if (diagnosticOnly && result.diagnosticPartsConfirmedAt) {
           const updated = updateRepairOrder({
             status: REPAIR_STATUS.WAIT_INSPECTION,

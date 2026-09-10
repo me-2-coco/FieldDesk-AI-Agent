@@ -185,6 +185,23 @@ class JsonReceiptPreparationStore {
     await this.backend.write(records);
   }
 
+  async saveReportedFault(rmaNo, value) {
+    const description = normalizeRequired(value);
+    if (!description) return null;
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const order = records.find(item => item.rmaNo === rmaNo);
+      if (!order) return null;
+      if (order.reportedFault !== description) {
+        order.reportedFault = description;
+        await this.writeAll(records);
+      }
+      return order;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
   async prepare(input) {
     const operation = this.writeQueue.then(async () => {
       const records = await this.readAll();
