@@ -1423,6 +1423,14 @@ async function openUniqueRmaSearchResult(page, logger = console) {
   return true;
 }
 
+function hasExplicitMissingOrder(text) {
+  // Generic empty tables (暂无数据), transport errors and empty local caches
+  // do not establish that the queried order does not exist.
+  return String(text || '').split(/[\r\n]+/).some(line =>
+    /^(?:(?:提示|查询结果)[：:]?\s*)?(?:(?:未找到|未查询到|没有查询到|未查到|查询不到|查无|暂无|没有)(?:符合条件的|对应的?|相关的?)?\s*(?:瑞云\s*)?(?:RMA\s*)?(?:寄修单|维修单|工单|单据|订单)|(?:该|此|对应的?)?(?:工单|寄修单|订单)不存在)[！!。。，,\s]*(?:请.*)?$/i.test(line.trim())
+  );
+}
+
 async function waitForRmaDetail(page, logisticsNo = "", options = {}) {
   const deadline = Date.now() + (options.timeout ?? DEFAULT_TIMEOUT);
   const logger = options.logger || console;
@@ -1471,20 +1479,16 @@ async function waitForRmaDetail(page, logisticsNo = "", options = {}) {
       }
     }
 
+    if (!scanInputHidden && isScanQueryUrl(page.url()) && !signals.hasRmaNumber && hasExplicitMissingOrder(bodyText)) {
+      throw new RecloudQueryError('RECLOUD_ORDER_NOT_FOUND', '未找到对应工单，请核对单号', { status: 404, retryable: false });
+    }
+
     if (!enterRetried && Date.now() >= retryAt) {
       if (!scanInputHidden) {
         await page.keyboard.press("Enter");
         logRecloudStage("enter_retried", logger);
         enterRetried = true;
       }
-    }
-
-    if (/未找到|查询不到|暂无(?:相关)?工单|工单不存在/.test(bodyText)) {
-      throw new RecloudQueryError(
-        "RECLOUD_ORDER_NOT_FOUND",
-        "没有查询到对应的瑞云 RMA 寄修单",
-        { status: 404, retryable: false }
-      );
     }
 
     await page.waitForTimeout(options.pollInterval ?? 200);
@@ -1614,7 +1618,7 @@ async function waitForPhoneQueryResult(page, phone, options = {}) {
       };
     }
 
-    if (/未找到|查询不到|暂无(?:相关)?工单|工单不存在/.test(bodyText)) {
+    if (!scanInputHidden && isScanQueryUrl(page.url()) && !signals.hasRmaNumber && hasExplicitMissingOrder(bodyText)) {
       throw new RecloudQueryError(
         "RECLOUD_ORDER_NOT_FOUND",
         "没有查询到对应的瑞云 RMA 寄修单",
@@ -11791,6 +11795,7 @@ async function submitRmaHold(page, input = {}, options = {}) {
 }
 
 module.exports = {
+  hasExplicitMissingOrder,
   RECLOUD_URL,
   RECLOUD_PENDING_LIST_URL,
   LOGIN_STATE,

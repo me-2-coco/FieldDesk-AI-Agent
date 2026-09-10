@@ -5464,7 +5464,7 @@ function createApp(
       },
       RECLOUD_ORDER_NOT_FOUND: {
         status: 404,
-        message: "没有查询到对应的瑞云 RMA 寄修单",
+        message: "未找到对应工单，请核对单号",
       },
       RECLOUD_SCAN_PAGE_UNAVAILABLE: {
         status: 502,

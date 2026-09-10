@@ -63,6 +63,7 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
   const [repairDetail, setRepairDetail] = useState(null)
   const [searchMatches, setSearchMatches] = useState([])
   const [errorMessage, setErrorMessage] = useState("")
+  const [queryErrorCode, setQueryErrorCode] = useState("")
   const [receiptStep, setReceiptStep] = useState("detail")
   const [sn, setSn] = useState("")
   const [specialty, setSpecialty] = useState("")
@@ -227,6 +228,7 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
   }, [])
 
   async function searchRepair(queryOverride = "") {
+    setQueryErrorCode("")
     const queryValue = typeof queryOverride === "string" && queryOverride ? queryOverride : orderNo
 
     if (!queryValue.trim()) {
@@ -303,6 +305,7 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
         : result.cached ? "已从 FieldDesk 本地记录秒查，无需等待瑞云" : "")
 
     } catch (error) {
+      setQueryErrorCode(error.code || "")
       setErrorMessage(error.message)
 
     } finally {
@@ -574,7 +577,7 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
 
         <div className="card message-card" role="alert">
 
-          <h2>查询失败</h2>
+          <h2>{queryErrorCode === "RECLOUD_ORDER_NOT_FOUND" ? "未找到对应工单" : "查询失败"}</h2>
 
           <p className="error-text">
             {errorMessage}

@@ -2004,7 +2004,7 @@ for (const scenario of [
   ["RECLOUD_LOGIN_REQUIRED", 502, "瑞云登录已失效"],
   ["RECLOUD_SCAN_PAGE_UNAVAILABLE", 502, "无法进入瑞云扫码签收页面"],
   ["RECLOUD_LOGISTICS_FILL_FAILED", 502, "输入校验失败"],
-  ["RECLOUD_ORDER_NOT_FOUND", 404, "没有查询到"],
+  ["RECLOUD_ORDER_NOT_FOUND", 404, "未找到对应工单"],
   ["RECLOUD_SCHEMA_CHANGED", 502, "页面结构已变化"],
   ["RECLOUD_QUERY_TIMEOUT", 504, "查询超时"],
 ]) {
