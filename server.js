@@ -2097,6 +2097,7 @@ function createApp(
     } catch (error) { next(error); }
   });
 
+  const queryDetailRefreshes = new Map();
   app.post("/api/crm/repairs/query", async (req, res, next) => {
     const queryValue = normalizeLogisticsNo(req.body?.queryValue || req.body?.logisticsNo);
     if (!queryValue) {
@@ -2257,6 +2258,7 @@ function createApp(
           : order.rmaNo || queryValue;
       }
 
+      const refreshQuery = async () => {
       let data = await withRecloud(connector, async (page) => {
         const queryOnline = () => {
           if (localFallbackData) {
@@ -2357,6 +2359,22 @@ function createApp(
         if (Array.isArray(data?.matches)) await Promise.all(data.matches.map(cacheOne));
         else await cacheOne(data);
       }
+      return data;
+      };
+      if (localFallbackData) {
+        // Detail enrichment must never block a known order's lookup.
+        const key = localFallbackData.rmaNo;
+        if (!queryDetailRefreshes.has(key)) {
+          const refresh = refreshQuery()
+            .catch(error => console.warn(`RECLOUD_QUERY_ENRICHMENT: ${error.code || "FAILED"}`))
+            .finally(() => queryDetailRefreshes.delete(key));
+          queryDetailRefreshes.set(key, refresh);
+        }
+        return res.json({ success: true, data: protectQueryFaults(withMachineHistory({
+          ...localFallbackData, detailRefreshPending: true,
+        })) });
+      }
+      const data = await refreshQuery();
       return res.json({ success: true, data: protectQueryFaults(data) });
     } catch (error) {
       return next(error);

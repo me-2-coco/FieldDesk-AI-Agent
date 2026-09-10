@@ -298,7 +298,9 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
         records: Array.isArray(result.repairHistory) ? result.repairHistory : []
       })
       setReceiptStep("detail")
-      setReceiptMessage(result.cached ? "已从 FieldDesk 本地记录秒查，无需等待瑞云" : "")
+      setReceiptMessage(result.detailRefreshPending
+        ? "已显示本地工单，缺失详情正在后台同步；稍后重新查询可查看更新"
+        : result.cached ? "已从 FieldDesk 本地记录秒查，无需等待瑞云" : "")
 
     } catch (error) {
       setErrorMessage(error.message)

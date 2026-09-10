@@ -91,7 +91,7 @@ async function request(path, body, { timeoutMs = 0, idempotencyKey = "" } = {}) 
     })
   } catch (error) {
     if (error?.name === "AbortError") {
-      throw new Error("线上查询超过25秒，请稍后重试", { cause: error })
+      throw new Error(`查询等待超过${Math.round(timeoutMs / 1000)}秒，后端尚未返回结果，请稍后重试`, { cause: error })
     }
     throw new Error("无法连接 FieldDesk 后端，请确认 API 已启动", { cause: error })
   } finally {
