@@ -19,3 +19,4 @@
 .todo-list b { color:#8c9db4; }
 .todo-empty { text-align:center; padding:20px 0 8px; font-size:13px; color:#8d9aae; }
 .home-sync-status { margin:16px 4px; color:#16a34a; font-size:12px; text-align:center; }
+.home-sync-status.home-sync-status-off { color:#dc2626; }

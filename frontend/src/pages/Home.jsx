@@ -456,7 +456,7 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
     {desktopView === "desktop" && !ordersHub && (isAdmin || isTechnician || isInformationClerk) && <HomeTodos key={currentUser.userId || currentUser.id} technician={isTechnician} onOpen={openTodo} />}
     {todoError && <p className="error-text">{todoError}</p>}
 
-    {liveSyncEnabled === false && <p className="dry-run-notice">当前保持演练模式，本地业务操作不会写入瑞云。</p>}
+    {liveSyncEnabled === false && <p className="home-sync-status home-sync-status-off">● 瑞云后台同步未开启</p>}
     {liveSyncEnabled === true && <p className="home-sync-status">● 瑞云后台同步已开启</p>}
   </div>
 }
