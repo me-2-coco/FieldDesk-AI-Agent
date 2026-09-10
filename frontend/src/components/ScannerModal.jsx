@@ -1,13 +1,16 @@
 import { useEffect, useId, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import { Html5Qrcode } from "html5-qrcode"
+import { Html5Qrcode, Html5QrcodeSupportedFormats as Formats } from "html5-qrcode"
+import { barcodeScanBox, qrScanBox, barcodeCameraConstraints } from "../shared/scannerConfig.js"
 import "./scanner-modal.css"
 
 function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onClose }) {
   const areaId = `scanner-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`
   const callbacks = useRef({ onScan, onClose })
+  const shutdown = useRef(Promise.resolve())
   const [cameraError, setCameraError] = useState("")
   const [ready, setReady] = useState(false)
+  const [scanType, setScanType] = useState("barcode")
   useEffect(() => { callbacks.current = { onScan, onClose } }, [onScan, onClose])
   useEffect(() => {
     if (!open) return
@@ -22,7 +25,8 @@ function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onCl
       try { scanner?.clear() } catch { /* View already removed. */ }
     })()
     // StrictMode discards its first effect before this acquisition can begin.
-    const timer = setTimeout(() => {
+    const timer = setTimeout(async () => {
+      await shutdown.current
       if (!active) return
       setCameraError("")
       setReady(false)
@@ -30,13 +34,14 @@ function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onCl
         setCameraError("当前浏览器无法调用相机，请使用已信任证书的 HTTPS 地址")
         return
       }
-      scanner = new Html5Qrcode(areaId)
+      scanner = new Html5Qrcode(areaId, { formatsToSupport: scanType === "qr"
+        ? [Formats.QR_CODE]
+        : [Formats.CODE_128, Formats.CODE_39, Formats.CODE_93, Formats.ITF, Formats.CODABAR, Formats.EAN_13, Formats.EAN_8, Formats.UPC_A, Formats.UPC_E] })
       starting = scanner.start({ facingMode: "environment" }, {
-        fps: 10,
-        qrbox: (width, height) => {
-          const size = Math.max(1, Math.floor(Math.min(width, height, 360) * 0.8))
-          return { width: size, height: size }
-        },
+        fps: 15,
+        disableFlip: true,
+        videoConstraints: barcodeCameraConstraints,
+        qrbox: scanType === "qr" ? qrScanBox : barcodeScanBox,
       }, async text => {
         if (!active || decoded) return
         decoded = true
@@ -59,15 +64,16 @@ function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onCl
       active = false
       clearTimeout(timer)
       window.removeEventListener("keydown", escape)
-      void stop()
+      shutdown.current = stop()
     }
-  }, [areaId, mode, open])
+  }, [areaId, mode, open, scanType])
   if (!open) return null
   return createPortal(<div className="fd-scanner-overlay" role="dialog" aria-modal="true" aria-label={title}>
     <header className="fd-scanner-header"><strong>{title}</strong><button type="button" onClick={onClose}>关闭扫码</button></header>
     <div className="fd-scanner-view" id={areaId} />
     <footer className="fd-scanner-footer">
-      <p role="status">{cameraError || (!ready ? "正在启动相机…" : mode === "sn" ? "请对准机器 SN 条码或二维码" : mode === "part" ? "请对准物料条码" : "请对准物流条码")}</p>
+      <button type="button" disabled={!ready && !cameraError} onClick={() => setScanType(type => type === "barcode" ? "qr" : "barcode")}>{scanType === "barcode" ? "当前：条码 · 切换二维码" : "当前：二维码 · 切换条码"}</button>
+      <p role="status">{cameraError || (!ready ? "正在启动相机…" : scanType === "barcode" ? "条码横向放入框内，两端留白；稍拉远，等待对焦清晰" : "请将二维码放入扫描框")}</p>
       <button type="button" onClick={onClose}>关闭并手动输入</button>
     </footer>
   </div>, document.body)
