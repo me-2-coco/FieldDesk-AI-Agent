@@ -4,6 +4,9 @@ import { rotateBarcodeFrame } from './rotateBarcodeFrame.js'
 
 // Same-origin engine: camera frames stay on the device, with no CDN dependency.
 prepareZXingModule({ overrides: { locateFile: () => wasmUrl } })
+export function prepareBarcodeDecoder() {
+  return prepareZXingModule({ overrides: { locateFile: () => wasmUrl }, fireImmediately: true })
+}
 
 async function readFrame(frame) {
   const results = await readBarcodes(frame, {

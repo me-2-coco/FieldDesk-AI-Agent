@@ -12,6 +12,9 @@ function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onCl
   const [cameraError, setCameraError] = useState("")
   const [ready, setReady] = useState(false)
   const [scanType, setScanType] = useState("barcode")
+  // Keep the previously working mobile path as default until the new engine
+  // has passed physical-device verification. Users can explicitly try HD.
+  const [compatibility, setCompatibility] = useState(true)
   useEffect(() => { callbacks.current = { onScan, onClose } }, [onScan, onClose])
   useEffect(() => {
     if (!open) return
@@ -35,8 +38,9 @@ function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onCl
         setCameraError("当前浏览器无法调用相机，请使用已信任证书的 HTTPS 地址")
         return
       }
-      scanner = scanType === "barcode" ? new FullFrameBarcodeScanner(areaId)
-        : new Html5Qrcode(areaId, { formatsToSupport: [Formats.QR_CODE] })
+      scanner = scanType === "barcode" && !compatibility ? new FullFrameBarcodeScanner(areaId)
+        : new Html5Qrcode(areaId, { formatsToSupport: scanType === "qr" ? [Formats.QR_CODE]
+          : [Formats.CODE_128, Formats.CODE_39, Formats.CODE_93, Formats.ITF, Formats.CODABAR, Formats.EAN_13, Formats.EAN_8, Formats.UPC_A, Formats.UPC_E] })
       starting = scanner.start({ facingMode: "environment" }, fullFrameScanConfig, async text => {
         if (!active || decoded) return
         decoded = true
@@ -45,7 +49,7 @@ function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onCl
           callbacks.current.onScan(text)
           callbacks.current.onClose()
         }
-      }, error => { if (active && scanType === "barcode") setCameraError(String(error)) })
+      }, error => { if (active && scanType === "barcode" && !compatibility) setCameraError(String(error)) })
       starting.then(() => {
         if (active) {
           setReady(true)
@@ -64,12 +68,13 @@ function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onCl
       window.removeEventListener("keydown", escape)
       shutdown.current = stop()
     }
-  }, [areaId, mode, open, scanType])
+  }, [areaId, mode, open, scanType, compatibility])
   if (!open) return null
   return createPortal(<div className="fd-scanner-overlay" role="dialog" aria-modal="true" aria-label={title}>
     <header className="fd-scanner-header"><strong>{title}</strong><button type="button" onClick={onClose}>关闭扫码</button></header>
     <div className="fd-scanner-view" id={areaId} />
     <footer className="fd-scanner-footer">
+      {scanType === "barcode" && <button type="button" onClick={() => setCompatibility(value => !value)}>{compatibility ? "当前：兼容扫码 · 切换高清" : "识别不了？切换兼容扫码"}</button>}
       <button type="button" disabled={!ready && !cameraError} onClick={() => setScanType(type => type === "barcode" ? "qr" : "barcode")}>{scanType === "barcode" ? "当前：条码 · 切换二维码" : "当前：二维码 · 切换条码"}</button>
       <p role="status">{cameraError || (!ready ? "正在启动相机…" : scanType === "barcode" ? "全画面多方向识别 · 保持条码完整清晰，避开反光" : "全画面识别 · 保持二维码完整清晰")}</p>
       <button type="button" onClick={onClose}>关闭并手动输入</button>
