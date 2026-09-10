@@ -1441,6 +1441,9 @@ async function waitForRmaDetail(page, logisticsNo = "", options = {}) {
 
   while (Date.now() < deadline) {
     assertRecloudAuthenticated(page);
+    if (options.isOrderMissing?.()) {
+      throw new RecloudQueryError('RECLOUD_ORDER_NOT_FOUND', '未找到对应工单，请核对单号', { status: 404, retryable: false });
+    }
 
     const bodyText = await page.locator("body").innerText().catch(() => "");
     const queryInput = getLogisticsInput(page);
@@ -1501,13 +1504,17 @@ async function waitForRmaDetail(page, logisticsNo = "", options = {}) {
 }
 
 async function queryRmaByLogisticsNo(page, logisticsNo, options = {}) {
+  const { watchRmaQueryOutcome } = require('./recloud-query-outcome');
+  const outcome = watchRmaQueryOutcome(page, String(logisticsNo || '').trim());
   try {
     await enterRmaQuery(page, logisticsNo, options);
-    const detail = await waitForRmaDetail(page, logisticsNo, options);
+    const detail = await waitForRmaDetail(page, logisticsNo, { ...options, isOrderMissing: outcome.isMissing });
     if (options.preserveDetailPage === true) return detail;
     return await enrichRmaFromPendingList(page, detail, options);
   } catch (error) {
     throw toQueryError(error);
+  } finally {
+    outcome.stop();
   }
 }
 
