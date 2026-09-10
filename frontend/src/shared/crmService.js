@@ -344,6 +344,10 @@ export async function getLocalInventory() {
   return get("/api/inventory")
 }
 
+export async function getInventoryTechnicians() {
+  return get("/api/inventory/technicians")
+}
+
 export async function queryRecloudPartsInventory(query) {
   return get(`/api/inventory/recloud?query=${encodeURIComponent(String(query || "").trim())}`)
 }

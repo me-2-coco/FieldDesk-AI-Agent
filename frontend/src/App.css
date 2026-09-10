@@ -3501,7 +3501,18 @@ background:#fafafa;
 .transaction-list small { display: block; }
 .transaction-list strong { color: #34465e; font-size: 11px; }
 .transaction-list small { margin-top: 3px; color: #8a96a7; font-size: 9px; line-height: 1.45; }
-.warehouse-operation-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.warehouse-operation-grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+.warehouse-forms .compact-details summary { padding: 20px 22px; background: linear-gradient(115deg, #f0f6ff, #fff); }
+.warehouse-forms .compact-details summary strong { color: #24466f; font-size: 19px; }
+.warehouse-forms .compact-details[open] summary b { font-size: 0; }
+.warehouse-forms .compact-details[open] summary b::after { content: "收起"; font-size: 13px; }
+.warehouse-forms form { display: grid; gap: 16px; padding: 20px 22px !important; }
+.warehouse-forms label { display: grid; gap: 8px; min-width: 0; color: #465d79; font-size: 14px; font-weight: 600; }
+.warehouse-forms form input, .warehouse-forms form select { box-sizing: border-box; width: 100%; min-width: 0; margin: 0; padding: 12px 14px; font-size: 15px; min-height: 48px; border: 1px solid #dce5f1; border-radius: 12px; background: #f8faff; color: #263d59; }
+.warehouse-form-row { display: grid; grid-template-columns: minmax(0, 1fr) 100px; gap: 12px; }
+.warehouse-forms .warehouse-form-hint { margin: 0; color: #7b8ba1; font-size: 13px; line-height: 1.6; }
+.warehouse-forms form button { margin: 2px 0 0; min-height: 48px; border-radius: 14px; font-size: 15px; }
+.warehouse-forms form button:disabled { opacity: .5; cursor: not-allowed; }
 .warehouse-operation-grid .card { margin-bottom: 2px; }
 .return-request-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 11px 0 !important; }
 .return-request-row strong,

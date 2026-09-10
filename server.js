@@ -4483,6 +4483,16 @@ function createApp(
     } catch (error) { next(error); }
   });
 
+  app.get("/api/inventory/technicians", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      if (!hasBusinessRole(user, USER_ROLES.ADMIN, USER_ROLES.WAREHOUSE)) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有管理员或库房可以选择领用师傅", 403);
+      const data = (await accountStore.list()).filter((item) => item.active !== false && !item.deletedAt && item.role === USER_ROLES.TECHNICIAN)
+        .map(({ userId, displayName, repairSpecialties }) => ({ userId, displayName, repairSpecialties }));
+      res.json({ success: true, data });
+    } catch (error) { next(error); }
+  });
+
   app.get("/api/inventory/recloud", async (req, res, next) => {
     try {
       const query = String(req.query?.query || "").trim();
@@ -4512,8 +4522,9 @@ function createApp(
     try {
       const user = currentUserProvider(req);
       if (!hasBusinessRole(user, USER_ROLES.ADMIN, USER_ROLES.WAREHOUSE)) throw createApiError("INVENTORY_ACTION_FORBIDDEN", "只有管理员或库房可以发放配件", 403);
-      const technician = { userId: String(req.body?.technicianId || "").trim(), displayName: String(req.body?.technicianName || "").trim(), role: USER_ROLES.TECHNICIAN };
-      if (!technician.userId || !technician.displayName) throw createApiError("INVENTORY_TECHNICIAN_REQUIRED", "请选择领用师傅", 400);
+      const technicianId = String(req.body?.technicianId || "").trim();
+      const technician = (await accountStore.list()).find((item) => item.userId === technicianId && item.active !== false && !item.deletedAt && item.role === USER_ROLES.TECHNICIAN);
+      if (!technician) throw createApiError("INVENTORY_TECHNICIAN_REQUIRED", "请选择有效的领用师傅账号", 400);
       const data = await inventoryStore.allocate(req.body?.partCode, req.body?.quantity, technician, user);
       res.json({ success: true, data: { ...data, message: "配件已发放给师傅" } });
     } catch (error) { next(error); }
