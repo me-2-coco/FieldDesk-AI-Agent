@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { AppIcon } from "../components/AppIcons.jsx"
 import {
   allocateInventoryPart,
   confirmLocalPartReturn,
@@ -15,6 +16,7 @@ function Warehouse({ setPage, embedded = false }) {
   const [technicians, setTechnicians] = useState([])
   const [technicianQuery, setTechnicianQuery] = useState("")
   const [busy, setBusy] = useState(false)
+  const [activeTool, setActiveTool] = useState("stockIn")
   async function refresh() { setInventory(await getLocalInventory()) }
   useEffect(() => {
     getInventoryTechnicians().then(setTechnicians).catch((error) => setMessage(error.message))
@@ -58,15 +60,27 @@ function Warehouse({ setPage, embedded = false }) {
         </div>
       )}</div>
     </div>
+    <section className="warehouse-toolbox" aria-label="库房工具">
+      <div className="warehouse-toolbox-heading"><strong>库房工具</strong><small>选择下方功能办理</small></div>
+      <div className="warehouse-app-grid" role="tablist" aria-label="库房功能">
+        {[
+          ["stockIn", "配件入库", "inventory", 0],
+          ["allocate", "发放给师傅", "accounts", 1],
+          ["total", "总库", "warehouse", 2],
+          ["personal", "师傅库存", "profile", 0],
+          ["ledger", "库存流水", "history", 3],
+        ].map(([key, label, icon, tone]) => <button key={key} type="button" role="tab" id={`warehouse-tab-${key}`} aria-selected={activeTool === key} aria-controls={`warehouse-panel-${key}`} onClick={() => { setActiveTool(key); setMessage("") }}><span className={`desktop-app-icon desktop-tone-${tone}`}><AppIcon name={icon} size={25} /></span><span>{label}</span></button>)}
+      </div>
+    </section>
     <div className="warehouse-operation-grid warehouse-forms">
-    <details className="card compact-data-card compact-details"><summary><span><small>库存操作</small><strong>配件入库</strong></span><b>展开</b></summary><form onSubmit={stockIn}>
+    <section hidden={activeTool !== "stockIn"} role="tabpanel" id="warehouse-panel-stockIn" aria-labelledby="warehouse-tab-stockIn" className="card compact-data-card warehouse-tool-panel"><h2>配件入库</h2><form onSubmit={stockIn}>
       <p className="warehouse-form-hint">登记到货配件，数量计入总库。</p>
       <label>物料编码<input aria-label="入库配件编码" value={stockForm.partCode} onChange={(event) => setStockForm({ ...stockForm, partCode: event.target.value })} placeholder="请输入完整物料编码" required /></label>
       <div className="warehouse-form-row"><label>配件名称<input aria-label="入库配件名称" value={stockForm.partName} onChange={(event) => setStockForm({ ...stockForm, partName: event.target.value })} placeholder="请输入配件名称" required /></label>
       <label>入库数量<input aria-label="入库数量" type="number" min="1" step="1" required value={stockForm.quantity} onChange={(event) => setStockForm({ ...stockForm, quantity: event.target.value })} /></label></div>
       <button type="submit" disabled={busy}>{busy ? "处理中…" : "确认入库"}</button>
-    </form></details>
-    <details className="card compact-data-card compact-details"><summary><span><small>库存操作</small><strong>发放给师傅</strong></span><b>展开</b></summary><form onSubmit={allocate}>
+    </form></section>
+    <section hidden={activeTool !== "allocate"} role="tabpanel" id="warehouse-panel-allocate" aria-labelledby="warehouse-tab-allocate" className="card compact-data-card warehouse-tool-panel"><h2>发放给师傅</h2><form onSubmit={allocate}>
       <p className="warehouse-form-hint">选择领用师傅，配件自动计入对应账号库存。</p>
       <label>领用师傅<input aria-label="搜索师傅姓名" type="search" placeholder="搜索师傅姓名" value={technicianQuery} onChange={(event) => setTechnicianQuery(event.target.value)} />
       <select aria-label="选择领用师傅" required value={allocateForm.technicianId} onChange={(event) => setAllocateForm({ ...allocateForm, technicianId: event.target.value })}>
@@ -77,10 +91,10 @@ function Warehouse({ setPage, embedded = false }) {
       <div className="warehouse-form-row"><label>发放配件<select aria-label="发放配件编码" value={allocateForm.partCode} onChange={(event) => setAllocateForm({ ...allocateForm, partCode: event.target.value })} required><option value="">请选择库存配件</option>{inventory.totalStock.filter((part) => part.stock > 0).map((part) => <option key={part.code} value={part.code}>{part.name} · {part.code}（库存 {part.stock}）</option>)}</select></label>
       <label>发放数量<input aria-label="发放数量" type="number" min="1" step="1" max={inventory.totalStock.find((part) => part.code === allocateForm.partCode)?.stock} required value={allocateForm.quantity} onChange={(event) => setAllocateForm({ ...allocateForm, quantity: event.target.value })} /></label></div>
       <button type="submit" disabled={busy || !allocateForm.technicianId || !allocateForm.partCode}>{busy ? "处理中…" : "确认发放给师傅"}</button>
-    </form></details></div>
-    <div className="card compact-data-card"><div className="section-title-row"><div><small>库存总览</small><h2>总库</h2></div><span>{inventory.totalStock.length} 种</span></div><div className="compact-stock-list">{inventory.totalStock.map((part) => <div key={part.code}><span><strong>{part.name}</strong><small>{part.code}</small></span><b>{part.stock}</b></div>)}</div></div>
-    <details className="card compact-data-card compact-details"><summary><span><small>人员库存</small><strong>全部师傅库存</strong></span><b>{Object.keys(inventory.technicianStock).length} 人</b></summary><div className="compact-scroll-list">{Object.entries(inventory.technicianStock).map(([id, stock]) => <div className="inventory-item" key={id}><h3>{stock.technicianName}</h3>{stock.parts.length ? stock.parts.map((part) => <p key={part.code}>{part.name}：{part.stock}</p>) : <p>暂无库存</p>}</div>)}</div></details>
-    <details className="card compact-data-card compact-details"><summary><span><small>库存记录</small><strong>库存流水</strong></span><b>{inventory.transactions.length} 条</b></summary><div className="compact-scroll-list transaction-list">{inventory.transactions.slice().reverse().map((item) => <p key={item.id}><strong>{item.type} · {item.partName} × {item.quantity}</strong><small>{item.technicianName || "--"} · {item.createdAt}</small></p>)}</div></details>
+    </form></section></div>
+    <section hidden={activeTool !== "total"} role="tabpanel" id="warehouse-panel-total" aria-labelledby="warehouse-tab-total" className="card compact-data-card warehouse-tool-panel"><h2>总库 · {inventory.totalStock.length} 种</h2>{!inventory.totalStock.length && <p className="empty-compact-state">暂无配件，入库后在这里查看</p>}<div className="compact-stock-list">{inventory.totalStock.map((part) => <div key={part.code}><span><strong>{part.name}</strong><small>{part.code}</small></span><b>{part.stock}</b></div>)}</div></section>
+    <section hidden={activeTool !== "personal"} role="tabpanel" id="warehouse-panel-personal" aria-labelledby="warehouse-tab-personal" className="card compact-data-card warehouse-tool-panel"><h2>师傅库存 · {Object.keys(inventory.technicianStock).length} 人</h2>{!Object.keys(inventory.technicianStock).length && <p className="empty-compact-state">暂无领用记录</p>}<div className="compact-scroll-list">{Object.entries(inventory.technicianStock).map(([id, stock]) => <div className="inventory-item" key={id}><h3>{stock.technicianName}</h3>{stock.parts.length ? stock.parts.map((part) => <p key={part.code}>{part.name}：{part.stock}</p>) : <p>暂无库存</p>}</div>)}</div></section>
+    <section hidden={activeTool !== "ledger"} role="tabpanel" id="warehouse-panel-ledger" aria-labelledby="warehouse-tab-ledger" className="card compact-data-card warehouse-tool-panel"><h2>库存流水 · {inventory.transactions.length} 条</h2>{!inventory.transactions.length && <p className="empty-compact-state">暂无库存变动记录</p>}<div className="compact-scroll-list transaction-list">{inventory.transactions.slice().reverse().map((item) => <p key={item.id}><strong>{item.type} · {item.partName} × {item.quantity}</strong><small>{item.technicianName || "--"} · {item.createdAt}</small></p>)}</div></section>
     {message && <p className="inline-status" role="status">{message}</p>}
   </div>
 }

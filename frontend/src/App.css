@@ -3514,6 +3514,20 @@ background:#fafafa;
 .warehouse-forms form button { margin: 2px 0 0; min-height: 48px; border-radius: 14px; font-size: 15px; }
 .warehouse-forms form button:disabled { opacity: .5; cursor: not-allowed; }
 .warehouse-operation-grid .card { margin-bottom: 2px; }
+.warehouse-toolbox { margin: 16px 0; padding: 18px 12px 12px; border: 1px solid #e4eaf4; border-radius: 22px; background: #fff; }
+.warehouse-toolbox-heading { display: flex; align-items: center; justify-content: space-between; padding: 0 8px 14px; color: #344761; }
+.warehouse-toolbox-heading small { font-size: 11px; color: #8c9aaf; }
+.warehouse-app-grid { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 3px; }
+.warehouse-app-grid>button { display: flex; flex-direction: column; align-items: center; gap: 9px; width: 100%; min-width: 0; margin: 0; padding: 10px 0; border: 0; border-radius: 14px; background: transparent; color: #506079; font-size: 11px; box-shadow: none; }
+.warehouse-app-grid>button[aria-selected="true"] { background: #edf4ff; color: #1768e5; }
+.warehouse-app-grid>button:focus-visible { outline: 2px solid #1768e5; outline-offset: 2px; }
+.warehouse-app-grid .desktop-app-icon { width: 46px; height: 46px; border-radius: 15px; }
+.warehouse-page .warehouse-tool-panel[hidden] { display: none !important; }
+.warehouse-page .warehouse-tool-panel { overflow: hidden; margin: 0 0 16px; padding: 18px !important; }
+.warehouse-page .warehouse-tool-panel>h2 { margin: 0; padding: 3px 0 15px; border-bottom: 1px solid #eef2f7; font-size: 18px; color: #304662; text-align: center; }
+.warehouse-forms .warehouse-tool-panel form { padding: 16px 0 0 !important; }
+.warehouse-page .warehouse-pending-card { padding: 16px !important; }
+.warehouse-page .warehouse-pending-card .empty-compact-state { padding: 12px; margin-bottom: 0; }
 .return-request-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 11px 0 !important; }
 .return-request-row strong,
 .return-request-row small { display: block; text-align: left; }
