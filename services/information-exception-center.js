@@ -2,6 +2,11 @@ const CLOSED_STATUSES = new Set(["COMPLETED", "TRANSFERRED_TO_HEADQUARTERS", "CA
 const COMPLETION_STATUSES = new Set(["REPAIR_COMPLETED_PENDING_SHIPMENT", "SHIPPED_PENDING_COMPLETION", "COMPLETED"]);
 const ACTIONABLE_SYNC_STATUSES = new Set(["FAILED", "MANUAL_REVIEW", "READY_DRY_RUN", "AWAITING_FINAL_CONFIRM"]);
 
+// Dismiss only the observed revision of a reminder, never a whole order.
+function exceptionRevision(exception) {
+  return JSON.stringify([exception.type, exception.status, exception.message, exception.updatedAt]);
+}
+
 function normalizedParts(parts) {
   return (parts || []).map((part) => `${part.partCode || part.partName || ""}:${Number(part.quantity) || 0}`).sort();
 }
@@ -91,7 +96,8 @@ function detectOrderExceptions(order, options = {}) {
   if (order.status === "SHIPPED_PENDING_COMPLETION") {
     exceptions.push(baseException(order, "SHIPPED_NOT_COMPLETED", "MEDIUM", "机器已经返件发货，但工单尚未由管理员完结"));
   }
-  return exceptions;
+  const dismissed = new Set((order.dismissedExceptionReminders || []).map((item) => item.revision));
+  return exceptions.filter((item) => !dismissed.has(exceptionRevision(item)));
 }
 
 function detectSyncExceptions(tasks) {
@@ -117,4 +123,4 @@ function sortExceptions(items) {
     || String(right.updatedAt).localeCompare(String(left.updatedAt)));
 }
 
-module.exports = { ACTIONABLE_SYNC_STATUSES, detectOrderExceptions, detectSyncExceptions, partsMismatch, sortExceptions };
+module.exports = { ACTIONABLE_SYNC_STATUSES, detectOrderExceptions, detectSyncExceptions, partsMismatch, sortExceptions, exceptionRevision };
