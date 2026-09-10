@@ -3,6 +3,7 @@ import { createPortal } from "react-dom"
 import { Html5Qrcode, Html5QrcodeSupportedFormats as Formats } from "html5-qrcode"
 import { fullFrameScanConfig, enableContinuousFocus } from "../shared/scannerConfig.js"
 import { FullFrameBarcodeScanner } from "../shared/FullFrameBarcodeScanner.js"
+import { normalizeQueryIdentifier, isPlausibleScannedIdentifier } from '../shared/queryIdentifier.js'
 import "./scanner-modal.css"
 
 function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onClose }) {
@@ -23,6 +24,8 @@ function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onCl
     let starting
     let stopping
     let decoded = false
+    let lastCandidate = ''
+    let confirmations = 0
     const stop = () => stopping ||= (async () => {
       await starting?.catch(() => {})
       if (scanner?.isScanning) await scanner.stop().catch(() => {})
@@ -38,15 +41,26 @@ function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onCl
         setCameraError("当前浏览器无法调用相机，请使用已信任证书的 HTTPS 地址")
         return
       }
-      scanner = scanType === "barcode" && !compatibility ? new FullFrameBarcodeScanner(areaId)
+      scanner = scanType === "barcode" && !compatibility ? new FullFrameBarcodeScanner(areaId, mode)
         : new Html5Qrcode(areaId, { formatsToSupport: scanType === "qr" ? [Formats.QR_CODE]
+          : mode === 'logistics' ? [Formats.CODE_128]
           : [Formats.CODE_128, Formats.CODE_39, Formats.CODE_93, Formats.ITF, Formats.CODABAR, Formats.EAN_13, Formats.EAN_8, Formats.UPC_A, Formats.UPC_E] })
       starting = scanner.start({ facingMode: "environment" }, fullFrameScanConfig, async text => {
         if (!active || decoded) return
+        const candidate = normalizeQueryIdentifier(text)
+        if (scanType === 'barcode') {
+          if (!isPlausibleScannedIdentifier(candidate)) {
+            lastCandidate = ''; confirmations = 0
+            return false
+          }
+          confirmations = candidate === lastCandidate ? confirmations + 1 : 1
+          lastCandidate = candidate
+          if (confirmations < 2) return false
+        }
         decoded = true
         await stop()
         if (active) {
-          callbacks.current.onScan(text)
+          callbacks.current.onScan(candidate)
           callbacks.current.onClose()
         }
       }, error => { if (active && scanType === "barcode" && !compatibility) setCameraError(String(error)) })

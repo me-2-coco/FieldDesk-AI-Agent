@@ -1,7 +1,7 @@
 // Capture at camera resolution, independently of the CSS/display dimensions.
 // Decode off the UI thread and never queue more than one camera frame.
 export class FullFrameBarcodeScanner {
-  constructor(areaId) { this.areaId = areaId; this.isScanning = false }
+  constructor(areaId, mode = 'logistics') { this.areaId = areaId; this.mode = mode; this.isScanning = false }
   async start(camera, config, onScan, onError) {
     this.onStalled = onError
     try {
@@ -25,11 +25,12 @@ export class FullFrameBarcodeScanner {
         this.worker.postMessage({ type: 'init' })
       }), '识别器启动超时，请切换兼容扫码')
       this.isScanning = true
-      this.worker.onmessage = ({ data }) => {
+      this.worker.onmessage = async ({ data }) => {
         clearTimeout(this.decodeTimer)
         if (!this.isScanning) return
         if (data.error) { void this.stop(); onError?.(data.error); return }
-        if (data.text) { void onScan(data.text); return }
+        if (data.text && await onScan(data.text) !== false) return
+        if (!this.isScanning) return
         this.timer = setTimeout(() => this.capture(), 50)
       }
       this.worker.onerror = () => {
@@ -54,7 +55,7 @@ export class FullFrameBarcodeScanner {
       void this.stop()
       this.onStalled?.('识别线程无响应，请切换兼容扫码')
     }, 5000)
-    this.worker.postMessage({ data: frame.data, width: frame.width, height: frame.height }, [frame.data.buffer])
+    this.worker.postMessage({ data: frame.data, width: frame.width, height: frame.height, scannerMode: this.mode }, [frame.data.buffer])
   }
   getRunningTrackCapabilities() { return this.stream?.getVideoTracks()[0]?.getCapabilities?.() || {} }
   async withTimeout(promise, message) {

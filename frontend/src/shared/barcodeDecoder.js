@@ -8,21 +8,22 @@ export function prepareBarcodeDecoder() {
   return prepareZXingModule({ overrides: { locateFile: () => wasmUrl }, fireImmediately: true })
 }
 
-async function readFrame(frame) {
+async function readFrame(frame, formats) {
   const results = await readBarcodes(frame, {
-    formats: ['Linear-Codes'], tryHarder: true, tryRotate: true,
+    formats, tryHarder: true, tryRotate: true,
     tryInvert: true, maxNumberOfSymbols: 1,
   })
   return results.find(result => result.isValid && result.text)?.text || ''
 }
 
 export async function decodeBarcodeFrame(frame) {
-  const direct = await readFrame(frame)
+  const formats = frame.scannerMode === 'logistics' ? ['Code128'] : ['Linear-Codes']
+  const direct = await readFrame(frame, formats)
   if (direct) return direct
   // Built-in tryRotate covers quarter turns, not arbitrary skew. Add diagonal
   // passes over the whole image. Never turn these into a cropped centre scan.
   for (const angle of [-45, -22.5, -67.5]) {
-    const text = await readFrame(rotateBarcodeFrame(frame, angle))
+    const text = await readFrame(rotateBarcodeFrame(frame, angle), formats)
     if (text) return text
   }
   return ''

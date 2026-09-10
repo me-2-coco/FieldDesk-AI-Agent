@@ -1,3 +1,5 @@
+import { normalizeQueryIdentifier } from './queryIdentifier.js'
+
 const API_BASE_URL = String(
   import.meta.env.VITE_API_BASE_URL || ""
 ).replace(/\/$/, "")
@@ -74,12 +76,12 @@ function apiHeaders() {
   }
 }
 
-async function request(path, body, { timeoutMs = 0, idempotencyKey = "" } = {}) {
+async function request(path, body, { timeoutMs = 0, idempotencyKey = "", retryNetwork = false } = {}) {
   let response
   const controller = timeoutMs > 0 ? new AbortController() : null
   const timer = controller ? window.setTimeout(() => controller.abort(), timeoutMs) : null
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
+    const send = () => fetch(`${API_BASE_URL}${path}`, {
       method: "POST",
       credentials: "include",
       headers: {
@@ -89,6 +91,13 @@ async function request(path, body, { timeoutMs = 0, idempotencyKey = "" } = {}) 
       body: JSON.stringify(body),
       ...(controller ? { signal: controller.signal } : {})
     })
+    try { response = await send() }
+    catch (error) {
+      // Only opted-in read-only lookups may retry a broken transport. Keep
+      // the original total deadline; never retry an HTTP failure or a write.
+      if (!retryNetwork || error?.name === 'AbortError' || controller?.signal.aborted) throw error
+      response = await send()
+    }
   } catch (error) {
     if (error?.name === "AbortError") {
       throw new Error(`查询等待超过${Math.round(timeoutMs / 1000)}秒，后端尚未返回结果，请稍后重试`, { cause: error })
@@ -162,12 +171,12 @@ async function downloadFile(path, fallbackName) {
 }
 
 export async function queryCrmOrderByLogisticsNo(queryValue) {
-  const value = String(queryValue || "").trim()
+  const value = normalizeQueryIdentifier(queryValue)
   if (!value) throw new Error("请输入物流单号、电话、SN或寄修单号")
 
   return request("/api/crm/repairs/query", {
     queryValue: value
-  }, { timeoutMs: 20000 })
+  }, { timeoutMs: 20000, retryNetwork: true })
 }
 
 export async function queryCrmRepairByAnyIdentifier(queryValue) {
