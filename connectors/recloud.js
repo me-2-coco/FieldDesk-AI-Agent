@@ -1336,6 +1336,9 @@ async function readPendingListRow(page, rmaNo, options = {}) {
 
 async function enrichRmaFromPendingList(page, detail, options = {}) {
   if (!detail?.rmaNo) return detail;
+  if (options.skipCompleteMetadata === true && detail.reportedFault && detail.productLine
+    && detail.productSerialNo && detail.customer?.name
+    && (detail.pickupLogisticsNo || detail.logisticsNo)) return detail;
   let row = null;
   row = await readPendingListRow(page, detail.rmaNo, options).catch(() => null);
   const enriched = {

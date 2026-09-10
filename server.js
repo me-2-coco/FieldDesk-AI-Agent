@@ -537,6 +537,43 @@ function validateReceiptSn(value, logisticsNo = "") {
 }
 
 async function executeRecloudOperation(connector, operation, options, coordinator, channel) {
+  if (options.deadlineAt) {
+    let expired = false;
+    let page;
+    let deadlineTimer;
+    const work = Promise.resolve().then(async () => {
+      const session = await connector.openRecloud({ channel });
+      page = session.page;
+      if (expired) {
+        Promise.resolve(page?.close?.()).catch(() => {});
+        return;
+      }
+      if (session.loginRequired) {
+        const error = new Error("请重新初始化瑞云登录状态");
+        error.code = "RECLOUD_LOGIN_REQUIRED";
+        throw error;
+      }
+      return operation(page, { shouldYield: () => false });
+    });
+    const deadline = new Promise((_, reject) => {
+      deadlineTimer = setTimeout(() => {
+        expired = true;
+        // Closing a stalled browser must not postpone the HTTP response.
+        Promise.resolve().then(() => page?.close?.()).catch(() => {});
+        const error = new Error("瑞云在线查询未能在限定时间内完成，请稍后重试");
+        error.code = "RECLOUD_QUERY_TIMEOUT";
+        error.status = 504;
+        error.recloudDrainPromise = work.catch(() => {});
+        reject(error);
+      }, Math.max(0, options.deadlineAt - Date.now()));
+    });
+    try {
+      return await Promise.race([work, deadline]);
+    } finally {
+      clearTimeout(deadlineTimer);
+      connector.releaseRecloudChannel?.(channel, { idleMs: 30000 });
+    }
+  }
   let session;
   let timer;
   try {
@@ -598,14 +635,26 @@ function runRecloudPool(coordinator, connector, operation, options, requestedCha
     coordinator.pools.set(poolKey, pool);
   }
   return new Promise((resolve, reject) => {
-    pool.waiting.push({
+    const job = {
       operation,
       options,
       resolve,
       reject,
       priority: Number(options.queuePriority || 0),
       sequence: pool.nextSequence++,
-    });
+    };
+    pool.waiting.push(job);
+    if (options.deadlineAt) {
+      job.queueTimer = setTimeout(() => {
+        const index = pool.waiting.indexOf(job);
+        if (index < 0) return;
+        pool.waiting.splice(index, 1);
+        const error = new Error("瑞云查询繁忙，请稍后重试");
+        error.code = "RECLOUD_QUERY_BUSY";
+        error.status = 503;
+        reject(error);
+      }, Math.max(0, options.deadlineAt - Date.now()));
+    }
     pool.waiting.sort((left, right) => (
       right.priority - left.priority || left.sequence - right.sequence
     ));
@@ -613,6 +662,7 @@ function runRecloudPool(coordinator, connector, operation, options, requestedCha
       for (const worker of pool.workers) {
         if (worker.busy || pool.waiting.length === 0) continue;
         const job = pool.waiting.shift();
+        clearTimeout(job.queueTimer);
         worker.busy = true;
         const current = executeRecloudOperation(
           connector,
@@ -650,6 +700,7 @@ function runRecloudPool(coordinator, connector, operation, options, requestedCha
 }
 
 async function withRecloud(connector, operation, options = {}) {
+  if (options.totalTimeoutMs) options = { ...options, deadlineAt: Date.now() + options.totalTimeoutMs };
   let coordinator = withRecloud.queues.get(connector);
   if (!coordinator) {
     coordinator = { channels: new Map(), pools: new Map(), foregroundWaiting: 0 };
@@ -826,7 +877,7 @@ function createApp(
   const foregroundQueryOptions = {
     channel: "foreground-query",
     concurrency: 4,
-    timeoutMs: 18000,
+    totalTimeoutMs: 60000,
     timeoutCode: "RECLOUD_QUERY_TIMEOUT",
     resultUnknownOnTimeout: false,
   };
@@ -2282,6 +2333,7 @@ function createApp(
             });
           }
           return connector.queryRmaByLogisticsNo(page, queryValue, {
+            skipCompleteMetadata: true,
             revealPhoneEnabled: true,
             phoneRevealTimeout: 3000,
           });

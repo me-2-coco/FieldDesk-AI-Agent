@@ -176,7 +176,7 @@ export async function queryCrmOrderByLogisticsNo(queryValue) {
 
   return request("/api/crm/repairs/query", {
     queryValue: value
-  }, { timeoutMs: 20000, retryNetwork: true })
+  }, { timeoutMs: 65000, retryNetwork: true })
 }
 
 export async function queryCrmRepairByAnyIdentifier(queryValue) {
