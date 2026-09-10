@@ -52,11 +52,28 @@ async function inspectCurrentAssignee(page) {
 }
 
 async function locateUniqueTargetTechnicianRow(dialog, targetAssignee) {
-  const exactName = dialog.getByText(exactText(targetAssignee)).filter({ visible: true });
+  const name = String(targetAssignee || "").replace(/\s/g, "");
+  if (!name) return [];
+  const pattern = new RegExp(`^\\s*${Array.from(name).map(char => char.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s*")}\\s*$`);
+  const exactName = dialog.getByText(pattern).filter({ visible: true });
   const rows = [];
   for (let index = 0; index < await exactName.count(); index += 1) {
     const row = exactName.nth(index).locator("xpath=ancestor::tr[1]");
     if (await row.count() === 1 && await row.isVisible().catch(() => false)) rows.push(row.first());
+  }
+  return rows;
+}
+
+async function searchTargetTechnician(dialog, targetAssignee, search) {
+  const fullName = String(targetAssignee || "").trim();
+  if (!fullName) return [];
+  await search(fullName);
+  let rows = await locateUniqueTargetTechnicianRow(dialog, fullName);
+  // Never resolve an ambiguous full-name result by choosing an arbitrary row.
+  const surname = Array.from(fullName.replace(/\s/g, ""))[0];
+  if (rows.length === 0 && surname !== fullName) {
+    await search(surname);
+    rows = await locateUniqueTargetTechnicianRow(dialog, fullName);
   }
   return rows;
 }
@@ -208,6 +225,7 @@ module.exports = {
   exactText,
   inspectCurrentAssignee,
   locateUniqueTargetTechnicianRow,
+  searchTargetTechnician,
   inspectAssignmentDialog,
   inspectPartAddDialog,
   inspectMainAttachmentUpload,

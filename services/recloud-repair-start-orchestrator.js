@@ -21,7 +21,7 @@ async function orchestrateRepairStart(payload, adapter, options = {}) {
   // 页签切换、配件读取或保外转保内动作之前先完成改派和复核。
   let assignee = await adapter.readAssignee();
   const assignmentPlan = buildRecloudAssignmentPlan(payload.assignee);
-  let assignmentRequired = String(assignee || "").trim() !== assignmentPlan.servicePerson;
+  let assignmentRequired = String(assignee || "").replace(/\s/g, "") !== assignmentPlan.servicePerson.replace(/\s/g, "");
   if (options.writeEnabled !== true) {
     const remote = await adapter.readRemoteState();
     const partsPlan = buildRecloudRepairPartsPlan(payload.usedParts, remote.parts);
@@ -42,7 +42,7 @@ async function orchestrateRepairStart(payload, adapter, options = {}) {
     assertRecloudOperationAllowed({ action: assignmentPlan.action, target: assignmentPlan.servicePerson });
     await adapter.assignResponsible(assignmentPlan);
     assignee = await adapter.readAssignee();
-    assignmentRequired = String(assignee || "").trim() !== assignmentPlan.servicePerson;
+    assignmentRequired = String(assignee || "").replace(/\s/g, "") !== assignmentPlan.servicePerson.replace(/\s/g, "");
     if (assignmentRequired) {
       throw startError("负责人改派后远端复核失败", "RECLOUD_REPAIR_ASSIGNMENT_POSTVERIFY_FAILED", "ASSIGNMENT");
     }

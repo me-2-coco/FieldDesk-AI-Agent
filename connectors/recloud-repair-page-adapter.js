@@ -1,4 +1,4 @@
-const { inspectCurrentAssignee, locateUniqueTargetTechnicianRow } = require("./recloud-repair-execution-inspector");
+const { inspectCurrentAssignee, searchTargetTechnician } = require("./recloud-repair-execution-inspector");
 const { openRepairPartAddDialog, confirmPartQuantityWarning } = require("./recloud-repair-part-dialog");
 const { readExistingRepairParts } = require("./recloud-repair-parts-reader");
 const { readExistingRepairAttachments } = require("./recloud-repair-attachments-reader");
@@ -443,12 +443,13 @@ function createRecloudRepairPageAdapter(page, context = {}) {
       const dialog = await waitForDialog(page, before);
       const input = await locateDialogInput(dialog, "服务人员");
       if (!input) throw adapterError("改派窗口缺少服务人员搜索框", "RECLOUD_ASSIGNMENT_INPUT_NOT_FOUND", "ASSIGNMENT");
-      await input.fill(plan.servicePerson);
-      const searchButtons = dialog.getByRole("button", { name: exactText("搜索") }).filter({ visible: true });
-      if (await searchButtons.count() === 1) await searchButtons.first().click({ timeout: 5000 });
-      else await input.press("Enter");
-      await page.waitForTimeout?.(500);
-      const rows = await locateUniqueTargetTechnicianRow(dialog, plan.servicePerson);
+      const rows = await searchTargetTechnician(dialog, plan.servicePerson, async (query) => {
+        await input.fill(query);
+        const searchButtons = dialog.getByRole("button", { name: exactText("搜索") }).filter({ visible: true });
+        if (await searchButtons.count() === 1) await searchButtons.first().click({ timeout: 5000 });
+        else await input.press("Enter");
+        await page.waitForTimeout?.(500);
+      });
       if (rows.length !== 1) {
         throw adapterError(`瑞云中没有唯一匹配的师傅：${plan.servicePerson}`, "RECLOUD_ASSIGNMENT_TARGET_NOT_UNIQUE", "ASSIGNMENT");
       }

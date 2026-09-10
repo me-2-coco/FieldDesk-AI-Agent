@@ -89,7 +89,7 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
   // 无论是否存在断点，都重新读取瑞云；断点不能替代远端核验。
   let remote = await adapter.readRemoteState();
   const assignmentPlan = buildRecloudAssignmentPlan(payload.assignee);
-  let assignmentRequired = String(remote.assignee || "").trim() !== assignmentPlan.servicePerson;
+  let assignmentRequired = String(remote.assignee || "").replace(/\s/g, "") !== assignmentPlan.servicePerson.replace(/\s/g, "");
   const formPlan = buildRecloudRepairFormPlan(payload);
   const authorizedExistingPartCodes = Array.isArray(options.authorizedExistingPartCodes)
     ? options.authorizedExistingPartCodes
@@ -209,7 +209,7 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
         && unapprovedMissingParts().length === 0;
       preparationVerifiedByRemote = partsPlan.readyToAdd
         && (partsPlan.additions.length === 0 || skippedAuthorizedMissingParts)
-        && String(remote.assignee || "").trim() === assignmentPlan.servicePerson;
+        && String(remote.assignee || "").replace(/\s/g, "") === assignmentPlan.servicePerson.replace(/\s/g, "");
       if (!preparationVerifiedByRemote) {
         throw orchestratorError(
           "补录维修配件后瑞云远端复核失败",
