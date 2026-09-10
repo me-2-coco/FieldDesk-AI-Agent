@@ -3,7 +3,7 @@ import { getSupervisionInbox, markSupervisionOrderRead } from "../shared/crmServ
 
 const LOCAL_REFRESH_MS = 10000
 
-function SupervisionInbox({ openKey = 0, targetRmaNo = "" }) {
+function SupervisionInbox({ openKey = 0, targetRmaNo = "", hideEmptyTitle = false }) {
   const [items, setItems] = useState([])
   const [expandedOrders, setExpandedOrders] = useState([])
   const sectionRef = useRef(null)
@@ -72,7 +72,7 @@ function SupervisionInbox({ openKey = 0, targetRmaNo = "" }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openKey, groups])
 
-  if (!groups.length) return <section className="card"><h2>督办消息</h2><p>当前暂无督办消息</p></section>
+  if (!groups.length) return <section className="card">{!hideEmptyTitle && <h2>督办消息</h2>}<p>当前暂无督办消息</p></section>
   const totalUnread = items.filter((item) => !item.isRead).length
 
   return <section ref={sectionRef} className="card supervision-notice-card" aria-live="polite">

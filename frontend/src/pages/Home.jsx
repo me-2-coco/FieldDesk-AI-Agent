@@ -421,7 +421,7 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
     </div></section>}
 
 
-    {desktopView === "messages" && isTechnician && <SupervisionInbox openKey={supervisionOpenKey} targetRmaNo={supervisionTargetRmaNo} />}
+    {desktopView === "messages" && isTechnician && <SupervisionInbox hideEmptyTitle openKey={supervisionOpenKey} targetRmaNo={supervisionTargetRmaNo} />}
     {desktopView === "messages" && isInformationClerk && <section className="card"><p>信息员督办消息入口已准备好，消息查看范围尚待授权配置。</p></section>}
 
     {(desktopView === "team" || desktopView === "work") && showTechnicianDashboard && <div className="card">
