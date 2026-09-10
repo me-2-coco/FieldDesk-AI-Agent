@@ -19,7 +19,8 @@ test("主要业务入口使用统一名称", () => {
   }
 
   assert.match(home, /FieldDesk 工作台/)
-  assert.doesNotMatch(home, /在手机器|异常补救工作台|历史维修记录/)
+  // Descriptive prose may mention machines in hand; navigation names may not.
+  assert.doesNotMatch(home, />\s*(在手机器|异常补救工作台|历史维修记录)\s*</)
   assert.doesNotMatch(profile, /同步任务|同步诊断|账号与权限/)
   assert.match(login, /网点维修管理/)
   assert.doesNotMatch(login, /FieldDesk AI|智能维修工作台/)

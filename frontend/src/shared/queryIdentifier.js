@@ -3,6 +3,8 @@
 export function normalizeQueryIdentifier(value) {
   return String(value ?? '').normalize('NFKC')
     .replace(/^\][A-Za-z][0-9]/, '')
+    // Scanner payloads intentionally contain control separators.
+    // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/g, '')
     .trim()
 }

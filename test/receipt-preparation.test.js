@@ -1768,7 +1768,7 @@ test("all five scanner entry points share a visible close action", async () => {
   assert.match(scannerPages[0], /setScannerMode\("logistics"\)/);
   assert.match(scannerPages[0], /setScannerMode\("sn"\)/);
   assert.match(scannerSource, /aria-label="关闭扫码"/);
-  assert.match(scannerSource, /className="scanner-footer-close"/);
+  assert.match(scannerSource, /<button[^>]*onClick=\{onClose\}[^>]*>关闭并手动输入<\/button>/);
   assert.match(scannerSource, /event\.key === "Escape"/);
   assert.match(scannerSource, /await scanner\.stop\(\)\.catch/);
 });

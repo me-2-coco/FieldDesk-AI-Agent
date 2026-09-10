@@ -84,7 +84,7 @@ function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onCl
   }, [areaId, mode, open, compatibility])
   if (!open) return null
   return createPortal(<div className="fd-scanner-overlay" role="dialog" aria-modal="true" aria-label={title}>
-    <header className="fd-scanner-header"><strong>{title}</strong><button type="button" onClick={onClose}>关闭扫码</button></header>
+    <header className="fd-scanner-header"><strong>{title}</strong><button type="button" aria-label="关闭扫码" onClick={onClose}>关闭扫码</button></header>
     <div className="fd-scanner-view" id={areaId} />
     <footer className="fd-scanner-footer">
       <button type="button" onClick={() => setCompatibility(value => !value)}>{compatibility ? "当前：兼容扫码 · 切换高清" : "识别不了？切换兼容扫码"}</button>

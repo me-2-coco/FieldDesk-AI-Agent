@@ -73,15 +73,8 @@ function App() {
   const [page, setPageState] = useState("home")
   const appTrail = useRef([])
   const [activeTab, setActiveTab] = useState("home")
-  const tabSnapshots = useRef({})
+  const [tabSnapshots, setTabSnapshots] = useState({})
   const tabScroll = useRef({})
-  const tabUser = useRef(currentUser?.id)
-  if (tabUser.current !== currentUser?.id) {
-    tabSnapshots.current = {}
-    tabScroll.current = {}
-    tabUser.current = currentUser?.id
-  }
-  tabSnapshots.current[activeTab] = { page, trail: [...appTrail.current] }
 
 
   const [permissionMessage, setPermissionMessage] =
@@ -177,7 +170,7 @@ function App() {
       active = false
       if (timer) window.clearTimeout(timer)
     }
-  }, [isLoggedIn, currentUser?.id, currentUser?.role])
+  }, [isLoggedIn, currentUser])
 
   useEffect(() => {
     const canReceiveSupervision = isLoggedIn && hasBusinessRole(currentUser, USER_ROLES.TECHNICIAN, USER_ROLES.ADMIN)
@@ -213,7 +206,7 @@ function App() {
       if (timer) window.clearTimeout(timer)
       window.removeEventListener("supervision-read-changed", refresh)
     }
-  }, [isLoggedIn, currentUser?.id, currentUser?.role])
+  }, [isLoggedIn, currentUser])
 
   useEffect(() => {
     const canInspectSupervisionMonitor = isLoggedIn && hasBusinessRole(currentUser, USER_ROLES.INFORMATION_CLERK, USER_ROLES.ADMIN)
@@ -266,7 +259,7 @@ function App() {
       active = false
       if (timer) window.clearTimeout(timer)
     }
-  }, [isLoggedIn, currentUser?.id, currentUser?.role])
+  }, [isLoggedIn, currentUser])
 
   useEffect(() => {
     const canReceivePartsShortage = isLoggedIn && currentUser?.role === USER_ROLES.INFORMATION_CLERK
@@ -300,7 +293,7 @@ function App() {
 
   function handleLogin(user) {
     appTrail.current = []
-    tabSnapshots.current = {}
+    setTabSnapshots({})
     tabScroll.current = {}
     setActiveTab("home")
 
@@ -328,7 +321,7 @@ function App() {
 
   async function handleLogout() {
     appTrail.current = []
-    tabSnapshots.current = {}
+    setTabSnapshots({})
     tabScroll.current = {}
     setActiveTab("home")
 
@@ -357,10 +350,11 @@ function App() {
   function switchTab(tab) {
     if (tab === activeTab) return
     if (workflowLocked && tab === "home") { setPermissionMessage("当前工单处理完成或暂存后才能返回首页"); return }
-    const target = tabSnapshots.current[tab] || { page: tab, trail: [] }
+    const target = tabSnapshots[tab] || { page: tab, trail: [] }
     if (!canAccessPage(target.page, getCurrentUser())) return
     tabScroll.current[activeTab] = window.scrollY
-    tabSnapshots.current[activeTab] = { page, trail: [...appTrail.current] }
+    const previousTab = { page, trail: [...appTrail.current] }
+    setTabSnapshots(previous => ({ ...previous, [activeTab]: previousTab }))
     appTrail.current = [...target.trail]
     setPermissionMessage("")
     setActiveTab(tab)
@@ -481,7 +475,7 @@ function App() {
 
 
       <main className="app-content">
-        {Object.entries(tabSnapshots.current).map(([tab, snapshot]) => {
+        {Object.entries({ ...tabSnapshots, [activeTab]: { page } }).map(([tab, snapshot]) => {
           const page = snapshot.page
           return <div className="tab-surface" key={`${currentUser?.id}:${tab}`} hidden={tab !== activeTab}>
 

@@ -109,7 +109,8 @@ test("一条完全本地的模拟整单覆盖项目号、费用、附件、负�
     PARTS,
     "机器不出水，污水箱上不了污水#"
   );
-  assert.match(repairMeasure, /售后水泵ATK-21\.6-A2\.46P-FT/);
+  assert.match(repairMeasure, /水泵ATK-21\.6-A2\.46P-FT/);
+  assert.doesNotMatch(repairMeasure, /售后/);
   assert.match(repairMeasure, /测试ok寄回$/);
 
   assert.deepEqual(buildRecloudAssignmentPlan("唐张帅"), {

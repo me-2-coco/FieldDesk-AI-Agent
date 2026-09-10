@@ -13,7 +13,7 @@ export default function MonthlyStatistics() {
   const [includeTest, setIncludeTest] = useState(false)
   useEffect(() => {
     let active = true
-    setData(null); setError("")
+    queueMicrotask(() => { if (active) { setData(null); setError("") } })
     getMonthlyStatistics({ month, includeTest }).then(result => { if (active) setData(result) }).catch(e => { if (active) setError(e.message) })
     return () => { active = false }
   }, [month, includeTest])

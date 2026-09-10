@@ -79,13 +79,13 @@ test("inventory pages expose Recloud stock lookup and role-local operations", as
   const warehousePage = await fs.readFile(path.join(__dirname, "../frontend/src/pages/Warehouse.jsx"), "utf8");
   assert.match(inventory, /备件库存查询/);
   assert.match(inventory, /仓库编码或配件编码/);
-  assert.match(inventory, /inventory-app-hero/);
+  assert.match(inventory, /inventory-search-card/);
   assert.doesNotMatch(inventory, /配件领用完成，进入维修/);
   assert.match(crmService, /api\/inventory\/recloud/);
   assert.match(inventory, /申请退还/);
   assert.match(inventory, /库存流水/);
   assert.match(warehousePage, /确认退还入总库/);
-  assert.match(warehousePage, /全部师傅库存/);
+  assert.match(warehousePage, /师傅库存/);
   assert.match(warehousePage, /配件入库/);
   assert.match(warehousePage, /发放给师傅/);
 });

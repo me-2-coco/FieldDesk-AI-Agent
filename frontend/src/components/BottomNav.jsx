@@ -9,7 +9,6 @@ function BottomNav({
   page,
   setPage,
   supervisionUnreadCount = 0,
-  onOpenSupervision,
   workflowLocked = false
 }) {
 

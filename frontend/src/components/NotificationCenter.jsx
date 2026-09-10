@@ -5,7 +5,7 @@ function readSeen(userId) {
   try { const values = JSON.parse(sessionStorage.getItem(`notification-seen:${userId}`) || '[]'); return new Set(Array.isArray(values) ? values : []) } catch { return new Set() }
 }
 
-export function notificationRows(operations, tasks, shortages) {
+function notificationRows(operations, tasks, shortages) {
   const grouped = new Map()
   for (const [kind, items] of [['repair', operations], ['sync', tasks], ['shortage', shortages]]) {
     for (const item of items) {

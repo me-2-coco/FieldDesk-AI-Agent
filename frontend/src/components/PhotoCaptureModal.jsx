@@ -11,8 +11,8 @@ function PhotoCaptureModal({ open, onCapture, onClose, title = "拍摄签收照�
   useEffect(() => {
     if (!open) return undefined
     let active = true
-    setError("")
     const timer = setTimeout(() => {
+    setError("")
     if (!navigator.mediaDevices?.getUserMedia) {
       setError("当前浏览器无法调用相机，请使用 HTTPS 地址")
       return
