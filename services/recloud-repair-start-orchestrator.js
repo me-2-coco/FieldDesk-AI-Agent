@@ -21,6 +21,12 @@ async function orchestrateRepairStart(payload, adapter, options = {}) {
   // 页签切换、配件读取或保外转保内动作之前先完成改派和复核。
   let assignee = await adapter.readAssignee();
   const assignmentPlan = buildRecloudAssignmentPlan(payload.assignee);
+  const assignmentSkipped = options.skipAssignment === true && Boolean(String(options.skipAssignmentReason || "").trim());
+  if (assignmentSkipped) {
+    if (!String(assignee || "").trim()) throw startError("跳过改派前必须确认瑞云当前负责人", "RECLOUD_SKIP_ASSIGNMENT_ASSIGNEE_MISSING", "ASSIGNMENT");
+    assignmentPlan.servicePerson = String(assignee).trim();
+    payload = { ...payload, assignmentSource: `USER_AUTHORIZED_KEEP_CURRENT: ${options.skipAssignmentReason}` };
+  }
   let assignmentRequired = String(assignee || "").replace(/\s/g, "") !== assignmentPlan.servicePerson.replace(/\s/g, "");
   if (options.writeEnabled !== true) {
     const remote = await adapter.readRemoteState();

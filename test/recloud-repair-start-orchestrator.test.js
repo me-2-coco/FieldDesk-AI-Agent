@@ -19,6 +19,23 @@ function adapterFixture() {
   };
 }
 
+test("explicit keep-current authorization preserves assignee and still adds parts", async () => {
+  const adapter = adapterFixture();
+  const result = await orchestrateRepairStart({ assignee: "新师傅", usedParts: [{ partCode: "TEST-1", quantity: 1 }] }, adapter,
+    { writeEnabled: true, skipAssignment: true, skipAssignmentReason: "User authorized this order only" });
+  assert.equal(result.assignee, "旧负责人");
+  assert.match(result.assignmentSource, /^USER_AUTHORIZED_KEEP_CURRENT:/);
+  assert.equal(result.partsVerified, true);
+  assert.equal(adapter.calls.some(call => call.startsWith("assign:")), false);
+  assert.ok(adapter.calls.includes("parts:1"));
+});
+
+test("skip without authorization reason does not bypass assignment", async () => {
+  const adapter = adapterFixture();
+  await orchestrateRepairStart({ assignee: "新师傅", usedParts: [] }, adapter, { writeEnabled: true, skipAssignment: true });
+  assert.ok(adapter.calls.includes("assign:新师傅"));
+});
+
 test("FieldDesk account mapping resolves direct and preconfigured fallback names without probing both", () => {
   assert.equal(resolveRecloudTechnician({ userId: "T1", displayName: "新师傅", recloudAssigneeName: "瑞云师傅" }).servicePerson, "瑞云师傅");
   assert.deepEqual(resolveRecloudTechnician({

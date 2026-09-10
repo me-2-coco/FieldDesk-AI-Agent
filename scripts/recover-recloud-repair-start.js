@@ -11,6 +11,10 @@ async function main() {
   const { receiptStore } = createBusinessStores(process.env);
   let order = (await receiptStore.readAll()).find((item) => item.logisticsNo === logisticsNo);
   if (!order) throw Object.assign(new Error("FieldDesk order not found"), { code: "ORDER_NOT_FOUND" });
+  const skipAssignmentReason = String(process.argv[3] === "--keep-current-assignee" ? process.argv[4] || "" : "").trim();
+  if (process.argv[3] && (!skipAssignmentReason || !order.recloudServiceOrderNo)) {
+    throw new Error("Keeping the current assignee requires an existing service order and an explicit authorization reason");
+  }
   const operator = {
     userId: order.technicianId || order.operatorId || "SYSTEM",
     displayName: order.technicianName || order.operatorName || "FieldDesk 后台恢复",
@@ -83,7 +87,7 @@ async function main() {
       assignmentSource: order.recloudRepairPreparation?.assignmentSource,
       warrantyConversionRequested: order.recloudRepairPreparation?.warrantyConversionRequested === true,
       usedParts: order.recloudRepairPreparation?.usedParts || [],
-    }, adapter, { writeEnabled: true });
+    }, adapter, { writeEnabled: true, skipAssignment: Boolean(skipAssignmentReason), skipAssignmentReason });
     if (!["SUCCESS", "PARTS_SHORTAGE"].includes(preparation?.status)) {
       throw Object.assign(new Error("Recloud repair preparation not confirmed"), { code: "RECLOUD_REPAIR_PREPARATION_NOT_CONFIRMED" });
     }
