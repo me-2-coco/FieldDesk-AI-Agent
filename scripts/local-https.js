@@ -5,6 +5,7 @@ const http = require('node:http');
 const https = require('node:https');
 const { execFileSync } = require('node:child_process');
 const net = require('node:net');
+const { createLocalProxy } = require('./local-https-proxy');
 const address = process.env.LOCAL_HTTPS_IP;
 if (net.isIP(address) !== 4) throw new Error('Set LOCAL_HTTPS_IP to the computer LAN IPv4 address');
 const dir = path.resolve(__dirname, '../runtime/local-https', address);
@@ -21,14 +22,9 @@ if (!fs.existsSync(file('server.pem'))) {
   openssl(['x509', '-req', '-in', file('server.csr'), '-CA', file('ca.pem'), '-CAkey', file('ca.key'), '-CAcreateserial', '-out', file('server.pem'), '-days', '180', '-sha256', '-extfile', file('server.ext')]);
 }
 openssl(['x509', '-in', file('ca.pem'), '-outform', 'DER', '-out', file('fielddesk-local-ca.cer')]);
-const proxy = https.createServer({ key: fs.readFileSync(file('server.key')), cert: fs.readFileSync(file('server.pem')) }, (req, res) => {
-  const upstream = http.request({ hostname: '127.0.0.1', port: 5173, path: req.url, method: req.method, headers: { ...req.headers, host: '127.0.0.1:5173' } }, response => {
-    res.writeHead(response.statusCode, response.headers);
-    response.pipe(res);
-  });
-  upstream.on('error', () => { if (!res.headersSent) res.writeHead(502); res.end('FieldDesk frontend unavailable'); });
-  req.pipe(upstream);
-});
+const proxy = https.createServer({ key: fs.readFileSync(file('server.key')), cert: fs.readFileSync(file('server.pem')) }, createLocalProxy());
+// Explicitly reject unsupported HMR upgrades instead of leaving sockets pending.
+proxy.on('upgrade', (req, socket) => socket.end('HTTP/1.1 426 Upgrade Required\r\nConnection: close\r\n\r\n'));
 // This port exposes only the PUBLIC CA certificate, never keys or project files.
 const download = http.createServer((req, res) => {
   if (req.url !== '/fielddesk-local-ca.cer' || req.method !== 'GET') { res.writeHead(404); return res.end(); }

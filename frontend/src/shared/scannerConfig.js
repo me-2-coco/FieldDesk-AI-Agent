@@ -12,4 +12,21 @@ export const barcodeCameraConstraints = {
   facingMode: { ideal: "environment" },
   width: { ideal: 1920 },
   height: { ideal: 1080 },
+  frameRate: { ideal: 30 },
+}
+
+// No qrbox: every part of the camera frame participates in decoding.
+export const fullFrameScanConfig = {
+  fps: 20,
+  disableFlip: true,
+  videoConstraints: barcodeCameraConstraints,
+}
+
+export async function enableContinuousFocus(scanner) {
+  try {
+    const capabilities = scanner.getRunningTrackCapabilities()
+    if (capabilities.focusMode?.includes('continuous')) {
+      await scanner.applyVideoConstraints({ advanced: [{ focusMode: 'continuous' }] })
+    }
+  } catch { /* Camera capabilities differ; scanning must still work. */ }
 }

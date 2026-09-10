@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { Html5Qrcode, Html5QrcodeSupportedFormats as Formats } from "html5-qrcode"
-import { barcodeScanBox, qrScanBox, barcodeCameraConstraints } from "../shared/scannerConfig.js"
+import { fullFrameScanConfig, enableContinuousFocus } from "../shared/scannerConfig.js"
 import "./scanner-modal.css"
 
 function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onClose }) {
@@ -37,12 +37,7 @@ function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onCl
       scanner = new Html5Qrcode(areaId, { formatsToSupport: scanType === "qr"
         ? [Formats.QR_CODE]
         : [Formats.CODE_128, Formats.CODE_39, Formats.CODE_93, Formats.ITF, Formats.CODABAR, Formats.EAN_13, Formats.EAN_8, Formats.UPC_A, Formats.UPC_E] })
-      starting = scanner.start({ facingMode: "environment" }, {
-        fps: 15,
-        disableFlip: true,
-        videoConstraints: barcodeCameraConstraints,
-        qrbox: scanType === "qr" ? qrScanBox : barcodeScanBox,
-      }, async text => {
+      starting = scanner.start({ facingMode: "environment" }, fullFrameScanConfig, async text => {
         if (!active || decoded) return
         decoded = true
         await stop()
@@ -52,7 +47,10 @@ function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onCl
         }
       }, () => {})
       starting.then(() => {
-        if (active) setReady(true)
+        if (active) {
+          setReady(true)
+          void enableContinuousFocus(scanner)
+        }
         else void stop()
       }).catch(error => {
         if (active) setCameraError(`相机启动失败：${error?.message || String(error)}。请关闭重试或手动输入。`)
@@ -73,7 +71,7 @@ function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onCl
     <div className="fd-scanner-view" id={areaId} />
     <footer className="fd-scanner-footer">
       <button type="button" disabled={!ready && !cameraError} onClick={() => setScanType(type => type === "barcode" ? "qr" : "barcode")}>{scanType === "barcode" ? "当前：条码 · 切换二维码" : "当前：二维码 · 切换条码"}</button>
-      <p role="status">{cameraError || (!ready ? "正在启动相机…" : scanType === "barcode" ? "条码横向放入框内，两端留白；稍拉远，等待对焦清晰" : "请将二维码放入扫描框")}</p>
+      <p role="status">{cameraError || (!ready ? "正在启动相机…" : scanType === "barcode" ? "全画面识别 · 条码横向放置，两端完整清晰" : "全画面识别 · 保持二维码完整清晰")}</p>
       <button type="button" onClick={onClose}>关闭并手动输入</button>
     </footer>
   </div>, document.body)
