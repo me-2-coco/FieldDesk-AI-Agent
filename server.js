@@ -5689,7 +5689,9 @@ if (require.main === module) {
         maxRecords: Number(process.env.RMA_QUERY_CACHE_CAPACITY || 10000),
         maxPages: Number(process.env.RMA_QUERY_INDEX_MAX_PAGES || 350),
         pageDelay: Number(process.env.RMA_QUERY_INDEX_PAGE_DELAY_MS || 120),
-        shouldYield: queue.shouldYield,
+        // This read-only index has its own channel and saves one page at a
+        // time. Continuous foreground traffic must not starve all syncing.
+        shouldYield: () => false,
       }),
       {
         background: true,

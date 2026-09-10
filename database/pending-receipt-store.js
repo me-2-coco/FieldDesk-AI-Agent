@@ -26,6 +26,7 @@ class PendingReceiptStore {
       return {
         syncedAt: String(payload.syncedAt || ''),
         orders: Array.isArray(payload.orders) ? payload.orders : [],
+        ...(payload.syncState ? { syncState: payload.syncState } : {}),
       };
     } catch (error) {
       if (error.code === 'ENOENT') return { syncedAt: '', orders: [] };
@@ -33,12 +34,13 @@ class PendingReceiptStore {
     }
   }
 
-  async writeSnapshot(orders, syncedAt = new Date().toISOString()) {
+  async writeSnapshot(orders, syncedAt = new Date().toISOString(), syncState) {
     await fs.mkdir(path.dirname(this.filePath), { recursive: true });
     const temporary = `${this.filePath}.${process.pid}.${randomUUID()}.tmp`;
     await fs.writeFile(temporary, JSON.stringify({
       syncedAt,
       orders,
+      ...(syncState ? { syncState } : {}),
     }), { encoding: 'utf8', mode: 0o600 });
     await fs.rename(temporary, this.filePath);
     await fs.chmod(this.filePath, 0o600);
@@ -94,7 +96,7 @@ class PendingReceiptStore {
       const orders = [...byRma.values()]
         .sort((a, b) => Date.parse(a.cachedAt || 0) - Date.parse(b.cachedAt || 0))
         .slice(-this.capacity);
-      await this.writeSnapshot(orders, options.syncedAt);
+      await this.writeSnapshot(orders, options.syncedAt, options.syncState || snapshot.syncState);
       return { added, updated, removed: Math.max(0, snapshot.orders.length + added - orders.length), total: orders.length };
     });
   }

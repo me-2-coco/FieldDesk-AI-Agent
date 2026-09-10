@@ -78,14 +78,18 @@ function apiHeaders() {
 
 async function request(path, body, { timeoutMs = 0, idempotencyKey = "", retryNetwork = false } = {}) {
   let response
+  let result
+  const requestId = globalThis.crypto?.randomUUID?.() || `fd-${Date.now()}-${Math.random().toString(16).slice(2)}`
   const controller = timeoutMs > 0 ? new AbortController() : null
   const timer = controller ? window.setTimeout(() => controller.abort(), timeoutMs) : null
   try {
     const send = () => fetch(`${API_BASE_URL}${path}`, {
       method: "POST",
       credentials: "include",
+      cache: "no-store",
       headers: {
         ...apiHeaders(),
+        "X-Request-Id": requestId,
         ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {})
       },
       body: JSON.stringify(body),
@@ -96,22 +100,24 @@ async function request(path, body, { timeoutMs = 0, idempotencyKey = "", retryNe
       // Only opted-in read-only lookups may retry a broken transport. Keep
       // the original total deadline; never retry an HTTP failure or a write.
       if (!retryNetwork || error?.name === 'AbortError' || controller?.signal.aborted) throw error
+      await new Promise(resolve => window.setTimeout(resolve, 300))
       response = await send()
     }
+    result = await response.json()
   } catch (error) {
     if (error?.name === "AbortError") {
       throw new Error(`查询等待超过${Math.round(timeoutMs / 1000)}秒，后端尚未返回结果，请稍后重试`, { cause: error })
     }
-    throw new Error("无法连接 FieldDesk 后端，请确认 API 已启动", { cause: error })
+    if (response) throw new Error(`后台响应中断或格式异常（${response.status}），编号 ${requestId}`, { cause: error })
+    throw new Error(`手机到服务入口的连接中断，请确认 Wi-Fi 和 HTTPS 连接后重试。编号 ${requestId}`, { cause: error })
   } finally {
     if (timer) window.clearTimeout(timer)
   }
 
-  const result = await response.json().catch(() => null)
   handleAuthenticationFailure(response, result)
   if (!response.ok || !result?.success) {
     const error = new Error(
-      result?.message || `CRM 请求失败（${response.status}）`
+      `${result?.message || `CRM 请求失败（${response.status}）`}（编号 ${response.headers.get('x-request-id') || requestId}）`
     )
     error.code = result?.code || "RECLOUD_ERROR"
     error.status = response.status

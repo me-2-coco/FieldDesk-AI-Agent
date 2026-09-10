@@ -31,12 +31,23 @@ class RmaQueryIndexSync {
   async syncNow({ force = false } = {}) {
     if (this.running) return { skipped: true, reason: "ALREADY_RUNNING" };
     this.running = true;
+    let snapshot;
     try {
-      const snapshot = await this.store.readSnapshot();
+      snapshot = await this.store.readSnapshot();
       const catchUp = force || !this.primed;
       const result = await this.readOrders({
         catchUp,
-        since: catchUp ? "" : snapshot.syncedAt || "",
+        // Creation time cannot detect a later logistics/SN edit. Reconcile
+        // the whole configured window, resuming interrupted page batches.
+        since: "",
+        startPage: force ? 0 : Math.max(0, Number(snapshot.syncState?.nextPage || 0) - 1),
+        onBatch: async (orders, { nextPage }) => {
+          await this.store.mergeIncremental(orders, {
+            activeRmaNos: null,
+            syncedAt: snapshot.syncedAt,
+            syncState: { status: 'RUNNING', nextPage, lastAttemptAt: this.now().toISOString() },
+          });
+        },
       });
       if (result?.yielded) {
         return { skipped: true, reason: "FOREGROUND_QUERY_PRIORITY", catchUp, yielded: true };
@@ -45,7 +56,9 @@ class RmaQueryIndexSync {
       const orders = Array.isArray(result) ? result : result?.orders || [];
       const merged = await this.store.mergeIncremental(orders, {
         activeRmaNos: null,
-        syncedAt: current.toISOString(),
+        syncedAt: result?.incomplete ? snapshot.syncedAt : current.toISOString(),
+        syncState: { status: result?.incomplete ? 'PARTIAL' : 'COMPLETE',
+          nextPage: result?.incomplete ? result.nextPage : 0, lastAttemptAt: current.toISOString() },
       });
       this.primed = true;
       this.logger.info?.(
@@ -53,6 +66,15 @@ class RmaQueryIndexSync {
       );
       return { skipped: false, catchUp, ...merged };
     } catch (error) {
+      if (snapshot) {
+        const latest = await this.store.readSnapshot();
+        await this.store.mergeIncremental([], {
+          syncedAt: snapshot.syncedAt,
+          syncState: { ...latest.syncState, status: 'FAILED', errorCode: error.code || 'UNKNOWN',
+            nextPage: error.code === 'RECLOUD_INDEX_RESUME_UNAVAILABLE' ? 0 : latest.syncState?.nextPage || 0,
+            lastAttemptAt: this.now().toISOString() },
+        });
+      }
       this.logger.error?.(`RMA_QUERY_INDEX_SYNC: failed ${error.code || "UNKNOWN"}`);
       return { skipped: false, errorCode: error.code || "UNKNOWN" };
     } finally {

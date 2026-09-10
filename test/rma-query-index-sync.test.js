@@ -13,7 +13,7 @@ test('RMA query index synchronization is enabled by default and bounded', () => 
   assert.equal(rmaQueryIndexSyncInterval({ RMA_QUERY_INDEX_SYNC_INTERVAL_MS: '1000' }), 30000);
 });
 
-test('RMA query index performs one catch-up then follows the local cursor', async () => {
+test('RMA query index reconciles existing orders instead of filtering by creation time', async () => {
   const contexts = [];
   const merges = [];
   const store = {
@@ -36,13 +36,36 @@ test('RMA query index performs one catch-up then follows the local cursor', asyn
   });
 
   assert.equal((await sync.syncNow()).catchUp, true);
-  assert.deepEqual(contexts[0], { catchUp: true, since: '' });
+  assert.equal(contexts[0].since, '');
+  assert.equal(typeof contexts[0].onBatch, 'function');
   assert.equal((await sync.syncNow()).catchUp, false);
-  assert.deepEqual(contexts[1], {
-    catchUp: false,
-    since: '2026-09-08T10:00:00.000Z',
-  });
+  assert.equal(contexts[1].catchUp, false);
+  assert.equal(contexts[1].since, '');
   assert.equal(merges.length, 2);
+});
+
+test('completed batches survive a later timeout without advancing completion time', async t => {
+  const fs = require('node:fs/promises');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { RmaQueryCacheStore } = require('../database/rma-query-cache-store');
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'index-batch-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const store = new RmaQueryCacheStore(path.join(dir, 'cache.json'));
+  await store.mergeIncremental([{ rmaNo: 'TEST1', logisticsNo: 'OLD' }], { syncedAt: '2026-09-01T00:00:00Z' });
+  const sync = new RmaQueryIndexSync({ store, logger: { info() {}, error() {} },
+    readOrders: async ({ onBatch }) => {
+      await onBatch([{ rmaNo: 'TEST1', logisticsNo: 'NEW' }, { rmaNo: 'TEST2' }], { nextPage: 1 });
+      throw Object.assign(new Error('timeout'), { code: 'TEST_TIMEOUT' });
+    },
+  });
+  await sync.syncNow();
+  const saved = await store.readSnapshot();
+  assert.equal(saved.orders.length, 2);
+  assert.equal(saved.orders.find(x => x.rmaNo === 'TEST1').logisticsNo, 'NEW');
+  assert.equal(saved.syncedAt, '2026-09-01T00:00:00Z');
+  assert.equal(saved.syncState.status, 'FAILED');
+  assert.equal(saved.syncState.nextPage, 1);
 });
 
 test('RMA query index yield leaves the local cursor unchanged', async () => {

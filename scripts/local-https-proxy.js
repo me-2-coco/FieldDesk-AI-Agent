@@ -5,10 +5,11 @@ const crypto = require('node:crypto');
 function createLocalProxy({ apiPort = 3000, frontendPort = 5173, timeoutMs = 180000, log = console.log } = {}) {
   return (req, res) => {
     const api = req.url === '/api' || req.url.startsWith('/api/');
-    const requestId = crypto.randomUUID();
+    const suppliedId = String(req.headers['x-request-id'] || '');
+    const requestId = /^[a-zA-Z0-9-]{8,80}$/.test(suppliedId) ? suppliedId : crypto.randomUUID();
     const started = Date.now();
     const path = req.url.split('?')[0];
-    const record = event => { if (api) log(JSON.stringify({ event, requestId, method: req.method, path, durationMs: Date.now() - started })); };
+    const record = event => { if (api) log(JSON.stringify({ event, requestId, at: new Date().toISOString(), status: res.statusCode, method: req.method, path, durationMs: Date.now() - started })); };
     const headers = { ...req.headers, host: `127.0.0.1:${api ? apiPort : frontendPort}`, 'x-request-id': requestId };
     // This HTTP handler never upgrades connections. Do not forward hop-by-hop headers.
     for (const name of String(headers.connection || '').split(',')) delete headers[name.trim().toLowerCase()];

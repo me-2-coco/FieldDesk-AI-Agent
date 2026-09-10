@@ -2027,6 +2027,31 @@ async function readRecentRmaOrders(page, options = {}) {
   await selectAllRmaListView(page, options);
   await resetAllRmaListFilters(page);
   await setRmaListPageSize(page, options.pageSize ?? 100);
+  let initialPage = 0;
+  const resumePage = Math.max(0, Math.floor(Number(options.startPage || 0)));
+  if (resumePage > 0) {
+    const jumper = page.locator('.el-pagination__jump input, .rtxpc-pagination__jump input').filter({ visible: true }).first();
+    if (await jumper.isVisible().catch(() => false)) {
+      const tableBody = page.locator('table tbody');
+      const beforeJump = JSON.stringify(await tableBody.allTextContents());
+      await jumper.fill(String(resumePage + 1));
+      await jumper.press('Enter');
+      // Resume only after the UI confirms the requested page. Otherwise fail
+      // safely; never label some other page with this persisted checkpoint.
+      const activePage = page.locator('.el-pager li.active, .el-pager li.is-active, .rtxpc-pager li.active').filter({ visible: true }).first();
+      const deadline = Date.now() + 10000;
+      while (Date.now() < deadline && (Number(await activePage.innerText().catch(() => '')) !== resumePage + 1
+        || JSON.stringify(await tableBody.allTextContents()) === beforeJump)) {
+        await page.waitForTimeout(150);
+      }
+      if (Number(await activePage.innerText().catch(() => '')) !== resumePage + 1
+        || JSON.stringify(await tableBody.allTextContents()) === beforeJump) {
+        throw Object.assign(new Error('无法确认同步续传页码'), { code: 'RECLOUD_INDEX_RESUME_UNAVAILABLE' });
+      }
+      initialPage = resumePage;
+      await page.waitForTimeout(600);
+    }
+  }
   const orders = new Map();
   const existingRmaNos = new Set(options.existingRmaNos || []);
   const maxPages = options.maxPages ?? 500;
@@ -2044,11 +2069,14 @@ async function readRecentRmaOrders(page, options = {}) {
     if (Number.isFinite(explicitTime)) return explicitTime;
     return parseRmaDateTime(row["寄修单号"] || row["RMA单号"]);
   };
-  for (let pageNumber = 0; pageNumber < maxPages && orders.size < maxRecords; pageNumber += 1) {
+  let previousPageSignature = '';
+  let scannedComplete = false;
+  let nextPage = 0;
+  for (let pageNumber = initialPage; pageNumber < initialPage + maxPages && orders.size < maxRecords; pageNumber += 1) {
     if (options.shouldYield?.()) {
       return { orders: [], discovered: orders.size, pending: 0, yielded: true };
     }
-    const rows = await page.evaluate(() => {
+    const readRows = () => page.evaluate(() => {
       const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
       const tables = [...document.querySelectorAll("table")];
       const headers = tables.map((table) => [...table.querySelectorAll("thead th")].map((cell) => clean(cell.textContent)))
@@ -2063,6 +2091,18 @@ async function readRecentRmaOrders(page, options = {}) {
         return Object.fromEntries(headers.map((header, index) => [header, cells[index] || ""]));
       });
     });
+    let rows = await readRows();
+    const signature = values => values.map(row => row['寄修单号'] || row['RMA单号'] || '').join('|');
+    const pageDeadline = Date.now() + (options.pageLoadTimeout ?? 10000);
+    while ((!signature(rows) || signature(rows) === previousPageSignature) && Date.now() < pageDeadline) {
+      await page.waitForTimeout(150);
+      rows = await readRows();
+    }
+    if (!signature(rows) || signature(rows) === previousPageSignature) {
+      throw Object.assign(new Error('瑞云列表页未完成加载，保留已同步进度'), { code: 'RECLOUD_INDEX_PAGE_NOT_READY' });
+    }
+    previousPageSignature = signature(rows);
+    const batch = [];
     let pageEntirelyOlder = rows.length > 0 && Number.isFinite(cutoffTime);
     for (const row of rows) {
       const rowTime = parseRowTime(row);
@@ -2088,11 +2128,18 @@ async function readRecentRmaOrders(page, options = {}) {
         sourceCreatedAt: row["寄修单创建时间"] || row["创建时间"] || (Number.isFinite(rowTime) ? new Date(rowTime).toISOString() : ""),
         source: "RECLOUD_RECENT_RMA_BACKFILL",
       });
+      batch.push(orders.get(rmaNo));
       if (orders.size >= maxRecords) break;
     }
-    if (pageEntirelyOlder) break;
+    nextPage = pageNumber + 1;
+    // Persist before navigating away. Replayed pages are idempotent and also
+    // pick up orders inserted/updated while a previous scan was interrupted.
+    if (options.listOnly && options.onBatch) {
+      await options.onBatch(batch, { nextPage });
+    }
+    if (pageEntirelyOlder) { scannedComplete = true; break; }
     const next = page.locator("button.btn-next:not([disabled]), .btn-next:not(.is-disabled)").filter({ visible: true }).first();
-    if (!(await next.isVisible().catch(() => false)) || await next.isDisabled().catch(() => true)) break;
+    if (!(await next.isVisible().catch(() => false)) || await next.isDisabled().catch(() => true)) { scannedComplete = true; break; }
     await next.click();
     await page.waitForTimeout(options.pageDelay ?? 350);
   }
@@ -2105,6 +2152,8 @@ async function readRecentRmaOrders(page, options = {}) {
       discovered: orders.size,
       pending: 0,
       yielded: false,
+      incomplete: !scannedComplete,
+      nextPage,
     };
   }
   const pendingDetails = [...orders.values()].filter((order) => !existingRmaNos.has(order.rmaNo));

@@ -11,7 +11,9 @@ if (net.isIP(address) !== 4) throw new Error('Set LOCAL_HTTPS_IP to the computer
 const dir = path.resolve(__dirname, '../runtime/local-https', address);
 fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
 process.umask(0o077);
-const file = name => path.join(dir, name);
+// A LAN address change needs a new server certificate, not a new trusted CA.
+const caDir = process.env.LOCAL_HTTPS_CA_DIR ? path.resolve(process.env.LOCAL_HTTPS_CA_DIR) : dir;
+const file = name => path.join(name === 'ca.pem' || name === 'ca.key' ? caDir : dir, name);
 const openssl = args => execFileSync('openssl', args, { stdio: 'pipe' });
 if (!fs.existsSync(file('ca.pem'))) {
   openssl(['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-sha256', '-days', '365', '-subj', '/CN=FieldDesk Local Test CA', '-keyout', file('ca.key'), '-out', file('ca.pem'), '-addext', 'basicConstraints=critical,CA:TRUE', '-addext', 'keyUsage=critical,keyCertSign,cRLSign']);
