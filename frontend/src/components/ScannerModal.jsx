@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { Html5Qrcode, Html5QrcodeSupportedFormats as Formats } from "html5-qrcode"
 import { fullFrameScanConfig, enableContinuousFocus } from "../shared/scannerConfig.js"
+import { FullFrameBarcodeScanner } from "../shared/FullFrameBarcodeScanner.js"
 import "./scanner-modal.css"
 
 function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onClose }) {
@@ -34,9 +35,8 @@ function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onCl
         setCameraError("当前浏览器无法调用相机，请使用已信任证书的 HTTPS 地址")
         return
       }
-      scanner = new Html5Qrcode(areaId, { formatsToSupport: scanType === "qr"
-        ? [Formats.QR_CODE]
-        : [Formats.CODE_128, Formats.CODE_39, Formats.CODE_93, Formats.ITF, Formats.CODABAR, Formats.EAN_13, Formats.EAN_8, Formats.UPC_A, Formats.UPC_E] })
+      scanner = scanType === "barcode" ? new FullFrameBarcodeScanner(areaId)
+        : new Html5Qrcode(areaId, { formatsToSupport: [Formats.QR_CODE] })
       starting = scanner.start({ facingMode: "environment" }, fullFrameScanConfig, async text => {
         if (!active || decoded) return
         decoded = true
@@ -45,7 +45,7 @@ function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onCl
           callbacks.current.onScan(text)
           callbacks.current.onClose()
         }
-      }, () => {})
+      }, error => { if (active && scanType === "barcode") setCameraError(String(error)) })
       starting.then(() => {
         if (active) {
           setReady(true)
@@ -71,7 +71,7 @@ function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onCl
     <div className="fd-scanner-view" id={areaId} />
     <footer className="fd-scanner-footer">
       <button type="button" disabled={!ready && !cameraError} onClick={() => setScanType(type => type === "barcode" ? "qr" : "barcode")}>{scanType === "barcode" ? "当前：条码 · 切换二维码" : "当前：二维码 · 切换条码"}</button>
-      <p role="status">{cameraError || (!ready ? "正在启动相机…" : scanType === "barcode" ? "全画面识别 · 条码横向放置，两端完整清晰" : "全画面识别 · 保持二维码完整清晰")}</p>
+      <p role="status">{cameraError || (!ready ? "正在启动相机…" : scanType === "barcode" ? "全画面多方向识别 · 保持条码完整清晰，避开反光" : "全画面识别 · 保持二维码完整清晰")}</p>
       <button type="button" onClick={onClose}>关闭并手动输入</button>
     </footer>
   </div>, document.body)
