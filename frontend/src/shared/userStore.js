@@ -1,4 +1,4 @@
-import { isBusinessRuleExempt, isOwnerAccount, isRecloudTestAccount } from "./accountAccessPolicy.js"
+import { isBusinessRuleExempt, isOwnerAccount } from "./accountAccessPolicy.js"
 
 export const USER_ROLES = {
   TECHNICIAN: "technician",
@@ -238,7 +238,6 @@ export function canAccessPage(
   // 负责人不受普通角色页面规则限制；测试账号可跨业务页面，但账号治理仍只归负责人。
   if (page === "orders") return ["admin", "technician", "information_clerk"].includes(String(user?.role || "").toLowerCase())
   if (isOwnerAccount(user)) return true
-  if (isRecloudTestAccount(user)) return page !== "accountManagement"
 
   const rolePermissions = {
 

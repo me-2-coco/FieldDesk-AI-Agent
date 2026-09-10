@@ -14,7 +14,7 @@ export function isRecloudTestAccount(user = {}) {
 }
 
 export function isBusinessRuleExempt(user = {}) {
-  return isOwnerAccount(user) || isRecloudTestAccount(user)
+  return isOwnerAccount(user)
 }
 
 export function hasBusinessRole(user = {}, ...roles) {

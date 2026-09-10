@@ -3,6 +3,14 @@ const assert = require('node:assert/strict');
 const ExcelJS = require('exceljs');
 const { createApp } = require('../server');
 const { monthlyStatistics, exportMonthly, formalMonthlyOrders } = require('../shared/monthly-statistics');
+test('test technician sees self; only managers can include other test accounts',()=>{
+  const orders=[{technicianId:'FieldDesk0004'},{technicianId:'FieldDesk0005'}];
+  const accounts=orders.map(o=>({userId:o.technicianId}));
+  const tech={userId:'FieldDesk0004',role:'TECHNICIAN'};
+  assert.deepEqual(formalMonthlyOrders(orders,accounts,tech,true),[orders[0]]);
+  assert.deepEqual(formalMonthlyOrders(orders,accounts,{role:'ADMIN'}),[orders[1]]);
+  assert.deepEqual(formalMonthlyOrders(orders,accounts,{role:'ADMIN'},true),orders);
+});
 test('only managed formal accounts count; disabled accounts retain historical work',()=>{
   const ids=['LOCAL-TECH-SWEEP','FieldDesk0004','FieldDesk0005','FieldDesk0006','FieldDesk0007'];
   const accounts=ids.slice(0,4).map(userId=>({userId,active:false}));

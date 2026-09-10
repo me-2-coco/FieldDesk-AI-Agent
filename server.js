@@ -5032,7 +5032,7 @@ function createApp(
       }
       if (req.query.month && !/^\d{4}-(0[1-9]|1[0-2])$/.test(String(req.query.month))) throw createApiError("MONTH_INVALID", "请选择有效月份", 400);
       const [monthlyOrders, monthlyAccounts] = await Promise.all([receiptStore.readAll(), accountStore.list()]);
-      const data = monthlyStatistics(require('./shared/monthly-statistics').formalMonthlyOrders(monthlyOrders, monthlyAccounts), user, { ...req.query, includeDetails: exporting });
+      const data = monthlyStatistics(require('./shared/monthly-statistics').formalMonthlyOrders(monthlyOrders, monthlyAccounts, user, req.query.includeTest === 'true'), user, { ...req.query, includeDetails: exporting });
       if (!exporting) return res.json({ success: true, data });
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
       res.setHeader("Content-Disposition", `attachment; filename="monthly-${data.month}.xlsx"`);

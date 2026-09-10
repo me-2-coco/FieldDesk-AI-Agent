@@ -1,7 +1,9 @@
 const { isOwnerAccount } = require('../config/business-access-policy');
 const canExportMonthly = user => user?.role === 'ADMIN' || isOwnerAccount(user || {});
 const dayOf = value => new Intl.DateTimeFormat('en-CA', {timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(value));
-function formalMonthlyOrders(orders, accounts) {
+function formalMonthlyOrders(orders, accounts, user = {}, includeTest = false) {
+  if (!canExportMonthly(user) && user.role === 'TECHNICIAN') return orders.filter(order => (order.technicianId || order.operatorId) === (user.userId || user.id));
+  if (canExportMonthly(user) && includeTest) return orders;
   const ids = new Set(accounts.filter(account => /^FieldDesk\d{4,}$/.test(account.userId || '') && account.userId !== 'FieldDesk0004' && !/TEST/i.test(account.accountPurpose || '')).map(account => account.userId));
   return orders.filter(order => ids.has(order.technicianId || order.operatorId));
 }
