@@ -1,4 +1,5 @@
 import { useState } from "react"
+import ReceivedOrderInfo from "../components/ReceivedOrderInfo.jsx"
 import SupervisionNoticeCard from "../components/SupervisionNoticeCard.jsx"
 import { saveTreatmentDecision, transferToHeadquarters } from "../shared/crmService.js"
 import { getCurrentRepairOrder, REPAIR_STATUS, updateRepairOrder } from "../shared/repairOrderStore.js"
@@ -83,6 +84,7 @@ function RepairDecision({ setPage }) {
       </div>
       <small>已签收</small>
     </section>
+    <ReceivedOrderInfo order={repairOrder} />
     <section className="card treatment-choice-card">
       <div className="treatment-choice-heading">
         <div><span>处理方案</span><h2>请选择本单处理方式</h2></div>

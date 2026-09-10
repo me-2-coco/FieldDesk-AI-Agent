@@ -161,9 +161,9 @@ function RepairCompletion({ setPage }) {
         const draftLogisticsMode = isAbandoned && savedLogisticsMode === "WAIVED" ? "ROUND_TRIP" : savedLogisticsMode
         const draftLogisticsFee = draft.oneWayLogisticsFee === undefined ? "" : String(draft.oneWayLogisticsFee)
         setSpeechTemplate(selectedTemplate)
-        setRepairMeasure(treatmentPreset
-          ? buildRepairMeasure(selectedTemplate, contextParts, repairOrder.originalFault, confirmedFault.at(-1))
-          : draft.repairMeasure || buildRepairMeasure(selectedTemplate, contextParts, repairOrder.originalFault, confirmedFault.at(-1)))
+        setRepairMeasure(completedDetail && draft.repairMeasure
+          ? draft.repairMeasure
+          : buildRepairMeasure(selectedTemplate, contextParts, context.order?.reportedFault || repairOrder.originalFault, confirmedFault.at(-1)))
         const combined = [...(draft.attachments || [])]
         for (const approval of approvalAttachments) if (!combined.some((item) => item.id === approval.id)) combined.push(approval)
         setAttachments(combined)
@@ -181,13 +181,13 @@ function RepairCompletion({ setPage }) {
       if (!draft) {
         if (isAbandoned) setLogisticsChargeMode("ROUND_TRIP")
         setSpeechTemplate(presetTemplate)
-        setRepairMeasure(buildRepairMeasure(presetTemplate, contextParts, repairOrder.originalFault, confirmedFault.at(-1)))
+        setRepairMeasure(buildRepairMeasure(presetTemplate, contextParts, context.order?.reportedFault || repairOrder.originalFault, confirmedFault.at(-1)))
         setAttachments(approvalAttachments)
       }
     }).catch((error) => active && setErrorMessage(error.message))
       .finally(() => active && setContextLoading(false))
     return () => { active = false }
-  }, [isAbandoned, isInspectionOnly, repairOrder.crmOrderNo, repairOrder.originalFault, treatmentMode, treatmentPreset])
+  }, [completedDetail, isAbandoned, isInspectionOnly, repairOrder.crmOrderNo, repairOrder.originalFault, treatmentMode, treatmentPreset])
 
   useEffect(() => {
     let active = true

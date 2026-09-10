@@ -1,0 +1,7 @@
+.received-order-info{margin:12px 0 18px;padding:15px;border:1px solid #e5ebf4;border-radius:18px;background:#fff;text-align:left}
+.received-order-info dl{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;margin:0}
+.received-order-info dt,.received-order-fault>span{color:#8592a6;font-size:12px}
+.received-order-info dd{margin:5px 0 0;color:#31445e;font-size:13px;font-weight:600;overflow-wrap:anywhere}
+.received-order-info .received-order-wide{grid-column:1/-1}
+.received-order-fault{margin-top:14px;padding:12px;background:#f6f8fc;border-radius:12px}
+.received-order-info .received-order-fault p{margin:6px 0 0!important;color:#42536b!important;font-size:13px!important;line-height:1.7!important;text-align:left!important;white-space:pre-wrap;overflow-wrap:anywhere}

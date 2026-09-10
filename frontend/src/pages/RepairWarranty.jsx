@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import SupervisionNoticeCard from "../components/SupervisionNoticeCard.jsx"
+import ReceivedOrderInfo from "../components/ReceivedOrderInfo.jsx"
 import { checkInspectionWarranty, confirmInspectionWarranty } from "../shared/crmService.js"
 import { getCurrentRepairOrder, REPAIR_STATUS, updateRepairOrder } from "../shared/repairOrderStore.js"
 
@@ -64,6 +65,7 @@ function RepairWarranty({ setPage }) {
         <strong>{repairOrder.sn || "-"}</strong>
         <small>{repairOrder.product || "待确认品类"}</small>
       </div>
+      <ReceivedOrderInfo order={repairOrder} />
       <div className={`warranty-decision-panel ${determined && selectedWarranty === "保外" ? "is-out" : "is-in"}`}>
         <small>{determined && selectedWarranty !== decision.warrantyStatus ? "师傅已调整" : "系统判断"}</small>
         <strong>{determined ? selectedWarranty : "等待确认"}</strong>

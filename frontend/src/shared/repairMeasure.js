@@ -1,5 +1,5 @@
 function cleanPartName(value) {
-  return String(value || "").trim()
+  return String(value || "").trim().replace(/^售后\s*/, "")
 }
 
 export function buildRepairMeasure(template, usedParts = [], reportedFault = "", detectedFault = "") {
