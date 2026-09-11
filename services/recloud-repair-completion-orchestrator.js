@@ -88,6 +88,11 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
 
   // 无论是否存在断点，都重新读取瑞云；断点不能替代远端核验。
   let remote = await adapter.readRemoteState();
+  if (prior?.status === "SUBMITTING" && remote.completed !== true) {
+    throw orchestratorError("上次瑞云提交尚未确认，需核对后恢复", "RECLOUD_REPAIR_SUBMIT_RESULT_UNKNOWN", "RECONCILE", {
+      resultUnknown: true, permanent: true,
+    });
+  }
   const assignmentPlan = buildRecloudAssignmentPlan(payload.assignee);
   let assignmentRequired = String(remote.assignee || "").replace(/\s/g, "") !== assignmentPlan.servicePerson.replace(/\s/g, "");
   const formPlan = buildRecloudRepairFormPlan(payload);
@@ -392,15 +397,26 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
   if (typeof adapter.clickSubmit !== "function") {
     throw orchestratorError("缺少瑞云提交按钮执行器", "RECLOUD_REPAIR_SUBMIT_ADAPTER_INVALID", "SUBMIT");
   }
-  await adapter.clickSubmit({
-    approvalFlow: RECLOUD_WORK_ORDER_OPERATION_POLICY.approvalFlow,
-    terminalAction: RECLOUD_WORK_ORDER_OPERATION_POLICY.terminalAction,
-    stopImmediately: true,
-  });
-  completedSteps.push("SUBMIT_CLICKED_STOPPED");
+  // Persist intent before the irreversible action. A failure after entering
+  // clickSubmit is not evidence that Recloud rejected the submission.
   await saveCheckpoint(options.checkpointStore, {
-    orderKey, fingerprint, status: "SUCCESS", completedSteps: [...completedSteps],
+    orderKey, fingerprint, status: "SUBMITTING", completedSteps: [...completedSteps],
   });
+  try {
+    await adapter.clickSubmit({
+      approvalFlow: RECLOUD_WORK_ORDER_OPERATION_POLICY.approvalFlow,
+      terminalAction: RECLOUD_WORK_ORDER_OPERATION_POLICY.terminalAction,
+      stopImmediately: true,
+    });
+    completedSteps.push("SUBMIT_CLICKED_STOPPED");
+    await saveCheckpoint(options.checkpointStore, {
+      orderKey, fingerprint, status: "SUCCESS", completedSteps: [...completedSteps],
+    });
+  } catch (cause) {
+    throw orchestratorError("瑞云提交结果需要核对，禁止直接重复提交", "RECLOUD_REPAIR_SUBMIT_RESULT_UNKNOWN", "SUBMIT", {
+      resultUnknown: true, permanent: true, cause,
+    });
+  }
   return {
     status: "SUCCESS",
     resumed,

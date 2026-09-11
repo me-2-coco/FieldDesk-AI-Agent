@@ -63,6 +63,36 @@ function remoteAdapter(initial = {}) {
   };
 }
 
+for (const failure of ["response-lost", "checkpoint-failed"]) {
+  test(`submission uncertainty is quarantined: ${failure}`, async () => {
+    const adapter = remoteAdapter({ assignee: PAYLOAD.assignee, parts: PAYLOAD.usedParts });
+    let submits = 0;
+    const checkpoints = [];
+    adapter.clickSubmit = async () => {
+      submits++;
+      if (failure === "response-lost") throw new Error("synthetic connection closed");
+    };
+    await assert.rejects(orchestrateRepairCompletion("SYNTHETIC", PAYLOAD, adapter, {
+      writeEnabled: true, preparationCompleted: true,
+      checkpointStore: { async save(value) {
+        if (value.status === "SUCCESS") throw new Error("synthetic disk failure");
+        checkpoints.push(value.status);
+      } },
+    }), { code: "RECLOUD_REPAIR_SUBMIT_RESULT_UNKNOWN", resultUnknown: true, permanent: true });
+    assert.equal(submits, 1);
+    assert.equal(checkpoints.at(-1), "SUBMITTING");
+  });
+}
+
+test("interrupted submission only reads remote state when completion is not proven", async () => {
+  const adapter = remoteAdapter();
+  await assert.rejects(orchestrateRepairCompletion("SYNTHETIC", PAYLOAD, adapter, {
+    writeEnabled: true,
+    checkpointStore: { async load() { return { status: "SUBMITTING", fingerprint: "older-payload" }; } },
+  }), { code: "RECLOUD_REPAIR_SUBMIT_RESULT_UNKNOWN" });
+  assert.deepEqual(adapter.calls, ["read"]);
+});
+
 test("repair orchestrator dry-run plans work without touching Recloud", async () => {
   const adapter = remoteAdapter();
   const result = await orchestrateRepairCompletion("ORDER-1", PAYLOAD, adapter, { writeEnabled: false });
