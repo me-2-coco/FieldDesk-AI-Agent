@@ -1,6 +1,8 @@
 import { normalizeQueryIdentifier } from './queryIdentifier.js'
 import { createRequestCooldown, requestScope } from './requestCooldown.js'
+import { retryBusyUpload } from './uploadRetry.js'
 const requestCooldown = createRequestCooldown()
+let sessionGeneration = 0
 
 const API_BASE_URL = String(
   import.meta.env.VITE_API_BASE_URL || ""
@@ -11,6 +13,7 @@ let API_ACCESS_TOKEN = typeof sessionStorage === "undefined"
   : String(sessionStorage.getItem(SESSION_TOKEN_KEY) || "")
 
 export function setApiAccessToken(value) {
+  sessionGeneration++
   requestCooldown.reset()
   API_ACCESS_TOKEN = String(value || "")
   if (typeof sessionStorage !== "undefined") {
@@ -127,9 +130,17 @@ async function request(path, body, { timeoutMs = 0, idempotencyKey = "", retryNe
     )
     error.code = result?.code || "RECLOUD_ERROR"
     error.status = response.status
+    error.retryAfterSeconds = response.headers.get('retry-after')
     throw error
   }
   return result.data
+}
+
+function requestAttachment(path, payload) {
+  const generation = sessionGeneration
+  return retryBusyUpload(() => request(path, payload), {
+    isCurrent: () => generation === sessionGeneration,
+  })
 }
 
 async function get(path, { timeoutMs = 0 } = {}) {
@@ -263,7 +274,7 @@ export async function deleteLocalRepairOrder(rmaNo) {
 }
 
 export async function uploadReceiptAttachment(payload) {
-  return request("/api/repairs/receipt/attachments", payload)
+  return requestAttachment("/api/repairs/receipt/attachments", payload)
 }
 
 export async function transferToHeadquarters(rmaNo) {
@@ -308,7 +319,7 @@ export async function getWarrantyConversionRequests() {
 }
 
 export async function uploadWarrantyConversionProof(payload) {
-  return request("/api/information/warranty-conversions/attachments", payload)
+  return requestAttachment("/api/information/warranty-conversions/attachments", payload)
 }
 
 export async function startRepair(rmaNo, attemptVersion = "not-started") {
@@ -419,7 +430,7 @@ export async function getFaultCatalog() {
 }
 
 export async function uploadRepairAttachment(payload) {
-  return request("/api/repairs/completion/attachments", payload)
+  return requestAttachment("/api/repairs/completion/attachments", payload)
 }
 
 export async function saveRepairCompletionDraft(payload) {
@@ -439,7 +450,7 @@ export async function getShippingContext(rmaNo) {
 }
 
 export async function uploadShippingProof(payload) {
-  return request("/api/shipping/attachments", payload)
+  return requestAttachment("/api/shipping/attachments", payload)
 }
 
 export async function submitReturnShipment(payload) {

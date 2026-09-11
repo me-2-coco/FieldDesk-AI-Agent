@@ -367,7 +367,6 @@ function RepairCompletion({ setPage }) {
           throw new Error(`${file.name} 为 ${formatFileMb(file.size)}，超过单文件100MB限制`)
         }
       }
-      const saved = []
       for (const file of files) {
         let uploadFile = file
         if (needsVideoCompression(file)) {
@@ -388,9 +387,10 @@ function RepairCompletion({ setPage }) {
           mimeType: uploadFile.type,
           data: await fileToDataUrl(uploadFile)
         })
-        saved.push({ ...attachment, localPreviewFile: uploadFile })
+        setAttachments((current) => current.some(item => item.id === attachment.id)
+          ? current
+          : [...current, { ...attachment, localPreviewFile: uploadFile }])
       }
-      setAttachments((current) => [...current, ...saved])
       setMessage(files.some(needsVideoCompression) ? "视频压缩并上传完成" : "附件上传完成")
     } catch (error) {
       setErrorMessage(error.message)

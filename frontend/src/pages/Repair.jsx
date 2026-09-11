@@ -444,14 +444,14 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
         setErrorMessage("每张工单都必须至少拍摄或选择一张签收照片/视频；瑞云已签收时只跳过签收按钮，不跳过附件")
         return
       }
-      await Promise.all(receiptAttachments.filter((attachment) => !attachment.uploaded).map(async (attachment) => {
+      for (const attachment of receiptAttachments.filter((item) => !item.uploaded)) {
         await uploadReceiptAttachment({
           rmaNo: repairDetail.rmaNo,
           name: attachment.name,
           mimeType: attachment.mimeType,
           data: await fileToDataUrl(attachment.file)
         })
-      }))
+      }
       // A corrected SN is a new receipt attempt for the same RMA. Include the
       // scanned SN in the idempotency key so an earlier wrong-SN response can
       // never be replayed into the corrected workflow.
