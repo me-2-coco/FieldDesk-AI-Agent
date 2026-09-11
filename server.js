@@ -1653,6 +1653,7 @@ function createApp(
     activeServiceOrderSyncs.add(rmaNo);
     setImmediate(async () => {
       let serviceOrderCreated = false;
+      let creationAttempted = false;
       try {
         await receiptStore.markRecloudServiceOrderSyncing(rmaNo);
         let preparationResult = null;
@@ -1686,13 +1687,14 @@ function createApp(
                 preserveDetailPage: true,
                 fastDomRead: true,
                 revealPhoneEnabled: false,
+                skipPendingReceiptProbe: true,
               });
               if (detail.rmaNo && detail.rmaNo !== rmaNo) {
                 throw createApiError("RECLOUD_REPAIR_ORDER_MISMATCH", "瑞云查询结果与当前寄修单不一致", 409);
               }
             }
             try {
-              result = await connector.startRepair(page, { dryRun: false, writeEnabled: true });
+              result = await connector.startRepair(page, { dryRun: false, writeEnabled: true, onBeforeCreate: () => { creationAttempted = true; } });
             } catch (error) {
               // Recloud may keep the just-confirmed detection page visible
               // before refreshing its operation column. Reuse is only an
@@ -1705,11 +1707,12 @@ function createApp(
                 preserveDetailPage: true,
                 fastDomRead: true,
                 revealPhoneEnabled: false,
+                skipPendingReceiptProbe: true,
               });
               if (detail.rmaNo && detail.rmaNo !== rmaNo) {
                 throw createApiError("RECLOUD_REPAIR_ORDER_MISMATCH", "瑞云查询结果与当前寄修单不一致", 409);
               }
-              result = await connector.startRepair(page, { dryRun: false, writeEnabled: true });
+              result = await connector.startRepair(page, { dryRun: false, writeEnabled: true, onBeforeCreate: () => { creationAttempted = true; } });
             }
             if (!result?.serviceOrderCreated) {
               throw createApiError("RECLOUD_SERVICE_ORDER_NOT_CREATED", "瑞云未确认创建维修服务单", 502);
@@ -1757,8 +1760,8 @@ function createApp(
         serviceOrderRecoveryAttempts.delete(rmaNo);
         serviceOrderRecoveryNextAt.delete(rmaNo);
       } catch (error) {
-        const resultUnknown = error.resultUnknown === true
-          || error.code === "RECLOUD_REPAIR_START_RESULT_UNKNOWN";
+        const resultUnknown = creationAttempted && (error.resultUnknown === true
+          || error.code === "RECLOUD_REPAIR_START_RESULT_UNKNOWN");
         if (serviceOrderCreated) {
           await receiptStore.markRecloudRepairPreparationFailed?.(rmaNo, {
             code: error.code,

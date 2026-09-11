@@ -9967,6 +9967,7 @@ async function startRepair(page, options = {}) {
   const repairEntry = await waitForUniqueAction(page, "维修", options.actionTimeout || 15000);
   let actionAttempted = false;
   try {
+    options.onBeforeCreate?.();
     actionAttempted = true;
     await repairEntry.click({ timeout: options.clickTimeout || 5000 });
     const readyDeadline = Date.now() + (options.actionTimeout || 15000);
@@ -10122,9 +10123,11 @@ async function openExistingRepairServiceOrder(page, context = {}, options = {}) 
 
   await queryRmaByLogisticsNo(page, rmaNo, {
     expectedRmaNo: rmaNo,
+    requirePickupLogisticsNo: false,
     preserveDetailPage: true,
     fastDomRead: true,
     revealPhoneEnabled: false,
+    skipPendingReceiptProbe: true,
   });
   logger.info(`RECLOUD_REPAIR_ORDER_OPEN: rma_detail_ready rma=${rmaNo}`);
   bodyText = String(await readBody());

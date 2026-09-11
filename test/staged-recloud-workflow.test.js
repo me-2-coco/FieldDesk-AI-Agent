@@ -7,6 +7,17 @@ const { JsonReceiptPreparationStore } = require("../database/receipt-preparation
 
 const TECH = { userId: "STAGED-TECH", displayName: "分步测试师傅", role: "TECHNICIAN" };
 
+test("repair creation and completion bypass receipt probes for already inspected walk-in orders", async () => {
+  const server = await fs.readFile(path.join(__dirname, "../server.js"), "utf8");
+  const connector = await fs.readFile(path.join(__dirname, "../connectors/recloud.js"), "utf8");
+  const creation = server.slice(server.indexOf("function scheduleRecloudServiceOrderSync"), server.indexOf("function scheduleRecloudServiceOrderSync") + 11000);
+  assert.equal((creation.match(/skipPendingReceiptProbe: true/g) || []).length, 2);
+  assert.match(creation, /const resultUnknown = creationAttempted &&/);
+  assert.match(connector, /options.onBeforeCreate\?\.\(\);\s*actionAttempted = true;\s*await repairEntry.click/);
+  const completion = connector.slice(connector.indexOf("async function openExistingRepairServiceOrder"));
+  assert.match(completion, /queryRmaByLogisticsNo\(page, rmaNo, \{\s*expectedRmaNo: rmaNo,\s*requirePickupLogisticsNo: false,[\s\S]*?skipPendingReceiptProbe: true/);
+});
+
 test("FieldDesk persists the required warranty, decision, parts, detection and repair order", async (t) => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "fielddesk-staged-"));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
@@ -74,7 +85,7 @@ test("Recloud detection and repair creation are separate explicit actions", asyn
   assert.match(server, /function scheduleRecloudDetectionSync[\s\S]*fastDomRead: true,[\s\S]*revealPhoneEnabled: false/);
   assert.match(server, /function scheduleRecloudServiceOrderSync[\s\S]*fastDomRead: true,[\s\S]*revealPhoneEnabled: false/);
   assert.match(server, /reusedDetectionDetail = await isExpectedRmaStillOpen\(page, rmaNo\)/);
-  assert.match(server, /RECLOUD_ACTION_NOT_FOUND[\s\S]*queryRmaByLogisticsNo\(page, order\.logisticsNo[\s\S]*connector\.startRepair/);
+  assert.match(server, /RECLOUD_ACTION_NOT_FOUND[\s\S]*queryRmaByLogisticsNo\(page, query\.identifier[\s\S]*connector\.startRepair/);
   assert.match(server, /recoveringPreparation[\s\S]*openExistingRepairServiceOrder/);
   assert.match(server, /recoveredExistingServiceOrder:\s*true/);
   assert.match(server, /app\.get\("\/api\/repairs\/my-sync-alerts"[\s\S]*intercepts pointer events[\s\S]*scheduleRecloudServiceOrderSync\(order, user\)/);

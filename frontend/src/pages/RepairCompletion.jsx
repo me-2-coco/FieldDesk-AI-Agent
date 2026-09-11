@@ -333,7 +333,8 @@ function RepairCompletion({ setPage }) {
       setMessage(result.message)
       if (submit) setPage("repair")
     } catch (error) {
-      setErrorMessage(error.message)
+      setMessage("")
+      setErrorMessage(`${submit ? "完工未提交成功：" : "草稿保存失败："}${error.message}`)
     } finally {
       setBusy(false)
     }
