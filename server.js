@@ -578,28 +578,40 @@ async function executeRecloudOperation(connector, operation, options, coordinato
   }
   let session;
   let timer;
+  let expired = false;
+  let operationStarted = false;
+  const closePage = () => Promise.resolve().then(() => session?.page?.close?.()).catch(() => {});
   try {
-    session = await connector.openRecloud({ channel });
-    if (session.loginRequired) {
-      const error = new Error("请重新初始化瑞云登录状态");
-      error.code = "RECLOUD_LOGIN_REQUIRED";
-      throw error;
-    }
-    const operationPromise = Promise.resolve().then(() => operation(session.page, {
-      shouldYield: () => options.background === true && coordinator.foregroundWaiting > 0,
-    }));
+    const operationPromise = Promise.resolve().then(async () => {
+      session = await connector.openRecloud({ channel });
+      if (expired) {
+        void closePage();
+        return;
+      }
+      if (session.loginRequired) {
+        const error = new Error("请重新初始化瑞云登录状态");
+        error.code = "RECLOUD_LOGIN_REQUIRED";
+        throw error;
+      }
+      operationStarted = true;
+      return operation(session.page, {
+        shouldYield: () => options.background === true && coordinator.foregroundWaiting > 0,
+      });
+    });
     const timeoutMs = Number(options.timeoutMs || 0);
     if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return await operationPromise;
     const timeoutPromise = new Promise((_, reject) => {
-      timer = setTimeout(async () => {
-        await session.page?.close?.().catch(() => {});
+      timer = setTimeout(() => {
+        expired = true;
+        // Closing can itself hang. Reject on time and retire this channel;
+        // a late open is closed above without invoking the business operation.
+        void closePage();
         const error = new Error(`瑞云操作超过 ${timeoutMs}ms，已隔离当前通道`);
         error.code = options.timeoutCode || "RECLOUD_OPERATION_TIMEOUT";
         error.status = 504;
-        error.resultUnknown = options.resultUnknownOnTimeout === true;
-        // The caller is released now, but this lane cannot be reused until the
-        // aborted operation really settles. A non-cooperative task therefore
-        // loses one worker instead of contaminating another order.
+        error.resultUnknown = operationStarted && options.resultUnknownOnTimeout === true;
+        // The caller is released now. The pool retires this channel and uses
+        // a new channel identity; it never assigns another order to this page.
         error.recloudDrainPromise = operationPromise.catch(() => {});
         reject(error);
       }, timeoutMs);

@@ -980,6 +980,35 @@ test("new technician writes overtake queued historical recovery work", async () 
   assert.deepEqual(order, ["first-recovery", "second-recovery", "live-submission", "queued-recovery"]);
 });
 
+test("a stalled page open times out and never runs the late business operation", async () => {
+  let finishOpen;
+  let closed = 0;
+  let opens = 0;
+  const connector = { openRecloud: async ({ channel }) => {
+    if (++opens === 1) return new Promise(resolve => { finishOpen = resolve; });
+    return { page: { channel } };
+  } };
+  const options = { channel: "slow-open-test", concurrency: 2, timeoutMs: 20, resultUnknownOnTimeout: true };
+  await assert.rejects(withRecloud(connector, () => assert.fail("late operation executed"), options),
+    error => error.code === "RECLOUD_OPERATION_TIMEOUT" && error.resultUnknown === false);
+  finishOpen({ page: { close: async () => { closed++; } } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(closed, 1);
+  assert.equal(await withRecloud(connector, async () => "next-ok", options), "next-ok");
+});
+
+test("a stalled page close cannot postpone the timeout or exhaust workers", async () => {
+  const connector = { openRecloud: async ({ channel }) => ({
+    page: { channel, close: () => new Promise(() => {}) },
+  }) };
+  const options = { channel: "slow-close-test", concurrency: 2, timeoutMs: 20, resultUnknownOnTimeout: true };
+  await Promise.all([1, 2].map(() => assert.rejects(
+    withRecloud(connector, () => new Promise(() => {}), options),
+    error => error.code === "RECLOUD_OPERATION_TIMEOUT" && error.resultUnknown === true
+  )));
+  assert.equal(await withRecloud(connector, async () => "next-ok", options), "next-ok");
+});
+
 test("a timed-out pooled write is quarantined while other workers keep processing", async () => {
   let closedCount = 0;
   const connector = {
