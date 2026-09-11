@@ -3,6 +3,7 @@
     "start": "node server.js",
     "lab:isolated": "node scripts/start-isolated-lab.js",
     "test:recovery:isolated": "node scripts/run-isolated-recovery-tests.js",
+    "test:upload:ui": "node scripts/test-upload-page.js",
     "recloud:login": "node init-recloud-login.js",
     "recloud:credentials": "node scripts/configure-recloud-credentials.js",
     "recloud:backfill-pending": "node scripts/backfill-pending-receipts.js",
