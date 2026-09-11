@@ -20,6 +20,9 @@ function orchestratorError(message, code, phase, details = {}) {
 function repairCompletionFingerprint(orderKey, payload) {
   const stable = JSON.stringify({
     orderKey: String(orderKey || ""),
+    // Reconciliation must also reject changes in pricing, treatment mode,
+    // attachment identity and any newly added command field.
+    commandPayload: payload || {},
     assignee: payload?.assignee || "",
     faultLevel1: payload?.faultLevel1 || "",
     faultLevel2: payload?.faultLevel2 || "",

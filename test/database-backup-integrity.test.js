@@ -33,8 +33,16 @@ test("backup writes a checksum manifest and refuses corrupted restore data", asy
   assert.match(manifest.files[0].sha256, /^[a-f0-9]{64}$/);
   assert.equal((await run(["verify", created.stdout], env)).code, 0);
 
+  await fs.writeFile(path.join(data, "orders.json"), '[{"id":"synthetic-changed"}]\n');
+  const restored = await run(["restore", created.stdout, "--confirm"], env);
+  assert.equal(restored.code, 0, restored.stderr);
+  assert.equal(await fs.readFile(path.join(data, "orders.json"), "utf8"), "[]\n");
+
   await fs.writeFile(path.join(created.stdout, "orders.json"), "corrupted\n");
   const corrupted = await run(["verify", created.stdout], env);
   assert.notEqual(corrupted.code, 0);
   assert.match(corrupted.stderr, /备份完整性校验失败/);
+  const refused = await run(["restore", created.stdout, "--confirm"], env);
+  assert.notEqual(refused.code, 0);
+  assert.equal(await fs.readFile(path.join(data, "orders.json"), "utf8"), "[]\n");
 });

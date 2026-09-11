@@ -78,10 +78,16 @@ async function executeRecloudRepairAttachmentUpload(plan, adapter, options = {})
       "完工附件上传结果未知，禁止自动重试以免重复",
       "RECLOUD_REPAIR_ATTACHMENT_UPLOAD_UNCERTAIN",
       "UPLOAD",
-      { cause }
+      { cause, resultUnknown: true, permanent: true }
     );
   }
-  assertQueueMatches(additions, await adapter.readExisting(), "POSTVERIFY");
+  try {
+    assertQueueMatches(additions, await adapter.readExisting(), "POSTVERIFY");
+  } catch (cause) {
+    throw uploadError("上传后瑞云附件尚未核实，禁止直接重复上传",
+      "RECLOUD_REPAIR_ATTACHMENT_POSTVERIFY_FAILED", "POSTVERIFY",
+      { cause, resultUnknown: true, permanent: true });
+  }
   return {
     uploadedCount: additions.length,
     alreadyComplete: false,

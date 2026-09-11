@@ -9914,6 +9914,7 @@ async function confirmDetection(page, payload = {}, options = {}) {
   }
   let confirmationAttempted = false;
   try {
+    await options.onConfirmationAttempt?.();
     confirmationAttempted = true;
     logRecloudStage("detection_confirm_start", options.logger);
     await confirmButtons.first().click({ timeout: 5000 });
@@ -9926,16 +9927,14 @@ async function confirmDetection(page, payload = {}, options = {}) {
       ).allInnerTexts().catch(() => []))
         .map((value) => normalizeText(value))
         .filter(Boolean))];
-      const validationError = new Error(
-        validationMessages.length
-          ? `瑞云检测表单未通过校验：${validationMessages.join("；")}`
-          : "瑞云检测表单点击确认后仍未关闭，请核对必填项"
-      );
-      validationError.code = "RECLOUD_DETECTION_VALIDATION_FAILED";
-      validationError.status = 502;
-      validationError.validationMessages = validationMessages.slice(0, 20);
-      validationError.resultUnknown = false;
-      throw validationError;
+      if (validationMessages.length) {
+        const validationError = new Error(`瑞云检测表单未通过校验：${validationMessages.join("；")}`);
+        validationError.code = "RECLOUD_DETECTION_VALIDATION_FAILED";
+        validationError.status = 502;
+        validationError.validationMessages = validationMessages.slice(0, 20);
+        validationError.resultUnknown = false;
+        throw validationError;
+      }
     }
     if (confirmationAttempted) {
       error.code = "RECLOUD_DETECTION_RESULT_UNKNOWN";

@@ -1107,7 +1107,7 @@ class JsonReceiptPreparationStore {
       const existing = records.find((record) => record.rmaNo === rmaNo);
       if (!existing) throw Object.assign(new Error("未找到待检测工单"), { code: "RECEIPT_PREPARATION_NOT_FOUND", status: 404 });
       if (existing.recloudDetectionConfirmedAt) return existing;
-      if (existing.recloudDetectionSyncStatus === "RESULT_UNKNOWN") {
+      if (existing.recloudDetectionSyncStatus === "RESULT_UNKNOWN" || existing.recloudDetectionSubmissionStartedAt) {
         throw Object.assign(new Error("瑞云检测结果待人工核对，禁止重复提交"), { code: "RECLOUD_DETECTION_RECONCILIATION_REQUIRED", status: 409 });
       }
       const timestamp = new Date().toISOString();
@@ -1125,6 +1125,25 @@ class JsonReceiptPreparationStore {
     return operation;
   }
 
+  async markRecloudDetectionSubmissionStarted(rmaNo) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find(record => record.rmaNo === rmaNo);
+      if (!existing || existing.recloudDetectionConfirmedAt || existing.recloudDetectionSubmissionStartedAt
+        || existing.recloudDetectionSyncStatus !== "SYNCING") {
+        throw Object.assign(new Error("检测提交状态不允许再次确认"), {
+          code: "RECLOUD_DETECTION_RECONCILIATION_REQUIRED", status: 409,
+        });
+      }
+      const timestamp = new Date().toISOString();
+      const updated = { ...existing, recloudDetectionSubmissionStartedAt: timestamp, updatedAt: timestamp };
+      await this.writeAll(records.map(record => record.rmaNo === rmaNo ? updated : record));
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
   async markRecloudDetectionConfirmed(rmaNo, input = {}) {
     const operation = this.writeQueue.then(async () => {
       const records = await this.readAll();
@@ -1135,6 +1154,7 @@ class JsonReceiptPreparationStore {
       const updated = {
         ...existing,
         recloudDetectionSyncStatus: "CONFIRMED",
+        recloudDetectionSubmissionStartedAt: "",
         recloudDetectionConfirmedAt: timestamp,
         recloudDetectionLastError: null,
         updatedAt: timestamp,
@@ -1190,6 +1210,7 @@ class JsonReceiptPreparationStore {
       const updated = {
         ...existing,
         recloudDetectionSyncStatus: "FAILED",
+        recloudDetectionSubmissionStartedAt: "",
         recloudDetectionLastError: {
           code: "RECLOUD_DETECTION_RETRY_APPROVED",
           message: "已核对瑞云尚未完成检测，允许安全重试",

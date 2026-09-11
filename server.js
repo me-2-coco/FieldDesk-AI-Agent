@@ -15,7 +15,8 @@ if (require.main === module) {
 const recloudConnector = require("./connectors/recloud");
 const { classifyRecloudReceiptState } = require("./connectors/recloud-receipt-state");
 const { RECLOUD_HOLD_REASON_GROUPS, validateHoldInput } = require("./shared/recloud-hold-reasons");
-const { ACTIVE_RECEIPT_STATUSES, normalizeSn, validateReceiptCompletion } = require("./database/receipt-preparation-store");
+const { normalizeSn, validateReceiptCompletion } = require("./database/receipt-preparation-store");
+const { scheduleBackgroundRetry, scheduleBackgroundWork } = require("./services/safe-background-retry");
 const { createBusinessStores } = require("./database/business-store-factory");
 const { AccountStore } = require("./database/account-store");
 const { WorkCoordinationStore } = require("./database/work-coordination-store");
@@ -596,6 +597,7 @@ async function executeRecloudOperation(connector, operation, options, coordinato
       operationStarted = true;
       return operation(session.page, {
         shouldYield: () => options.background === true && coordinator.foregroundWaiting > 0,
+        isExpired: () => expired,
       });
     });
     const timeoutMs = Number(options.timeoutMs || 0);
@@ -609,7 +611,8 @@ async function executeRecloudOperation(connector, operation, options, coordinato
         const error = new Error(`瑞云操作超过 ${timeoutMs}ms，已隔离当前通道`);
         error.code = options.timeoutCode || "RECLOUD_OPERATION_TIMEOUT";
         error.status = 504;
-        error.resultUnknown = operationStarted && options.resultUnknownOnTimeout === true;
+        error.resultUnknown = operationStarted && (typeof options.resultUnknownOnTimeout === "function"
+          ? options.resultUnknownOnTimeout() === true : options.resultUnknownOnTimeout === true);
         // The caller is released now. The pool retires this channel and uses
         // a new channel identity; it never assigns another order to this page.
         error.recloudDrainPromise = operationPromise.catch(() => {});
@@ -692,16 +695,16 @@ function runRecloudPool(coordinator, connector, operation, options, requestedCha
             // immediately and create a fresh one so an uncooperative stale
             // promise cannot permanently consume one of the fixed write lanes.
             worker.retired = true;
+            const retiredIndex = pool.workers.indexOf(worker);
+            if (retiredIndex >= 0) pool.workers.splice(retiredIndex, 1);
             pool.nextWorkerId += 1;
             pool.workers.push({
               busy: false,
               retired: false,
               channel: `${requestedChannel}:${pool.nextWorkerId}`,
             });
-            error.recloudDrainPromise.finally(() => {
-              const index = pool.workers.indexOf(worker);
-              if (index >= 0) pool.workers.splice(index, 1);
-            });
+            // Do not retain an ever-growing list of retired workers while
+            // their uncooperative promises may never settle.
           }
         }).finally(() => {
           if (!worker.retired) worker.busy = false;
@@ -774,7 +777,8 @@ function timestampAgeMs(value, now = Date.now()) {
 
 function shouldAutoResumeReceipt(order, now = Date.now()) {
   if (!order?.receiptCompletedAt || !RECEIPT_RECOVERY_STATUSES.has(order.status)) return false;
-  if (order.recloudReceiptSyncStatus === "RESULT_UNKNOWN") return false;
+  if ([order.recloudReceiptSyncStatus, order.recloudReceiptAttachmentSyncStatus,
+    order.recloudProjectVerificationStatus].includes("RESULT_UNKNOWN")) return false;
   const missingDependency = !order.recloudReceiptConfirmedAt
     || !order.recloudProjectVerificationConfirmedAt
     || ((order.receiptAttachments || []).length > 0 && !order.recloudReceiptAttachmentConfirmedAt);
@@ -795,6 +799,7 @@ function shouldAutoResumeReceipt(order, now = Date.now()) {
 }
 
 function shouldAutoResumeDetection(order, now = Date.now(), confirmedRecovery = false) {
+  if (order?.recloudDetectionSubmissionStartedAt && !order.recloudDetectionConfirmedAt) return false;
   const codeRecovery = confirmedRecovery && Boolean(order?.faultCategoryCode)
     && order?.recloudDetectionLastError?.code === "RECLOUD_DETECTION_OPTION_AMBIGUOUS";
   if (order?.status !== "INSPECTION_COMPLETED_PENDING_REPAIR"
@@ -1183,13 +1188,15 @@ function createApp(
       !isRecloudReceiptWriteEnabled(runtimeEnv) ||
       (!receiptNeedsSync && !projectNeedsSync && !attachmentsNeedSync) ||
       (receiptNeedsSync && order.recloudReceiptSyncStatus === "RESULT_UNKNOWN") ||
+      (attachmentsNeedSync && order.recloudReceiptAttachmentSyncStatus === "RESULT_UNKNOWN") ||
+      (projectNeedsSync && order.recloudProjectVerificationStatus === "RESULT_UNKNOWN") ||
       activeReceiptSyncs.has(rmaNo)
     ) {
       return false;
     }
 
     activeReceiptSyncs.add(rmaNo);
-    setImmediate(async () => {
+    scheduleBackgroundWork(async () => {
       let attachmentUploadTriggered = false;
       try {
         const result = await withRecloud(connector, async (page) => {
@@ -1491,7 +1498,7 @@ function createApp(
         else receiptRecoveryAttempts.delete(rmaNo);
         const retryDelay = retryable ? [2000, 5000, 15000][retryCount - 1] : 0;
         if (retryDelay) {
-          const retryTimer = setTimeout(async () => {
+          const retryTimer = scheduleBackgroundRetry(async () => {
             const latest = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
             if (latest) scheduleRecloudReceiptSync(
               latest, operator, crypto.randomUUID(), scheduleOptions
@@ -1545,20 +1552,23 @@ function createApp(
       !isRecloudInspectionWriteEnabled(runtimeEnv) ||
       order.recloudDetectionConfirmedAt ||
       order.recloudDetectionSyncStatus === "RESULT_UNKNOWN" ||
+      order.recloudDetectionSubmissionStartedAt ||
       activeDetectionSyncs.has(rmaNo)
     ) {
       return false;
     }
     activeDetectionSyncs.add(rmaNo);
-    setImmediate(async () => {
+    scheduleBackgroundWork(async () => {
+      let confirmationAttempted = false;
       try {
         await receiptStore.markRecloudDetectionSyncing(rmaNo);
-        const liveResult = await withRecloud(connector, async (page) => {
+        const liveResult = await withRecloud(connector, async (page, operationContext) => {
           const detail = await connector.queryRmaByLogisticsNo(page, query.identifier, {
             ...query.options,
             preserveDetailPage: true,
             fastDomRead: true,
             revealPhoneEnabled: false,
+            skipPendingReceiptProbe: true,
           });
           if (detail.rmaNo && detail.rmaNo !== rmaNo) {
             throw createApiError(
@@ -1582,15 +1592,20 @@ function createApp(
           }, {
             dryRun: false,
             writeEnabled: true,
+            onConfirmationAttempt: async () => {
+              await receiptStore.markRecloudDetectionSubmissionStarted(rmaNo);
+              confirmationAttempted = true;
+              if (operationContext.isExpired?.()) {
+                throw Object.assign(new Error("检测任务已经超时，禁止迟到提交"), { resultUnknown: true });
+              }
+            },
           });
         }, {
           ...businessWriteOptions,
           queuePriority: scheduleOptions.queuePriority ?? businessWriteOptions.queuePriority,
           timeoutCode: "RECLOUD_DETECTION_TIMEOUT",
-          // confirmDetection itself marks an unknown result only after the
-          // final confirmation click. A broader lane timeout before that point
-          // is safe to retry and must not strand the order in manual review.
-          resultUnknownOnTimeout: false,
+          // The lane deadline may win before confirmDetection can throw.
+          resultUnknownOnTimeout: () => confirmationAttempted,
         });
         if (!liveResult?.confirmed) {
           throw createApiError("RECLOUD_DETECTION_NOT_CONFIRMED", "瑞云未确认检测", 502);
@@ -1608,6 +1623,7 @@ function createApp(
         }
       } catch (error) {
         const resultUnknown = error.resultUnknown === true
+          || (confirmationAttempted && error.resultUnknown !== false)
           || error.code === "RECLOUD_DETECTION_RESULT_UNKNOWN";
         await receiptStore.markRecloudDetectionFailed(rmaNo, {
           code: error.code,
@@ -1627,7 +1643,7 @@ function createApp(
           detectionRecoveryAttempts.set(rmaNo, retryCount);
           const retryDelay = [2000, 5000, 15000][retryCount - 1];
           if (retryDelay) {
-            const retryTimer = setTimeout(async () => {
+            const retryTimer = scheduleBackgroundRetry(async () => {
               const latest = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
               if (latest) scheduleRecloudDetectionSync(latest, operator, scheduleOptions);
             }, retryDelay);
@@ -1686,7 +1702,7 @@ function createApp(
       activeServiceOrderSyncs.has(rmaNo)
     ) return false;
     activeServiceOrderSyncs.add(rmaNo);
-    setImmediate(async () => {
+    scheduleBackgroundWork(async () => {
       let serviceOrderCreated = false;
       let creationAttempted = false;
       try {
@@ -1812,12 +1828,12 @@ function createApp(
           `RECLOUD_SERVICE_ORDER_BACKGROUND: failed ${error.code || "UNKNOWN"}`,
           JSON.stringify({ name: error.name || "Error", message: error.message || "" })
         );
-        if (serviceOrderCreated || !resultUnknown) {
+        if ((serviceOrderCreated || !resultUnknown) && (serviceOrderRecoveryAttempts.get(rmaNo) || 0) < 4) {
           const retryCount = (serviceOrderRecoveryAttempts.get(rmaNo) || 0) + 1;
           serviceOrderRecoveryAttempts.set(rmaNo, retryCount);
           const retryDelay = [2000, 5000, 15000, 60000][Math.min(retryCount - 1, 3)];
           serviceOrderRecoveryNextAt.set(rmaNo, Date.now() + retryDelay);
-          const retryTimer = setTimeout(async () => {
+          const retryTimer = scheduleBackgroundRetry(async () => {
             serviceOrderRecoveryNextAt.delete(rmaNo);
             const latest = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
             if (!latest) return;
@@ -3983,7 +3999,8 @@ function createApp(
           recloudReceiptAttachmentSyncStatus: order.recloudReceiptAttachmentSyncStatus || "NOT_STARTED",
           recloudReceiptAttachmentConfirmedAt: order.recloudReceiptAttachmentConfirmedAt || "",
           recloudReceiptAttachmentLastError: order.recloudReceiptAttachmentLastError || null,
-          recloudDetectionSyncStatus: order.recloudDetectionSyncStatus || "NOT_STARTED",
+          recloudDetectionSyncStatus: order.recloudDetectionSubmissionStartedAt && !order.recloudDetectionConfirmedAt
+            ? "RESULT_UNKNOWN" : order.recloudDetectionSyncStatus || "NOT_STARTED",
           recloudDetectionConfirmedAt: order.recloudDetectionConfirmedAt || "",
           recloudDetectionLastError: order.recloudDetectionLastError || null,
           recloudServiceOrderSyncStatus: order.recloudServiceOrderSyncStatus || "NOT_STARTED",
@@ -4075,9 +4092,11 @@ function createApp(
         ["SERVICE_ORDER", "进入维修", "recloudServiceOrderSyncStatus", "recloudServiceOrderLastError", "recloudServiceOrderAttemptedAt", 120_000],
       ];
       for (const order of orders) {
-        if (!ACTIVE_RECEIPT_STATUSES.has(order.status)) continue;
+        // Local completion does not prove that the remote steps succeeded.
+        if (["CANCELLED", "DELETED"].includes(order.status)) continue;
         for (const [stage, stageLabel, statusKey, errorKey, attemptedAtKey, stalledAfterMs] of stages) {
-          const status = String(order?.[statusKey] || "NOT_STARTED").trim().toUpperCase();
+          const status = stage === "DETECTION" && order.recloudDetectionSubmissionStartedAt && !order.recloudDetectionConfirmedAt
+            ? "RESULT_UNKNOWN" : String(order?.[statusKey] || "NOT_STARTED").trim().toUpperCase();
           const attemptedAt = String(order?.[attemptedAtKey] || order?.updatedAt || "").trim();
           const attemptedMs = Date.parse(attemptedAt);
           const stalled = activeStatuses.has(status)
@@ -4094,8 +4113,10 @@ function createApp(
             stageLabel,
             status: stalled ? "STALLED" : status,
             message: stalled
-              ? `${stageLabel}超过${Math.round(stalledAfterMs / 1000)}秒没有完成，系统正在自动恢复`
-              : String(lastError?.message || `${stageLabel}失败，系统正在自动重试`),
+              ? `${stageLabel}超过${Math.round(stalledAfterMs / 1000)}秒没有完成，请查看同步状态`
+              : status === "RESULT_UNKNOWN"
+                ? `${stageLabel}结果未知，需核对瑞云，不能重复提交`
+                : String(lastError?.message || `${stageLabel}失败，请查看处理`),
             errorCode: String(lastError?.code || ""),
             updatedAt: String(lastError?.at || attemptedAt || order.updatedAt || ""),
           });
@@ -4160,8 +4181,10 @@ function createApp(
           stage: task.nodeType || "RECLOUD_SYNC",
           stageLabel: task.nodeType === "REPAIR_COMPLETED" ? "完工提交" : "瑞云同步",
           status,
-          message: String(task.lastError?.message || task.error?.message || "瑞云同步失败，请查看处理"),
-          errorCode: String(task.lastError?.code || task.error?.code || ""),
+          message: task.reconciliationRequired
+            ? "瑞云提交结果未知，系统将核对支持的节点；未确认前不能重复提交"
+            : String(task.lastError?.message || task.error?.message || "瑞云同步失败，请查看处理"),
+          errorCode: String((typeof task.lastError === "string" ? task.lastError : task.lastError?.code) || task.error?.code || ""),
           updatedAt: String(task.updatedAt || ""),
         });
       }

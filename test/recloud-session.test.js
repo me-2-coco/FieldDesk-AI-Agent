@@ -980,6 +980,16 @@ test("new technician writes overtake queued historical recovery work", async () 
   assert.deepEqual(order, ["first-recovery", "second-recovery", "live-submission", "queued-recovery"]);
 });
 
+for (const attempted of [false, true]) {
+  test(`deadline classifies uncertainty using final confirmation phase: ${attempted}`, async () => {
+    const connector = { openRecloud: async () => ({ page: { close: async () => {} } }) };
+    await assert.rejects(withRecloud(connector, () => new Promise(() => {}), {
+      channel: "phase-aware-test", concurrency: 2, timeoutMs: 20,
+      resultUnknownOnTimeout: () => attempted,
+    }), error => error.code === "RECLOUD_OPERATION_TIMEOUT" && error.resultUnknown === attempted);
+  });
+}
+
 test("a stalled page open times out and never runs the late business operation", async () => {
   let finishOpen;
   let closed = 0;
@@ -1077,4 +1087,40 @@ test("timed-out pooled writes are replaced so the fixed pool cannot be exhausted
     { ...timeoutOptions, timeoutMs: 100 }
   );
   assert.match(completed, /^business-write-replacement:[34]$/);
+});
+
+test("repeated hung operations do not grow the active worker registry", async () => {
+  const connector = { openRecloud: async () => ({ page: { close: async () => {} } }) };
+  const options = { channel: "bounded-workers", concurrency: 2, timeoutMs: 10 };
+  for (let round = 0; round < 8; round++) {
+    await Promise.all([1, 2].map(() => assert.rejects(withRecloud(connector,
+      () => new Promise(() => {}), options), { code: "RECLOUD_OPERATION_TIMEOUT" })));
+    await new Promise(resolve => setImmediate(resolve));
+    const pool = withRecloud.queues.get(connector).pools.get("bounded-workers:2");
+    assert.equal(pool.workers.length, 2);
+  }
+  assert.equal(await withRecloud(connector, async () => "recovered", options), "recovered");
+});
+
+test("sixty mixed synthetic tasks remain isolated across read and write channels", async () => {
+  const counts = { read: 0, write: 0 };
+  const peaks = { read: 0, write: 0 };
+  const connector = { openRecloud: async ({ channel }) => ({ page: { channel, close: async () => {} } }) };
+  const jobs = Array.from({ length: 60 }, (_, i) => {
+    const kind = i % 3 === 0 ? "read" : "write";
+    return withRecloud(connector, async () => {
+      counts[kind]++;
+      peaks[kind] = Math.max(peaks[kind], counts[kind]);
+      try {
+        await new Promise(resolve => setTimeout(resolve, 2));
+        if (i === 7) throw Object.assign(new Error("synthetic login expired"), { code: "RECLOUD_LOGIN_REQUIRED" });
+        return i;
+      } finally { counts[kind]--; }
+    }, { channel: `mixed-${kind}`, concurrency: kind === "read" ? 4 : 5, timeoutMs: 1000 });
+  });
+  const results = await Promise.allSettled(jobs);
+  assert.equal(results.filter(result => result.status === "fulfilled").length, 59);
+  assert.equal(results.filter(result => result.status === "rejected").length, 1);
+  assert.equal(peaks.read, 4);
+  assert.equal(peaks.write, 5);
 });

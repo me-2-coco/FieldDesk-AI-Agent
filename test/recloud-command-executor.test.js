@@ -60,6 +60,16 @@ test("changed payload cannot be reconciled using an older submit checkpoint", as
   assert.equal(await executor.reconcileTask({ ...task, nodeType: "REPAIR_COMPLETED" }), null);
 });
 
+test("reconciliation fingerprint includes pricing and treatment changes", () => {
+  const fingerprint = repairCompletionFingerprint(task.rmaNo, task.payload);
+  assert.notEqual(fingerprint, repairCompletionFingerprint(task.rmaNo, {
+    ...task.payload, pricing: { warrantyStatus: "OUT_OF_WARRANTY", freight: 25 },
+  }));
+  assert.notEqual(fingerprint, repairCompletionFingerprint(task.rmaNo, {
+    ...task.payload, treatmentMode: "INSPECTION_ONLY",
+  }));
+});
+
 test("command executor delegates repair completion to the guarded two-step orchestrator", async () => {
   const calls = [];
   const adapter = remoteAdapter(calls);

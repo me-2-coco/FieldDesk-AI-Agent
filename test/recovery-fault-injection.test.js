@@ -131,6 +131,31 @@ test("scheduler failure releases the reservation so a later sweep can recover", 
   assert.equal(service.scheduleTask("synthetic"), true);
 });
 
+test("different nodes of one order cannot write concurrently", async t => {
+  const outbox = await fixture(t);
+  const first = await outbox.enqueue({ rmaNo: "SYNTHETIC-SAME", nodeType: "RECEIPT", idempotencyKey: "first" });
+  const second = await outbox.enqueue({ rmaNo: "SYNTHETIC-SAME", nodeType: "INSPECTION_COMPLETED", idempotencyKey: "second" });
+  let release;
+  let entered;
+  const started = new Promise(resolve => { entered = resolve; });
+  const gate = new Promise(resolve => { release = resolve; });
+  let secondCalls = 0;
+  const service = new RecloudSyncService(outbox, {
+    syncReceipt: async () => { entered(); await gate; return { status: "SUCCESS" }; },
+    syncInspectionCompleted: async () => { secondCalls++; return { status: "SUCCESS" }; },
+  }, { scheduler: () => {}, retryScheduler: () => {} });
+  const firstWork = service.processTask(first.id);
+  await started;
+  await service.processTask(second.id);
+  assert.equal(secondCalls, 0);
+  assert.equal((await outbox.get(second.id)).retryCount, 0);
+  release();
+  await firstWork;
+  await service.processTask(second.id);
+  assert.equal(secondCalls, 1);
+  assert.equal(service.activeOrderKeys.size, 0);
+});
+
 for (const status of ["AWAITING_PARTS", "AWAITING_INFORMATION_CLERK"]) {
   test(`${status}: local callback failure recovers without another remote call`, async t => {
     const outbox = await fixture(t);

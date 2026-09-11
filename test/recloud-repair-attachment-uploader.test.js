@@ -65,6 +65,7 @@ test("unknown upload result is never retried automatically", async () => {
   });
   await assert.rejects(executeRecloudRepairAttachmentUpload(PLAN, adapter, { writeEnabled: true }), {
     code: "RECLOUD_REPAIR_ATTACHMENT_UPLOAD_UNCERTAIN", phase: "UPLOAD",
+    resultUnknown: true, permanent: true,
   });
   assert.equal(calls, 1);
 });
@@ -75,5 +76,6 @@ test("uploader requires every new file to appear in Recloud after upload", async
   });
   await assert.rejects(executeRecloudRepairAttachmentUpload(PLAN, adapter, { writeEnabled: true }), {
     code: "RECLOUD_REPAIR_ATTACHMENT_POSTVERIFY_FAILED", phase: "POSTVERIFY",
+    resultUnknown: true, permanent: true,
   });
 });

@@ -58,6 +58,8 @@ test("签收自动恢复只处理近期且仍处于维修前流程的工单", ()
   assert.equal(shouldAutoResumeReceipt({ ...base, status: "REPAIR_COMPLETED_PENDING_SHIPMENT" }, NOW), false);
   assert.equal(shouldAutoResumeReceipt({ ...base, receiptCompletedAt: "2026-08-05T05:00:00.000Z" }, NOW), true);
   assert.equal(shouldAutoResumeReceipt({ ...base, recloudReceiptSyncStatus: "RESULT_UNKNOWN" }, NOW), false);
+  assert.equal(shouldAutoResumeReceipt({ ...base, recloudReceiptAttachmentSyncStatus: "RESULT_UNKNOWN" }, NOW), false);
+  assert.equal(shouldAutoResumeReceipt({ ...base, recloudProjectVerificationStatus: "RESULT_UNKNOWN" }, NOW), false);
   assert.equal(shouldAutoResumeReceipt({
     ...base,
     recloudProjectVerificationLastError: {

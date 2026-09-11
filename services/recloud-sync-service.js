@@ -61,6 +61,7 @@ class RecloudSyncService {
     this.taskFilter = typeof options.taskFilter === "function" ? options.taskFilter : () => true;
     this.staleProcessingMs = Number(options.staleProcessingMs || 45_000);
     this.activeTaskIds = new Set();
+    this.activeOrderKeys = new Set();
     this.scheduledTaskIds = new Set();
     this.resumeQueue = Promise.resolve();
     this.reconcilingTaskIds = new Set();
@@ -205,9 +206,20 @@ class RecloudSyncService {
     this.scheduledTaskIds.delete(taskId);
     if (this.activeTaskIds.has(taskId)) return this.outbox.get(taskId);
     this.activeTaskIds.add(taskId);
+    let ownedOrderKey;
     try {
+      const task = await this.outbox.get(taskId);
+      if (!task || ![TASK_STATUS.PENDING, TASK_STATUS.FAILED].includes(task.status)) return task;
+      const orderKey = task.rmaNo || task.workOrderNo || task.id;
+      if (this.activeOrderKeys.has(orderKey)) {
+        this.scheduleTask(taskId, work => this.retryScheduler(work, this.dependencyPollMs));
+        return task;
+      }
+      this.activeOrderKeys.add(orderKey);
+      ownedOrderKey = orderKey;
       return await this.processTaskOnce(taskId);
     } finally {
+      if (ownedOrderKey) this.activeOrderKeys.delete(ownedOrderKey);
       this.activeTaskIds.delete(taskId);
     }
   }
