@@ -341,6 +341,10 @@ export async function reconcileServiceOrderNotCreated(rmaNo) {
   })
 }
 
+export async function reconcileReceiptConfirmed(rmaNo, sn) {
+  return request("/api/repairs/recloud-receipt/reconcile-confirmed", { rmaNo, sn, confirmedSigned: true })
+}
+
 export async function searchRecloudFaultCategories(payload) {
   const keyword = encodeURIComponent(String(payload?.faultKeyword || "").trim())
   const rmaNo = encodeURIComponent(String(payload?.rmaNo || "").trim())

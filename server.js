@@ -3674,6 +3674,30 @@ function createApp(
     } catch (error) { return next(error); }
   });
 
+  app.post("/api/repairs/recloud-receipt/reconcile-confirmed", async (req, res, next) => {
+    try {
+      const user = currentUserProvider(req);
+      const rmaNo = String(req.body?.rmaNo || "").trim();
+      const order = (await receiptStore.readAll()).find(item => item.rmaNo === rmaNo);
+      if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到本地工单", 404);
+      if (!hasBusinessRole(user, USER_ROLES.ADMIN)
+        && ![order.operatorId, order.technicianId].includes(user.userId)) {
+        throw createApiError("RECLOUD_RECEIPT_RETRY_FORBIDDEN", "只能核对自己的瑞云签收工单", 403);
+      }
+      if (req.body.confirmedSigned !== true || String(req.body.sn || "").trim() !== order.sn) {
+        throw createApiError("RECEIPT_RECONCILIATION_CONFIRM_REQUIRED", "请核对瑞云对应SN行已签收后确认", 409);
+      }
+      if (!order.recloudReceiptConfirmedAt && order.recloudReceiptSyncStatus !== "RESULT_UNKNOWN") {
+        throw createApiError("RECEIPT_RECONCILIATION_STATE_INVALID", "仅可核对结果未知的签收", 409);
+      }
+      const updated = await receiptStore.markRecloudReceiptConfirmed(rmaNo, {
+        operator: user, receipt: { message: "人工核对对应SN行已签收，恢复后续同步" },
+      });
+      const queued = scheduleRecloudReceiptSync(updated, user, crypto.randomUUID());
+      res.json({ success: true, data: { rmaNo, queued, message: queued ? "已核实签收，后续同步已恢复" : "已核实签收，后续同步等待执行" } });
+    } catch (error) { next(error); }
+  });
+
   app.post("/api/repairs/recloud-receipt/retry", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
@@ -3930,6 +3954,7 @@ function createApp(
         success: true,
         data: {
           rmaNo,
+          sn: order.sn,
           recloudWriteEnabled: isRecloudInspectionWriteEnabled(runtimeEnv),
           recloudReceiptSyncStatus: order.recloudReceiptSyncStatus || "NOT_STARTED",
           recloudReceiptConfirmedAt: order.recloudReceiptConfirmedAt || "",

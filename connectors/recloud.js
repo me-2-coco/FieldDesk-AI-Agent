@@ -11098,10 +11098,22 @@ async function confirmSign(page, sn, productType, remark, options = {}) {
   try {
     confirmationAttempted = true;
     await confirmButton.click();
+    const sampleConfirmation = page.getByRole("dialog")
+      .filter({ hasText: /该SN码对应大货销售样机/ }).last();
     await Promise.race([
       dialog.waitFor({ state: "hidden" }),
       page.getByText(/签收成功/).waitFor({ state: "visible" }),
+      sampleConfirmation.waitFor({ state: "visible" }),
     ]);
+    // Only this known receipt warning is eligible. Never accept arbitrary
+    // dialogs, or re-click the original receipt confirmation after a timeout.
+    if (await sampleConfirmation.isVisible()) {
+      await sampleConfirmation.getByRole("button", { name: "确认签收", exact: true }).click();
+      await Promise.race([
+        dialog.waitFor({ state: "hidden" }),
+        page.getByText(/签收成功/).waitFor({ state: "visible" }),
+      ]);
+    }
     await page.waitForTimeout?.(1200);
     // Signing leaves the verified RMA detail open. Re-scanning the order here
     // is both redundant and unsafe: Recloud can spend minutes refreshing its
