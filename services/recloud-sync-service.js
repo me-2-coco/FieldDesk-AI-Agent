@@ -119,6 +119,7 @@ class RecloudSyncService {
       await this.outbox.reopenStoppedHandoff(task.id, {
         lastError: "",
         errorCategory: "RECOVERY",
+        localRecoveryResult: null,
       });
     }
     const staleProcessingTasks = allTasks.filter((task) =>
@@ -135,6 +136,12 @@ class RecloudSyncService {
         errorCategory: "RESULT_UNKNOWN",
         reconciliationRequired: true,
       });
+      if (task.localRecoveryResult) {
+        // The remote result was durably saved: resume local finalization only.
+        await this.outbox.transition(task.id, TASK_STATUS.PENDING, {
+          lastError: "", errorCategory: "LOCAL_RECOVERY", reconciliationRequired: false,
+        });
+      }
     }
     const tasks = (await this.outbox.readAll()).filter((task) =>
       !this.activeTaskIds.has(task.id) && !this.scheduledTaskIds.has(task.id) && this.taskFilter(task) && (
@@ -169,14 +176,14 @@ class RecloudSyncService {
     // Completion can be submitted in FieldDesk before the independent Recloud
     // repair-preparation job has finished. Keep it pending without consuming a
     // retry or opening a competing browser flow until that dependency is ready.
-    if (this.canProcessTask && !(await this.canProcessTask(task))) {
+    if (!task.localRecoveryResult && this.canProcessTask && !(await this.canProcessTask(task))) {
       this.scheduleTask(task.id, (work) => this.retryScheduler(work, this.dependencyPollMs));
       return task;
     }
     // A retry may happen minutes after the task was first queued.  Always rebuild
     // failed-task payloads from the current order so recovery sees preparation,
     // attachments and fee changes made after the original attempt.
-    if (task.status === TASK_STATUS.FAILED && typeof this.refreshTaskPayload === "function") {
+    if (!task.localRecoveryResult && task.status === TASK_STATUS.FAILED && typeof this.refreshTaskPayload === "function") {
       const refreshed = await this.refreshTaskPayload(task);
       if (refreshed?.payload || refreshed?.mappingVersion) {
         task = await this.outbox.update(task.id, {
@@ -187,18 +194,32 @@ class RecloudSyncService {
     }
     await this.outbox.transition(task.id, TASK_STATUS.PROCESSING, { lastError: "", errorCategory: "" });
     const method = NODE_METHODS[task.nodeType];
-    if (!method || typeof this.adapter[method] !== "function") {
+    if (!task.localRecoveryResult && (!method || typeof this.adapter[method] !== "function")) {
       const error = Object.assign(new Error("不支持的同步节点"), { code: "SYNC_NODE_UNSUPPORTED", permanent: true });
       return this.fail(task, error);
     }
+    let remoteReturned = false;
     try {
-      const result = await this.adapter[method](task);
+      let result = task.localRecoveryResult;
+      if (!result) {
+        result = await this.adapter[method](task);
+        remoteReturned = true;
+        // Only retain fields used by local finalization, not raw browser data.
+        const localRecoveryResult = {
+          status: String(result?.status || "SUCCESS"),
+          missingParts: Array.isArray(result?.missingParts) ? result.missingParts : [],
+          completedSteps: Array.isArray(result?.completedSteps) ? result.completedSteps.slice(0, 20) : [],
+          reviewReasons: Array.isArray(result?.reviewReasons) ? result.reviewReasons.map(item => ({ step: item?.step })) : [],
+          informationClerkAction: String(result?.informationClerkAction || ""),
+        };
+        task = await this.outbox.update(task.id, { localRecoveryResult });
+      }
       const resultStatus = String(result?.status || "");
       if (task.nodeType === "REPAIR_COMPLETED" && resultStatus === "AWAITING_PARTS") {
         if (typeof this.onRepairPartsShortage === "function") {
           await this.onRepairPartsShortage(task, result);
         }
-        return this.outbox.transition(task.id, TASK_STATUS.SUCCESS, {
+        return await this.outbox.transition(task.id, TASK_STATUS.SUCCESS, {
           lastError: "",
           errorCategory: "",
           resultStatus,
@@ -210,7 +231,7 @@ class RecloudSyncService {
         if (typeof this.onInspectionOnlyAwaitingInformation === "function") {
           await this.onInspectionOnlyAwaitingInformation(task, result);
         }
-        return this.outbox.transition(task.id, TASK_STATUS.SUCCESS, {
+        return await this.outbox.transition(task.id, TASK_STATUS.SUCCESS, {
           lastError: "",
           errorCategory: "",
           resultStatus,
@@ -218,7 +239,7 @@ class RecloudSyncService {
         });
       }
       if (task.nodeType === "REPAIR_COMPLETED" && resultStatus === "MANUAL_REVIEW") {
-        return this.outbox.transition(task.id, TASK_STATUS.MANUAL_REVIEW, {
+        return await this.outbox.transition(task.id, TASK_STATUS.MANUAL_REVIEW, {
           lastError: "RECLOUD_REPAIR_MANUAL_REVIEW",
           errorCategory: "BUSINESS_CONFLICT",
           resultStatus,
@@ -228,22 +249,27 @@ class RecloudSyncService {
         });
       }
       if (task.nodeType === "REPAIR_COMPLETED" && resultStatus === "READY_DRY_RUN") {
-        return this.outbox.transition(task.id, TASK_STATUS.READY_DRY_RUN, {
+        return await this.outbox.transition(task.id, TASK_STATUS.READY_DRY_RUN, {
           lastError: "",
           errorCategory: "",
           resultStatus,
         });
       }
       if (task.nodeType === "REPAIR_COMPLETED" && resultStatus === "AWAITING_FINAL_CONFIRM") {
-        return this.outbox.transition(task.id, TASK_STATUS.AWAITING_FINAL_CONFIRM, {
+        return await this.outbox.transition(task.id, TASK_STATUS.AWAITING_FINAL_CONFIRM, {
           lastError: "",
           errorCategory: "",
           resultStatus,
           completedSteps: Array.isArray(result.completedSteps) ? result.completedSteps.slice(0, 20) : [],
         });
       }
-      return this.outbox.transition(task.id, TASK_STATUS.SUCCESS, { lastError: "", errorCategory: "", resultStatus: resultStatus || "SUCCESS" });
+      return await this.outbox.transition(task.id, TASK_STATUS.SUCCESS, { lastError: "", errorCategory: "", resultStatus: resultStatus || "SUCCESS" });
     } catch (error) {
+      if (remoteReturned && !task.localRecoveryResult) {
+        return this.fail(task, Object.assign(new Error("瑞云已返回，但本地结果保存失败，需要核对"), {
+          code: "RECLOUD_SYNC_RESULT_UNKNOWN", resultUnknown: true,
+        }));
+      }
       return this.fail(task, error);
     }
   }
@@ -284,12 +310,16 @@ class RecloudSyncService {
     if (![TASK_STATUS.FAILED, TASK_STATUS.MANUAL_REVIEW, TASK_STATUS.READY_DRY_RUN].includes(task.status) && !canReconcileStoppedHandoff) {
       throw Object.assign(new Error("仅失败、待人工处理或演练就绪任务可以重新执行"), { code: "SYNC_TASK_RETRY_NOT_ALLOWED", status: 409 });
     }
-    const refreshed = typeof this.refreshTaskPayload === "function"
+    const refreshed = (!task.localRecoveryResult || canReconcileStoppedHandoff
+      || task.status === TASK_STATUS.READY_DRY_RUN || task.errorCategory === "BUSINESS_CONFLICT")
+      && typeof this.refreshTaskPayload === "function"
       ? await this.refreshTaskPayload(task)
       : null;
     const retryFields = {
       lastError: "",
       errorCategory: "",
+      ...([TASK_STATUS.SUCCESS, TASK_STATUS.READY_DRY_RUN].includes(task.status)
+        || task.errorCategory === "BUSINESS_CONFLICT" ? { localRecoveryResult: null } : {}),
       ...(refreshed?.payload ? { payload: refreshed.payload } : {}),
       ...(refreshed?.mappingVersion ? { mappingVersion: refreshed.mappingVersion } : {}),
     };

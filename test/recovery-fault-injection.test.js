@@ -80,3 +80,83 @@ test("scheduler failure releases the reservation so a later sweep can recover", 
   assert.equal(service.scheduledTaskIds.size, 0);
   assert.equal(service.scheduleTask("synthetic"), true);
 });
+
+for (const status of ["AWAITING_PARTS", "AWAITING_INFORMATION_CLERK"]) {
+  test(`${status}: local callback failure recovers without another remote call`, async t => {
+    const outbox = await fixture(t);
+    let remoteCalls = 0;
+    let localCalls = 0;
+    const callback = async () => {
+      if (++localCalls === 1) throw new Error("synthetic local store unavailable");
+    };
+    const service = new RecloudSyncService(outbox, { syncRepairCompleted: async () => {
+      remoteCalls++;
+      return { status, missingParts: [], informationClerkAction: "核对", completedSteps: [] };
+    } }, { scheduler: () => {}, retryScheduler: () => {},
+      onRepairPartsShortage: callback, onInspectionOnlyAwaitingInformation: callback,
+      refreshTaskPayload: () => assert.fail("local recovery must preserve original payload"),
+    });
+    const task = await enqueue(outbox, "REPAIR_COMPLETED", status);
+    await service.processTask(task.id);
+    assert.equal((await outbox.get(task.id)).status, TASK_STATUS.FAILED);
+    await service.processTask(task.id);
+    assert.equal((await outbox.get(task.id)).status, TASK_STATUS.SUCCESS);
+    assert.equal(remoteCalls, 1);
+    assert.equal(localCalls, 2);
+  });
+}
+
+test("persisted remote result survives restart and completes locally", async t => {
+  const outbox = await fixture(t);
+  const task = await enqueue(outbox, "RECEIPT", "local-restart");
+  await outbox.transition(task.id, TASK_STATUS.PROCESSING, { localRecoveryResult: { status: "SUCCESS" } });
+  const records = await outbox.readAll();
+  records[0].updatedAt = "2000-01-01T00:00:00.000Z";
+  await outbox.writeAll(records);
+  const reopened = new JsonRecloudSyncOutbox(outbox.filePath);
+  const service = new RecloudSyncService(reopened, {}, { scheduler: () => {},
+    canProcessTask: () => assert.fail("local recovery should not wait for remote dependencies"),
+  });
+  assert.equal(await service.resumePendingTasks(), 1);
+  await service.processTask(task.id);
+  assert.equal((await reopened.get(task.id)).status, TASK_STATUS.SUCCESS);
+});
+
+test("failed persistence of remote result requires reconciliation", async t => {
+  const outbox = await fixture(t);
+  const originalUpdate = outbox.update.bind(outbox);
+  outbox.update = async (id, fields) => {
+    if (fields.localRecoveryResult) throw new Error("synthetic disk failure");
+    return originalUpdate(id, fields);
+  };
+  const service = new RecloudSyncService(outbox, { syncReceipt: async () => ({ status: "SUCCESS" }) });
+  const task = await enqueue(outbox, "RECEIPT", "result-disk-failure");
+  await service.processTask(task.id);
+  assert.equal((await outbox.get(task.id)).reconciliationRequired, true);
+  await assert.rejects(service.retry(task.id), { code: "SYNC_TASK_RECONCILIATION_REQUIRED" });
+});
+
+test("final status write failure retries only local finalization", async t => {
+  const outbox = await fixture(t);
+  const transition = outbox.transition.bind(outbox);
+  let failOnce = true;
+  let calls = 0;
+  outbox.transition = async (id, status, fields) => {
+    if (status === TASK_STATUS.SUCCESS && failOnce) {
+      failOnce = false;
+      throw new Error("synthetic final status write failed");
+    }
+    return transition(id, status, fields);
+  };
+  const service = new RecloudSyncService(outbox, { syncReceipt: async () => {
+    calls++;
+    return { status: "SUCCESS" };
+  } }, { scheduler: () => {}, retryScheduler: () => {} });
+  const task = await enqueue(outbox, "RECEIPT", "final-write");
+  await service.processTask(task.id);
+  assert.equal((await outbox.get(task.id)).status, TASK_STATUS.FAILED);
+  await service.retry(task.id);
+  await service.processTask(task.id);
+  assert.equal((await outbox.get(task.id)).status, TASK_STATUS.SUCCESS);
+  assert.equal(calls, 1);
+});
