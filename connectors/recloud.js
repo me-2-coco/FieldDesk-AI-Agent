@@ -1269,7 +1269,7 @@ async function readRmaDetail(page, logisticsNo = "", options = {}) {
     projectCode,
     requirePickupLogisticsNo: options.requirePickupLogisticsNo,
   });
-  if (!detail.receiptState && typeof page.getByText === "function") {
+  if (!detail.receiptState && options.skipPendingReceiptProbe !== true && typeof page.getByText === "function") {
     const pendingReceiptAction = await findPendingReceiptAction(
       page,
       options.logger || console,

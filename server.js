@@ -1160,7 +1160,12 @@ function createApp(
           let detail = await connector.queryRmaByLogisticsNo(
             page,
             order.logisticsNo,
-            { preserveDetailPage: true }
+            {
+              preserveDetailPage: true,
+              fastDomRead: true,
+              expectedRmaNo: rmaNo,
+              skipPendingReceiptProbe: Boolean(order.recloudReceiptConfirmedAt),
+            }
           );
           if (detail.rmaNo && detail.rmaNo !== rmaNo) {
             throw createApiError(
