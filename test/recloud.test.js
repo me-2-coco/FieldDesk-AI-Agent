@@ -1439,6 +1439,18 @@ test("state machine reports scan page unavailable instead of schema changed", as
   );
 });
 
+test("RMA detail readiness rejects a stale different order", async () => {
+  const input = { isVisible: async () => false };
+  const page = {
+    url: () => "https://crm2.recloud.com.cn/rma/detail",
+    locator: selector => selector === "body"
+      ? { innerText: async () => "RMA JXTH9000000020 产品信息 用户姓名 测试 用户手机号 135****0000 所在地区/地址 描述 取件物流单号" }
+      : { first: () => input },
+    waitForTimeout: async () => new Promise(resolve => setTimeout(resolve, 5)),
+  };
+  await assert.rejects(waitForRmaDetail(page, "JXTH9000000021", { expectedRmaNo: "JXTH9000000021", timeout: 15, logger: { info() {} } }), { code: "RECLOUD_QUERY_TIMEOUT" });
+});
+
 test("RMA detail readiness requires all visible detail markers", async () => {
   const hiddenInput = { async isVisible() { return false; } };
   const page = {

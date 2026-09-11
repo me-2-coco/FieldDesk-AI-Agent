@@ -1453,7 +1453,9 @@ async function waitForRmaDetail(page, logisticsNo = "", options = {}) {
       leftScanQueryRoute: !isScanQueryUrl(page.url()),
     });
 
-    if (isRmaDetailReady(signals)) {
+    const expectedRmaNo = String(options.expectedRmaNo || "").trim().toUpperCase();
+    const rmaMatches = !expectedRmaNo || (bodyText.toUpperCase().match(/JXTH\d+/g) || []).includes(expectedRmaNo);
+    if (isRmaDetailReady(signals) && rmaMatches) {
       logRecloudStage("rma_detail_ready", logger);
       if (isDomDiagnosticsEnabled() && !diagnosticsLogged) {
         try {
@@ -10042,7 +10044,6 @@ async function startRepair(page, options = {}) {
 async function openExistingRepairServiceOrder(page, context = {}, options = {}) {
   assertRecloudAuthenticated(page);
   const rmaNo = normalizeText(context.rmaNo).toUpperCase();
-  const logisticsNo = normalizeText(context.logisticsNo);
   const expectedServiceOrderNo = normalizeText(context.serviceOrderNo).toUpperCase();
   const timeout = Number(options.timeoutMs || DEFAULT_TIMEOUT);
   const logger = options.logger || console;
@@ -10059,7 +10060,7 @@ async function openExistingRepairServiceOrder(page, context = {}, options = {}) 
   const currentCandidates = extractRepairServiceOrderCandidates(bodyText);
   const currentServiceOrderNo = expectedServiceOrderNo || currentCandidates.find((item) => bodyText.includes(item));
   const serviceReport = page.getByText("服务报告", { exact: true }).filter({ visible: true });
-  if (bodyText.includes(rmaNo) && currentServiceOrderNo && await serviceReport.count() === 1) {
+  if (bodyText.includes(rmaNo) && currentServiceOrderNo && bodyText.includes(currentServiceOrderNo) && await serviceReport.count() === 1) {
     return { rmaNo, serviceOrderNo: currentServiceOrderNo, alreadyOpen: true };
   }
 
@@ -10119,7 +10120,8 @@ async function openExistingRepairServiceOrder(page, context = {}, options = {}) 
     throw error;
   }
 
-  await queryRmaByLogisticsNo(page, logisticsNo || rmaNo, {
+  await queryRmaByLogisticsNo(page, rmaNo, {
+    expectedRmaNo: rmaNo,
     preserveDetailPage: true,
     fastDomRead: true,
     revealPhoneEnabled: false,

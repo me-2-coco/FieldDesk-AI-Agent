@@ -61,6 +61,7 @@ async function clickAfterLoadingSettles(page, button, options = {}) {
   while (Date.now() < deadline) {
     // 瑞云有时已经接收点击，但 Playwright 仍会因为随后出现的 loading
     // 遮罩把本次 click 判成超时。优先核验业务终态，避免把成功操作整轮重试。
+    if (options.beforeAttempt) await options.beforeAttempt();
     if (successCheck && await successCheck().catch(() => false)) {
       return { clicked: false, alreadySucceeded: true };
     }
@@ -177,6 +178,9 @@ async function dismissBlockingRepairMessageBoxes(page, options = {}) {
     const dialogText = String(await dialog.innerText().catch(() => ""))
       .replace(/\s+/g, " ")
       .trim();
+    if (options.knownNoticesOnly && !dialogText.includes("特殊服务项目")) {
+      throw adapterError("提交前出现未识别的提示窗口，已停止自动操作", "RECLOUD_REPAIR_UNKNOWN_SUBMIT_NOTICE", "SUBMIT");
+    }
     // 部分机型进入服务单时会弹出“特殊服务项目”提示。业务规则要求
     // 只点击右上角叉关闭，不能点击正文中的“确定”或“取消”。
     const closeControls = dialog.locator([
@@ -963,7 +967,8 @@ function createRecloudRepairPageAdapter(page, context = {}) {
     async clickSubmit(options = {}) {
       if (options.stopImmediately !== true) throw adapterError("最终提交必须设置立即停止", "RECLOUD_REPAIR_SUBMIT_POLICY_INVALID", "SUBMIT");
       const button = await uniqueVisible(page.getByRole("button", { name: exactText("提交") }).filter({ visible: true }), "瑞云提交按钮不唯一", "RECLOUD_REPAIR_SUBMIT_AMBIGUOUS", "SUBMIT");
-      await clickAfterLoadingSettles(page, button);
+      const clearKnownNotices = () => dismissBlockingRepairMessageBoxes(page, { settleMs: 0, knownNoticesOnly: true });
+      await clickAfterLoadingSettles(page, button, { beforeAttempt: clearKnownNotices });
       const dialog = await uniqueVisible(page.getByRole("dialog", { name: exactText("签核流程") }).filter({ visible: true }), "瑞云签核流程窗口不唯一", "RECLOUD_REPAIR_APPROVAL_DIALOG_AMBIGUOUS", "SUBMIT");
       const expectedFlow = String(options.approvalFlow || "").trim();
       const flowInput = await uniqueVisible(
@@ -997,6 +1002,7 @@ function createRecloudRepairPageAdapter(page, context = {}) {
       const submit = await uniqueVisible(dialog.getByRole("button", { name: exactText("提交") }).filter({ visible: true }), "签核流程提交按钮不唯一", "RECLOUD_REPAIR_APPROVAL_SUBMIT_AMBIGUOUS", "SUBMIT");
       if (!await submit.isEnabled()) throw adapterError("签核流程提交按钮不可用", "RECLOUD_REPAIR_APPROVAL_SUBMIT_DISABLED", "SUBMIT");
       const clickResult = await clickAfterLoadingSettles(page, submit, {
+        beforeAttempt: clearKnownNotices,
         timeoutMs: 15_000,
         pollIntervalMs: 200,
         successCheck: () => isRecloudRepairFullySubmitted(page),

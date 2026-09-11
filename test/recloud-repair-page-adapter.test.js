@@ -1,5 +1,21 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+test("submit checks delayed notices before every click attempt", async () => {
+  let checks = 0;
+  let clicks = 0;
+  const page = { locator: () => ({ count: async () => 0 }), waitForTimeout: async () => {} };
+  await clickAfterLoadingSettles(page, { click: async () => {
+    assert.equal(checks, clicks + 1);
+    if (++clicks === 1) throw new Error("notice intercepts pointer events");
+  } }, { beforeAttempt: async () => { checks++; } });
+  assert.equal(clicks, 2);
+});
+
+test("unknown submit notices stop without closing or confirming", async () => {
+  const dialog = { innerText: async () => "请确认扣费", locator: () => { throw new Error("must not click"); } };
+  const page = { waitForTimeout: async () => {}, locator: () => ({ count: async () => 1, last: () => dialog }) };
+  await assert.rejects(dismissBlockingRepairMessageBoxes(page, { knownNoticesOnly: true }), { code: "RECLOUD_REPAIR_UNKNOWN_SUBMIT_NOTICE" });
+});
 const {
   clickAfterLoadingSettles,
   clickApprovalFlowInput,
