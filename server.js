@@ -1008,9 +1008,15 @@ function createApp(
   app.set("trust proxy", runtimeConfig.trustProxy);
   // Attachments are sent one file per request as base64. A 100MB binary file
   // expands to roughly 134MB in JSON, so leave enough headroom for the body.
-  app.use(express.json({ limit: runtimeEnv.REQUEST_BODY_LIMIT || "140mb" }));
   app.use(securityHeaders);
   app.use(requestLogger(operationalLogger));
+  // Admission must happen before JSON/base64 allocation, not inside save().
+  app.use(require("./services/upload-admission").createUploadAdmission({
+    concurrency: runtimeEnv.UPLOAD_CONCURRENCY,
+    maxQueue: runtimeEnv.UPLOAD_QUEUE_LIMIT,
+    waitMs: runtimeEnv.UPLOAD_QUEUE_WAIT_MS,
+  }));
+  app.use(express.json({ limit: runtimeEnv.REQUEST_BODY_LIMIT || "140mb" }));
   // Log rejections and protect login separately from business traffic.
   app.use("/api/auth/login", createRateLimiter({ windowMs: 15 * 60_000, limit: 600, code: "LOGIN_RATE_LIMITED" }));
   app.use("/api/auth/login", createRateLimiter({

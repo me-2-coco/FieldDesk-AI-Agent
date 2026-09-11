@@ -4,7 +4,7 @@ const os = require('node:os');
 const { spawn } = require('node:child_process');
 const { provision } = require('./start-isolated-lab');
 const names = [
-  'attachment-interruption',
+  'attachment-interruption', 'upload-admission',
   'recloud-session', 'recloud-command-executor', 'recovery-fault-injection',
   'recloud-sync-outbox', 'recloud-repair-completion-orchestrator',
   'recloud-repair-attachment-uploader', 'recloud-recovery-policy',
@@ -17,7 +17,7 @@ const names = [
   const tests = names.map(name => `test/${name}.test.js`);
   for (const file of [...tests, 'test/fixtures/detection-crash-worker.cjs',
     'test/fixtures/outbox-crash-worker.cjs', 'init-recloud-login.js',
-    'scripts/database-maintenance.js', 'frontend/src/App.jsx', 'frontend/src/pages/SyncTasks.jsx', '.gitignore']) {
+    'scripts/database-maintenance.js', 'services/upload-admission.js', 'frontend/src/App.jsx', 'frontend/src/pages/SyncTasks.jsx', '.gitignore']) {
     await fs.mkdir(path.dirname(path.join(root, file)), { recursive: true });
     await fs.copyFile(path.join(source, file), path.join(root, file));
   }
