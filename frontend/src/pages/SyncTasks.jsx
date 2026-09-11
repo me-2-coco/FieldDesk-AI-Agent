@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { getRecloudSyncTasks, retryRecloudSyncTask } from "../shared/crmService.js"
+import { getRecloudSyncTasks, retryRecloudSyncTask, getRepairSyncStatus, reconcileServiceOrderNotCreated } from "../shared/crmService.js"
 
 const NODE_LABELS = {
   RECEIPT: "签收",
@@ -58,6 +58,10 @@ function SyncTasks({ setPage, onOpenOrder }) {
   const [lastRefreshedAt, setLastRefreshedAt] = useState("")
   const [loading, setLoading] = useState(true)
   const [keyword, setKeyword] = useState("")
+  const [creationStatus, setCreationStatus] = useState(null)
+  const [confirmedEmpty, setConfirmedEmpty] = useState(false)
+  const [recoveryBusy, setRecoveryBusy] = useState(false)
+  const [recoveryMessage, setRecoveryMessage] = useState("")
   const [statusFilter, setStatusFilter] = useState("ACTIONABLE")
   const [visibleLimit, setVisibleLimit] = useState(PAGE_SIZE)
   const statusSnapshotRef = useRef(new Map())
@@ -131,6 +135,30 @@ function SyncTasks({ setPage, onOpenOrder }) {
     }
   }
 
+  async function checkCreation() {
+    setRecoveryBusy(true)
+    setCreationStatus(null)
+    setConfirmedEmpty(false)
+    try {
+      const result = await getRepairSyncStatus(keyword.trim().toUpperCase())
+      setCreationStatus(result)
+      setRecoveryMessage(`维修建单状态：${result.recloudServiceOrderSyncStatus}`)
+    } catch (error) { setRecoveryMessage(error.message) }
+    finally { setRecoveryBusy(false) }
+  }
+
+  async function recoverCreation() {
+    if (!confirmedEmpty || recoveryBusy || creationStatus?.rmaNo !== keyword.trim().toUpperCase()) return
+    setRecoveryBusy(true)
+    try {
+      const result = await reconcileServiceOrderNotCreated(creationStatus.rmaNo)
+      setRecoveryMessage(result.message)
+      setCreationStatus(null)
+      setConfirmedEmpty(false)
+    } catch (error) { setRecoveryMessage(error.message) }
+    finally { setRecoveryBusy(false) }
+  }
+
   return <div className="page sync-tasks-page">
     <div className="top-bar">
       <button className="arrow-back" onClick={() => setPage("appBack")}>←</button>
@@ -146,7 +174,7 @@ function SyncTasks({ setPage, onOpenOrder }) {
       <input
         id="sync-task-search"
         value={keyword}
-        onChange={(event) => setKeyword(event.target.value)}
+        onChange={(event) => { setKeyword(event.target.value); setCreationStatus(null); setConfirmedEmpty(false); setRecoveryMessage("") }}
         placeholder="输入完整或部分寄修单号"
       />
       <div className="segmented-control" aria-label="任务范围">
@@ -155,6 +183,13 @@ function SyncTasks({ setPage, onOpenOrder }) {
       </div>
       <p className="compact-result-count">按寄修单号筛选 · 共 {filteredTasks.length} 个任务{lastRefreshedAt ? ` · ${lastRefreshedAt} 更新` : ""}</p>
       <p className="sync-safety-hint">系统只刷新任务状态，不会自动点击最终确认。</p>
+      <button type="button" disabled={recoveryBusy || !/^JXTH\d+$/i.test(keyword.trim())} onClick={checkCreation}>核对维修建单状态</button>
+      {creationStatus?.recloudServiceOrderSyncStatus === "RESULT_UNKNOWN" && <div className="inline-notice-card">
+        <p>请先在瑞云核对 {creationStatus.rmaNo} 的维修单栏。只有确认没有生成维修单，才能恢复；已有单号时禁止重复创建。</p>
+        <label><input type="checkbox" checked={confirmedEmpty} onChange={(event) => setConfirmedEmpty(event.target.checked)} />已核对瑞云维修单栏为空</label>
+        <button type="button" disabled={!confirmedEmpty || recoveryBusy} onClick={recoverCreation}>确认未建单并恢复</button>
+      </div>}
+      {recoveryMessage && <p role="status">{recoveryMessage}</p>}
     </div>
     {statusNotice && <div className="inline-notice-card" role="status">
       <strong>同步状态更新</strong>

@@ -322,6 +322,12 @@ export async function retryRepairPreparation(rmaNo) {
   return request(`/api/repairs/${encodeURIComponent(String(rmaNo || "").trim())}/recloud-preparation/retry`, {})
 }
 
+export async function reconcileServiceOrderNotCreated(rmaNo) {
+  return request("/api/admin/recloud/service-order/reconcile-not-created", {
+    rmaNo, confirmedNotCreated: true
+  })
+}
+
 export async function searchRecloudFaultCategories(payload) {
   const keyword = encodeURIComponent(String(payload?.faultKeyword || "").trim())
   const rmaNo = encodeURIComponent(String(payload?.rmaNo || "").trim())
