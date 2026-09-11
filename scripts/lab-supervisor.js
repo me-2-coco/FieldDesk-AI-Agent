@@ -7,6 +7,7 @@ const { randomUUID } = require('node:crypto');
 function superviseLab(script, options) {
   const events = new EventEmitter();
   let child, timer, stopped = false, restarts = 0;
+  const deliveries = new Set();
   let port = options.env.FIELDDESK_LAB_PORT || '0';
   function persistAlert(status) {
     if (!options.alertFile) return;
@@ -22,7 +23,7 @@ function superviseLab(script, options) {
         code: 'LAB_SERVICE_RESTART_EXHAUSTED', status,
         openedAt: previous?.status === 'OPEN' ? previous.openedAt : new Date().toISOString(),
         updatedAt: new Date().toISOString(), restartAttempts: restarts,
-        notificationStatus: 'NOT_CONFIGURED',
+        notificationStatus: options.notifier ? 'TRACKED_SEPARATELY' : 'NOT_CONFIGURED',
         message: status === 'OPEN' ? '隔离服务自动重启失败，需要人工检查' : '隔离服务已重新启动',
       };
       fs.mkdirSync(path.dirname(options.alertFile), { recursive: true, mode: 0o700 });
@@ -31,6 +32,13 @@ function superviseLab(script, options) {
       try { fs.writeFileSync(fd, JSON.stringify(record)); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
       fs.renameSync(temp, options.alertFile); temp = null;
       if (!repeated) events.emit('alert', record);
+      if (options.notifier) {
+        const delivery = Promise.resolve().then(() => options.notifier.deliver(record))
+          .then(result => events.emit('notificationResult', result))
+          .catch(() => events.emit('notificationFailure', { code: 'LAB_NOTIFICATION_FAILED' }));
+        deliveries.add(delivery);
+        delivery.finally(() => deliveries.delete(delivery));
+      }
     } catch {
       if (temp) { try { fs.unlinkSync(temp); } catch {} }
       events.emit('alertPersistenceFailed', { code: 'LAB_ALERT_SAVE_FAILED' });
@@ -54,6 +62,7 @@ function superviseLab(script, options) {
   }
   events.stop = async () => {
     stopped = true; clearTimeout(timer);
+    await Promise.all([...deliveries]);
     if (!child) return;
     const target = child;
     await new Promise(resolve => {
