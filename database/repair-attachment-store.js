@@ -4,6 +4,7 @@ const crypto = require("crypto");
 
 const DEFAULT_DIRECTORY = path.join(__dirname, "uploads", "repairs");
 const DEFAULT_MAX_FILE_BYTES = 100_000_000;
+const directoryQueues = new Map();
 
 class LocalRepairAttachmentStore {
   constructor(directory = DEFAULT_DIRECTORY, options = {}) {
@@ -24,7 +25,18 @@ class LocalRepairAttachmentStore {
     return total;
   }
 
-  async save({ rmaNo, name, mimeType, data }) {
+  save(input) {
+    // Serialize quota checks and writes across store instances in this process.
+    const key = path.resolve(this.directory);
+    const previous = directoryQueues.get(key) || Promise.resolve();
+    const work = previous.catch(() => {}).then(() => this.saveOnce(input));
+    directoryQueues.set(key, work);
+    const clear = () => { if (directoryQueues.get(key) === work) directoryQueues.delete(key); };
+    work.then(clear, clear);
+    return work;
+  }
+
+  async saveOnce({ rmaNo, name, mimeType, data }) {
     const orderNo = String(rmaNo || "").trim();
     const safeName = path.basename(String(name || "attachment"));
     const type = String(mimeType || "");
@@ -54,14 +66,29 @@ class LocalRepairAttachmentStore {
     };
     const allowedExtensions = extensionsByType[type] || new Set();
     if (extension && !allowedExtensions.has(extension.toLowerCase())) throw Object.assign(new Error("附件扩展名与类型不匹配"), { code: "REPAIR_ATTACHMENT_INVALID", status: 400 });
-    if ((await this.storageUsage()) + buffer.length > this.maxStorageBytes) throw Object.assign(new Error("附件存储容量不足"), { code: "ATTACHMENT_STORAGE_LIMIT", status: 507 });
-    const fileName = `${crypto.randomUUID()}${extension}`;
+    const digest = crypto.createHash("sha256").update(JSON.stringify([orderNo, safeName, type])).update(buffer).digest("hex");
+    const fileName = `${digest}${extension}`;
     const orderDirectory = path.join(this.directory, crypto.createHash("sha256").update(orderNo).digest("hex"));
     const resolvedRoot = path.resolve(this.directory);
     if (!path.resolve(orderDirectory).startsWith(`${resolvedRoot}${path.sep}`)) throw Object.assign(new Error("附件路径无效"), { code: "ATTACHMENT_PATH_INVALID", status: 400 });
     await fs.mkdir(orderDirectory, { recursive: true });
-    await fs.writeFile(path.join(orderDirectory, fileName), buffer, { mode: 0o600 });
-    return { id: crypto.randomUUID(), name: safeName, mimeType: type, fileName, size: buffer.length, localOnly: true };
+    const location = path.join(orderDirectory, fileName);
+    const result = { id: digest, name: safeName, mimeType: type, fileName, size: buffer.length, localOnly: true };
+    try {
+      const existing = await fs.readFile(location);
+      if (existing.equals(buffer)) return result;
+    } catch (error) { if (error.code !== "ENOENT") throw error; }
+    if ((await this.storageUsage()) + buffer.length > this.maxStorageBytes) throw Object.assign(new Error("附件存储容量不足"), { code: "ATTACHMENT_STORAGE_LIMIT", status: 507 });
+    const temporary = `${location}.${crypto.randomUUID()}.tmp`;
+    try {
+      const file = await fs.open(temporary, "wx", 0o600);
+      try { await file.writeFile(buffer); await file.sync(); }
+      finally { await file.close(); }
+      await fs.rename(temporary, location);
+    } finally {
+      await fs.unlink(temporary).catch(error => { if (error.code !== "ENOENT") throw error; });
+    }
+    return result;
   }
 
   async read(rmaNo, attachment = {}) {
