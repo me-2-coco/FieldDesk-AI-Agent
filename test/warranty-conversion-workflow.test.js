@@ -9,6 +9,18 @@ const { buildNodePayload } = require("../connectors/recloud-sync-mapping");
 const TECH = { userId: "TECH-1", displayName: "测试师傅", role: "TECHNICIAN" };
 const INFO = { userId: "INFO-1", displayName: "测试信息员", role: "INFORMATION_CLERK" };
 
+test("confirmed out-of-warranty survives treatment selection with original prediction retained", async (t) => {
+  const { resolveConfirmedWarranty } = require("../services/warranty-policy");
+  const store = await readyStore(t);
+  const prediction = { status: "DETERMINED", warrantyStatus: "保内" };
+  const order = await store.saveWarrantyDecision("RMA-WARRANTY", { technicianWarranty: "保外", warrantyDecision: prediction }, TECH);
+  const effective = resolveConfirmedWarranty(order, prediction);
+  const result = await store.saveTreatmentDecision("RMA-WARRANTY", { treatmentMode: "ABANDONED", technicianWarranty: effective.warrantyStatus, warrantyDecision: order.warrantyDecision }, TECH);
+  assert.equal(result.technicianWarranty, "保外");
+  assert.equal(result.warrantyDecision.warrantyStatus, "保内");
+  assert.equal(result.warrantyOverridden, true);
+});
+
 async function readyStore(t) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "fielddesk-warranty-"));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));

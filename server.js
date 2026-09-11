@@ -50,7 +50,7 @@ const {
   projectCodeMatches,
 } = require("./connectors/feishu-model-catalog");
 const { FeishuPartsCatalog } = require("./connectors/feishu-parts-catalog");
-const { evaluateWarranty } = require("./services/warranty-policy");
+const { evaluateWarranty, resolveConfirmedWarranty } = require("./services/warranty-policy");
 const localFaultMappings = require("./knowledge/fault_mapping.json").mappings || {};
 const { resolvePartsFee, resolveOutOfWarrantyFee, buildPricingPreview } = require("./services/out-of-warranty-pricing");
 const { LOGISTICS_CHARGE_MODES, resolveRepairCharge } = require("./services/repair-charge-policy");
@@ -3532,10 +3532,11 @@ function createApp(
         warrantyYears: order.modelAuthorization?.warrantyYears || 2,
         isOfficialRefurbished: order.modelAuthorization?.isOfficialRefurbished === true,
       });
-      if (treatmentMode === "ABANDONED" && warranty.status !== "DETERMINED") {
+      const effectiveWarranty = resolveConfirmedWarranty(order, warranty);
+      if (treatmentMode === "ABANDONED" && effectiveWarranty.status !== "DETERMINED") {
         throw createApiError("WARRANTY_STATUS_REQUIRED", "暂时无法判断是否保外，确认质保状态后才能选择弃修", 409);
       }
-      if (treatmentMode === "ABANDONED" && warranty.warrantyStatus !== "保外") {
+      if (treatmentMode === "ABANDONED" && effectiveWarranty.warrantyStatus !== "保外") {
         throw createApiError("IN_WARRANTY_ABANDONMENT_NOT_ALLOWED", "该机器在保内，无需付费，不能选择弃修", 409);
       }
       const holdInput = treatmentMode === "ON_HOLD"
@@ -3549,8 +3550,8 @@ function createApp(
         treatmentMode,
         inspectionFaultOutcome,
         detectionResult: decision.detectionResult,
-        technicianWarranty: warranty.status === "DETERMINED" ? warranty.warrantyStatus : "",
-        warrantyDecision: warranty,
+        technicianWarranty: effectiveWarranty.status === "DETERMINED" ? effectiveWarranty.warrantyStatus : "",
+        warrantyDecision: order.warrantyDecision || warranty,
         ...(holdInput ? { holdCategory: holdInput.category, holdReason: holdInput.reason, holdRemark: holdInput.remark } : {}),
       }, currentUserProvider(req));
       if (treatmentMode === "ABANDONED") {
@@ -3702,13 +3703,14 @@ function createApp(
         warrantyYears: order.modelAuthorization?.warrantyYears || 2,
         isOfficialRefurbished: order.modelAuthorization?.isOfficialRefurbished === true,
       });
-      if (warranty.status !== "DETERMINED") {
+      const effectiveWarranty = resolveConfirmedWarranty(order, warranty);
+      if (effectiveWarranty.status !== "DETERMINED") {
         throw createApiError("WARRANTY_MANUAL_CONFIRMATION_REQUIRED", warranty.reason || "质保状态无法自动判断，需人工确认", 409);
       }
       const decision = buildInspectionFormDecision({
         faultCategory: req.body?.faultCategory,
         technicianWarranty: req.body?.technicianWarranty,
-        snWarranty: warranty.warrantyStatus,
+        snWarranty: effectiveWarranty.warrantyStatus,
         detectionResult: req.body?.inspectionResult,
         treatmentMode: order.treatmentMode,
         inspectionFaultOutcome: order.inspectionFaultOutcome,

@@ -67,4 +67,11 @@ function evaluateWarranty(input = {}) {
   };
 }
 
-module.exports = { parseSnProductionMonth, evaluateWarranty };
+function resolveConfirmedWarranty(order, computed) {
+  if (order?.warrantyConfirmedAt && ["保内", "保外"].includes(order.technicianWarranty)) {
+    return { status: "DETERMINED", warrantyStatus: order.technicianWarranty, source: "TECHNICIAN_CONFIRMED" };
+  }
+  return computed;
+}
+
+module.exports = { parseSnProductionMonth, evaluateWarranty, resolveConfirmedWarranty };

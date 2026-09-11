@@ -1,6 +1,19 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { parseSnProductionMonth, evaluateWarranty } = require("../services/warranty-policy");
+const { parseSnProductionMonth, evaluateWarranty, resolveConfirmedWarranty } = require("../services/warranty-policy");
+
+test("confirmed technician warranty takes precedence in both directions", () => {
+  for (const status of ["保内", "保外"]) {
+    const computed = { status: "DETERMINED", warrantyStatus: status === "保内" ? "保外" : "保内" };
+    const order = { technicianWarranty: status, warrantyConfirmedAt: "2026-09-11T00:00:00Z" };
+    assert.equal(resolveConfirmedWarranty(order, computed).warrantyStatus, status);
+    assert.equal(resolveConfirmedWarranty(order, computed).source, "TECHNICIAN_CONFIRMED");
+    assert.equal(resolveConfirmedWarranty({ technicianWarranty: status }, computed), computed);
+  }
+  const unknown = { status: "INVALID_SN_DATE" };
+  assert.equal(resolveConfirmedWarranty({ technicianWarranty: "保外", warrantyConfirmedAt: "2026-09-11" }, unknown).status, "DETERMINED");
+  assert.equal(resolveConfirmedWarranty({ technicianWarranty: "未知", warrantyConfirmedAt: "2026-09-11" }, unknown), unknown);
+});
 
 test("SN seventh and eighth positions resolve production year and letter month", () => {
   assert.deepEqual(parseSnProductionMonth("ABCDEF5A123"), { status: "PARSED", year: 2025, month: 10 });
