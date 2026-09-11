@@ -39,6 +39,23 @@ function option(text, calls) {
   };
 }
 
+test("confirmed code selects only a verified exact path, including duplicate paths", async () => {
+  for (const accepted of [0, 1, -1]) {
+    let selected = -1;
+    const path = "产品质量 / 测试故障 / 测试部件";
+    const input = { count: async () => 1, click: async () => {}, fill: async () => {} };
+    const locator = {
+      evaluateAll: async () => [0, 1].map(index => ({ index, text: path })),
+      nth: index => ({ click: async () => { selected = index; } }),
+    };
+    const page = { locator: () => locator, waitForTimeout: async () => {} };
+    const item = { locator: () => ({ last: () => input }) };
+    const result = chooseDropdownValue(page, item, path, "faultCategory", true, async () => selected === accepted);
+    if (accepted === -1) await assert.rejects(result, { code: "RECLOUD_DETECTION_CODE_NOT_FOUND" });
+    else { await result; assert.equal(selected, accepted); }
+  }
+});
+
 test("Recloud detection option matching normalizes whitespace but requires an exact value", async () => {
   const calls = [];
   const selected = await uniqueExactCandidate([

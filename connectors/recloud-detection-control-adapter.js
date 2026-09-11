@@ -171,7 +171,7 @@ async function clickDropdownInput(input) {
   }
 }
 
-async function chooseDropdownValue(page, item, value, key, searchable) {
+async function chooseDropdownValue(page, item, value, key, searchable, verifyCode) {
   const expected = normalizeControlText(value);
   const input = item.locator("input:visible, [role='combobox']:visible").last();
   if (!await input.count()) {
@@ -213,6 +213,20 @@ async function chooseDropdownValue(page, item, value, key, searchable) {
   if (!hasExactCandidate && typeof page.getByRole === "function") {
     candidates.push(...await visibleCandidates(page.getByRole("list").getByText(expected, { exact: true })));
   }
+  if (searchable && verifyCode) {
+    const exact = [];
+    for (const candidate of candidates) {
+      if (normalizeControlText(await candidate.text()) === expected) exact.push(candidate);
+    }
+    for (const candidate of exact) {
+      await candidate.click();
+      if (await verifyCode()) return;
+      await clickDropdownInput(input);
+      await input.fill(normalizeControlText(expected.split("/").at(-1)));
+      await page.waitForTimeout?.(500);
+    }
+    throw adapterError("人工确认的分类编码未匹配，未提交检测", "RECLOUD_DETECTION_CODE_NOT_FOUND", key);
+  }
   const option = searchable
     ? await uniqueFullPathOrLeafCandidate(candidates, expected, key)
     : await uniqueExactCandidate(candidates, expected, key);
@@ -227,7 +241,7 @@ async function chooseRadioValue(item, value, key) {
   await candidate.click();
 }
 
-function createRecloudDetectionControlAdapter(page, dialog) {
+function createRecloudDetectionControlAdapter(page, dialog, options = {}) {
   async function definitionFor(key) {
     const definition = RECLOUD_INSPECTION_FIELD_TARGETS[key];
     if (!definition || definition.status === "EXCLUDED") {
@@ -249,7 +263,24 @@ function createRecloudDetectionControlAdapter(page, dialog) {
       const item = await locateUniqueItem(dialog, definition, key);
       if (definition.control === "RADIO") return chooseRadioValue(item, value, key);
       if (definition.control === "SELECT") return chooseDropdownValue(page, item, value, key, false);
-      if (definition.control === "SEARCH_INPUT") return chooseDropdownValue(page, item, value, key, true);
+      if (definition.control === "SEARCH_INPUT") {
+        const code = String(options.faultCategoryCode || "").trim();
+        const verifyCode = key === "faultCategory" && code ? async () => {
+          const leaf = normalizeControlText(value).split(" / ").at(-1);
+          const third = await locateUniqueItem(dialog, { target: "故障分类3" }, key);
+          await third.locator(".rt-base-lookup:visible").click({ timeout: 3000 });
+          const lookup = page.getByRole("dialog").filter({ hasText: "故障分类三级" }).last();
+          try {
+            await lookup.waitFor({ state: "visible", timeout: 10000 });
+            const rows = lookup.getByRole("row").filter({ has: page.getByRole("cell", { name: leaf, exact: true }) });
+            await rows.first().waitFor({ state: "visible", timeout: 10000 });
+            return await rows.count() === 1 && await rows.getByRole("cell", { name: code, exact: true }).count() === 1;
+          } finally {
+            await lookup.locator(".rt-base-close-x-lined:visible").click({ timeout: 3000 });
+          }
+        } : undefined;
+        return chooseDropdownValue(page, item, value, key, true, verifyCode);
+      }
       if (definition.control === "TEXT_INPUT") {
         const input = item.locator("textarea:visible, input:visible").last();
         if (!await input.count()) {

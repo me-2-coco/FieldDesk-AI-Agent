@@ -1054,6 +1054,8 @@ class JsonReceiptPreparationStore {
         inspectionResult,
         inspectionRemark: normalizeRequired(input.inspectionRemark),
         faultCategory: normalizeRequired(input.faultCategory),
+        faultCategoryCode: normalizeRequired(input.faultCategory) === existing.faultCategory
+          ? (existing.faultCategoryCode || "") : "",
         technicianWarranty: normalizeRequired(input.technicianWarranty),
         warrantyDecision: input.warrantyDecision || null,
         customerReasonConsistent: "是",

@@ -9877,7 +9877,7 @@ async function confirmDetection(page, payload = {}, options = {}) {
   const dialog = page.locator(".rt-dialog__wrapper:visible, .el-dialog__wrapper:visible, [role='dialog']:visible").last();
   await dialog.waitFor({ state: "visible", timeout: options.dialogTimeout || 10000 });
   logRecloudStage("detection_dialog_ready", options.logger);
-  const controls = createRecloudDetectionControlAdapter(page, dialog);
+  const controls = createRecloudDetectionControlAdapter(page, dialog, { faultCategoryCode: payload.faultCategoryCode });
   const fieldsWritten = [];
   for (const write of plan.safeWrites) {
     logRecloudStage(`detection_write_${write.key}_start`, options.logger);

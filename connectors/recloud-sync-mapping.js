@@ -316,6 +316,7 @@ function buildNodePayload(order, nodeType) {
       inspectionRemark: order.inspectionRemark,
       inspectionCompletedAt: order.inspectionUpdatedAt,
       faultCategory: order.faultCategory,
+      faultCategoryCode: order.faultCategoryCode || "",
       warrantyStatus: order.technicianWarranty,
       customerReasonConsistent: order.customerReasonConsistent,
       detectionResult: order.detectionResult,
