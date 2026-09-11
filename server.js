@@ -149,9 +149,10 @@ function getAccountSessionToken(req) {
   return "";
 }
 
-function createRecloudRmaWriteGuard(allowlistValues, runtimeStartedAt = Date.now()) {
+function createRecloudRmaWriteGuard(allowlistValues, runtimeStartedAt = Date.now(), strict = false) {
   const allowlist = new Set(Array.from(allowlistValues || []).map((value) => String(value || "").trim()).filter(Boolean));
   return (rmaNo, candidate = {}) => {
+    if (strict) return allowlist.has(String(rmaNo || "").trim());
     if (allowlist.size === 0 || allowlist.has(String(rmaNo || "").trim())) return true;
     // A temporary recovery allowlist must fence off historical backlog only.
     // Tasks/orders created or changed by the user after this process started
@@ -781,8 +782,11 @@ function shouldAutoResumeReceipt(order, now = Date.now()) {
     || now - latestErrorTimestamp >= RECLOUD_FAILED_RETRY_COOLDOWN_MS;
 }
 
-function shouldAutoResumeDetection(order, now = Date.now()) {
-  if (order?.status !== "INSPECTION_COMPLETED_PENDING_REPAIR") return false;
+function shouldAutoResumeDetection(order, now = Date.now(), confirmedRecovery = false) {
+  const codeRecovery = confirmedRecovery && Boolean(order?.faultCategoryCode)
+    && order?.recloudDetectionLastError?.code === "RECLOUD_DETECTION_OPTION_AMBIGUOUS";
+  if (order?.status !== "INSPECTION_COMPLETED_PENDING_REPAIR"
+    && !(codeRecovery && order?.status === "REPAIR_COMPLETED_PENDING_SHIPMENT")) return false;
   if (!order.inspectionUpdatedAt || order.recloudDetectionConfirmedAt) return false;
   const status = String(order.recloudDetectionSyncStatus || "");
   if (status === "PENDING") return true;
@@ -790,7 +794,7 @@ function shouldAutoResumeDetection(order, now = Date.now()) {
     return timestampAgeMs(order.recloudDetectionAttemptedAt, now) >= 120_000;
   }
   if (status !== "FAILED") return false;
-  if (NON_RETRYABLE_DETECTION_ERRORS.has(order.recloudDetectionLastError?.code)) return false;
+  if (!codeRecovery && NON_RETRYABLE_DETECTION_ERRORS.has(order.recloudDetectionLastError?.code)) return false;
   return timestampAgeMs(
     order.recloudDetectionLastError?.at || order.recloudDetectionAttemptedAt,
     now
@@ -891,7 +895,8 @@ function createApp(
   );
   const isRecloudRmaWriteAllowed = createRecloudRmaWriteGuard(
     recloudWriteRmaAllowlist,
-    Date.now()
+    Date.now(),
+    runtimeEnv.RECLOUD_WRITE_RMA_STRICT === "true"
   );
   receiptStore ||= businessStores.receiptStore;
   const accountStore = options.accountStore || new AccountStore(options.accountStoreOptions);
@@ -1553,6 +1558,7 @@ function createApp(
           return connector.confirmDetection(page, {
             treatmentMode: order.treatmentMode,
             faultCategory: order.faultCategory,
+            faultCategoryCode: order.faultCategoryCode || "",
             warrantyStatus: order.technicianWarranty,
             detectionResult: order.detectionResult,
             faultContent: order.faultContent || resolveFaultContent(order),
@@ -1851,7 +1857,7 @@ function createApp(
       const orders = await receiptStore.readAll();
       const candidates = orders.map((order) => {
         if (shouldAutoResumeReceipt(order, now)) return { order, stage: "receipt" };
-        if (shouldAutoResumeDetection(order, now)) return { order, stage: "detection" };
+        if (shouldAutoResumeDetection(order, now, runtimeEnv.RECLOUD_WRITE_RMA_STRICT === "true")) return { order, stage: "detection" };
         if (shouldAutoResumeServiceOrder(order, now)) return { order, stage: "service-order" };
         return null;
       }).filter(Boolean)
