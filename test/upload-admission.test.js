@@ -49,7 +49,7 @@ test('full queue and timed out wait return explicit retry guidance without parsi
   assert.equal(gate.snapshot().active, 0);
 });
 
-test('real HTTP queued bodies parse only after admission and health remains available', { timeout: 10000 }, async t => {
+test('60 real HTTP uploads queue before parsing and health remains available', { timeout: 15000 }, async t => {
   const express = require('express');
   const { once } = require('node:events');
   const app = express();
@@ -72,14 +72,22 @@ test('real HTTP queued bodies parse only after admission and health remains avai
   await once(server, 'listening');
   t.after(() => { release(); server.closeAllConnections(); server.close(); });
   const origin = `http://127.0.0.1:${server.address().port}`;
-  const work = Promise.all(Array.from({ length: 8 }, () => fetch(`${origin}/api/repairs/completion/attachments`, {
+  const started = Date.now();
+  const work = Promise.all(Array.from({ length: 60 }, () => fetch(`${origin}/api/repairs/completion/attachments`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: 'x'.repeat(1024 * 1024) }),
   }).then(async response => { assert.equal(response.status, 200); await response.json(); })));
   await entered;
+  const deadline = Date.now() + 5000;
+  while (gate.snapshot().queued < 58 && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(gate.snapshot().queued, 58);
+  const healthStarted = Date.now();
   assert.equal((await fetch(`${origin}/api/health`)).status, 200);
+  const healthMs = Date.now() - healthStarted;
   assert.equal(parsed, 2);
   release();
   await work;
-  assert.equal(parsed, 8);
+  assert.equal(parsed, 60);
   assert.equal(gate.snapshot().active, 0);
+  assert.equal(gate.snapshot().queued, 0);
+  t.diagnostic(JSON.stringify({ uploads: parsed, payloadMiB: 1, healthMs, elapsedMs: Date.now() - started, scope: 'admission middleware, not storage or Recloud' }));
 });
