@@ -216,6 +216,10 @@ function assessRecloudInspectionControlMapping(fieldControls = []) {
 
 function buildRecloudRepairFormPlan(payload = {}) {
   const pricing = payload.pricing || {};
+  // Compatibility for previously queued walk-in tasks: the primary remark is
+  // a Recloud picklist, whereas the walk-in explanation belongs in free text.
+  const primaryRemark = String(pricing.primaryRemark || "").trim() === "送修，无运费"
+    ? "无减免" : String(pricing.primaryRemark || "").trim();
   const parts = compactParts(payload.usedParts);
   const isOutOfWarranty = pricing.warrantyStatus === "OUT_OF_WARRANTY";
   const writesFeeRemarks = isOutOfWarranty || String(payload.treatmentMode || "").trim() === "ABANDONED";
@@ -225,7 +229,7 @@ function buildRecloudRepairFormPlan(payload = {}) {
     { key: "highestRepairLevel", target: RECLOUD_REPAIR_FIELD_TARGETS.highestRepairLevel.target, value: String(pricing.highestRepairLevel || "").trim() },
     { key: "customerPaidAmount", target: RECLOUD_REPAIR_FIELD_TARGETS.customerPaidAmount.target, value: isOutOfWarranty ? Number(pricing.totalFee || 0) : null },
     { key: "logisticsAmount", target: RECLOUD_REPAIR_FIELD_TARGETS.logisticsAmount.target, value: isOutOfWarranty ? Number(pricing.roundTripLogisticsFee || 0) : null },
-    { key: "primaryRemark", target: RECLOUD_REPAIR_FIELD_TARGETS.primaryRemark.target, value: writesFeeRemarks ? String(pricing.primaryRemark || "").trim() : null },
+    { key: "primaryRemark", target: RECLOUD_REPAIR_FIELD_TARGETS.primaryRemark.target, value: writesFeeRemarks ? primaryRemark : null },
     { key: "secondaryRemark", target: RECLOUD_REPAIR_FIELD_TARGETS.secondaryRemark.target, value: writesFeeRemarks ? String(pricing.secondaryRemark || "").trim() : null },
     { key: "attachments", target: RECLOUD_REPAIR_FIELD_TARGETS.attachments.target, value: Array.isArray(payload.attachments) ? payload.attachments : [] },
     { key: "troubleshooting", target: RECLOUD_REPAIR_FIELD_TARGETS.troubleshooting.target, value: "否" },

@@ -295,7 +295,7 @@ function abandonedReturnPricing({ partsFee = 0, repairFee = 0, oneWayLogisticsFe
     discountScope: "ORDER_TOTAL",
     discountRate: 10,
     discountAmount: 0,
-    primaryRemark: logisticsChargeMode === "WALK_IN" ? "送修，无运费" : "申请运费减免",
+    primaryRemark: logisticsChargeMode === "WALK_IN" ? "无减免" : "申请运费减免",
     secondaryRemark: `配件费${formatFeeAmount(normalizedPartsFee)}元，维修费${formatFeeAmount(normalizedRepairFee)}元，运费${formatFeeAmount(quotedLogisticsFee)}元，合计${formatFeeAmount(quotedTotalFee)}元，用户放弃维修，${logisticsChargeMode === "WALK_IN" ? "送修，无运费" : "免运费寄回"}`,
     logisticsSource: "ABANDONED_RETURN_WAIVER",
   };
