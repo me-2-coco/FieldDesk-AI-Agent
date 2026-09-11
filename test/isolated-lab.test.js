@@ -25,7 +25,7 @@ test("running lab renders frontend without weakening API policy", { skip: !proce
     assert.deepEqual(errors, []);
     if (process.env.FIELDDESK_LAB_LOGIN_FILE) {
       const { password } = JSON.parse(require("node:fs").readFileSync(process.env.FIELDDESK_LAB_LOGIN_FILE, "utf8"));
-      for (const [userId, count] of [["lab-admin", 3], ["lab-tech", 2], ["lab-tech2", 1]]) {
+      for (const [userId, count] of [["lab-admin", 4], ["lab-tech", 3], ["lab-tech2", 1]]) {
         const context = await browser.newContext();
         try {
           const login = await context.request.post(`${origin}/api/auth/login`, { data: { userId, password } });
@@ -33,7 +33,7 @@ test("running lab renders frontend without weakening API policy", { skip: !proce
           const orders = await context.request.get(`${origin}/api/repairs/local-orders`);
           const body = await orders.json();
           assert.equal(body.data.length, count);
-          assert.ok(body.data.every(order => order.rmaNo.startsWith("LAB-RMA-")));
+          assert.ok(body.data.every(order => /^LAB-(RMA|DRAFT)-/.test(order.rmaNo)));
           if (userId !== "lab-admin") assert.ok(body.data.every(order => order.technicianId === userId));
         } finally { await context.close(); }
       }
@@ -41,6 +41,9 @@ test("running lab renders frontend without weakening API policy", { skip: !proce
       await tab.getByPlaceholder("请输入登录密码", { exact: true }).fill(password);
       await tab.getByRole("button", { name: "登录", exact: true }).click();
       await tab.getByText("模拟师傅甲", { exact: true }).first().waitFor();
+      await tab.getByText("工单", { exact: true }).last().click();
+      await tab.getByRole("button").filter({ hasText: "LAB-DRAFT-0004" }).click();
+      await tab.getByRole("button", { name: "保存草稿", exact: true }).waitFor();
       assert.deepEqual(errors, []);
     }
   } finally { await browser.close(); }

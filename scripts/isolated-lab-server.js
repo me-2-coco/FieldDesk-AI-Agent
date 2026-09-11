@@ -49,6 +49,30 @@ if (!fs.existsSync(ordersFile)) {
   fs.writeFileSync(ordersFile, JSON.stringify(orders), { mode: 0o600 });
 }
 const express = require("express");
+// A separate completion fixture avoids altering the user's existing lab orders.
+const labOrders = JSON.parse(fs.readFileSync(ordersFile, "utf8"));
+const draftFixture = labOrders.find(order => order.rmaNo === "LAB-DRAFT-0004");
+if (draftFixture && !draftFixture.receiptCompletedAt && draftFixture.sn === "LABDRAFTONLY0004") {
+  draftFixture.receiptCompletedAt = new Date().toISOString();
+  fs.writeFileSync(`${ordersFile}.seed.tmp`, JSON.stringify(labOrders), { mode: 0o600 });
+  fs.renameSync(`${ordersFile}.seed.tmp`, ordersFile);
+}
+if (!labOrders.some(order => order.rmaNo === "LAB-DRAFT-0004")) {
+  const { createReceiptPreparation } = require("../database/receipt-preparation-store");
+  const now = new Date().toISOString();
+  labOrders.push({ ...createReceiptPreparation({
+    rmaNo: "LAB-DRAFT-0004", sn: "LABDRAFTONLY0004", productLine: "扫地机", specialty: "扫地机",
+    customerName: "草稿测试专用（模拟）", reportedFault: "模拟调试，用于附件与草稿测试",
+    operatorId: "lab-tech", operatorName: "模拟师傅甲",
+  }), status: "REPAIR_COMPLETION_DRAFT", resumeStep: "repairCompletion", receiptCompletedAt: now,
+    treatmentMode: "DEBUGGING", treatmentLabel: "调试", technicianWarranty: "保内",
+    faultCategory: "模拟分类 / 模拟现象 / 模拟部件", inspectionResult: "维修", inspectionUpdatedAt: now,
+    modelAuthorization: { repairFees: { small: 1 }, localWorkflowAllowed: true },
+  });
+  const temp = `${ordersFile}.seed.tmp`;
+  fs.writeFileSync(temp, JSON.stringify(labOrders), { mode: 0o600 });
+  fs.renameSync(temp, ordersFile);
+}
 const { createApp } = require("../server");
 const blocked = () => { throw Object.assign(new Error("隔离测试环境禁止连接瑞云或飞书，请使用模拟数据"), {
   code: "ISOLATED_LAB_EXTERNAL_ACCESS_DISABLED", status: 503, permanent: true,

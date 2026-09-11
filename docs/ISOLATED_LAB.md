@@ -37,7 +37,10 @@
 账号模式为 accounts，使用正常登录会话和角色校验，不绕过登录。
 
 自动生成 LAB-RMA-0001、LAB-RMA-0002、LAB-RMA-0003，均为签收准备阶段的模拟数据；第二张没有物流单号。
-lab-admin 可见三张，lab-tech 可见前两张，lab-tech2 可见第三张。
+另有 LAB-DRAFT-0004（草稿测试专用），已准备到完工阶段。使用 lab-tech 登录后，进入“工单 → 继续维修 → LAB-DRAFT-0004”，即可看到“保存草稿”。前三张仍用于签收测试，不在签收页寻找保存草稿。
+lab-admin 可见四张，lab-tech 可见前三张中的前两张及草稿专用单，lab-tech2 可见第三张。
+
+需要更新旧隔离副本时，先构建 frontend/dist，核实并停止仅 4174 的隔离服务，再运行 `node scripts/refresh-isolated-lab.js <隔离副本绝对路径>`。该脚本保留测试账号、数据及附件，仅更新代码与前端产物；不要用于正式目录。
 这些数据不宣称已经完成真实签收或检测，也没有模拟瑞云成功回执。瑞云连接仍被拒绝，完整流程故障注入需继续实现。
 
 可用 FIELDDESK_LAB_SMOKE=1 与 FIELDDESK_LAB_LOGIN_FILE（指向当前副本 lab-login.json）运行 test/isolated-lab.test.js，验证实际页面登录和各账号工单隔离。
