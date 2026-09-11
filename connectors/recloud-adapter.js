@@ -62,6 +62,10 @@ class RealRecloudAdapter extends RecloudAdapter {
     return diagnostic;
   }
 
+  async reconcileTask(task) {
+    return this.commandExecutor?.reconcileTask?.(task) || null;
+  }
+
   async execute(nodeKey, method, task) {
     await this.assertReady(nodeKey);
     if (typeof this.commandExecutor?.[method] !== "function") {
@@ -91,6 +95,7 @@ function createRecloudAdapter(env = process.env, options = {}) {
     const dry = new DryRunRecloudAdapter();
     const real = new RealRecloudAdapter(options);
     dry.syncRepairCompleted = (task) => real.syncRepairCompleted(task);
+    dry.reconcileTask = (task) => real.reconcileTask(task);
     return dry;
   }
   return new DryRunRecloudAdapter();

@@ -63,6 +63,7 @@ class RecloudSyncService {
     this.activeTaskIds = new Set();
     this.scheduledTaskIds = new Set();
     this.resumeQueue = Promise.resolve();
+    this.reconcilingTaskIds = new Set();
   }
 
   scheduleTask(taskId, scheduler = this.scheduler) {
@@ -155,7 +156,49 @@ class RecloudSyncService {
     for (const task of tasks) {
       this.scheduleTask(task.id);
     }
+    // Do not await browser inspection here: one slow read must not block
+    // scheduling ordinary work. Limit reconciliation to one task at a time.
+    if (!this.reconcilingTaskIds.size && maxTasks > 0 && typeof this.adapter.reconcileTask === "function") {
+      const uncertain = (await this.outbox.readAll()).find(task =>
+        this.taskFilter(task) && task.status === TASK_STATUS.MANUAL_REVIEW
+        && task.reconciliationRequired && !task.localRecoveryResult
+        && (!task.lastReconciledAt || now - Date.parse(task.lastReconciledAt) >= 300_000));
+      if (uncertain) {
+        this.reconcilingTaskIds.add(uncertain.id);
+        try {
+          this.scheduler(() => this.reconcileTask(uncertain.id).catch(() => {}).finally(() => {
+            this.reconcilingTaskIds.delete(uncertain.id);
+          }));
+        } catch (error) {
+          this.reconcilingTaskIds.delete(uncertain.id);
+          throw error;
+        }
+      }
+    }
     return tasks.length;
+  }
+
+  async reconcileTask(taskId) {
+    const task = await this.outbox.get(taskId);
+    if (!task || !this.taskFilter(task) || task.status !== TASK_STATUS.MANUAL_REVIEW
+      || !task.reconciliationRequired || typeof this.adapter.reconcileTask !== "function") return task;
+    await this.outbox.update(taskId, { lastReconciledAt: new Date().toISOString() });
+    let result;
+    try { result = await this.adapter.reconcileTask(task); }
+    catch {
+      return this.outbox.update(taskId, { reconciliationStatus: "CHECK_FAILED" });
+    }
+    if (result?.status !== "SUCCESS") {
+      return this.outbox.update(taskId, { reconciliationStatus: "NOT_CONFIRMED" });
+    }
+    // Only resume local finalization; the write adapter must never run again.
+    const pending = await this.outbox.transition(taskId, TASK_STATUS.PENDING, {
+      reconciliationRequired: false, reconciliationStatus: "CONFIRMED",
+      lastError: "", errorCategory: "",
+      localRecoveryResult: { status: "SUCCESS", completedSteps: ["REMOTE_SUBMISSION_RECONCILED"] },
+    });
+    this.scheduleTask(taskId);
+    return pending;
   }
 
   async processTask(taskId) {

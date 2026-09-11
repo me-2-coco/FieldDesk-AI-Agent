@@ -235,7 +235,10 @@ function SyncTasks({ setPage, onOpenOrder }) {
       )}
       {task.lastError && <p className="compact-error-detail">最后错误：{task.lastError}</p>}
       {(task.reconciliationRequired || task.errorCategory === "RESULT_UNKNOWN") && (
-        <p role="alert">上次提交结果未知，已隔离此单，不影响其他单。请先核对瑞云是否已完成，不能直接重复提交。</p>
+        <p role="alert">上次提交结果未知，已隔离此单，不能直接重复提交。系统会对支持的节点进行只读核对；未能确认时需要负责人复核。
+          {task.reconciliationStatus === "CHECK_FAILED" && " 最近一次核对失败，稍后再检查。"}
+          {task.reconciliationStatus === "NOT_CONFIRMED" && " 尚未取得可确认成功的依据。"}
+        </p>
       )}
       <div className="compact-action-row">
       {task.rmaNo && typeof onOpenOrder === "function" && (

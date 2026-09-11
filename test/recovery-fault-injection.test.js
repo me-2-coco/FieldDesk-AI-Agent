@@ -15,6 +15,56 @@ function enqueue(outbox, nodeType, key) {
   return outbox.enqueue({ rmaNo: `SYNTHETIC-${key}`, nodeType, idempotencyKey: key, payload: {} });
 }
 
+for (const outcome of ["SUCCESS", "NOT_CONFIRMED", "THROW"]) {
+  test(`uncertain result reconciliation ${outcome} never repeats remote write`, async t => {
+    const outbox = await fixture(t);
+    const task = await enqueue(outbox, "REPAIR_COMPLETED", `reconcile-${outcome}`);
+    await outbox.transition(task.id, TASK_STATUS.PROCESSING);
+    await outbox.transition(task.id, TASK_STATUS.MANUAL_REVIEW, { reconciliationRequired: true });
+    const service = new RecloudSyncService(outbox, {
+      syncRepairCompleted: () => assert.fail("must not repeat remote write"),
+      reconcileTask: async () => {
+        if (outcome === "THROW") throw new Error("synthetic offline");
+        return { status: outcome };
+      },
+    }, { scheduler: () => {} });
+    await service.reconcileTask(task.id);
+    await service.processTask(task.id);
+    const saved = await outbox.get(task.id);
+    assert.equal(saved.status, outcome === "SUCCESS" ? TASK_STATUS.SUCCESS : TASK_STATUS.MANUAL_REVIEW);
+    assert.equal(saved.reconciliationRequired, outcome !== "SUCCESS");
+  });
+}
+
+test("slow reconciliation does not block normal scheduling and has a cooldown", async t => {
+  const outbox = await fixture(t);
+  const uncertain = await enqueue(outbox, "REPAIR_COMPLETED", "slow-check");
+  await outbox.transition(uncertain.id, TASK_STATUS.PROCESSING);
+  await outbox.transition(uncertain.id, TASK_STATUS.MANUAL_REVIEW, { reconciliationRequired: true });
+  const normal = await enqueue(outbox, "RECEIPT", "normal-during-check");
+  const jobs = [];
+  let finish;
+  let started;
+  const entered = new Promise(resolve => { started = resolve; });
+  const pendingRead = new Promise(resolve => { finish = resolve; });
+  const service = new RecloudSyncService(outbox, {
+    reconcileTask: async () => { started(); return pendingRead; },
+    syncReceipt: async () => ({ status: "SUCCESS" }),
+  }, { scheduler: job => jobs.push(job) });
+  assert.equal(await service.resumePendingTasks(), 1);
+  const normalWork = jobs.shift()();
+  const checkWork = jobs.shift()();
+  await entered;
+  await normalWork;
+  assert.equal((await outbox.get(normal.id)).status, TASK_STATUS.SUCCESS);
+  await service.resumePendingTasks();
+  assert.equal(jobs.length, 0);
+  finish(null);
+  await checkWork;
+  await service.resumePendingTasks();
+  assert.equal(jobs.length, 0);
+});
+
 for (const [node, method] of Object.entries(NODE_METHODS)) {
   test(`${node}: known pre-submit failure can retry without losing its task`, async t => {
     const outbox = await fixture(t);

@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createRecloudCommandExecutor } = require("../services/recloud-command-executor");
+const { repairCompletionFingerprint } = require("../services/recloud-repair-completion-orchestrator");
 
 const task = {
   rmaNo: "JXTH900001234",
@@ -32,6 +33,32 @@ function remoteAdapter(calls) {
     async clickSubmit(policy) { calls.push(`submit:${policy.stopImmediately}`); },
   };
 }
+
+for (const completed of [true, false]) {
+  test(`reconciliation reads only and requires fully submitted=${completed}`, async () => {
+    const received = { ...task, nodeType: "REPAIR_COMPLETED" };
+    const calls = [];
+    const executor = createRecloudCommandExecutor({
+      checkpointStore: { load: async () => ({ status: "SUBMITTING",
+        fingerprint: repairCompletionFingerprint(task.rmaNo, task.payload) }) },
+      repairAdapterProvider: { run: async (_, inspect) => inspect({
+        readRemoteState: async () => { calls.push("read"); return { completed }; },
+        clickSubmit: () => assert.fail("reconciliation must not write"),
+      }) },
+    });
+    const result = await executor.reconcileTask(received);
+    assert.equal(result?.status || null, completed ? "SUCCESS" : null);
+    assert.deepEqual(calls, ["read"]);
+  });
+}
+
+test("changed payload cannot be reconciled using an older submit checkpoint", async () => {
+  const executor = createRecloudCommandExecutor({
+    checkpointStore: { load: async () => ({ status: "SUBMITTING", fingerprint: "old" }) },
+    repairAdapterProvider: { run: () => assert.fail("mismatched checkpoint must not open browser") },
+  });
+  assert.equal(await executor.reconcileTask({ ...task, nodeType: "REPAIR_COMPLETED" }), null);
+});
 
 test("command executor delegates repair completion to the guarded two-step orchestrator", async () => {
   const calls = [];

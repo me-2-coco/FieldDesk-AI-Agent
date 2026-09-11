@@ -1,5 +1,5 @@
 const { validateNodePayload } = require("../connectors/recloud-sync-mapping");
-const { orchestrateRepairCompletion } = require("./recloud-repair-completion-orchestrator");
+const { orchestrateRepairCompletion, repairCompletionFingerprint } = require("./recloud-repair-completion-orchestrator");
 
 function commandError(message, code, details = {}) {
   const error = new Error(message);
@@ -15,6 +15,25 @@ function createRecloudCommandExecutor(options = {}) {
   const checkpointStore = options.checkpointStore || null;
 
   return {
+    async reconcileTask(task) {
+      if (task.nodeType !== "REPAIR_COMPLETED" || !checkpointStore?.load) return null;
+      const orderKey = task.rmaNo || task.workOrderNo;
+      const prior = await checkpointStore.load(String(orderKey || ""));
+      if (!prior || !["SUBMITTING", "SUCCESS"].includes(prior.status)
+        || prior.fingerprint !== repairCompletionFingerprint(orderKey, task.payload)) return null;
+      const inspect = async adapter => {
+        if (typeof adapter?.readRemoteState !== "function") return null;
+        const remote = await adapter.readRemoteState();
+        if (remote?.completed !== true) return null;
+        return { status: "SUCCESS", completedSteps: ["REMOTE_SUBMISSION_RECONCILED"] };
+      };
+      if (typeof repairAdapterProvider?.run === "function") return repairAdapterProvider.run(task, inspect);
+      if (typeof repairAdapterProvider?.open !== "function") return null;
+      const adapter = await repairAdapterProvider.open(task);
+      try { return await inspect(adapter); }
+      finally { if (adapter && repairAdapterProvider.release) await repairAdapterProvider.release(adapter, task); }
+    },
+
     isReady(nodeKey) {
       return nodeKey === "repair" && (
         typeof repairAdapterProvider?.run === "function"
