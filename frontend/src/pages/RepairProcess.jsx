@@ -62,7 +62,7 @@ function RepairProcess({ setPage }) {
         ].find(([status]) => ["FAILED", "RESULT_UNKNOWN"].includes(status))
         if (failedReceiptStage) {
           setErrorMessage(`${failedReceiptStage[1]}异常，系统正在自动重试；本提醒会保留到恢复成功`)
-          timer = window.setTimeout(refresh, 1000)
+          timer = window.setTimeout(refresh, 5000)
           return
         }
         if (result.recloudWriteEnabled !== true) {
@@ -86,7 +86,7 @@ function RepairProcess({ setPage }) {
           return
         }
         setMessage(nextStatus === "PENDING" ? "瑞云检测正在排队" : "瑞云检测正在后台处理")
-        timer = window.setTimeout(refresh, 1000)
+        timer = window.setTimeout(refresh, 3000)
       } catch (error) {
         if (!active) return
         setErrorMessage(error.message)

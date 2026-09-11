@@ -22,7 +22,7 @@ test("rate limiter rejects excess requests without logging request data", () => 
   const limiter = createRateLimiter({ limit: 1 });
   const req = { ip: "127.0.0.1", socket: {} };
   let status = 0; let payload;
-  const res = { status(value) { status = value; return this; }, json(value) { payload = value; return value; } };
+  const res = { setHeader() {}, status(value) { status = value; return this; }, json(value) { payload = value; return value; } };
   limiter(req, res, () => {});
   limiter(req, res, () => assert.fail("second request must not pass"));
   assert.equal(status, 429);

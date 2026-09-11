@@ -1,4 +1,6 @@
 import { normalizeQueryIdentifier } from './queryIdentifier.js'
+import { createRequestCooldown, requestScope } from './requestCooldown.js'
+const requestCooldown = createRequestCooldown()
 
 const API_BASE_URL = String(
   import.meta.env.VITE_API_BASE_URL || ""
@@ -9,6 +11,7 @@ let API_ACCESS_TOKEN = typeof sessionStorage === "undefined"
   : String(sessionStorage.getItem(SESSION_TOKEN_KEY) || "")
 
 export function setApiAccessToken(value) {
+  requestCooldown.reset()
   API_ACCESS_TOKEN = String(value || "")
   if (typeof sessionStorage !== "undefined") {
     if (API_ACCESS_TOKEN) sessionStorage.setItem(SESSION_TOKEN_KEY, API_ACCESS_TOKEN)
@@ -77,6 +80,8 @@ function apiHeaders() {
 }
 
 async function request(path, body, { timeoutMs = 0, idempotencyKey = "", retryNetwork = false } = {}) {
+  const scope = requestScope("POST", path)
+  requestCooldown.check(scope)
   let response
   let result
   const requestId = globalThis.crypto?.randomUUID?.() || `fd-${Date.now()}-${Math.random().toString(16).slice(2)}`
@@ -115,6 +120,7 @@ async function request(path, body, { timeoutMs = 0, idempotencyKey = "", retryNe
   }
 
   handleAuthenticationFailure(response, result)
+  if (response.status === 429) requestCooldown.record(scope, result?.retryAfterSeconds || response.headers.get("retry-after"))
   if (!response.ok || !result?.success) {
     const error = new Error(
       `${result?.message || `CRM 请求失败（${response.status}）`}（编号 ${response.headers.get('x-request-id') || requestId}）`
@@ -127,6 +133,8 @@ async function request(path, body, { timeoutMs = 0, idempotencyKey = "", retryNe
 }
 
 async function get(path, { timeoutMs = 0 } = {}) {
+  const scope = requestScope("GET", path)
+  requestCooldown.check(scope)
   let response
   const controller = timeoutMs > 0 ? new AbortController() : null
   const timer = controller ? window.setTimeout(() => controller.abort(), timeoutMs) : null
@@ -146,6 +154,7 @@ async function get(path, { timeoutMs = 0 } = {}) {
   }
   const result = await response.json().catch(() => null)
   handleAuthenticationFailure(response, result)
+  if (response.status === 429) requestCooldown.record(scope, result?.retryAfterSeconds || response.headers.get("retry-after"))
   if (!response.ok || !result?.success) {
     throw new Error(result?.message || `请求失败（${response.status}）`)
   }

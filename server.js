@@ -22,7 +22,7 @@ const { WorkCoordinationStore } = require("./database/work-coordination-store");
 const { PendingReceiptStore } = require("./database/pending-receipt-store");
 const { RmaQueryCacheStore } = require("./database/rma-query-cache-store");
 const { validateRuntimeConfig, loadTlsOptions } = require("./config/runtime-config");
-const { createRateLimiter, securityHeaders, RotatingJsonLogger, requestLogger } = require("./services/operational-security");
+const { createRateLimiter, createBusinessRateLimiter, securityHeaders, RotatingJsonLogger, requestLogger } = require("./services/operational-security");
 const { LocalRepairAttachmentStore } = require("./database/repair-attachment-store");
 const {
   FREIGHT_WAIVER_APPLICATION_SOURCE,
@@ -988,9 +988,16 @@ function createApp(
   // expands to roughly 134MB in JSON, so leave enough headroom for the body.
   app.use(express.json({ limit: runtimeEnv.REQUEST_BODY_LIMIT || "140mb" }));
   app.use(securityHeaders);
-  app.use(createRateLimiter({ limit: Number(runtimeEnv.API_RATE_LIMIT_PER_MINUTE || 120) }));
-  app.use("/api/auth", createRateLimiter({ windowMs: 15 * 60_000, limit: Number(runtimeEnv.LOGIN_RATE_LIMIT_PER_15_MINUTES || 10), code: "LOGIN_RATE_LIMITED" }));
   app.use(requestLogger(operationalLogger));
+  // Log rejections and protect login separately from business traffic.
+  app.use("/api/auth/login", createRateLimiter({ windowMs: 15 * 60_000, limit: 600, code: "LOGIN_RATE_LIMITED" }));
+  app.use("/api/auth/login", createRateLimiter({
+    windowMs: 15 * 60_000,
+    limit: Number(runtimeEnv.LOGIN_RATE_LIMIT_PER_15_MINUTES || 10),
+    code: "LOGIN_RATE_LIMITED",
+    keyGenerator: req => `${req.ip}:${crypto.createHash("sha256").update(String(req.body?.userId || "").trim()).digest("hex")}`,
+  }));
+  const failedAuthLimiter = createRateLimiter();
 
   const accountSessionMs = Math.min(8760, Math.max(1, Number(runtimeEnv.FIELDDESK_SESSION_HOURS || 720))) * 3600_000;
 
@@ -1052,7 +1059,7 @@ function createApp(
       const token = getAccountSessionToken(req);
       const session = await accountStore.findSession(token);
       const user = session ? await accountStore.findByUserId(session.userId) : await accountStore.findByToken(token);
-      if (!user) return res.status(401).json({ success: false, code: "AUTH_REQUIRED", message: "账号认证失败" });
+      if (!user) return failedAuthLimiter(req, res, () => res.status(401).json({ success: false, code: "AUTH_REQUIRED", message: "账号认证失败" }));
       if (session && user.mustChangePassword === true && req.path !== "/api/auth/change-password") {
         return res.status(403).json({ success: false, code: "PASSWORD_CHANGE_REQUIRED", message: "请先修改初始密码" });
       }
@@ -1060,6 +1067,16 @@ function createApp(
       next();
     } catch (error) { next(error); }
   });
+
+  app.use(createBusinessRateLimiter({
+    // Account mode must never trust a client-supplied local-user header.
+    getUser: req => String(runtimeEnv.FIELDDESK_AUTH_MODE || "local") === "accounts"
+      ? req.fieldDeskUser : currentUserProvider(req),
+    readLimit: Number(runtimeEnv.API_READ_RATE_LIMIT_PER_MINUTE || 600),
+    pollLimit: Number(runtimeEnv.API_POLL_RATE_LIMIT_PER_MINUTE || 300),
+    uploadLimit: Number(runtimeEnv.API_UPLOAD_RATE_LIMIT_PER_MINUTE || 120),
+    writeLimit: Number(runtimeEnv.API_WRITE_RATE_LIMIT_PER_MINUTE || runtimeEnv.API_RATE_LIMIT_PER_MINUTE || 180),
+  }));
 
   app.use(async (req, res, next) => {
     if (req.method !== "POST") return next();

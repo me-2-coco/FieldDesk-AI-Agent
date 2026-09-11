@@ -32,3 +32,17 @@
 3. 上传容量耗尽：停止上传，迁移整个上传目录到扩容卷；禁止只删除数据库仍引用的附件。
 4. 密钥泄露：立即停用账号、轮换令牌，审计异常操作并重新部署环境密钥。
 5. 瑞云同步异常：保持 outbox，不开启真实写入；进入人工复核，不重复提交业务节点。
+
+## 多人限流与验证范围
+
+正式账号模式在认证成功后按服务端确认的 userId 计数，不信任客户端用户头。
+每账号每分钟四个独立额度：自动状态查询300、普通GET查询600、附件POST上传120、其他业务写请求180。
+可通过 `API_POLL_RATE_LIMIT_PER_MINUTE`、`API_READ_RATE_LIMIT_PER_MINUTE`、`API_UPLOAD_RATE_LIMIT_PER_MINUTE`、`API_WRITE_RATE_LIMIT_PER_MINUTE` 配置。
+旧 `API_RATE_LIMIT_PER_MINUTE` 如仍配置，仅作为业务写额度的兼容值；部署前核对不要覆盖预期值。
+同一账号多设备共用额度。未认证请求仍按IP限制。登录同时限制每IP每15分钟600次和每IP＋账号每15分钟10次。
+429包含 `Retry-After` 和请求编号，并写入日志；前端相同请求类别在等待期内停止发出请求，不自动重放提交。
+
+隔离验证：`node --test test/business-rate-limit.test.js test/rate-limit-concurrency.test.js test/request-cooldown.test.js test/production-operations.test.js`。
+并发用例使用真实HTTP与账号认证/限流中间件、模拟账号存储和业务处理器：60账号同IP，2400次混合请求，附件仅4KB模拟数据，无瑞云写入。
+此结果不代表数据库、磁盘、大视频上传、浏览器自动化或瑞云队列的60人端到端吞吐能力。
+上线前仍需在目标服务器验证大附件、持久化、持续负载、队列延迟和内存峰值；限流放宽不能替代容量验证。

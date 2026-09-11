@@ -2,16 +2,46 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 
-function createRateLimiter({ windowMs = 60_000, limit = 120, code = "RATE_LIMITED" } = {}) {
+function createRateLimiter({ windowMs = 60_000, limit = 120, code = "RATE_LIMITED", keyGenerator, now = Date.now } = {}) {
+  if (!Number.isFinite(limit) || limit < 1) limit = 120;
   const buckets = new Map();
+  let nextCleanup = 0;
   return (req, res, next) => {
-    const key = req.ip || req.socket?.remoteAddress || "unknown";
-    const now = Date.now();
+    const key = keyGenerator ? keyGenerator(req) : req.ip || req.socket?.remoteAddress || "unknown";
+    const timestamp = now();
+    if (timestamp >= nextCleanup) {
+      for (const [id, bucket] of buckets) if (bucket.resetAt <= timestamp) buckets.delete(id);
+      nextCleanup = timestamp + windowMs;
+    }
     const bucket = buckets.get(key);
-    if (!bucket || bucket.resetAt <= now) buckets.set(key, { count: 1, resetAt: now + windowMs });
-    else if (++bucket.count > limit) return res.status(429).json({ success: false, code, message: "请求过于频繁，请稍后重试" });
+    if (!bucket || bucket.resetAt <= timestamp) buckets.set(key, { count: 1, resetAt: timestamp + windowMs });
+    else if (++bucket.count > limit) {
+      const retryAfterSeconds = Math.max(1, Math.ceil((bucket.resetAt - timestamp) / 1000));
+      res.setHeader("Retry-After", String(retryAfterSeconds));
+      return res.status(429).json({ success: false, code, retryAfterSeconds, message: `请求过于频繁，请${retryAfterSeconds}秒后重试` });
+    }
     next();
   };
+}
+
+function businessRateScope(req) {
+  const path = req.path || "";
+  if (["GET", "HEAD"].includes(req.method)) {
+    return /\/(sync-status|local-state|my-sync-alerts|order-status|inbox|supervision|local-orders|todos)$/.test(path) || path === "/api/supervision/monitor/status"
+      ? "poll" : "read";
+  }
+  return /\/attachments(?:\/|$)/.test(path) ? "upload" : "write";
+}
+
+function createBusinessRateLimiter({ getUser, readLimit = 600, writeLimit = 180, pollLimit = 300, uploadLimit = 120, ...options } = {}) {
+  const keyGenerator = req => {
+    const user = getUser(req);
+    return user?.userId ? `user:${user.userId}` : `ip:${req.ip || req.socket?.remoteAddress || "unknown"}`;
+  };
+  const limits = { read: readLimit, write: writeLimit, poll: pollLimit, upload: uploadLimit };
+  const limiters = Object.fromEntries(Object.entries(limits).map(([scope, limit]) =>
+    [scope, createRateLimiter({ ...options, limit, keyGenerator })]));
+  return (req, res, next) => limiters[businessRateScope(req)](req, res, next);
 }
 
 function securityHeaders(req, res, next) {
@@ -54,4 +84,4 @@ function requestLogger(logger) {
   };
 }
 
-module.exports = { createRateLimiter, securityHeaders, RotatingJsonLogger, requestLogger };
+module.exports = { createRateLimiter, createBusinessRateLimiter, businessRateScope, securityHeaders, RotatingJsonLogger, requestLogger };

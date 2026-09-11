@@ -178,7 +178,7 @@ function App() {
       } catch {
         // 监测接口瞬时失败时保留上一条提醒，下一轮继续恢复。
       } finally {
-        if (active) timer = window.setTimeout(refreshMySyncAlerts, 3000)
+        if (active) timer = window.setTimeout(refreshMySyncAlerts, 10000)
       }
     }
     refreshMySyncAlerts()
