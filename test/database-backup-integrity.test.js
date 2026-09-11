@@ -46,3 +46,36 @@ test("backup writes a checksum manifest and refuses corrupted restore data", asy
   assert.notEqual(refused.code, 0);
   assert.equal(await fs.readFile(path.join(data, "orders.json"), "utf8"), "[]\n");
 });
+
+test("backup restores linked draft and attachment into an empty recovery directory", async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "fielddesk-backup-attachments-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const data = path.join(root, "original", "data");
+  const uploads = path.join(root, "original", "uploads");
+  const backups = path.join(root, "backups");
+  await fs.mkdir(data, { recursive: true });
+  await fs.mkdir(path.join(uploads, "repairs", "synthetic-order"), { recursive: true });
+  const photoPath = path.join("repairs", "synthetic-order", "synthetic.png");
+  const bytes = Buffer.alloc(1024 * 1024, 7);
+  const draft = [{ rmaNo: "LAB-BACKUP", repairCompletion: { repairMeasure: "模拟维修", attachments: [{ fileName: "synthetic.png" }] } }];
+  await fs.writeFile(path.join(data, "orders.json"), JSON.stringify(draft));
+  await fs.writeFile(path.join(uploads, photoPath), bytes);
+  const env = { FIELDDESK_DATA_DIRECTORY: data, FIELDDESK_BACKUP_DIRECTORY: backups, FIELDDESK_BACKUP_UPLOAD_DIRECTORY: uploads };
+  const created = await run(["backup"], env);
+  assert.equal(created.code, 0, created.stderr);
+  const manifest = JSON.parse(await fs.readFile(path.join(created.stdout, "fielddesk-backup-manifest.json")));
+  assert.equal(manifest.version, 2);
+  assert.ok(manifest.files.some(file => file.path === path.join("__fielddesk_uploads__", photoPath)));
+  const recoveredData = path.join(root, "recovered", "data");
+  const recoveredUploads = path.join(root, "recovered", "uploads");
+  const recoveryEnv = { ...env, FIELDDESK_DATA_DIRECTORY: recoveredData, FIELDDESK_BACKUP_UPLOAD_DIRECTORY: recoveredUploads };
+  const restored = await run(["restore", created.stdout, "--confirm"], recoveryEnv);
+  assert.equal(restored.code, 0, restored.stderr);
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(recoveredData, "orders.json"))), draft);
+  assert.deepEqual(await fs.readFile(path.join(recoveredUploads, photoPath)), bytes);
+  await fs.writeFile(path.join(created.stdout, "__fielddesk_uploads__", photoPath), "corrupt");
+  const refused = await run(["restore", created.stdout, "--confirm"], recoveryEnv);
+  assert.notEqual(refused.code, 0);
+  assert.deepEqual(await fs.readFile(path.join(recoveredUploads, photoPath)), bytes);
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(recoveredData, "orders.json"))), draft);
+});

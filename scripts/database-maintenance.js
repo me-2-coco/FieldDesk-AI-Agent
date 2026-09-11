@@ -10,6 +10,8 @@ const source = path.resolve(process.env.FIELDDESK_DATA_DIRECTORY || path.join(__
 const backupRoot = path.resolve(process.env.FIELDDESK_BACKUP_DIRECTORY || path.join(__dirname, "..", "backups"));
 const sqliteFile = path.resolve(process.env.FIELDDESK_SQLITE_FILE || path.join(source, "fielddesk.sqlite"));
 const MANIFEST_FILE = "fielddesk-backup-manifest.json";
+const UPLOADS_ENTRY = "__fielddesk_uploads__";
+const uploads = path.resolve(process.env.FIELDDESK_BACKUP_UPLOAD_DIRECTORY || path.join(source, "..", "uploads"));
 
 function assertInside(location, root) {
   if (location !== root && !location.startsWith(`${root}${path.sep}`)) throw new Error("路径超出允许目录");
@@ -21,7 +23,8 @@ async function copyDirectory(from, to) {
     const sourcePath = path.join(from, entry.name);
     const targetPath = path.join(to, entry.name);
     if (entry.isDirectory()) await copyDirectory(sourcePath, targetPath);
-    else await fsp.copyFile(sourcePath, targetPath);
+    else if (entry.isFile()) await fsp.copyFile(sourcePath, targetPath);
+    else throw new Error("备份/恢复不支持符号链接或特殊文件");
   }
 }
 
@@ -47,7 +50,7 @@ async function backupFiles(root, current = root) {
 }
 
 async function writeManifest(directory) {
-  const manifest = { version: 1, createdAt: new Date().toISOString(), files: await backupFiles(directory) };
+  const manifest = { version: 2, includesUploads: true, createdAt: new Date().toISOString(), files: await backupFiles(directory) };
   await fsp.writeFile(path.join(directory, MANIFEST_FILE), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
   return manifest;
 }
@@ -59,7 +62,7 @@ async function verifyBackup(directory) {
     if (error.code === "ENOENT") throw new Error("备份缺少完整性校验清单");
     throw error;
   }));
-  if (manifest.version !== 1 || !Array.isArray(manifest.files)) throw new Error("备份校验清单格式无效");
+  if (![1, 2].includes(manifest.version) || !Array.isArray(manifest.files)) throw new Error("备份校验清单格式无效");
   for (const item of manifest.files) {
     const relative = String(item.path || "");
     const absolute = path.resolve(directory, relative);
@@ -93,9 +96,12 @@ async function migrate() {
 
 async function backup() {
   await init();
+  if (fs.existsSync(path.join(source, UPLOADS_ENTRY))) throw new Error("数据目录包含备份保留名称");
+  if (backupRoot === source || backupRoot.startsWith(source + path.sep) || backupRoot === uploads || backupRoot.startsWith(uploads + path.sep)) throw new Error("备份目录不能位于数据或附件目录内");
   await fsp.mkdir(backupRoot, { recursive: true, mode: 0o700 });
   const destination = path.join(backupRoot, new Date().toISOString().replace(/[:.]/g, "-"));
   await copyDirectory(source, destination);
+  await copyDirectory(uploads, path.join(destination, UPLOADS_ENTRY));
   await writeManifest(destination);
   await verifyBackup(destination);
   const retentionDays = Math.max(1, Number(process.env.BACKUP_RETENTION_DAYS || 30));
@@ -111,10 +117,14 @@ async function restore() {
   if (!process.argv.includes("--confirm") || !backup) throw new Error("恢复需要指定备份目录并使用 --confirm");
   assertInside(backup, backupRoot);
   if (!fs.existsSync(backup)) throw new Error("备份不存在");
-  await verifyBackup(backup);
+  const manifest = await verifyBackup(backup);
   await fsp.mkdir(source, { recursive: true, mode: 0o700 });
   for (const entry of await fsp.readdir(backup, { withFileTypes: true })) {
     if (entry.name === MANIFEST_FILE) continue;
+    if (manifest.version === 2 && entry.name === UPLOADS_ENTRY) {
+      await copyDirectory(path.join(backup, entry.name), uploads);
+      continue;
+    }
     const sourcePath = path.join(backup, entry.name);
     const targetPath = path.join(source, entry.name);
     if (entry.isDirectory()) await copyDirectory(sourcePath, targetPath);
