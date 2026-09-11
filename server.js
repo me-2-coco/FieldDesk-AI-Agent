@@ -3877,6 +3877,20 @@ function createApp(
     } catch (error) { next(error); }
   });
 
+  // Pure local check: never schedules Recloud writes or recreates an order.
+  app.get("/api/repairs/:rmaNo/local-state", async (req, res, next) => {
+    try {
+      const rmaNo = String(req.params.rmaNo || "").trim();
+      const user = currentUserProvider(req);
+      const order = (await receiptStore.readAll()).find(item => item.rmaNo === rmaNo);
+      if (order && !hasBusinessRole(user, USER_ROLES.ADMIN, USER_ROLES.WAREHOUSE)
+        && ![order.technicianId, order.operatorId].includes(user.userId)) {
+        throw createApiError("REPAIR_SYNC_STATUS_FORBIDDEN", "只能查看本人负责工单", 403);
+      }
+      res.json({ success: true, data: { rmaNo, exists: Boolean(order) } });
+    } catch (error) { next(error); }
+  });
+
   app.get("/api/repairs/:rmaNo/sync-status", async (req, res, next) => {
     try {
       const rmaNo = String(req.params?.rmaNo || "").trim();

@@ -39,6 +39,7 @@ import {
 import { hasBusinessRole } from "./shared/accountAccessPolicy.js"
 import {
   getMyRepairSyncAlerts,
+  getLocalRepairState,
   getRecloudSyncTasks,
   getInformationExceptions,
   getSupervisionInbox,
@@ -49,6 +50,7 @@ import {
 import {
   findRepairOrderByCrmOrderNo,
   getCurrentRepairOrder,
+  removeDeletedRepairOrder,
   setCurrentRepairOrderId
 } from "./shared/repairOrderStore.js"
 import { isTechnicianWorkflowLocked, pageForRepairStatus, resumePageForLocalWorkflow } from "./shared/repairNavigation.js"
@@ -103,13 +105,42 @@ function App() {
       appTrail.current = []
       tabScroll.current = {}
       setTabSnapshots({})
-      setActiveTab("home")
-      setPageState("home")
+      setActiveTab("orders")
+      setPageState("repair")
       setPermissionMessage("已清理失效工单页面，可以继续处理其他工单")
     }
     window.addEventListener("fielddesk-order-deleted", handleDeletedOrder)
     return () => window.removeEventListener("fielddesk-order-deleted", handleDeletedOrder)
   }, [])
+
+  const activeRmaNo = currentRepairOrder?.crmOrderNo
+  const activeWorkflowLocked = isTechnicianWorkflowLocked(currentRepairOrder)
+  useEffect(() => {
+    if (!isLoggedIn || !activeRmaNo || !activeWorkflowLocked) return
+    let active = true
+    let busy = false
+    const verify = async () => {
+      if (busy) return
+      busy = true
+      try {
+        const result = await getLocalRepairState(activeRmaNo)
+        if (active && result?.rmaNo === activeRmaNo && result.exists === false
+          && getCurrentRepairOrder()?.crmOrderNo === activeRmaNo) {
+          removeDeletedRepairOrder(activeRmaNo)
+        }
+      } catch {
+        // Network, permission and server errors are not proof of deletion.
+      } finally { busy = false }
+    }
+    verify()
+    const timer = window.setInterval(verify, 10000)
+    window.addEventListener("focus", verify)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+      window.removeEventListener("focus", verify)
+    }
+  }, [isLoggedIn, activeRmaNo, activeWorkflowLocked, currentUser?.id, page])
 
   useEffect(() => {
     if (!isLoggedIn || !workflowRestricted) return

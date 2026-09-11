@@ -223,6 +223,10 @@ export async function getLocalRepairOrders() {
   return get("/api/repairs/local-orders")
 }
 
+export async function getLocalRepairState(rmaNo) {
+  return get(`/api/repairs/${encodeURIComponent(rmaNo)}/local-state`, { timeoutMs: 3000 })
+}
+
 export async function getTechnicianWorkloads() {
   return get("/api/repairs/technician-workloads")
 }
