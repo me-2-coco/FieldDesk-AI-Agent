@@ -23,5 +23,25 @@ test("running lab renders frontend without weakening API policy", { skip: !proce
     await tab.waitForFunction(() => document.querySelector("#root")?.textContent.length > 30);
     assert.match(await tab.locator("#root").innerText(), /维修/);
     assert.deepEqual(errors, []);
+    if (process.env.FIELDDESK_LAB_LOGIN_FILE) {
+      const { password } = JSON.parse(require("node:fs").readFileSync(process.env.FIELDDESK_LAB_LOGIN_FILE, "utf8"));
+      for (const [userId, count] of [["lab-admin", 3], ["lab-tech", 2], ["lab-tech2", 1]]) {
+        const context = await browser.newContext();
+        try {
+          const login = await context.request.post(`${origin}/api/auth/login`, { data: { userId, password } });
+          assert.equal(login.status(), 200);
+          const orders = await context.request.get(`${origin}/api/repairs/local-orders`);
+          const body = await orders.json();
+          assert.equal(body.data.length, count);
+          assert.ok(body.data.every(order => order.rmaNo.startsWith("LAB-RMA-")));
+          if (userId !== "lab-admin") assert.ok(body.data.every(order => order.technicianId === userId));
+        } finally { await context.close(); }
+      }
+      await tab.getByPlaceholder("请输入账号", { exact: true }).fill("lab-tech");
+      await tab.getByPlaceholder("请输入登录密码", { exact: true }).fill(password);
+      await tab.getByRole("button", { name: "登录", exact: true }).click();
+      await tab.getByText("模拟师傅甲", { exact: true }).first().waitFor();
+      assert.deepEqual(errors, []);
+    }
   } finally { await browser.close(); }
 });
