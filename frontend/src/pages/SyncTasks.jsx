@@ -234,13 +234,16 @@ function SyncTasks({ setPage, onOpenOrder }) {
         <p>需复核阶段：{task.reviewSteps.map((step) => REVIEW_STEP_LABELS[step] || step).join("、")}</p>
       )}
       {task.lastError && <p className="compact-error-detail">最后错误：{task.lastError}</p>}
+      {(task.reconciliationRequired || task.errorCategory === "RESULT_UNKNOWN") && (
+        <p role="alert">上次提交结果未知，已隔离此单，不影响其他单。请先核对瑞云是否已完成，不能直接重复提交。</p>
+      )}
       <div className="compact-action-row">
       {task.rmaNo && typeof onOpenOrder === "function" && (
         <button type="button" className="secondary-btn" onClick={() => onOpenOrder(task.rmaNo)}>
           打开对应工单
         </button>
       )}
-      {(["FAILED", "MANUAL_REVIEW", "READY_DRY_RUN"].includes(task.status) || isStoppedHandoff(task)) && (
+      {!task.reconciliationRequired && task.errorCategory !== "RESULT_UNKNOWN" && (["FAILED", "MANUAL_REVIEW", "READY_DRY_RUN"].includes(task.status) || isStoppedHandoff(task)) && (
         <button type="button" onClick={() => retry(task.id)}>
           {isStoppedHandoff(task) ? "重新核对瑞云状态" : task.status === "READY_DRY_RUN" ? "重新核对并执行" : "人工重试"}
         </button>

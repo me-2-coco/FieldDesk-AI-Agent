@@ -766,7 +766,7 @@ test("watchdog recovery limits each sweep and does not schedule an active task t
   await Promise.all([running, duplicate]);
 });
 
-test("stale processing task is recovered after a backend restart", async (t) => {
+test("stale processing task is quarantined after a backend restart rather than replayed", async (t) => {
   const outbox = await outboxFixture(t);
   const scheduled = [];
   const service = new RecloudSyncService(outbox, new DryRunRecloudAdapter(), {
@@ -785,9 +785,11 @@ test("stale processing task is recovered after a backend restart", async (t) => 
   const tasks = await outbox.readAll();
   tasks.find((item) => item.id === task.id).updatedAt = "2020-01-01T00:00:00.000Z";
   await outbox.writeAll(tasks);
-  assert.equal(await service.resumePendingTasks(), 1);
-  assert.equal((await outbox.get(task.id)).status, TASK_STATUS.PENDING);
-  assert.equal(scheduled.length, 1);
+  assert.equal(await service.resumePendingTasks(), 0);
+  assert.equal((await outbox.get(task.id)).status, TASK_STATUS.MANUAL_REVIEW);
+  assert.equal((await outbox.get(task.id)).reconciliationRequired, true);
+  assert.equal(scheduled.length, 0);
+  await assert.rejects(service.retry(task.id), { code: "SYNC_TASK_RECONCILIATION_REQUIRED" });
 });
 
 test("retryable failed tasks also resume after a backend restart", async (t) => {

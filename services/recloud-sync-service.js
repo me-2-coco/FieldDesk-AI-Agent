@@ -10,6 +10,9 @@ const NODE_METHODS = Object.freeze({
 });
 
 function classifyError(error) {
+  if (error?.resultUnknown === true || /(?:RESULT_UNKNOWN|PROCESS_INTERRUPTED)$/.test(String(error?.code || ""))) {
+    return { category: "RESULT_UNKNOWN", retryable: false, safeCode: "RECLOUD_SYNC_RESULT_UNKNOWN" };
+  }
   const classifications = {
     RECLOUD_SYNC_NOT_ENABLED: ["DISABLED", false],
     RECLOUD_SYNC_DIAGNOSTICS_NOT_READY: ["DIAGNOSTICS", false],
@@ -65,7 +68,12 @@ class RecloudSyncService {
   scheduleTask(taskId, scheduler = this.scheduler) {
     if (this.scheduledTaskIds.has(taskId)) return false;
     this.scheduledTaskIds.add(taskId);
-    scheduler(() => this.processTask(taskId).catch(() => {}));
+    try {
+      scheduler(() => this.processTask(taskId).catch(() => {}));
+    } catch (error) {
+      this.scheduledTaskIds.delete(taskId);
+      throw error;
+    }
     return true;
   }
 
@@ -124,11 +132,8 @@ class RecloudSyncService {
     for (const task of staleProcessingTasks) {
       await this.outbox.transition(task.id, TASK_STATUS.MANUAL_REVIEW, {
         lastError: "RECLOUD_SYNC_PROCESS_INTERRUPTED",
-        errorCategory: "RECOVERY",
-      });
-      await this.outbox.transition(task.id, TASK_STATUS.PENDING, {
-        lastError: "",
-        errorCategory: "",
+        errorCategory: "RESULT_UNKNOWN",
+        reconciliationRequired: true,
       });
     }
     const tasks = (await this.outbox.readAll()).filter((task) =>
@@ -257,6 +262,7 @@ class RecloudSyncService {
       retryCount,
       lastError: classification.safeCode,
       errorCategory: classification.category,
+      reconciliationRequired: classification.category === "RESULT_UNKNOWN",
     });
     if (nextStatus === TASK_STATUS.FAILED) {
       const delayMs = this.retryDelaysMs[Math.min(retryCount - 1, this.retryDelaysMs.length - 1)];
@@ -268,6 +274,11 @@ class RecloudSyncService {
   async retry(taskId) {
     const task = await this.outbox.get(taskId);
     if (!task) throw Object.assign(new Error("同步任务不存在"), { code: "SYNC_TASK_NOT_FOUND", status: 404 });
+    if (task.reconciliationRequired || task.errorCategory === "RESULT_UNKNOWN") {
+      throw Object.assign(new Error("上次提交结果未知，必须先核对瑞云实际结果，禁止直接重复提交"), {
+        code: "SYNC_TASK_RECONCILIATION_REQUIRED", status: 409,
+      });
+    }
     const canReconcileStoppedHandoff = task.status === TASK_STATUS.SUCCESS
       && ["AWAITING_PARTS", "AWAITING_INFORMATION_CLERK"].includes(task.resultStatus);
     if (![TASK_STATUS.FAILED, TASK_STATUS.MANUAL_REVIEW, TASK_STATUS.READY_DRY_RUN].includes(task.status) && !canReconcileStoppedHandoff) {
