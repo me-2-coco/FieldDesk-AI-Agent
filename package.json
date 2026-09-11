@@ -1,6 +1,7 @@
 {
   "scripts": {
     "start": "node server.js",
+    "lab:isolated": "node scripts/start-isolated-lab.js",
     "recloud:login": "node init-recloud-login.js",
     "recloud:credentials": "node scripts/configure-recloud-credentials.js",
     "recloud:backfill-pending": "node scripts/backfill-pending-receipts.js",
