@@ -8,6 +8,15 @@ const { JsonInventoryStore } = require("../database/inventory-store");
 const { LocalRepairAttachmentStore } = require("../database/repair-attachment-store");
 const { abandonedReturnPricing, getOutOfWarrantyFeePolicy } = require("../server");
 
+test("弃修送修允许零运费且不生成免运费寄回文案", () => {
+  const pricing = abandonedReturnPricing({ partsFee: 10, repairFee: 20, oneWayLogisticsFee: 30, logisticsChargeMode: "WALK_IN" });
+  assert.equal(pricing.oneWayLogisticsFee, 0);
+  assert.equal(pricing.quotedLogisticsFee, 0);
+  assert.equal(pricing.totalFee, 0);
+  assert.match(pricing.secondaryRemark, /送修，无运费/);
+  assert.doesNotMatch(pricing.secondaryRemark, /寄回/);
+});
+
 const USER = {
   userId: "TECH-REPAIR-1", displayName: "本地测试师傅",
   role: "TECHNICIAN", repairSpecialties: ["扫地机"],
@@ -93,7 +102,7 @@ test("完工页按处理方式显示质保标签，并使用紧凑收费卡片",
   assert.match(source, /scrollIntoView/);
   assert.match(source, /查看费用备注/);
   assert.match(source, /logisticsChargeMode !== "WAIVED"/);
-  assert.match(source, /if \(nextMode === "WAIVED"\) setOneWayLogisticsFee\(""\)/);
+  assert.match(source, /if \(\["WAIVED", "WALK_IN"\]\.includes\(nextMode\)\) setOneWayLogisticsFee\(""\)/);
   assert.match(source, /选择全免后无需填写/);
   assert.match(source, /是否打折/);
   assert.match(source, /整体打折/);

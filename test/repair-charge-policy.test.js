@@ -2,6 +2,15 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { resolveRepairCharge } = require("../services/repair-charge-policy");
 
+test("送修始终不计运费，包括旧草稿残留金额", () => {
+  for (const fee of [undefined, "", 25]) {
+    const result = resolveRepairCharge({ partsFee: 10, repairFee: 20, oneWayLogisticsFee: fee, logisticsChargeMode: "WALK_IN" });
+    assert.equal(result.oneWayLogisticsFee, 0);
+    assert.equal(result.logisticsFee, 0);
+    assert.equal(result.totalFee, 30);
+  }
+});
+
 test("往返运费按单程两倍计费并选择无减免", () => {
   const result = resolveRepairCharge({ partsFee: 8, repairFee: 60, oneWayLogisticsFee: 34 });
   assert.equal(result.logisticsFee, 68);

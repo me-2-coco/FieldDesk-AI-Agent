@@ -61,7 +61,8 @@ const TREATMENT_PRESETS = {
 const LOGISTICS_MODES = [
   { value: "ROUND_TRIP", label: "收取往返运费", multiplier: 2 },
   { value: "ONE_WAY", label: "只收单边运费", multiplier: 1 },
-  { value: "WAIVED", label: "运费全免", multiplier: 0 }
+  { value: "WAIVED", label: "运费全免", multiplier: 0 },
+  { value: "WALK_IN", label: "送修", multiplier: 0 }
 ]
 
 const DISCOUNT_SCOPES = [
@@ -224,7 +225,7 @@ function RepairCompletion({ setPage }) {
   const logisticsMode = LOGISTICS_MODES.find((item) => item.value === logisticsChargeMode) || LOGISTICS_MODES[0]
   const isOutOfWarranty = !isInspectionOnly && !isAbandoned && responsibilityType === "保外维修"
   const requiresOutOfWarrantyFee = isOutOfWarranty && !isDebugging
-  const requiresLogisticsFee = requiresOutOfWarrantyFee && logisticsChargeMode !== "WAIVED"
+  const requiresLogisticsFee = requiresOutOfWarrantyFee && !["WAIVED", "WALK_IN"].includes(logisticsChargeMode)
   const responsibilityBadgeLabel = isInspectionOnly
     ? treatmentPreset?.badgeLabel
     : isAbandoned
@@ -243,7 +244,7 @@ function RepairCompletion({ setPage }) {
   const conversionReady = warrantyConversion?.requested !== true || warrantyConversion?.status === "APPROVED"
   const canSubmitCompletionBase = hasRequiredAttachment && conversionReady && (
     isAbandoned
-      ? pricing?.canPrice && hasValidOutOfWarrantyFee
+      ? pricing?.canPrice && (logisticsChargeMode === "WALK_IN" || hasValidOptionalOutOfWarrantyFee)
       : !isOutOfWarranty
         || (pricing?.canPrice && hasValidDiscount && (requiresLogisticsFee ? hasValidOutOfWarrantyFee : logisticsChargeMode === "WAIVED" || hasValidOptionalOutOfWarrantyFee))
   )
@@ -278,8 +279,8 @@ function RepairCompletion({ setPage }) {
       : "请先上传维修照片/视频"
     : (isOutOfWarranty || isAbandoned) && !pricing?.canPrice
       ? "保外费用待核对"
-      : isAbandoned && !hasValidOutOfWarrantyFee
-        ? "请填写预计寄回运费"
+      : isAbandoned && logisticsChargeMode !== "WALK_IN" && !hasValidOptionalOutOfWarrantyFee
+        ? "运费格式不正确"
       : requiresLogisticsFee && !hasValidOutOfWarrantyFee
         ? "请填写单程物流费"
         : discountEnabled && !hasValidDiscount
@@ -306,7 +307,7 @@ function RepairCompletion({ setPage }) {
     faultLevel1, faultLevel2, faultLevel3,
     responsibilityType, detectionResult, speechTemplate, repairMeasure,
     attachments: attachments.map(persistedAttachment),
-    oneWayLogisticsFee: logisticsChargeMode === "WAIVED" ? "" : oneWayLogisticsFee,
+    oneWayLogisticsFee: ["WAIVED", "WALK_IN"].includes(logisticsChargeMode) ? "" : oneWayLogisticsFee,
     logisticsChargeMode,
     discountEnabled,
     discountScope,
@@ -535,8 +536,8 @@ function RepairCompletion({ setPage }) {
               </div>}
               {!pricing?.canPrice && <div className="pricing-review-alert" role="alert"><strong>价格资料不完整</strong><span>仍可先填写运费；配件零售价或机型维修费补齐后即可提交。</span></div>}
               {(isAbandoned || logisticsChargeMode !== "WAIVED") && <div className="pricing-fee-field">
-                <label htmlFor="one-way-logistics-fee"><span>单程物流费</span><em>{isAbandoned || requiresOutOfWarrantyFee ? "必填" : "选填"}</em></label>
-                <input id="one-way-logistics-fee" type="number" min="0" step="0.01" value={oneWayLogisticsFee} onChange={(event) => setOneWayLogisticsFee(event.target.value)} placeholder={isAbandoned ? "填写单程寄回运费，再选择收单边或双边" : requiresOutOfWarrantyFee ? "请填写单程快递费" : "可按实际情况填写，不填也能提交"} required={isAbandoned || requiresOutOfWarrantyFee} disabled={completedDetail} />
+                <label htmlFor="one-way-logistics-fee"><span>单程物流费</span><em>{requiresLogisticsFee ? "必填" : "选填"}</em></label>
+                <input id="one-way-logistics-fee" type="number" min="0" step="0.01" value={oneWayLogisticsFee} onChange={(event) => setOneWayLogisticsFee(event.target.value)} placeholder={logisticsChargeMode === "WALK_IN" ? "送修无运费" : requiresLogisticsFee ? "请填写单程快递费" : "选填，无费用可留空"} required={requiresLogisticsFee} disabled={completedDetail || logisticsChargeMode === "WALK_IN"} />
               </div>}
               <fieldset className="logistics-mode-options">
                 <legend>{isAbandoned ? "原应收运费方式" : "向客户收取的运费"}</legend>
@@ -545,7 +546,7 @@ function RepairCompletion({ setPage }) {
                     <input type="radio" name="logistics-charge-mode" value={item.value} checked={logisticsChargeMode === item.value} onChange={(event) => {
                       const nextMode = event.target.value
                       setLogisticsChargeMode(nextMode)
-                      if (nextMode === "WAIVED") setOneWayLogisticsFee("")
+                      if (["WAIVED", "WALK_IN"].includes(nextMode)) setOneWayLogisticsFee("")
                     }} disabled={completedDetail} />
                     {item.label}
                   </label>
@@ -604,8 +605,10 @@ function RepairCompletion({ setPage }) {
                 <p>一级备注：{primaryRemark}</p>
                 <p>二级备注：{secondaryRemark}</p>
               </details>}
-              <p className="field-hint">{isAbandoned
-                ? "故障配件仅用于核算原维修报价；瑞云不会添加配件。填写单程物流费并选择收单边或双边，计算结果会用于二级备注和免运费申请表。"
+              <p className="field-hint">{logisticsChargeMode === "WALK_IN"
+                ? "送修不计运费，维修和弃修均适用。"
+                : isAbandoned
+                ? "故障配件仅用于核算原维修报价；瑞云不会添加配件。运费选填，无费用可留空；送修请选择送修。"
                 : isDebugging
                 ? "保外调试费用选填，师傅可根据实际情况填写；不填也可直接提交。"
                 : "收取往返或单边运费时必须填写单程物流费；选择全免后无需填写，后台会重新核算。"}</p>

@@ -2,6 +2,7 @@ const LOGISTICS_CHARGE_MODES = Object.freeze({
   ROUND_TRIP: { label: "收取往返运费", multiplier: 2 },
   ONE_WAY: { label: "只收单边运费", multiplier: 1 },
   WAIVED: { label: "运费全免", multiplier: 0 },
+  WALK_IN: { label: "送修", multiplier: 0 },
 });
 
 const DISCOUNT_SCOPES = Object.freeze({
@@ -63,7 +64,7 @@ function resolveRepairCharge({
 
   const normalizedPartsFee = normalizeMoney(partsFee);
   const normalizedRepairFee = normalizeMoney(repairFee);
-  const normalizedOneWayFee = normalizeMoney(oneWayLogisticsFee);
+  const normalizedOneWayFee = logisticsChargeMode === "WALK_IN" ? 0 : normalizeMoney(oneWayLogisticsFee);
   const logisticsFee = Number((normalizedOneWayFee * mode.multiplier).toFixed(2));
   const normalizedDiscountRate = normalizeDiscountRate(discountEnabled, discountRate);
   const normalizedDiscountScope = String(discountScope || "ORDER_TOTAL").trim();

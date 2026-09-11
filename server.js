@@ -267,7 +267,7 @@ function formatFeeAmount(value) {
 function abandonedReturnPricing({ partsFee = 0, repairFee = 0, oneWayLogisticsFee = 0, logisticsChargeMode = "ROUND_TRIP", highestLevel = "无配件", canPrice = true } = {}) {
   const normalizedPartsFee = Number(partsFee || 0);
   const normalizedRepairFee = Number(repairFee || 0);
-  const normalizedOneWayLogisticsFee = Number(oneWayLogisticsFee || 0);
+  const normalizedOneWayLogisticsFee = logisticsChargeMode === "WALK_IN" ? 0 : Number(oneWayLogisticsFee || 0);
   const mode = LOGISTICS_CHARGE_MODES[logisticsChargeMode];
   if (!mode || logisticsChargeMode === "WAIVED") {
     const error = new Error("弃修免运费申请请选择收取往返运费或只收单边运费");
@@ -295,8 +295,8 @@ function abandonedReturnPricing({ partsFee = 0, repairFee = 0, oneWayLogisticsFe
     discountScope: "ORDER_TOTAL",
     discountRate: 10,
     discountAmount: 0,
-    primaryRemark: "申请运费减免",
-    secondaryRemark: `配件费${formatFeeAmount(normalizedPartsFee)}元，维修费${formatFeeAmount(normalizedRepairFee)}元，运费${formatFeeAmount(quotedLogisticsFee)}元，合计${formatFeeAmount(quotedTotalFee)}元，用户放弃维修，免运费寄回`,
+    primaryRemark: logisticsChargeMode === "WALK_IN" ? "送修，无运费" : "申请运费减免",
+    secondaryRemark: `配件费${formatFeeAmount(normalizedPartsFee)}元，维修费${formatFeeAmount(normalizedRepairFee)}元，运费${formatFeeAmount(quotedLogisticsFee)}元，合计${formatFeeAmount(quotedTotalFee)}元，用户放弃维修，${logisticsChargeMode === "WALK_IN" ? "送修，无运费" : "免运费寄回"}`,
     logisticsSource: "ABANDONED_RETURN_WAIVER",
   };
 }
@@ -4382,6 +4382,7 @@ function createApp(
 
   async function refreshFreightWaiverApplication(order, operator = {}, options = {}) {
     if (!order || order.treatmentMode !== "ABANDONED" || !receiptStore.saveFreightWaiverApplication) return null;
+    if ((options.logisticsChargeMode || order.repairCompletion?.logisticsChargeMode) === "WALK_IN") return null;
     const hydratedOrder = await hydrateFreightWaiverOrder(order);
     const parts = await hydratePartRecords(order, order.abandonedQuoteParts || []);
     const partsPricing = resolvePartsFee(parts);
@@ -4776,7 +4777,7 @@ function createApp(
         : isOutOfWarranty
         ? String(req.body?.logisticsChargeMode || "ROUND_TRIP").trim()
         : "NOT_CHARGED";
-      if (order.treatmentMode === "ABANDONED" && !["ROUND_TRIP", "ONE_WAY"].includes(logisticsChargeMode)) {
+      if (order.treatmentMode === "ABANDONED" && !["ROUND_TRIP", "ONE_WAY", "WALK_IN"].includes(logisticsChargeMode)) {
         throw createApiError("LOGISTICS_CHARGE_MODE_INVALID", "弃修免运费申请请选择收取往返运费或只收单边运费", 400);
       }
       const discountEnabled = isOutOfWarranty && req.body?.discountEnabled === true;
@@ -4785,18 +4786,15 @@ function createApp(
         : "ORDER_TOTAL";
       const discountRate = discountEnabled ? req.body?.discountRate : 10;
       const rawOneWayLogisticsFee = req.body?.oneWayLogisticsFee;
-      const logisticsFeeIsWaived = logisticsChargeMode === "WAIVED";
+      const logisticsFeeIsWaived = ["WAIVED", "WALK_IN"].includes(logisticsChargeMode);
       if (submit && requiresOutOfWarrantyFee && !logisticsFeeIsWaived && (rawOneWayLogisticsFee === "" || rawOneWayLogisticsFee === null || rawOneWayLogisticsFee === undefined)) {
         throw createApiError("LOGISTICS_FEE_REQUIRED", "保外工单必须填写单程物流费", 400);
       }
-      const oneWayLogisticsFee = (isOutOfWarranty && !logisticsFeeIsWaived || order.treatmentMode === "ABANDONED") && rawOneWayLogisticsFee !== "" && rawOneWayLogisticsFee !== null && rawOneWayLogisticsFee !== undefined
+      const oneWayLogisticsFee = logisticsChargeMode !== "WALK_IN" && (isOutOfWarranty && !logisticsFeeIsWaived || order.treatmentMode === "ABANDONED") && rawOneWayLogisticsFee !== "" && rawOneWayLogisticsFee !== null && rawOneWayLogisticsFee !== undefined
         ? Number(rawOneWayLogisticsFee)
         : 0;
       if (!Number.isFinite(oneWayLogisticsFee) || oneWayLogisticsFee < 0) {
         throw createApiError("LOGISTICS_FEE_INVALID", "单程物流费必须是大于或等于 0 的数字", 400);
-      }
-      if (submit && order.treatmentMode === "ABANDONED" && (rawOneWayLogisticsFee === "" || rawOneWayLogisticsFee === null || rawOneWayLogisticsFee === undefined)) {
-        throw createApiError("ABANDONED_RETURN_LOGISTICS_FEE_REQUIRED", "弃修免运费寄回必须填写预计寄回运费", 400);
       }
       const pricingParts = order.treatmentMode === "ABANDONED" ? abandonedQuoteParts : usedParts;
       const repairPricing = noPartsService && order.treatmentMode !== "ABANDONED"
