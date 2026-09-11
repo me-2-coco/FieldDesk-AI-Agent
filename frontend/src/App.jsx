@@ -98,6 +98,20 @@ function App() {
   const notificationUserId = String(currentUser?.id || "anonymous")
 
   useEffect(() => {
+    const handleDeletedOrder = (event) => {
+      if (!event.detail?.removedCurrent) return
+      appTrail.current = []
+      tabScroll.current = {}
+      setTabSnapshots({})
+      setActiveTab("home")
+      setPageState("home")
+      setPermissionMessage("已清理失效工单页面，可以继续处理其他工单")
+    }
+    window.addEventListener("fielddesk-order-deleted", handleDeletedOrder)
+    return () => window.removeEventListener("fielddesk-order-deleted", handleDeletedOrder)
+  }, [])
+
+  useEffect(() => {
     if (!isLoggedIn || !workflowRestricted) return
     const activeOrder = getCurrentRepairOrder()
     if (!isTechnicianWorkflowLocked(activeOrder) || page !== "home") return

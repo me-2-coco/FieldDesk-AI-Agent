@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { deleteLocalRepairOrder, getLocalRepairOrders, reopenRepairTreatment } from "../shared/crmService.js"
+import { getCurrentRepairOrder, removeDeletedRepairOrder, REPAIR_STATUS } from "../shared/repairOrderStore.js"
+import { getCurrentUser, USER_ROLES } from "../shared/userStore.js"
 
 const MODE_LABELS = {
   REPAIR: "维修",
@@ -45,7 +47,18 @@ function AdminRepairRecovery({ setPage }) {
   useEffect(() => {
     let active = true
     getLocalRepairOrders()
-      .then((data) => { if (active) setOrders(data) })
+      .then((data) => {
+        if (!active || !Array.isArray(data)) return
+        setOrders(data)
+        // This administrator-only view receives the complete local order list.
+        // Heal stale browser state left by deletion in another tab/session.
+        const current = getCurrentRepairOrder()
+        if (getCurrentUser()?.role === USER_ROLES.ADMIN
+          && current?.crmOrderNo && current.status !== REPAIR_STATUS.WAIT_RECEIPT
+          && !data.some(order => order.rmaNo === current.crmOrderNo)) {
+          removeDeletedRepairOrder(current.crmOrderNo)
+        }
+      })
       .catch((error) => { if (active) setMessage(error.message) })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
@@ -95,6 +108,7 @@ function AdminRepairRecovery({ setPage }) {
       setWorkingRmaNo(order.rmaNo)
       setMessage("")
       await deleteLocalRepairOrder(order.rmaNo)
+      removeDeletedRepairOrder(order.rmaNo)
       setOrders((current) => current.filter((item) => item.rmaNo !== order.rmaNo))
       setMessage(`${order.rmaNo} 已从 FieldDesk 删除，后续自动同步已停止。`)
     } catch (error) {

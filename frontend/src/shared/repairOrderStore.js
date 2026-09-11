@@ -723,6 +723,23 @@ export function saveRepairOrders(orders) {
 
 }
 
+// Clear both cache formats: otherwise legacy migration resurrects deleted work.
+export function removeDeletedRepairOrder(rmaNo) {
+  const target = String(rmaNo || "").trim()
+  if (!target) return
+  const orders = getRepairOrders()
+  const currentId = localStorage.getItem("currentRepairOrderId")
+  const removedCurrent = orders.some(order => order.id === currentId && order.crmOrderNo === target)
+  const legacy = readJson("currentRepairOrder", null)
+  if (legacy?.crmOrderNo === target) localStorage.removeItem("currentRepairOrder")
+  saveRepairOrders(orders.filter(order => order.crmOrderNo !== target))
+  if (removedCurrent) {
+    const emptyOrder = createRepairOrder()
+    setCurrentRepairOrderId(emptyOrder.id)
+  }
+  window.dispatchEvent(new CustomEvent("fielddesk-order-deleted", { detail: { rmaNo: target, removedCurrent } }))
+}
+
 
 export function getCurrentRepairOrderId() {
 
