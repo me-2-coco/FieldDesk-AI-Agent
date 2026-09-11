@@ -29,12 +29,20 @@ app.get("/api/lab-status", (_req, res) => res.json({
   success: true, environment: "isolated-lab", root, externalConnectors: "disabled",
   customerDataCopied: false, syntheticOnly: true,
 }));
-app.use(createApp(connector, null, {
+const api = createApp(connector, null, {
   env, feishuModelCatalog: connector, feishuPartsCatalog: connector,
   recloudRecoveryWatchdogEnabled: false,
   resumePendingRecloudReceipts: false, resumePendingRecloudDetections: false,
   resumePendingRecloudServiceOrders: false,
-}));
+});
+// API security headers deliberately forbid scripts. Do not apply them to
+// the same-origin frontend document, which must load its own JS and CSS.
+app.use((req, res, next) => req.path.startsWith("/api/") ? api(req, res, next) : next());
+app.use((_req, res, next) => {
+  res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; object-src 'none'; base-uri 'self'");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  next();
+});
 const publicDir = path.join(root, "frontend/dist");
 const html = fs.readFileSync(path.join(publicDir, "index.html"), "utf8")
   .replace(/<title>.*?<\/title>/, "<title>FieldDesk · 隔离测试</title>")
