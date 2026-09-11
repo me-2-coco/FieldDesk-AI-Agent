@@ -1,6 +1,8 @@
 const path = require("node:path");
 const fs = require("node:fs");
 const root = path.resolve(__dirname, "..");
+const labPort = Number(process.env.FIELDDESK_LAB_PORT ?? 4174);
+if (!Number.isInteger(labPort) || labPort < 0 || labPort > 65535) throw new Error("Invalid lab port");
 if (JSON.parse(fs.readFileSync(path.join(root, "lab-manifest.json"), "utf8")).kind !== "fielddesk-isolated-lab") {
   throw new Error("Not an isolated lab snapshot");
 }
@@ -107,6 +109,10 @@ app.use(express.static(publicDir, { index: false }));
 app.use((req, res) => req.path.startsWith("/api/")
   ? res.status(404).json({ success: false, code: "LAB_ROUTE_NOT_FOUND" })
   : res.type("html").send(html));
-const server = app.listen(4174, "127.0.0.1", () => console.log("ISOLATED_LAB_URL=http://127.0.0.1:4174"));
+const server = app.listen(labPort, "127.0.0.1", () => {
+  const port = server.address().port;
+  console.log(`ISOLATED_LAB_URL=http://127.0.0.1:${port}`);
+  process.send?.({ type: "ready", port });
+});
 server.on("error", error => { console.error(error.message); process.exitCode = 1; });
 for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => server.close(() => process.exit(0)));
