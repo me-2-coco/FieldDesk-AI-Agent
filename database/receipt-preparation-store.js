@@ -1690,6 +1690,12 @@ class JsonReceiptPreparationStore {
           code: "RECEIPT_PREPARATION_NOT_FOUND", status: 404,
         });
       }
+      if (existing.repairCompletion?.submittedAt) {
+        if (submit) return existing;
+        throw Object.assign(new Error("已提交完工的资料不能覆盖为草稿"), {
+          code: "REPAIR_COMPLETION_ALREADY_SUBMITTED", status: 409,
+        });
+      }
       const hasSavedInspection = Boolean(existing.inspectionUpdatedAt && existing.faultCategory && existing.technicianWarranty);
       if (!["INSPECTION_COMPLETED_PENDING_REPAIR", "REPAIR_COMPLETION_DRAFT"].includes(existing.status) && !hasSavedInspection) {
         throw Object.assign(new Error("仅已完成检测的工单可以进入维修完工"), {

@@ -5059,11 +5059,12 @@ function createApp(
         scheduleFreightWaiverApplicationRefresh(data, currentUserProvider(req), { oneWayLogisticsFee, logisticsChargeMode });
       }
       if (submit) {
-        await enqueueRecloudNode(
+        const queuedTask = await enqueueRecloudNode(
           data,
           "REPAIR_COMPLETED",
           data.repairCompletion?.submittedAt || data.id
         );
+        if (!queuedTask) throw createApiError("REPAIR_COMPLETION_QUEUE_FAILED", "完工资料已保存，但同步任务登记失败，请重试提交；不要重复维修操作", 503);
       }
       res.json({
         success: true,
@@ -5734,6 +5735,8 @@ function createApp(
         status: 502,
         message: "演练期间检测并阻止了非预期写请求",
       },
+      REPAIR_COMPLETION_QUEUE_FAILED: { status: 503, message: "完工资料已保存，但同步任务登记失败，请重试提交；不要重复维修操作" },
+      REPAIR_COMPLETION_ALREADY_SUBMITTED: { status: 409, message: "已提交完工的资料不能覆盖为草稿" },
       PRINT_ADMIN_REQUIRED: { status: 403, message: "只有负责人或管理员可以配置打印终端" },
       PRINT_AGENT_AUTH_INVALID: { status: 401, message: "打印终端认证失败" },
       PRINT_TERMINAL_INVALID: { status: 400, message: error.message },

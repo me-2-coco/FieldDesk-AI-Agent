@@ -4,7 +4,7 @@ const os = require('node:os');
 const { spawn } = require('node:child_process');
 const { provision } = require('./start-isolated-lab');
 const names = [
-  'attachment-interruption', 'upload-admission', 'upload-client-retry',
+  'attachment-interruption', 'upload-admission', 'upload-client-retry', 'completion-api-recovery',
   'recloud-session', 'recloud-command-executor', 'recovery-fault-injection',
   'recloud-sync-outbox', 'recloud-repair-completion-orchestrator',
   'recloud-repair-attachment-uploader', 'recloud-recovery-policy',
