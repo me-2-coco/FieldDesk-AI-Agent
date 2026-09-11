@@ -51,6 +51,7 @@ const {
 } = require("./connectors/feishu-model-catalog");
 const { FeishuPartsCatalog } = require("./connectors/feishu-parts-catalog");
 const { evaluateWarranty, resolveConfirmedWarranty } = require("./services/warranty-policy");
+const { orderQuery } = require("./services/recloud-order-query");
 const localFaultMappings = require("./knowledge/fault_mapping.json").mappings || {};
 const { resolvePartsFee, resolveOutOfWarrantyFee, buildPricingPreview } = require("./services/out-of-warranty-pricing");
 const { LOGISTICS_CHARGE_MODES, resolveRepairCharge } = require("./services/repair-charge-policy");
@@ -1131,6 +1132,8 @@ function createApp(
   }
 
   function scheduleRecloudReceiptSync(order, operator = {}, attemptId = "", scheduleOptions = {}) {
+    const query = orderQuery(order);
+    order = { ...order, logisticsNo: query.logisticsNo };
     const rmaNo = String(order?.rmaNo || "").trim();
     const receiptNeedsSync = !order?.recloudReceiptConfirmedAt;
     const projectNeedsSync = !order?.recloudProjectVerificationConfirmedAt;
@@ -1159,8 +1162,9 @@ function createApp(
           let projectVerified = !projectNeedsSync;
           let detail = await connector.queryRmaByLogisticsNo(
             page,
-            order.logisticsNo,
+            query.identifier,
             {
+              ...query.options,
               preserveDetailPage: true,
               fastDomRead: true,
               expectedRmaNo: rmaNo,
@@ -1319,7 +1323,7 @@ function createApp(
                 throw createApiError("RECLOUD_PROJECT_CORRECTION_UNAVAILABLE", "瑞云项目号需要修改，但修改功能不可用", 503);
               }
               if (!await isExpectedRmaStillOpen(page, rmaNo)) {
-                detail = await connector.queryRmaByLogisticsNo(page, order.logisticsNo, { preserveDetailPage: true });
+                detail = await connector.queryRmaByLogisticsNo(page, query.identifier, { ...query.options, preserveDetailPage: true });
               }
               await connector.correctRmaProjectModel(page, {
                 sn: order.sn,
@@ -1370,8 +1374,8 @@ function createApp(
               if (!await isExpectedRmaStillOpen(page, rmaNo)) {
                 detail = await connector.queryRmaByLogisticsNo(
                   page,
-                  order.logisticsNo,
-                  { preserveDetailPage: true }
+                  query.identifier,
+                  { ...query.options, preserveDetailPage: true }
                 );
               }
               if (detail.rmaNo && detail.rmaNo !== rmaNo) {
@@ -1490,6 +1494,7 @@ function createApp(
   const detectionRecoveryAttempts = new Map();
 
   function scheduleRecloudDetectionSync(order, operator = {}, scheduleOptions = {}) {
+    const query = orderQuery(order);
     const rmaNo = String(order?.rmaNo || "").trim();
     const receiptDependenciesReady = Boolean(
       order?.recloudReceiptConfirmedAt
@@ -1515,7 +1520,8 @@ function createApp(
       try {
         await receiptStore.markRecloudDetectionSyncing(rmaNo);
         const liveResult = await withRecloud(connector, async (page) => {
-          const detail = await connector.queryRmaByLogisticsNo(page, order.logisticsNo, {
+          const detail = await connector.queryRmaByLogisticsNo(page, query.identifier, {
+            ...query.options,
             preserveDetailPage: true,
             fastDomRead: true,
             revealPhoneEnabled: false,
@@ -1623,6 +1629,7 @@ function createApp(
   const serviceOrderRecoveryNextAt = new Map();
 
   function scheduleRecloudServiceOrderSync(order, operator = {}, recoveryOptions = {}) {
+    const query = orderQuery(order);
     const rmaNo = String(order?.rmaNo || "").trim();
     const forcedPreparationRecovery = Boolean(
       recoveryOptions.forcePreparationRecovery === true
@@ -1674,7 +1681,8 @@ function createApp(
             // page, fall back to the authoritative query before writing.
             const reusedDetectionDetail = await isExpectedRmaStillOpen(page, rmaNo);
             if (!reusedDetectionDetail) {
-              const detail = await connector.queryRmaByLogisticsNo(page, order.logisticsNo, {
+              const detail = await connector.queryRmaByLogisticsNo(page, query.identifier, {
+                ...query.options,
                 preserveDetailPage: true,
                 fastDomRead: true,
                 revealPhoneEnabled: false,
@@ -1692,7 +1700,8 @@ function createApp(
               // action, rescan once and continue through the authoritative
               // path instead of retrying the same stale DOM.
               if (!reusedDetectionDetail || error.code !== "RECLOUD_ACTION_NOT_FOUND") throw error;
-              const detail = await connector.queryRmaByLogisticsNo(page, order.logisticsNo, {
+              const detail = await connector.queryRmaByLogisticsNo(page, query.identifier, {
+                ...query.options,
                 preserveDetailPage: true,
                 fastDomRead: true,
                 revealPhoneEnabled: false,
