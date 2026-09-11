@@ -1,6 +1,7 @@
 {
   "scripts": {
     "start": "node server.js",
+    "deploy:preflight": "node scripts/production-preflight.js",
     "lab:isolated": "node scripts/start-isolated-lab.js",
     "test:recovery:isolated": "node scripts/run-isolated-recovery-tests.js",
     "test:upload:ui": "node scripts/test-upload-page.js",
