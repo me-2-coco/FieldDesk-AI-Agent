@@ -5,6 +5,7 @@ const crypto = require("crypto");
 const http = require("http");
 const https = require("https");
 const path = require("path");
+const { resolveUploadDirectory } = require("./config/upload-paths");
 if (require.main === module) {
   try {
     process.loadEnvFile?.();
@@ -928,7 +929,8 @@ function createApp(
         String(req.headers["x-fielddesk-local-user"] || "")
       ));
   const inventoryStore = options.inventoryStore || businessStores.inventoryStore;
-  const attachmentStore = options.attachmentStore || new LocalRepairAttachmentStore();
+  const uploadDirectory = resolveUploadDirectory(runtimeEnv);
+  const attachmentStore = options.attachmentStore || new LocalRepairAttachmentStore(path.join(uploadDirectory, "repairs"));
   const freightWaiverApplicationGenerator = options.freightWaiverApplicationGenerator || (async (input) => {
     const applicationData = buildFreightWaiverApplicationData(input);
     return {
@@ -937,10 +939,10 @@ function createApp(
     };
   });
   const receiptAttachmentStore = options.receiptAttachmentStore || new LocalRepairAttachmentStore(
-    path.join(__dirname, "database", "uploads", "receipts"),
+    path.join(uploadDirectory, "receipts"),
     { allowedMimeTypes: ["image/jpeg", "image/png", "image/webp"] }
   );
-  const shippingAttachmentStore = options.shippingAttachmentStore || new LocalShippingAttachmentStore();
+  const shippingAttachmentStore = options.shippingAttachmentStore || new LocalShippingAttachmentStore(path.join(uploadDirectory, "shipments"));
   const printJobStore = options.printJobStore || new PrintJobStore(options.printJobStoreOptions);
   const syncDiagnostics = options.syncDiagnostics || new RecloudSyncDiagnosticsService(
     options.syncDiagnosticsStore || new JsonRecloudSyncDiagnosticsStore()

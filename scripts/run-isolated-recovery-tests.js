@@ -9,7 +9,7 @@ const names = [
   'recloud-sync-outbox', 'recloud-repair-completion-orchestrator',
   'recloud-repair-attachment-uploader', 'recloud-recovery-policy',
   'safe-background-retry', 'detection-crash-recovery', 'outbox-process-crash',
-  'global-sync-alert', 'database-backup-integrity', 'rate-limit-concurrency', 'business-rate-limit', 'lab-real-api-concurrency',
+  'global-sync-alert', 'database-backup-integrity', 'deployment-storage-config', 'rate-limit-concurrency', 'business-rate-limit', 'lab-real-api-concurrency',
 ];
 (async () => {
   const source = path.resolve(__dirname, '..');
@@ -17,6 +17,7 @@ const names = [
   const tests = names.map(name => `test/${name}.test.js`);
   for (const file of [...tests, 'test/fixtures/detection-crash-worker.cjs',
     'test/fixtures/outbox-crash-worker.cjs', 'init-recloud-login.js',
+    'config/upload-paths.js', 'deploy/env/production.env.template', 'deploy/systemd/fielddesk.service', 'deploy/nginx/fielddesk.conf',
     'scripts/database-maintenance.js', 'services/upload-admission.js', 'frontend/package.json', 'frontend/src/shared/uploadRetry.js', 'frontend/src/App.jsx', 'frontend/src/pages/SyncTasks.jsx', '.gitignore']) {
     await fs.mkdir(path.dirname(path.join(root, file)), { recursive: true });
     await fs.copyFile(path.join(source, file), path.join(root, file));

@@ -4,6 +4,7 @@ const fsp = require("fs/promises");
 const path = require("path");
 const crypto = require("crypto");
 const { DatabaseSync } = require("node:sqlite");
+const { resolveBackupUploadDirectory } = require("../config/upload-paths");
 
 const command = process.argv[2];
 const source = path.resolve(process.env.FIELDDESK_DATA_DIRECTORY || path.join(__dirname, "..", "database", "data"));
@@ -11,7 +12,7 @@ const backupRoot = path.resolve(process.env.FIELDDESK_BACKUP_DIRECTORY || path.j
 const sqliteFile = path.resolve(process.env.FIELDDESK_SQLITE_FILE || path.join(source, "fielddesk.sqlite"));
 const MANIFEST_FILE = "fielddesk-backup-manifest.json";
 const UPLOADS_ENTRY = "__fielddesk_uploads__";
-const uploads = path.resolve(process.env.FIELDDESK_BACKUP_UPLOAD_DIRECTORY || path.join(source, "..", "uploads"));
+const uploads = resolveBackupUploadDirectory(process.env);
 
 function assertInside(location, root) {
   if (location !== root && !location.startsWith(`${root}${path.sep}`)) throw new Error("路径超出允许目录");

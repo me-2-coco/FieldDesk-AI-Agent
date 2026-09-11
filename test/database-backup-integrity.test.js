@@ -60,7 +60,7 @@ test("backup restores linked draft and attachment into an empty recovery directo
   const draft = [{ rmaNo: "LAB-BACKUP", repairCompletion: { repairMeasure: "模拟维修", attachments: [{ fileName: "synthetic.png" }] } }];
   await fs.writeFile(path.join(data, "orders.json"), JSON.stringify(draft));
   await fs.writeFile(path.join(uploads, photoPath), bytes);
-  const env = { FIELDDESK_DATA_DIRECTORY: data, FIELDDESK_BACKUP_DIRECTORY: backups, FIELDDESK_BACKUP_UPLOAD_DIRECTORY: uploads };
+  const env = { FIELDDESK_DATA_DIRECTORY: data, FIELDDESK_BACKUP_DIRECTORY: backups, FIELDDESK_UPLOAD_DIRECTORY: uploads, FIELDDESK_BACKUP_UPLOAD_DIRECTORY: "" };
   const created = await run(["backup"], env);
   assert.equal(created.code, 0, created.stderr);
   const manifest = JSON.parse(await fs.readFile(path.join(created.stdout, "fielddesk-backup-manifest.json")));
@@ -68,7 +68,7 @@ test("backup restores linked draft and attachment into an empty recovery directo
   assert.ok(manifest.files.some(file => file.path === path.join("__fielddesk_uploads__", photoPath)));
   const recoveredData = path.join(root, "recovered", "data");
   const recoveredUploads = path.join(root, "recovered", "uploads");
-  const recoveryEnv = { ...env, FIELDDESK_DATA_DIRECTORY: recoveredData, FIELDDESK_BACKUP_UPLOAD_DIRECTORY: recoveredUploads };
+  const recoveryEnv = { ...env, FIELDDESK_DATA_DIRECTORY: recoveredData, FIELDDESK_UPLOAD_DIRECTORY: recoveredUploads };
   const restored = await run(["restore", created.stdout, "--confirm"], recoveryEnv);
   assert.equal(restored.code, 0, restored.stderr);
   assert.deepEqual(JSON.parse(await fs.readFile(path.join(recoveredData, "orders.json"))), draft);
