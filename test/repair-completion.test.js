@@ -13,7 +13,8 @@ test("弃修送修允许零运费且不生成免运费寄回文案", () => {
   assert.equal(pricing.oneWayLogisticsFee, 0);
   assert.equal(pricing.quotedLogisticsFee, 0);
   assert.equal(pricing.totalFee, 0);
-  assert.match(pricing.secondaryRemark, /送修，无运费/);
+  assert.doesNotMatch(pricing.secondaryRemark, /送修|无运费/);
+  assert.match(pricing.secondaryRemark, /用户放弃维修$/);
   assert.doesNotMatch(pricing.secondaryRemark, /寄回/);
 });
 
