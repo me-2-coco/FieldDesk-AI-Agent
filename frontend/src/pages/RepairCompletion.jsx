@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { MEDIA_ACCEPT, mediaType } from "../shared/mediaFormats.js"
 import SupervisionNoticeCard from "../components/SupervisionNoticeCard.jsx"
 import PhotoCaptureModal from "../components/PhotoCaptureModal.jsx"
 import { CameraIcon } from "../components/AppIcons.jsx"
@@ -353,13 +354,16 @@ function RepairCompletion({ setPage }) {
   }, [completionConfirmOpen])
 
   async function uploadFiles(event) {
-    const files = [...event.target.files]
+    const files = [...event.target.files].map(file => {
+      const type = mediaType(file)
+      return type && file.type !== type ? new File([file], file.name, { type, lastModified: file.lastModified }) : file
+    })
     if (!files.length) return
     try {
       setBusy(true)
       setErrorMessage("")
       for (const file of files) {
-        const supportedMedia = /^(image|video)\//.test(file.type)
+        const supportedMedia = mediaType(file)
         if (!supportedMedia) {
           throw new Error("仅支持维修照片和视频")
         }
@@ -640,7 +644,7 @@ function RepairCompletion({ setPage }) {
 
         <section className="receipt-upload-section repair-upload-section">
           <div className="receipt-upload-heading"><div><strong>{isInspectionOnly ? "现场照片/视频" : "维修照片/视频"}</strong><span>{isInspectionOnly ? "师傅只需上传现场照片/视频；检测报告由信息员另行制作并上传" : "归属瑞云维修单，与签收附件分开"}</span></div><span className="repair-required-badge">必填</span></div>
-          {!completedDetail && <input className="visually-hidden-file" id="repair-attachments" type="file" accept="image/*,video/*" multiple onChange={uploadFiles} disabled={busy} />}
+          {!completedDetail && <input className="visually-hidden-file" id="repair-attachments" type="file" accept={MEDIA_ACCEPT} multiple onChange={uploadFiles} disabled={busy} />}
           {!completedDetail && <div className="receipt-upload-actions">
             <button type="button" className="receipt-upload-button camera-button" onClick={() => setPhotoCameraOpen(true)} disabled={busy}><CameraIcon size={18} />拍照</button>
             <label className="receipt-upload-button" htmlFor="repair-attachments">▧ 从相册选择</label>

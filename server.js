@@ -940,7 +940,7 @@ function createApp(
   });
   const receiptAttachmentStore = options.receiptAttachmentStore || new LocalRepairAttachmentStore(
     path.join(uploadDirectory, "receipts"),
-    { allowedMimeTypes: ["image/jpeg", "image/png", "image/webp"] }
+    { allowedMimeTypes: Object.keys(require("./shared/media-formats.json").types).filter(type => /^(image|video)\//.test(type)) }
   );
   const shippingAttachmentStore = options.shippingAttachmentStore || new LocalShippingAttachmentStore(path.join(uploadDirectory, "shipments"));
   const printJobStore = options.printJobStore || new PrintJobStore(options.printJobStoreOptions);

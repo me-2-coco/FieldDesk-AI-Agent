@@ -33,13 +33,15 @@ function AttachmentPreviewItem({ attachment, loadAttachment, onRemove, disabled,
   return (
     <article className="attachment-preview-item">
       <div className="attachment-preview-media">
-        {isImage && sourceUrl ? (
+        {loadError && sourceUrl ? (
+          <a className="attachment-file-tile" href={sourceUrl} download={attachment.name}>下载原文件</a>
+        ) : isImage && sourceUrl ? (
           <button type="button" className="attachment-image-button" onClick={() => onPreview({ ...attachment, sourceUrl })} aria-label={`放大查看${attachment.name}`}>
-            <img src={sourceUrl} alt={attachment.name || "附件照片"} />
+            <img src={sourceUrl} alt={attachment.name || "附件照片"} onError={() => setLoadError("浏览器不支持此格式预览，可下载原文件；不代表上传失败")} />
             <span>点击放大</span>
           </button>
         ) : isVideo && sourceUrl ? (
-          <video src={sourceUrl} controls playsInline preload="metadata" aria-label={attachment.name || "附件视频"} />
+          <video src={sourceUrl} controls playsInline preload="metadata" aria-label={attachment.name || "附件视频"} onError={() => setLoadError("浏览器不支持此视频预览，可下载原文件；不代表上传失败")} />
         ) : isPdf && sourceUrl ? (
           <a className="attachment-file-tile" href={sourceUrl} target="_blank" rel="noreferrer">PDF</a>
         ) : (

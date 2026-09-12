@@ -1,6 +1,7 @@
 const path = require("path");
+const formats = require("../shared/media-formats.json");
 
-const ATTACHMENT_NAME_PATTERN = /\.(?:jpe?g|png|webp|heic|mp4|mov|avi|webm|pdf)$/i;
+const ATTACHMENT_NAME_PATTERN = new RegExp(`\\.(?:${Object.values(formats.types).flat().join("|")})$`, "i");
 
 function parseDisplayedSize(value) {
   const match = String(value || "").trim().match(/^(\d+(?:\.\d+)?)\s*([KMGT]?)(?:I?B)?(?:\s*\|)?$/i);
@@ -11,12 +12,7 @@ function parseDisplayedSize(value) {
 
 function mimeTypeFromName(fileName) {
   const extension = path.extname(String(fileName || "")).toLowerCase();
-  return {
-    ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
-    ".webp": "image/webp", ".heic": "image/heic", ".mp4": "video/mp4",
-    ".mov": "video/quicktime", ".avi": "video/x-msvideo", ".webm": "video/webm",
-    ".pdf": "application/pdf",
-  }[extension] || "";
+  return Object.entries(formats.types).find(([, extensions]) => extensions.includes(extension.slice(1)))?.[0] || "";
 }
 
 function parseRepairAttachmentPanelText(text) {

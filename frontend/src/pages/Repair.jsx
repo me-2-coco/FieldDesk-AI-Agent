@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { MEDIA_ACCEPT, mediaType } from "../shared/mediaFormats.js"
 import ScannerModal from "../components/ScannerModal"
 import PhotoCaptureModal from "../components/PhotoCaptureModal"
 import { CameraIcon, ScanIcon } from "../components/AppIcons.jsx"
@@ -372,8 +373,9 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
   async function saveReceiptFiles(files) {
     if (!files.length) return
     const accepted = files.map((file) => {
-      if (!/^(image|video)\//.test(file.type)) throw new Error("仅支持签收照片和视频")
-      return { id: crypto.randomUUID(), name: file.name, mimeType: file.type, file }
+      const mimeType = mediaType(file)
+      if (!mimeType) throw new Error(`无法识别 ${file.name} 的照片/视频格式，请提供原文件核查`)
+      return { id: crypto.randomUUID(), name: file.name, mimeType, file }
     })
     setErrorMessage("")
     setReceiptAttachments((current) => [...current, ...accepted])
@@ -381,8 +383,13 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
 
   async function uploadReceiptFiles(event) {
     const files = [...event.target.files]
-    await saveReceiptFiles(files)
-    event.target.value = ""
+    try {
+      await saveReceiptFiles(files)
+    } catch (error) {
+      setErrorMessage(error.message || "附件选择失败")
+    } finally {
+      event.target.value = ""
+    }
   }
 
   async function finishReceiptAndOpenParts() {
@@ -833,7 +840,7 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
               id="receipt-album"
               className="visually-hidden-file"
               type="file"
-              accept="image/*,video/*"
+              accept={MEDIA_ACCEPT}
               multiple
               onChange={uploadReceiptFiles}
               disabled={isSaving}

@@ -1,6 +1,7 @@
 const fs = require("fs/promises");
 const path = require("path");
 const crypto = require("crypto");
+const mediaFormats = require("../shared/media-formats.json");
 
 const DEFAULT_DIRECTORY = path.join(__dirname, "uploads", "repairs");
 const DEFAULT_MAX_FILE_BYTES = 100_000_000;
@@ -11,7 +12,7 @@ class LocalRepairAttachmentStore {
     this.directory = directory;
     this.maxFileBytes = Number(options.maxFileBytes || process.env.UPLOAD_MAX_FILE_BYTES || DEFAULT_MAX_FILE_BYTES);
     this.maxStorageBytes = Number(options.maxStorageBytes || process.env.UPLOAD_MAX_STORAGE_BYTES || 5 * 1024 * 1024 * 1024);
-    this.allowedMimeTypes = new Set(options.allowedMimeTypes || ["image/jpeg", "image/png", "image/webp", "video/mp4", "video/quicktime", "video/webm", "application/pdf"]);
+    this.allowedMimeTypes = new Set(options.allowedMimeTypes || Object.keys(mediaFormats.types));
   }
 
   async storageUsage(directory = this.directory) {
@@ -39,7 +40,10 @@ class LocalRepairAttachmentStore {
   async saveOnce({ rmaNo, name, mimeType, data }) {
     const orderNo = String(rmaNo || "").trim();
     const safeName = path.basename(String(name || "attachment"));
-    const type = String(mimeType || "");
+    const rawType = String(mimeType || "").split(";")[0].trim().toLowerCase();
+    const suffix = path.extname(safeName).slice(1).toLowerCase();
+    const inferred = Object.entries(mediaFormats.types).find(([, extensions]) => extensions.includes(suffix))?.[0];
+    const type = mediaFormats.aliases[rawType] || (["", "application/octet-stream", "binary/octet-stream"].includes(rawType) ? inferred : rawType);
     const content = String(data || "");
     if (!orderNo || !this.allowedMimeTypes.has(type) || !content) {
       throw Object.assign(new Error("仅支持维修照片、视频或 PDF 检测报告"), {
@@ -55,16 +59,7 @@ class LocalRepairAttachmentStore {
       });
     }
     const extension = path.extname(safeName).replace(/[^.a-zA-Z0-9]/g, "").slice(0, 10);
-    const extensionsByType = {
-      "image/jpeg": new Set([".jpg", ".jpeg"]),
-      "image/png": new Set([".png"]),
-      "image/webp": new Set([".webp"]),
-      "video/mp4": new Set([".mp4"]),
-      "video/quicktime": new Set([".mov"]),
-      "video/webm": new Set([".webm"]),
-      "application/pdf": new Set([".pdf"]),
-    };
-    const allowedExtensions = extensionsByType[type] || new Set();
+    const allowedExtensions = new Set((mediaFormats.types[type] || []).map(ext => `.${ext}`));
     if (extension && !allowedExtensions.has(extension.toLowerCase())) throw Object.assign(new Error("附件扩展名与类型不匹配"), { code: "REPAIR_ATTACHMENT_INVALID", status: 400 });
     const digest = crypto.createHash("sha256").update(JSON.stringify([orderNo, safeName, type])).update(buffer).digest("hex");
     const fileName = `${digest}${extension}`;

@@ -4,6 +4,7 @@ const os = require('node:os');
 const { spawn } = require('node:child_process');
 const { provision } = require('./start-isolated-lab');
 const names = [
+  'media-formats',
   'business-alert-monitor',
   'attachment-interruption', 'upload-admission', 'upload-client-retry', 'completion-api-recovery',
   'recloud-session', 'recloud-command-executor', 'recovery-fault-injection',
@@ -17,6 +18,7 @@ const names = [
   const root = await provision(source);
   const tests = names.map(name => `test/${name}.test.js`);
   for (const file of [...tests, 'test/fixtures/detection-crash-worker.cjs',
+    'shared/media-formats.json',
     'services/business-alert-monitor.js', 'services/feishu-alert-notifier.js', 'scripts/start-business-alerts.js',
     'test/fixtures/outbox-crash-worker.cjs', 'init-recloud-login.js',
     'scripts/production-preflight.js', 'config/upload-paths.js', 'deploy/env/production.env.template', 'deploy/systemd/fielddesk.service', 'deploy/nginx/fielddesk.conf',

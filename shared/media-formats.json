@@ -1,0 +1,22 @@
+{
+  "types": {
+    "image/jpeg": ["jpg", "jpeg", "jpe", "jfif"],
+    "image/png": ["png"], "image/webp": ["webp"], "image/gif": ["gif"],
+    "image/bmp": ["bmp", "dib"], "image/tiff": ["tif", "tiff"],
+    "image/heic": ["heic"], "image/heif": ["heif", "hif"], "image/avif": ["avif"],
+    "video/mp4": ["mp4", "m4v"], "video/quicktime": ["mov", "qt"],
+    "video/webm": ["webm"], "video/x-msvideo": ["avi"], "video/x-matroska": ["mkv"],
+    "video/3gpp": ["3gp", "3gpp"], "video/3gpp2": ["3g2"],
+    "video/mpeg": ["mpeg", "mpg", "mpe", "vob"], "video/mp2t": ["ts", "mts", "m2ts"],
+    "video/x-ms-wmv": ["wmv"], "video/x-ms-asf": ["asf"], "video/x-flv": ["flv"],
+    "video/ogg": ["ogv"], "application/pdf": ["pdf"]
+  },
+  "aliases": {
+    "image/jpg": "image/jpeg", "image/pjpeg": "image/jpeg", "image/x-png": "image/png",
+    "image/x-ms-bmp": "image/bmp", "image/x-bmp": "image/bmp",
+    "image/heic-sequence": "image/heic", "image/heif-sequence": "image/heif",
+    "video/x-m4v": "video/mp4", "video/avi": "video/x-msvideo", "video/msvideo": "video/x-msvideo",
+    "video/mkv": "video/x-matroska", "application/x-matroska": "video/x-matroska",
+    "video/x-msvideo": "video/x-msvideo", "video/mts": "video/mp2t"
+  }
+}
