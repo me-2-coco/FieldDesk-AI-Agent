@@ -1,18 +1,21 @@
 import { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { CameraIcon } from "./AppIcons.jsx"
+import CameraTorchButton from "./CameraTorchButton.jsx"
 import "./photo-capture-modal.css"
 
 function PhotoCaptureModal({ open, onCapture, onClose, title = "拍摄签收照片", filePrefix = "签收照片" }) {
   const videoRef = useRef(null)
   const streamRef = useRef(null)
   const [error, setError] = useState("")
+  const [cameraTrack, setCameraTrack] = useState(null)
 
   useEffect(() => {
     if (!open) return undefined
     let active = true
     const timer = setTimeout(() => {
     setError("")
+    setCameraTrack(null)
     if (!navigator.mediaDevices?.getUserMedia) {
       setError("当前浏览器无法调用相机，请使用 HTTPS 地址")
       return
@@ -21,6 +24,7 @@ function PhotoCaptureModal({ open, onCapture, onClose, title = "拍摄签收照�
       .then((stream) => {
         if (!active) return stream.getTracks().forEach((track) => track.stop())
         streamRef.current = stream
+        setCameraTrack(stream.getVideoTracks()[0])
         if (videoRef.current) {
           videoRef.current.srcObject = stream
           videoRef.current.play().catch(() => { if (active) setError("相机画面启动失败，请关闭后重试") })
@@ -55,6 +59,7 @@ function PhotoCaptureModal({ open, onCapture, onClose, title = "拍摄签收照�
       <video ref={videoRef} className="fd-photo-video" playsInline muted autoPlay />
       <header className="fd-photo-header"><span>{title}</span><button type="button" aria-label="关闭相机" onClick={onClose}>✕ 关闭</button></header>
       <footer className="fd-photo-controls">
+        {cameraTrack && <CameraTorchButton key={cameraTrack.id} track={cameraTrack} />}
         {error && <p role="alert">{error}</p>}
         <button type="button" className="fd-photo-shutter" aria-label="拍照" onClick={takePhoto} disabled={Boolean(error)}><CameraIcon size={28} /></button>
         <span>拍照</span>

@@ -5,6 +5,7 @@ import { fullFrameScanConfig, enableContinuousFocus } from "../shared/scannerCon
 import { FullFrameBarcodeScanner } from "../shared/FullFrameBarcodeScanner.js"
 import { extractScannedIdentifier } from '../shared/queryIdentifier.js'
 import "./scanner-modal.css"
+import CameraTorchButton from "./CameraTorchButton.jsx"
 
 function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onClose }) {
   const areaId = `scanner-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`
@@ -12,6 +13,7 @@ function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onCl
   const shutdown = useRef(Promise.resolve())
   const [cameraError, setCameraError] = useState("")
   const [ready, setReady] = useState(false)
+  const [cameraTrack, setCameraTrack] = useState(null)
   // Keep the previously working mobile path as default until the new engine
   // has passed physical-device verification. Users can explicitly try HD.
   const [compatibility, setCompatibility] = useState(true)
@@ -36,6 +38,7 @@ function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onCl
       if (!active) return
       setCameraError("")
       setReady(false)
+      setCameraTrack(null)
       if (!navigator.mediaDevices?.getUserMedia) {
         setCameraError("当前浏览器无法调用相机，请使用已信任证书的 HTTPS 地址")
         return
@@ -66,6 +69,7 @@ function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onCl
       starting.then(() => {
         if (active) {
           setReady(true)
+          setCameraTrack(document.getElementById(areaId)?.querySelector("video")?.srcObject?.getVideoTracks()[0] || null)
           void enableContinuousFocus(scanner)
         }
         else void stop()
@@ -87,6 +91,7 @@ function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onCl
     <header className="fd-scanner-header"><strong>{title}</strong><button type="button" aria-label="关闭扫码" onClick={onClose}>关闭扫码</button></header>
     <div className="fd-scanner-view" id={areaId} />
     <footer className="fd-scanner-footer">
+      {ready && <CameraTorchButton key={cameraTrack?.id || "unavailable"} track={cameraTrack} />}
       <button type="button" onClick={() => setCompatibility(value => !value)}>{compatibility ? "当前：兼容扫码 · 切换高清" : "识别不了？切换兼容扫码"}</button>
       <p role="status">{cameraError || (!ready ? "正在启动相机…" : "条码 / 二维码自动识别 · 保持完整清晰，避开反光")}</p>
       <button type="button" onClick={onClose}>关闭并手动输入</button>
