@@ -109,6 +109,28 @@ function remoteAdapter(initial = {}) {
     },
   };
 }
+for (const changes of [false, true]) {
+  test(`verified repair attachment checkpoint resumes without upload; readback changes=${changes}`, async () => {
+    const { repairAttachmentIdentity } = require('../services/repair-attachment-identity');
+    const { repairCompletionFingerprint } = require('../services/recloud-repair-completion-orchestrator');
+    const file = repairAttachmentIdentity('LAB-RESUME', PAYLOAD.attachments[0], Buffer.from('synthetic'));
+    const adapter = remoteAdapter({ assignee: PAYLOAD.assignee, parts: PAYLOAD.usedParts, attachments: [file] });
+    adapter.prepareAttachmentIdentities = async () => [file];
+    adapter.uploadAttachments = async () => assert.fail('must not reupload');
+    if (changes) adapter.readRemoteAttachments = async () => [];
+    let saved = { orderKey: 'LAB-RESUME', status: 'ATTACHMENTS_UPLOADING', fingerprint: repairCompletionFingerprint('LAB-RESUME', PAYLOAD), attachmentManifest: [file.fileName] };
+    const run = () => orchestrateRepairCompletion('LAB-RESUME', PAYLOAD, adapter, {
+      writeEnabled: true, preparationCompleted: true,
+      checkpointStore: { load: async () => saved, save: async value => { saved = value; } },
+    });
+    if (changes) {
+      await assert.rejects(run(), { code: 'RECLOUD_REPAIR_ATTACHMENT_UPLOAD_UNCERTAIN' });
+      assert.equal(saved.status, 'ATTACHMENTS_UPLOADING');
+      assert.deepEqual(saved.attachmentManifest, [file.fileName]);
+      assert.equal(adapter.calls.includes('fields'), false);
+    } else assert.equal((await run()).status, 'SUCCESS');
+  });
+}
 
 for (const failure of ["response-lost", "checkpoint-failed"]) {
   test(`submission uncertainty is quarantined: ${failure}`, async () => {

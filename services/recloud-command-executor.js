@@ -19,11 +19,19 @@ function createRecloudCommandExecutor(options = {}) {
       if (task.nodeType !== "REPAIR_COMPLETED" || !checkpointStore?.load) return null;
       const orderKey = task.rmaNo || task.workOrderNo;
       const prior = await checkpointStore.load(String(orderKey || ""));
-      if (!prior || !["SUBMITTING", "SUCCESS"].includes(prior.status)
+      if (!prior || !["SUBMITTING", "SUCCESS", "ATTACHMENTS_UPLOADING"].includes(prior.status)
         || prior.fingerprint !== repairCompletionFingerprint(orderKey, task.payload)) return null;
       const inspect = async adapter => {
         if (typeof adapter?.readRemoteState !== "function") return null;
         const remote = await adapter.readRemoteState();
+        if (prior.status === 'ATTACHMENTS_UPLOADING') {
+          if (typeof adapter.prepareAttachmentIdentities !== 'function') return null;
+          const files = await adapter.prepareAttachmentIdentities((task.payload.attachments || []).filter(file => file.source !== 'INSPECTION_REPORT'));
+          if (!require('./repair-attachment-identity').verifiedRepairManifest(files, remote.attachments, prior.attachmentManifest)) return null;
+          // Preserve the checkpoint until a scheduled execution has re-read it;
+          // returning READY_TO_RESUME does not claim the repair is completed.
+          return { status: 'READY_TO_RESUME', step: 'ATTACHMENTS_VERIFIED' };
+        }
         if (remote?.completed !== true) return null;
         return { status: "SUCCESS", completedSteps: ["REMOTE_SUBMISSION_RECONCILED"] };
       };

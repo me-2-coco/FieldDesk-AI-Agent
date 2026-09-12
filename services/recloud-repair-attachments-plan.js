@@ -33,6 +33,7 @@ function normalizeDesiredAttachments(attachments) {
     names.add(normalizedName);
     result.push({
       fileName,
+      originalFileName: String(source?.originalFileName || ''),
       normalizedName,
       size,
       mimeType: String(source?.mimeType || source?.type || "").trim().toLowerCase(),
@@ -67,6 +68,10 @@ function buildRecloudRepairAttachmentsPlan(desiredAttachments, existingAttachmen
     ? Math.max(0, Number(options.sizeToleranceBytes))
     : 1024;
   for (const attachment of desired) {
+    if (attachment.originalFileName && existingByName.has(normalizeAttachmentName(attachment.originalFileName))) {
+      conflicts.push({ fileName: attachment.fileName, reason: 'LEGACY_ATTACHMENT_REQUIRES_REVIEW' });
+      continue;
+    }
     const matches = existingByName.get(attachment.normalizedName) || [];
     if (!matches.length) {
       additions.push(attachment);

@@ -19,6 +19,24 @@ const task = {
     attachments: [{ fileName: "finish.jpg", path: "/safe/finish.jpg", size: 200000, mimeType: "image/jpeg" }],
   },
 };
+test('attachment reconciliation permits resume but never reports completed or writes', async () => {
+  const { repairAttachmentIdentity } = require('../services/repair-attachment-identity');
+  const file = repairAttachmentIdentity(task.rmaNo, task.payload.attachments[0], Buffer.from('synthetic'));
+  let remote = [file];
+  const executor = createRecloudCommandExecutor({
+    checkpointStore: { load: async () => ({ status: 'ATTACHMENTS_UPLOADING', fingerprint: repairCompletionFingerprint(task.rmaNo, task.payload), attachmentManifest: [file.fileName] }) },
+    repairAdapterProvider: { run: async (_, inspect) => inspect({
+      readRemoteState: async () => ({ attachments: remote }),
+      prepareAttachmentIdentities: async () => [file],
+      uploadAttachments: () => assert.fail('must not upload'),
+      clickSubmit: () => assert.fail('must not submit'),
+    }) },
+  });
+  const input = { ...task, nodeType: 'REPAIR_COMPLETED' };
+  assert.deepEqual(await executor.reconcileTask(input), { status: 'READY_TO_RESUME', step: 'ATTACHMENTS_VERIFIED' });
+  remote = []; assert.equal(await executor.reconcileTask(input), null);
+  remote = [file, file]; assert.equal(await executor.reconcileTask(input), null);
+});
 
 function remoteAdapter(calls) {
   return {

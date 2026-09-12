@@ -29,3 +29,15 @@ test("repair checkpoint rejects an empty or oversized order key", () => {
   assert.throws(() => safeCheckpoint({ orderKey: "" }), { code: "RECLOUD_REPAIR_CHECKPOINT_ORDER_INVALID" });
   assert.throws(() => safeCheckpoint({ orderKey: "X".repeat(81) }), { code: "RECLOUD_REPAIR_CHECKPOINT_ORDER_INVALID" });
 });
+test('uncertain attachment and submit markers survive actual disk reload', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'fd-checkpoint-marker-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const file = path.join(root, 'checkpoint.json');
+  const name = `fd-m-${'b'.repeat(64)}.mp4`;
+  for (const status of ['ATTACHMENTS_UPLOADING', 'SUBMITTING']) {
+    await new JsonRecloudRepairCheckpointStore(file).save({ orderKey: 'LAB', fingerprint: 'a'.repeat(64), status, attachmentManifest: [name, '/private/secret'] });
+    const saved = await new JsonRecloudRepairCheckpointStore(file).load('LAB');
+    assert.equal(saved.status, status);
+    assert.deepEqual(saved.attachmentManifest, [name]);
+  }
+});

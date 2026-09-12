@@ -16,6 +16,7 @@ const names = [
   'recloud-sync-outbox', 'recloud-repair-completion-orchestrator',
   'recloud-repair-attachment-uploader', 'recloud-recovery-policy',
   'recloud-repair-attachments-reader',
+  'recloud-repair-checkpoint-store', 'repair-attachment-identity',
   'safe-background-retry', 'detection-crash-recovery', 'outbox-process-crash',
   'global-sync-alert', 'database-backup-integrity', 'deployment-storage-config', 'production-preflight', 'rate-limit-concurrency', 'business-rate-limit', 'lab-real-api-concurrency',
 ];
@@ -26,6 +27,7 @@ const names = [
   for (const file of [...tests, 'test/fixtures/detection-crash-worker.cjs',
     'services/receipt-reconciliation-evidence.js',
     'services/receipt-attachment-identity.js',
+    'services/repair-attachment-identity.js',
     'services/service-recovery-policy.js', 'services/owned-service-process.js', 'services/process-lock.js', 'scripts/start-service-guardian.js',
     'test/fixtures/owned-service.cjs', 'test/fixtures/guardian-entry.cjs', 'test/fixtures/guardian-backend.cjs', 'test/fixtures/guardian-notifier.cjs',
     'shared/media-formats.json',

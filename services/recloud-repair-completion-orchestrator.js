@@ -94,8 +94,12 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
   // A checkpoint survives process loss. Legacy name/size matches are not
   // sufficient proof that this particular upload was durably accepted.
   if (prior?.status === 'ATTACHMENTS_UPLOADING') {
-    throw orchestratorError('上次维修附件上传结果未确认，需核对后恢复；未重复上传',
-      'RECLOUD_REPAIR_ATTACHMENT_UPLOAD_UNCERTAIN', 'RECONCILE', { resultUnknown: true, permanent: true });
+    const files = resumed && typeof adapter.prepareAttachmentIdentities === 'function'
+      ? await adapter.prepareAttachmentIdentities((payload.attachments || []).filter(file => file.source !== 'INSPECTION_REPORT')) : [];
+    if (!require('./repair-attachment-identity').verifiedRepairManifest(files, remote.attachments, prior.attachmentManifest)) {
+      throw orchestratorError('上次维修附件上传结果未确认，需核对后恢复；未重复上传',
+        'RECLOUD_REPAIR_ATTACHMENT_UPLOAD_UNCERTAIN', 'RECONCILE', { resultUnknown: true, permanent: true });
+    }
   }
   if (prior?.status === "SUBMITTING" && remote.completed !== true) {
     throw orchestratorError("上次瑞云提交尚未确认，需核对后恢复", "RECLOUD_REPAIR_SUBMIT_RESULT_UNKNOWN", "RECONCILE", {
@@ -113,7 +117,9 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
   });
   // 检测报告由信息员人工制作并上传；即使历史草稿仍带有系统报告附件，
   // FieldDesk 完工编排也不得把它写入瑞云。
-  const desiredMainAttachments = (payload.attachments || []).filter((item) => item?.source !== "INSPECTION_REPORT");
+  const originalMainAttachments = (payload.attachments || []).filter((item) => item?.source !== "INSPECTION_REPORT");
+  const desiredMainAttachments = typeof adapter.prepareAttachmentIdentities === 'function'
+    ? await adapter.prepareAttachmentIdentities(originalMainAttachments) : originalMainAttachments;
   let attachmentsPlan = buildRecloudRepairAttachmentsPlan(desiredMainAttachments, remote.attachments);
   const knownMissingParts = Array.isArray(options.missingParts) ? [...options.missingParts] : [];
   // Every unavailable part follows the same terminal rule: omit that part,
@@ -133,6 +139,7 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
     && unapprovedMissingParts().length === 0;
   const reviewReasons = validateRemotePlans(formPlan, partsPlan, attachmentsPlan);
   if (reviewReasons.length) {
+    if (prior?.status === 'ATTACHMENTS_UPLOADING') throw orchestratorError('恢复核对存在冲突，保留附件上传记录', 'RECLOUD_REPAIR_ATTACHMENT_UPLOAD_UNCERTAIN', 'RECONCILE', { resultUnknown: true, permanent: true });
     await saveCheckpoint(options.checkpointStore, {
       orderKey, fingerprint, status: "MANUAL_REVIEW", completedSteps, reviewReasons,
     });
@@ -237,17 +244,20 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
     throw orchestratorError("维修启动阶段的负责人远端复核失败", "RECLOUD_REPAIR_PREPARATION_ASSIGNEE_MISMATCH", "PREPARATION_VERIFY");
   }
   completedSteps.push("ASSIGNEE_VERIFIED");
-  await saveCheckpoint(options.checkpointStore, { orderKey, fingerprint, status: "RUNNING", completedSteps: [...completedSteps] });
+  await saveCheckpoint(options.checkpointStore, { orderKey, fingerprint, status: prior?.status === 'ATTACHMENTS_UPLOADING' ? prior.status : 'RUNNING', attachmentManifest: prior?.attachmentManifest, completedSteps: [...completedSteps] });
 
   if (!partsPlan.readyToAdd || unapprovedMissingParts().length) {
     throw orchestratorError("维修启动阶段的配件远端复核失败", "RECLOUD_REPAIR_PREPARATION_PARTS_MISMATCH", "PREPARATION_VERIFY");
   }
   completedSteps.push(skippedAuthorizedMissingParts ? "PARTS_VERIFIED_WITH_AUTHORIZED_SKIP" : "PARTS_VERIFIED");
-  await saveCheckpoint(options.checkpointStore, { orderKey, fingerprint, status: "RUNNING", completedSteps: [...completedSteps] });
+  await saveCheckpoint(options.checkpointStore, { orderKey, fingerprint, status: prior?.status === 'ATTACHMENTS_UPLOADING' ? prior.status : 'RUNNING', attachmentManifest: prior?.attachmentManifest, completedSteps: [...completedSteps] });
 
   // 瑞云会在没有维修附件时拒绝保存整张服务报告。必须先上传附件，
   // 再写费用与维修字段，否则字段保存失败、附件步骤又永远无法执行。
   let remoteAttachments = await readRemoteAttachments(adapter, RECLOUD_WORK_ORDER_OPERATION_POLICY.attachmentTarget);
+  if (prior?.status === 'ATTACHMENTS_UPLOADING' && !require('./repair-attachment-identity').verifiedRepairManifest(desiredMainAttachments, remoteAttachments, prior.attachmentManifest)) {
+    throw orchestratorError('维修附件再次核对不一致，停止恢复', 'RECLOUD_REPAIR_ATTACHMENT_UPLOAD_UNCERTAIN', 'RECONCILE', { resultUnknown: true, permanent: true });
+  }
   attachmentsPlan = buildRecloudRepairAttachmentsPlan(desiredMainAttachments, remoteAttachments);
   if (!attachmentsPlan.readyToUpload) {
     throw orchestratorError("附件上传前远端状态冲突", "RECLOUD_REPAIR_ATTACHMENT_PRECHECK_FAILED", "ATTACHMENTS");
@@ -259,6 +269,7 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
     assertRecloudOperationAllowed({ action: "上传附件", target: RECLOUD_WORK_ORDER_OPERATION_POLICY.attachmentTarget });
     await saveCheckpoint(options.checkpointStore, {
       orderKey, fingerprint, status: 'ATTACHMENTS_UPLOADING', completedSteps: [...completedSteps],
+      attachmentManifest: desiredMainAttachments.map(file => file.fileName),
     });
     try {
       await adapter.uploadAttachments(attachmentsPlan, {

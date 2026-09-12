@@ -4,6 +4,7 @@ const path = require("path");
 const DEFAULT_FILE = path.join(__dirname, "data", "recloud-repair-checkpoints.json");
 const ALLOWED_STATUS = new Set([
   "MANUAL_REVIEW", "RUNNING", "READY_TO_COMPLETE", "WAITING_SUBMIT_READY", "SUCCESS",
+  "SUBMITTING", "ATTACHMENTS_UPLOADING",
 ]);
 const ALLOWED_STEPS = new Set([
   "PARTS_VERIFIED", "FIELDS_VERIFIED", "ATTACHMENTS_VERIFIED",
@@ -21,6 +22,7 @@ function safeCheckpoint(input = {}) {
     orderKey,
     fingerprint: /^[a-f0-9]{64}$/i.test(String(input.fingerprint || "")) ? String(input.fingerprint).toLowerCase() : "",
     status: ALLOWED_STATUS.has(input.status) ? input.status : "RUNNING",
+    attachmentManifest: Array.isArray(input.attachmentManifest) ? input.attachmentManifest.filter(name => /^fd-m-[a-f0-9]{64}\.[a-z0-9]{1,10}$/.test(name)).slice(0, 100) : [],
     completedSteps: [...new Set((input.completedSteps || []).filter((step) => ALLOWED_STEPS.has(step)))],
     reviewSteps: [...new Set((input.reviewReasons || []).map((item) => String(item?.step || "")).filter(Boolean))].slice(0, 10),
     updatedAt: new Date().toISOString(),

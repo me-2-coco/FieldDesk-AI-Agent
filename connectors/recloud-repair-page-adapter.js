@@ -5,6 +5,8 @@ const { readExistingRepairAttachments } = require("./recloud-repair-attachments-
 const { createRecloudRepairControlAdapter, normalizeRepairControlValue } = require("./recloud-repair-control-adapter");
 const path = require("path");
 const crypto = require("crypto");
+const fs = require('node:fs/promises');
+const { repairAttachmentIdentity } = require('../services/repair-attachment-identity');
 
 function adapterError(message, code, phase) {
   const error = new Error(message);
@@ -373,6 +375,16 @@ function createRecloudRepairPageAdapter(page, context = {}) {
       await dismissRepairNotices();
       const assignee = await inspectCurrentAssignee(page);
       return assignee.currentAssignee;
+    },
+
+    async prepareAttachmentIdentities(files) {
+      const result = [];
+      for (const file of files) {
+        const original = file.fileName || file.name;
+        const buffer = await fs.readFile(attachmentPath(context.rmaNo, original));
+        result.push(repairAttachmentIdentity(context.rmaNo, file, buffer));
+      }
+      return result;
     },
 
     async readRemoteState() {
@@ -858,6 +870,15 @@ function createRecloudRepairPageAdapter(page, context = {}) {
     },
 
     async uploadAttachments(plan, options = {}) {
+      const uploadFiles = [];
+      for (const item of plan.additions) {
+        const original = item.originalFileName;
+        if (!original) throw adapterError('维修附件缺少稳定标识', 'REPAIR_ATTACHMENT_IDENTITY_REQUIRED', 'ATTACHMENTS');
+        const buffer = await fs.readFile(attachmentPath(context.rmaNo, original));
+        const verified = repairAttachmentIdentity(context.rmaNo, { ...item, fileName: original }, buffer);
+        if (verified.fileName !== item.fileName) throw adapterError('维修附件内容已变化，停止上传', 'REPAIR_ATTACHMENT_CHANGED', 'ATTACHMENTS');
+        uploadFiles.push({ name: item.fileName, mimeType: item.mimeType || 'application/octet-stream', buffer });
+      }
       await openServiceReport(page);
       if (!plan.additions.length) return { uploadedCount: 0 };
       const target = String(options.target || "附件").trim();
@@ -876,7 +897,7 @@ function createRecloudRepairPageAdapter(page, context = {}) {
       );
       const fileInput = dialog.locator("input[type='file']");
       if (await fileInput.count() !== 1) throw adapterError("附件文件选择框不唯一", "RECLOUD_REPAIR_ATTACHMENT_INPUT_AMBIGUOUS", "ATTACHMENTS");
-      await fileInput.setInputFiles(plan.additions.map((item) => attachmentPath(context.rmaNo, item.fileName)));
+      await fileInput.setInputFiles(uploadFiles);
       const upload = await uniqueVisible(dialog.getByRole("button", { name: /^\s*上\s*传\s*$/ }).filter({ visible: true }), "附件上传确认按钮不唯一", "RECLOUD_REPAIR_ATTACHMENT_CONFIRM_AMBIGUOUS", "ATTACHMENTS");
       await upload.click({ timeout: 5000 });
       await dialog.waitFor({ state: "hidden", timeout: 30000 });

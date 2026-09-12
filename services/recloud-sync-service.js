@@ -189,6 +189,14 @@ class RecloudSyncService {
     catch {
       return this.outbox.update(taskId, { reconciliationStatus: "CHECK_FAILED" });
     }
+    if (result?.status === 'READY_TO_RESUME' && result.step === 'ATTACHMENTS_VERIFIED' && task.nodeType === 'REPAIR_COMPLETED') {
+      const pending = await this.outbox.transition(taskId, TASK_STATUS.PENDING, {
+        reconciliationRequired: false, reconciliationStatus: 'ATTACHMENTS_VERIFIED',
+        lastError: '', errorCategory: '', localRecoveryResult: null,
+      });
+      this.scheduleTask(taskId);
+      return pending;
+    }
     if (result?.status !== "SUCCESS") {
       return this.outbox.update(taskId, { reconciliationStatus: "NOT_CONFIRMED" });
     }
