@@ -91,6 +91,12 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
 
   // 无论是否存在断点，都重新读取瑞云；断点不能替代远端核验。
   let remote = await adapter.readRemoteState();
+  // A checkpoint survives process loss. Legacy name/size matches are not
+  // sufficient proof that this particular upload was durably accepted.
+  if (prior?.status === 'ATTACHMENTS_UPLOADING') {
+    throw orchestratorError('上次维修附件上传结果未确认，需核对后恢复；未重复上传',
+      'RECLOUD_REPAIR_ATTACHMENT_UPLOAD_UNCERTAIN', 'RECONCILE', { resultUnknown: true, permanent: true });
+  }
   if (prior?.status === "SUBMITTING" && remote.completed !== true) {
     throw orchestratorError("上次瑞云提交尚未确认，需核对后恢复", "RECLOUD_REPAIR_SUBMIT_RESULT_UNKNOWN", "RECONCILE", {
       resultUnknown: true, permanent: true,
@@ -251,13 +257,26 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
       throw orchestratorError("缺少附件上传执行器", "RECLOUD_REPAIR_ATTACHMENT_WRITE_ADAPTER_INVALID", "ATTACHMENTS");
     }
     assertRecloudOperationAllowed({ action: "上传附件", target: RECLOUD_WORK_ORDER_OPERATION_POLICY.attachmentTarget });
-    await adapter.uploadAttachments(attachmentsPlan, {
-      target: RECLOUD_WORK_ORDER_OPERATION_POLICY.attachmentTarget,
+    await saveCheckpoint(options.checkpointStore, {
+      orderKey, fingerprint, status: 'ATTACHMENTS_UPLOADING', completedSteps: [...completedSteps],
     });
-    remoteAttachments = await readRemoteAttachments(adapter, RECLOUD_WORK_ORDER_OPERATION_POLICY.attachmentTarget);
-    attachmentsPlan = buildRecloudRepairAttachmentsPlan(desiredMainAttachments, remoteAttachments);
-    if (!attachmentsPlan.readyToUpload || attachmentsPlan.additions.length) {
-      throw orchestratorError("附件上传后远端复核失败", "RECLOUD_REPAIR_ATTACHMENT_POSTVERIFY_FAILED", "ATTACHMENTS");
+    try {
+      await adapter.uploadAttachments(attachmentsPlan, {
+        target: RECLOUD_WORK_ORDER_OPERATION_POLICY.attachmentTarget,
+      });
+      remoteAttachments = await readRemoteAttachments(adapter, RECLOUD_WORK_ORDER_OPERATION_POLICY.attachmentTarget);
+      attachmentsPlan = buildRecloudRepairAttachmentsPlan(desiredMainAttachments, remoteAttachments);
+      if (!attachmentsPlan.readyToUpload || attachmentsPlan.additions.length) {
+        throw orchestratorError("附件上传后远端复核失败", "RECLOUD_REPAIR_ATTACHMENT_POSTVERIFY_FAILED", "ATTACHMENTS");
+      }
+      // Do not clear the in-flight marker until remote verification AND local
+      // checkpoint persistence have succeeded.
+      await saveCheckpoint(options.checkpointStore, {
+        orderKey, fingerprint, status: 'RUNNING', completedSteps: [...completedSteps, 'ATTACHMENTS_VERIFIED'],
+      });
+    } catch (cause) {
+      throw orchestratorError('维修附件上传或保存后的结果未核实，禁止重复上传',
+        'RECLOUD_REPAIR_ATTACHMENT_UPLOAD_UNCERTAIN', 'ATTACHMENTS', { cause, resultUnknown: true, permanent: true });
     }
   }
   completedSteps.push("ATTACHMENTS_VERIFIED");

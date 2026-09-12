@@ -15,6 +15,53 @@ const PAYLOAD = {
   attachments: [{ fileName: "finish.jpg", path: "/safe/finish.jpg", size: 200000, mimeType: "image/jpeg" }],
 };
 
+for (const failure of ['response-lost', 'readback-failed', 'local-save-failed']) {
+  test(`attachment uncertainty survives restart without reupload: ${failure}`, async () => {
+    const adapter = remoteAdapter({ assignee: PAYLOAD.assignee, parts: PAYLOAD.usedParts });
+    let checkpoint = null; let uploads = 0;
+    const upload = adapter.uploadAttachments.bind(adapter);
+    adapter.uploadAttachments = async (...args) => {
+      uploads++;
+      await upload(...args);
+      if (failure === 'response-lost') throw new Error('synthetic network failure');
+    };
+    const read = adapter.readRemoteAttachments.bind(adapter);
+    adapter.readRemoteAttachments = async (...args) => {
+      if (uploads && failure === 'readback-failed') throw new Error('synthetic read failure');
+      return read(...args);
+    };
+    const checkpointStore = {
+      async load() { return checkpoint; },
+      async save(value) {
+        if (uploads && value.completedSteps.includes('ATTACHMENTS_VERIFIED') && failure === 'local-save-failed') throw new Error('synthetic disk failure');
+        checkpoint = structuredClone(value);
+      },
+    };
+    const options = { writeEnabled: true, preparationCompleted: true, checkpointStore };
+    await assert.rejects(orchestrateRepairCompletion('LAB-ATTACHMENTS', PAYLOAD, adapter, options), {
+      code: 'RECLOUD_REPAIR_ATTACHMENT_UPLOAD_UNCERTAIN', resultUnknown: true, permanent: true,
+    });
+    assert.equal(checkpoint.status, 'ATTACHMENTS_UPLOADING');
+    const priorCalls = adapter.calls.length;
+    await assert.rejects(orchestrateRepairCompletion('LAB-ATTACHMENTS', { ...PAYLOAD, repairMeasure: 'changed' }, adapter, options), {
+      code: 'RECLOUD_REPAIR_ATTACHMENT_UPLOAD_UNCERTAIN',
+    });
+    assert.equal(uploads, 1);
+    assert.deepEqual(adapter.calls.slice(priorCalls), ['read']);
+    assert.equal(adapter.calls.includes('fields'), false);
+    assert.equal(adapter.calls.includes('complete'), false);
+  });
+}
+
+test('failed pre-upload checkpoint prevents all attachment writes', async () => {
+  const adapter = remoteAdapter({ assignee: PAYLOAD.assignee, parts: PAYLOAD.usedParts });
+  await assert.rejects(orchestrateRepairCompletion('LAB-PREUPLOAD', PAYLOAD, adapter, {
+    writeEnabled: true, preparationCompleted: true,
+    checkpointStore: { async save(value) { if (value.status === 'ATTACHMENTS_UPLOADING') throw new Error('synthetic disk failure'); } },
+  }));
+  assert.equal(adapter.calls.some(call => call.startsWith('attachments:')), false);
+});
+
 function remoteAdapter(initial = {}) {
   let assignee = initial.assignee || "";
   let parts = initial.parts || [];

@@ -342,16 +342,9 @@ function attachmentPath(rmaNo, fileName) {
 }
 
 function enrichExpectedAttachmentMetadata(attachments, expectedAttachments) {
-  const expected = new Map((expectedAttachments || []).map((item) => [
-    String(item.fileName || item.name || "").toLowerCase(),
-    item,
-  ]));
-  return (attachments || []).map((item) => {
-    const local = expected.get(String(item.fileName || "").toLowerCase());
-    return local
-      ? { ...item, size: Number(local.size || item.size), mimeType: local.mimeType || item.mimeType }
-      : item;
-  });
+  // Preserve remote observations, including unknown size/type. Local desired
+  // metadata is not evidence of what Recloud actually stored.
+  return (attachments || []).map(item => ({ ...item }));
 }
 
 async function isRecloudRepairFullySubmitted(page) {
@@ -404,10 +397,10 @@ function createRecloudRepairPageAdapter(page, context = {}) {
         if (error.code !== "RECLOUD_REPAIR_PARTS_TABLE_NOT_FOUND") throw error;
       }
       console.info("RECLOUD_REPAIR_REMOTE_READ: attachments_start");
-      const attachments = await readExistingRepairAttachments(page).catch(() => []);
+      const attachments = await readExistingRepairAttachments(page);
       const expectsDetectionReport = (context.payload?.attachments || []).some((item) => item?.source === "INSPECTION_REPORT");
       const detectionReportAttachments = expectsDetectionReport
-        ? await readExistingRepairAttachments(page, "附件（检测报告）").catch(() => [])
+        ? await readExistingRepairAttachments(page, "附件（检测报告）")
         : [];
       console.info("RECLOUD_REPAIR_REMOTE_READ: attachments_ready");
       return {
@@ -425,7 +418,7 @@ function createRecloudRepairPageAdapter(page, context = {}) {
       await dismissRepairNotices();
       await openServiceReport(page);
       const target = String(options.target || "附件").trim();
-      const attachments = await readExistingRepairAttachments(page, target).catch(() => []);
+      const attachments = await readExistingRepairAttachments(page, target);
       return enrichExpectedAttachmentMetadata(attachments, context.payload?.attachments);
     },
 
@@ -1013,6 +1006,7 @@ function createRecloudRepairPageAdapter(page, context = {}) {
 }
 
 module.exports = {
+  enrichExpectedAttachmentMetadata,
   clickAfterLoadingSettles,
   clickApprovalFlowInput,
   createRecloudRepairPageAdapter,

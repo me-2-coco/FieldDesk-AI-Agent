@@ -1,5 +1,13 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { enrichExpectedAttachmentMetadata } = require('../connectors/recloud-repair-page-adapter');
+
+test('local desired metadata never overwrites remote attachment evidence', () => {
+  const expected = [{ fileName: 'same.jpg', size: 100000, mimeType: 'image/jpeg' }];
+  for (const observed of [{ fileName: 'same.jpg', size: 0 }, { fileName: 'same.jpg', size: 555, mimeType: 'video/mp4' }]) {
+    assert.deepEqual(enrichExpectedAttachmentMetadata([observed], expected), [observed]);
+  }
+});
 const {
   parseDisplayedSize,
   parseRepairAttachmentPanelText,

@@ -15,6 +15,7 @@ const names = [
   'recloud-session', 'recloud-command-executor', 'recovery-fault-injection',
   'recloud-sync-outbox', 'recloud-repair-completion-orchestrator',
   'recloud-repair-attachment-uploader', 'recloud-recovery-policy',
+  'recloud-repair-attachments-reader',
   'safe-background-retry', 'detection-crash-recovery', 'outbox-process-crash',
   'global-sync-alert', 'database-backup-integrity', 'deployment-storage-config', 'production-preflight', 'rate-limit-concurrency', 'business-rate-limit', 'lab-real-api-concurrency',
 ];
