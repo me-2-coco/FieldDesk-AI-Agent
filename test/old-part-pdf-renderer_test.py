@@ -46,6 +46,17 @@ class RendererTest(unittest.TestCase):
         self.assertLess(image.width,image.height)
         self.assertEqual(labels.decode_codes(image),{RMA,SERVICE+'P1'})
         self.assertEqual((page['widthMm'],page['heightMm']),(60,80))
+        raster_bytes=base64.b64decode(page['rasterBase64'])
+        self.assertEqual(len(raster_bytes),38400)
+        self.assertEqual((page['rasterWidth'],page['rasterHeight']),(480,640))
+        raster=Image.frombytes('1',(480,640),raster_bytes)
+        self.assertEqual(labels.decode_codes(raster),{RMA,SERVICE+'P1'})
+        self.assertEqual(raster.getpixel((0,0)),255)
+
+    def test_raster_refuses_lost_barcode(self):
+        with self.assertRaisesRegex(ValueError,'PRINTER_BARCODE_MISMATCH'):
+            labels.printer_bitmap(Image.new('RGB',(600,800),'white'),{RMA,SERVICE+'P1'})
+
 
     def test_multiple_parts_and_quantity(self):
         result=labels.render(request(source(('P1','P2','P2')),

@@ -7,7 +7,7 @@ const { PrintJobStore } = require('../database/print-job-store');
 const { createRecloudRepairPageAdapter } = require('../connectors/recloud-repair-page-adapter');
 const pdf = Buffer.from('%PDF-1.4\nsynthetic fixture');
 const rendered = { sha256: crypto.createHash('sha256').update(pdf).digest('hex'), pages: [
-  {payloadBase64: Buffer.from([137,80,78,71,13,10,26,10]).toString('base64'), widthMm:60,heightMm:80,partCode:'P1'}
+  {payloadBase64: Buffer.from([137,80,78,71,13,10,26,10]).toString('base64'), widthMm:60,heightMm:80,partCode:'P1',rasterWidth:480,rasterHeight:640,rasterBase64:Buffer.alloc(38400,255).toString('base64')}
 ]};
 const parts = [{partCode:'P1',quantity:1,returnRequired:true}];
 
@@ -43,7 +43,7 @@ for(const scenario of ['wrong order','wrong part','return no','not complete']){
   assert.equal(await page.evaluate(()=>window.clicks),0);
  });
 }
-test('PDF jobs atomic, idempotent, version gated, original PDF not in public list',async()=>{
+test('PDF bitmap jobs atomic, idempotent, original PDF not in public list',async()=>{
  const store=new PrintJobStore({driver:'memory'});
  const {terminal}=await store.saveTerminal({name:'fixture',printerName:'fixture',memberUserIds:['U1']});
  const input={pdf,rendered,userId:'U1',rmaNo:'R1',idempotencyKey:'batch1'};
@@ -51,9 +51,14 @@ test('PDF jobs atomic, idempotent, version gated, original PDF not in public lis
  assert.equal(a[0].id,b[0].id);
  assert.equal((await store.listJobs()).length,1);
  assert.equal((await store.listJobs())[0].originalPdfBase64,undefined);
- assert.equal(await store.leaseNext(terminal.id,'1.0.0'),null);
- const job=await store.leaseNext(terminal.id,'1.1.0');
- assert.equal(job.payloadFormat,'PNG');assert.equal(job.copies,1);
+ const job=await store.leaseNext(terminal.id,'1.0.0');
+ assert.equal(job.payloadFormat,'TSPL');assert.equal(job.copies,1);
+ const bytes=Buffer.from(job.payloadBase64,'base64');
+ const header='SIZE 76 mm,130 mm\r\nGAP 2 mm,0 mm\r\nDENSITY 8\r\nDIRECTION 1\r\nREFERENCE 0,0\r\nCLS\r\nBITMAP 64,200,60,640,0,';
+ assert.equal(bytes.subarray(0,header.length).toString(),header);
+ assert.deepEqual(bytes.subarray(header.length,header.length+38400),Buffer.alloc(38400,255));
+ assert.equal(bytes.subarray(header.length+38400).toString(),'\r\nPRINT 1,1\r\n');
+ assert.equal(job.renderMethod,'ORIGINAL_PDF_BITMAP');
  assert.equal(job.originalPdfBase64,undefined);
  assert.equal(job.paperWidthMm,76);assert.equal(job.paperHeightMm,130);
  assert.equal(job.sourcePdfSha256,rendered.sha256);
@@ -65,4 +70,17 @@ test('adapter never substitutes handwritten label for capture failure; warranty 
  await assert.rejects(adapter.printOldPartLabels(parts));assert.equal((await store.listJobs()).length,0);
  const skip=createRecloudRepairPageAdapter({}, {printJobStore:store,payload:{responsibilityType:'保外维修'}});
  assert.equal((await skip.printOldPartLabels(parts)).skipped,true);
+});
+
+test('malformed raster rejected before any page is queued',async()=>{
+ const store=new PrintJobStore({driver:'memory'});
+ const bad={...rendered,pages:[rendered.pages[0],{...rendered.pages[0],rasterBase64:'AA=='}]};
+ assert.throws(()=>store.enqueueOriginalPdf({pdf,rendered:bad,idempotencyKey:'bad'}),{code:'PRINT_PDF_INVALID'});
+ assert.equal((await store.listJobs()).length,0);
+});
+test('legacy PNG remains gated to a compatible Windows agent',async()=>{
+ const store=new PrintJobStore({driver:'memory'});
+ await store.backend.update(data=>{data.jobs=[{id:'legacy',terminalId:'T',status:'PENDING',minimumAgentVersion:'1.1.0',payloadFormat:'PNG'}];});
+ assert.equal(await store.leaseNext('T','1.0.0'),null);
+ assert.equal((await store.leaseNext('T','1.1.0')).payloadFormat,'PNG');
 });

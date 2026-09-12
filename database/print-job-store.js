@@ -45,6 +45,18 @@ function buildTsplLabel(input = {}) {
   return Buffer.from(lines.join("\r\n"), "utf8").toString("base64");
 }
 
+
+function originalBitmapPayload(page) {
+  const raster = Buffer.from(page.rasterBase64 || "", "base64");
+  if (page.rasterWidth !== 480 || page.rasterHeight !== 640 || raster.length !== 38400) {
+    throw Object.assign(new Error("原始标签打印点阵无效"), { code: "PRINT_PDF_INVALID" });
+  }
+  // 76 x 130 mm stock at 8 dots/mm; center the original 60 x 80 mm image.
+  // Clear the buffer for every page. Emit the PDF pixels, never TEXT/BARCODE.
+  const header = "SIZE 76 mm,130 mm\r\nGAP 2 mm,0 mm\r\nDENSITY 8\r\nDIRECTION 1\r\nREFERENCE 0,0\r\nCLS\r\nBITMAP 64,200,60,640,0,";
+  return Buffer.concat([Buffer.from(header, "ascii"), raster, Buffer.from("\r\nPRINT 1,1\r\n", "ascii")]).toString("base64");
+}
+
 class PrintJobStore {
   constructor(options = {}) {
     const driver = options.driver || process.env.FIELDDESK_STORAGE_DRIVER || "json";
@@ -182,6 +194,7 @@ class PrintJobStore {
         .equals(Buffer.from([137,80,78,71,13,10,26,10])) || page.widthMm !== 60 || page.heightMm !== 80)) {
       throw Object.assign(new Error("原始标签转换结果无效"), { code: "PRINT_PDF_INVALID" });
     }
+    const payloads = rendered.pages.map(originalBitmapPayload);
     return this.backend.update(data => {
       data.jobs ||= []; data.terminals ||= [];
       const existing = data.jobs.filter(job => job.idempotencyKey?.startsWith(`${input.idempotencyKey}:page:`));
@@ -193,14 +206,14 @@ class PrintJobStore {
         id: crypto.randomUUID(), terminalId: terminal?.id || "", requestedBy: clean(input.userId, 80),
         requestedByName: clean(input.userName, 80), documentType: "RECLOUD_OLD_PART_PDF",
         title: `瑞云旧件标签 · ${clean(page.partCode, 48)}`, rmaNo: clean(input.rmaNo, 40),
-        copies: 1, payloadFormat: "PNG", payloadBase64: page.payloadBase64,
+        copies: 1, payloadFormat: "TSPL", payloadBase64: payloads[index],
         imageWidthMm: page.widthMm, imageHeightMm: page.heightMm,
-        paperWidthMm: 76, paperHeightMm: 130, minimumAgentVersion: "1.1.0",
+        paperWidthMm: 76, paperHeightMm: 130, renderMethod: "ORIGINAL_PDF_BITMAP",
         sourcePdfSha256: rendered.sha256, sourcePage: index + 1,
         ...(index === 0 ? { originalPdfBase64: pdf.toString("base64") } : {}),
         idempotencyKey: `${input.idempotencyKey}:page:${index + 1}`,
         status: terminal ? "PENDING" : "UNASSIGNED", attempts: 0,
-        lastError: "需要 Windows 打印助手 1.1.0 或以上版本",
+        lastError: "",
         createdAt: now, updatedAt: now, leaseExpiresAt: "", printedAt: "",
       }));
       data.jobs.push(...jobs);

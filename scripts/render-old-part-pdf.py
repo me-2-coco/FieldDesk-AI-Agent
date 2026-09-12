@@ -62,6 +62,20 @@ def decode_codes(image):
     return found
 
 
+def printer_bitmap(image, expected_codes):
+    # XP-420B: 8 dots/mm, 60 x 80 mm. Threshold rather than dither so bars
+    # remain solid. Reject conversion if either original barcode is lost.
+    gray = image.convert("L").resize((480, 640), Image.Resampling.LANCZOS)
+    # Fractional barcode module widths can alias at the printer resolution.
+    # Try bounded thresholds; accept only a complete match to the source codes.
+    for threshold in (128, 150, 100, 180):
+        raster = gray.point(lambda value: 255 if value >= threshold else 0, mode="1")
+        if decode_codes(raster) == expected_codes:
+            # PIL mode 1: MSB-first, 0=black, 1=white (TSPL BITMAP mode 0).
+            return raster.tobytes()
+    raise ValueError("PRINT_PDF_PRINTER_BARCODE_MISMATCH")
+
+
 def render(request):
     raw = base64.b64decode(request["pdfBase64"], validate=True)
     if not raw.startswith(b"%PDF-") or len(raw) > 8 * 1024 * 1024:
@@ -106,7 +120,9 @@ def render(request):
                 output = io.BytesIO()
                 image.save(output, format="PNG")
                 pages.append({"payloadBase64": base64.b64encode(output.getvalue()).decode(),
-                              "widthMm": 60, "heightMm": 80, "partCode": matches[0]})
+                              "widthMm": 60, "heightMm": 80, "partCode": matches[0],
+                              "rasterWidth": 480, "rasterHeight": 640,
+                              "rasterBase64": base64.b64encode(printer_bitmap(image, codes)).decode()})
             finally:
                 page.close()
         if observed != counts:
