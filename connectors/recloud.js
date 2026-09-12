@@ -11853,14 +11853,25 @@ async function submitRmaHold(page, input = {}, options = {}) {
 }
 
 // Read-only reconciliation: reload persisted fields, never click Hold/Save or fill inputs.
-async function readRmaReceiptAttachmentSnapshot(page, expectedRmaNo) {
+async function readRmaReceiptAttachmentSnapshot(page, expectedRmaNo, options = {}) {
   await page.reload({ waitUntil: 'domcontentloaded' });
-  const body = await page.locator('body').innerText({ timeout: 15000 });
-  const identities = [...new Set(body.match(/JXTH[A-Z0-9-]+/gi) || [])];
-  if (extractRmaNoFromTitle(body) !== expectedRmaNo || identities.length !== 1 || identities[0] !== expectedRmaNo) {
-    throw Object.assign(new Error('瑞云工单身份未确认'), { code: 'RECEIPT_ATTACHMENT_ORDER_MISMATCH', status: 409 });
-  }
-  return { rmaNo: expectedRmaNo, attachments: await readRmaAttachments(page), readBackVerified: true };
+  // DOMContentLoaded only means the SPA shell exists; the order and attachment
+  // section arrive later. Keep identity checks strict, but wait for that data.
+  const deadline = Date.now() + (options.timeoutMs ?? 15000);
+  do {
+    const body = await page.locator('body').innerText({ timeout: 15000 });
+    const identities = [...new Set(body.match(/JXTH[A-Z0-9-]+/gi) || [])];
+    const matches = extractRmaNoFromTitle(body) === expectedRmaNo
+      && identities.length === 1 && identities[0] === expectedRmaNo;
+    if (matches && await page.locator('.apaas-sub-content[label="附件"]:visible').count() === 1
+      && await page.locator('.el-loading-mask:visible, .ant-spin-spinning:visible').count() === 0) {
+      return { rmaNo: expectedRmaNo, attachments: await readRmaAttachments(page), readBackVerified: true };
+    }
+    await page.waitForTimeout(options.pollIntervalMs ?? 200);
+  } while (Date.now() < deadline);
+  throw Object.assign(new Error('刷新后未能确认目标工单及附件区域加载完成'), {
+    code: 'RECEIPT_ATTACHMENT_ORDER_MISMATCH', status: 409,
+  });
 }
 
 async function readRmaReceiptSnapshot(page, expectedRmaNo) {
