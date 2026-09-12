@@ -1991,7 +1991,7 @@ function createApp(
 
   app.get("/api/ready", async (req, res) => {
     try {
-      await Promise.all([receiptStore.readAll(), inventoryStore.read()]);
+      await Promise.all([receiptStore.readAll(), inventoryStore.read(), coordinationStore.backend.read()]);
       res.json({ success: true, status: "ready", storageDriver: businessStores.driver });
     } catch {
       res.status(503).json({ success: false, status: "not_ready" });
@@ -5835,6 +5835,7 @@ function createApp(
       },
       REPAIR_COMPLETION_QUEUE_FAILED: { status: 503, message: "完工资料已保存，但同步任务登记失败，请重试提交；不要重复维修操作" },
       REPAIR_COMPLETION_ALREADY_SUBMITTED: { status: 409, message: "已提交完工的资料不能覆盖为草稿" },
+      LOCAL_DATA_CORRUPT: { status: 503, message: "本地工单记录异常，暂不能提交。请保留当前资料，联系负责人恢复记录" },
       FEISHU_MODEL_NETWORK_FAILED: { status: 502, message: "飞书机型表暂时无法连接，机型核验未完成。请保留照片，稍后重试" },
       FEISHU_AUTH_FAILED: { status: 502, message: "飞书机型表认证失败，请联系负责人检查配置" },
       FEISHU_MODEL_READ_FAILED: { status: 502, message: "读取飞书机型表失败，机型核验未完成。请保留照片，稍后重试" },

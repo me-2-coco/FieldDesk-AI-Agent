@@ -1,5 +1,6 @@
 const fs = require("fs/promises");
 const path = require("path");
+const { randomUUID } = require("node:crypto");
 
 class MemoryDocumentBackend {
   constructor(initialValue) {
@@ -30,14 +31,24 @@ class JsonDocumentBackend extends MemoryDocumentBackend {
     try { return JSON.parse(await fs.readFile(this.filePath, "utf8")); }
     catch (error) {
       if (error.code === "ENOENT") return structuredClone(this.initialValue);
+      if (error instanceof SyntaxError) {
+        throw Object.assign(new Error("本地业务记录格式损坏，需要恢复后继续"), {
+          code: "LOCAL_DATA_CORRUPT", status: 503, cause: error,
+        });
+      }
       throw error;
     }
   }
   async write(value) {
     await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-    const temporary = `${this.filePath}.${process.pid}.tmp`;
-    await fs.writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
-    await fs.rename(temporary, this.filePath);
+    // Separate store instances in one process must never share a staging file.
+    const temporary = `${this.filePath}.${process.pid}.${randomUUID()}.tmp`;
+    try {
+      await fs.writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+      await fs.rename(temporary, this.filePath);
+    } finally {
+      await fs.unlink(temporary).catch(error => { if (error.code !== "ENOENT") throw error; });
+    }
   }
 }
 
