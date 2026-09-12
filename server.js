@@ -425,7 +425,7 @@ function technicianWorkloadOrder(order = {}) {
   return {
     rmaNo: order.rmaNo || "",
     logisticsNo: order.logisticsNo || "",
-    phoneMasked: order.phoneMasked || "",
+    phoneMasked: order.phoneMasked || normalizeMaskedPhone(order.phone) || "",
     productLine: order.productLine || "",
     specialty: order.specialty || "",
     sn: order.sn || "",
@@ -438,10 +438,13 @@ function technicianWorkloadOrder(order = {}) {
     technicianWarranty: order.technicianWarranty || "",
     treatmentMode: order.treatmentMode || "",
     treatmentLabel: order.treatmentLabel || "",
+    resumeStep: order.resumeStep || "",
+    recentTimeline: (order.timeline || []).slice(-20).map(event => ({ id: event.id, label: event.label, at: event.at, operatorName: event.operatorName })),
     hold: order.hold ? {
       category: order.hold.category || "",
       reason: order.hold.reason || "",
       remark: order.hold.remark || "",
+      status: order.hold.status || "",
     } : null,
     repairCompletion: order.repairCompletion ? {
       submittedAt: order.repairCompletion.submittedAt || "",

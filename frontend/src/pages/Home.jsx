@@ -5,6 +5,7 @@ import { pageForRepairStatus, repairStatusForLocalWorkflow, resumePageForLocalWo
 import { USER_ROLES } from "../shared/userStore.js"
 import { buildTechnicianDirectory, categorizeTechnicianWorkflows, technicianWorkloadStatusLabel } from "../shared/homeWorkload.js"
 import SupervisionInbox from "../components/SupervisionInbox.jsx"
+import WorkOrderDetail from "../components/WorkOrderDetail.jsx"
 import DailyWorkloadBoard from "../components/DailyWorkloadBoard.jsx"
 import MonthlyStatistics from "../components/MonthlyStatistics.jsx"
 import HomeTodos from "../components/HomeTodos.jsx"
@@ -30,6 +31,8 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
   const [order, setOrder] = useState(() => getCurrentRepairOrder())
   const [resumeError, setResumeError] = useState("")
   const [todoError, setTodoError] = useState("")
+  const [viewedRmaNo, setViewedRmaNo] = useState("")
+  const [openingOrder, setOpeningOrder] = useState(false)
   const [holdRetryBusy, setHoldRetryBusy] = useState(false)
   const [holdRetryMessage, setHoldRetryMessage] = useState("")
   async function retryHold(item) {
@@ -320,6 +323,26 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
     setPage(targetPage || pageForRepairStatus(restored.status))
   }
 
+  async function openWorkOrder(item) {
+    if (openingOrder) return
+    setOpeningOrder(true)
+    setTodoError("")
+    try {
+      const rows = isTechnician ? await getLocalRepairOrders() : (await getTechnicianWorkloads()).orders
+      const latest = rows.find(row => row.rmaNo === item.rmaNo)
+      if (!latest) throw new Error("工单已移除，请刷新列表")
+      if (isTechnician) {
+        if ((latest.technicianId || latest.operatorId) !== (currentUser?.userId || currentUser?.id)) throw new Error("只能继续本人负责的工单")
+        if (["CANCELLED", "TRANSFERRED_TO_HEADQUARTERS"].includes(latest.status)) throw new Error("当前工单已结束维修流程")
+        openWorkflow(latest)
+      } else if (canViewTechnicians) {
+        setWorkflows(rows)
+        setViewedRmaNo(latest.rmaNo)
+      }
+    } catch (error) { setTodoError(error.message) }
+    finally { setOpeningOrder(false) }
+  }
+
   async function continueWorkflow(item) {
     const rows = await getLocalRepairOrders()
     const latest = rows.find(row => row.rmaNo === item.rmaNo)
@@ -360,6 +383,10 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
     ] },
   ].filter((group) => group.actions.length)
 
+  if (viewedRmaNo && canViewTechnicians) {
+    const viewedOrder = workflows.find(item => item.rmaNo === viewedRmaNo)
+    return viewedOrder ? <WorkOrderDetail order={viewedOrder} onBack={() => setViewedRmaNo("")} /> : <div className="page"><p>工单已移除或不再可见</p><button onClick={() => setViewedRmaNo("")}>返回工单列表</button></div>
+  }
   return <div className={`page home-page home-desktop ${ordersHub ? "orders-hub" : ""}`}>
     {desktopView !== "desktop" && <div className="desktop-subpage-heading"><button type="button" onClick={() => detailStatus ? setDetailStatus("") : selectedTechnicianId ? setSelectedTechnicianId("") : openDesktopView("desktop")}>← {detailStatus ? "返回维修概览" : selectedTechnicianId ? "返回师傅列表" : "返回首页"}</button><h1>{({ dailyBoard: "当日看板", team: "师傅工作台", work: "师傅工作台", stats: "月度统计", messages: "督办消息" })[desktopView]}</h1></div>}
     {desktopView === "desktop" && <><div className="card home-identity-card">
@@ -454,7 +481,7 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
         </div>)}
         {holdRetryMessage && <p role="status">{holdRetryMessage}</p>}
         {!!detailOrders.length && <div className="home-work-order-scroll">
-          {detailOrders.map((item) => <button type="button" key={item.rmaNo} className={canViewTechnicians ? "read-only" : ""} onClick={() => isTechnician && (item.status === "ON_HOLD" ? continueWorkflow(item).catch(error => setTodoError(error.message)) : openWorkflow(item))} aria-disabled={canViewTechnicians}>
+          {detailOrders.map((item) => <button type="button" key={item.rmaNo} onClick={() => openWorkOrder(item)} disabled={openingOrder}>
             <span className="home-order-main"><strong>{canViewTechnicians ? item.phoneMasked || "电话未记录" : fullLocalPhone(item)}</strong><small>{item.productLine || item.specialty || "品类未记录"} · SN {item.sn || "未记录"}{item.status === "ON_HOLD" && <> · {item.hold?.category || "分类未记录"}/{item.hold?.reason || "原因未记录"}</>}</small></span>
             <span className={`home-order-status ${detailStatus}`}>{technicianWorkloadStatusLabel(item)}</span>{isTechnician && <b>›</b>}
           </button>)}
