@@ -394,7 +394,7 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
       throw orchestratorError("缺少旧件标签打印执行器", "RECLOUD_OLD_PART_LABEL_ADAPTER_INVALID", "OLD_PART_LABELS");
     }
     await adapter.printOldPartLabels(oldPartLabelParts);
-    completedSteps.push("OLD_PART_LABELS_PRINTED");
+    completedSteps.push("OLD_PART_LABELS_QUEUED");
   }
 
   if (typeof adapter.clickSubmit !== "function") {

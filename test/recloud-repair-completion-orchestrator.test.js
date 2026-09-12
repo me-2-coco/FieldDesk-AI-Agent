@@ -357,7 +357,7 @@ test("normal in-warranty repair prints old-part labels before submit", async () 
     usedParts: labelParts,
   }, adapter, { writeEnabled: true, preparationCompleted: true });
   assert.equal(result.status, "SUCCESS");
-  assert.equal(result.completedSteps.includes("OLD_PART_LABELS_PRINTED"), true);
+  assert.equal(result.completedSteps.includes("OLD_PART_LABELS_QUEUED"), true);
   assert.equal(adapter.calls.some((call) => call.startsWith("labels:")), true);
   assert.equal(adapter.calls.some((call) => call.startsWith("submit:")), true);
 });
@@ -373,7 +373,7 @@ test("out-of-warranty repair skips old-part labels even when parts require retur
     usedParts: labelParts,
   }, adapter, { writeEnabled: true, preparationCompleted: true });
   assert.equal(result.status, "SUCCESS");
-  assert.equal(result.completedSteps.includes("OLD_PART_LABELS_PRINTED"), false);
+  assert.equal(result.completedSteps.includes("OLD_PART_LABELS_QUEUED"), false);
   assert.equal(adapter.calls.some((call) => call.startsWith("labels:")), false);
   assert.equal(adapter.calls.some((call) => call.startsWith("submit:")), true);
 });

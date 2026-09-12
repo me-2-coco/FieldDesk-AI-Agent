@@ -28,3 +28,16 @@ Set-ExecutionPolicy -Scope Process Bypass
 - 电脑关机时不会打印，重新开机后打印助手会继续取队列中的任务。
 - 不需要在每位师傅手机上安装打印助手，iPhone 和 Android 都只负责提交任务。
 - 真实终端密钥只保存在安装电脑，禁止放入 Git 或截图转发。
+
+## 瑞云原始旧件标签（打印助手 1.1.0）
+
+- 仅在保内完工后，按工单实际用件核对瑞云“是否返厂”和数量，勾选目标行，再点击“旧件打印标签”。保外跳过。
+- 读取新打开的“面单打印”窗口中的原始 PDF；找不到、多个候选、页面/数量/条码不匹配时停止，禁止用 FieldDesk 自制标签替代。
+- 每页必须是 80×60 mm，并包含本单寄修条码和“维修单号+配件编码”条码。保留原 PDF、SHA-256 和页码；按原文档栅格化，不重新排字或生成条码。
+- 当前已确认纸张为 76×130 mm。原标签旋转为 60×80 mm，以原尺寸居中打印，Windows 使用已安装打印机驱动输出中文与条码。
+- 每页独立任务，同一批次重复执行不产生重复队列；队列完成表示已提交 Windows 打印系统，实物是否出纸与扫码仍需现场核验。
+- 1.0 助手只支持 TSPL，不会领取原 PDF 图像任务。升级时先下载新脚本，再停止计划任务、替换程序、启动计划任务，原配置与去重记录保留。不要在任务正在打印时升级。
+
+后端需要专用 Python 环境：`python3 -m venv runtime/print-python`，使用该环境安装 `requirements-print.txt`，并设置 `FIELDDESK_PRINT_PYTHON` 为其中 Python 的绝对路径。PDF 在独立进程中解析，设有大小、页数和超时限制；缺依赖会明确停止，不会静默改用自制标签。
+
+验证：`node --test test/old-part-pdf.test.js test/print-job-store-store.test.js test/recloud-repair-completion-orchestrator.test.js`；Python 测试还需安装 reportlab，并运行 `python test/old-part-pdf-renderer_test.py`。浏览器测试只访问模拟页面，不能代表瑞云实际 DOM 已通过验收。

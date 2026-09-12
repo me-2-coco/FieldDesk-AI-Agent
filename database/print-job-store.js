@@ -174,7 +174,44 @@ class PrintJobStore {
     });
   }
 
-  leaseNext(terminalId) {
+  enqueueOriginalPdf(input) {
+    const { rendered, pdf } = input;
+    if (!Buffer.isBuffer(pdf) || !rendered?.pages?.length || rendered.pages.length > 40
+      || rendered.sha256 !== crypto.createHash("sha256").update(pdf).digest("hex")
+      || rendered.pages.some(page => !Buffer.from(page.payloadBase64 || "", "base64").subarray(0, 8)
+        .equals(Buffer.from([137,80,78,71,13,10,26,10])) || page.widthMm !== 60 || page.heightMm !== 80)) {
+      throw Object.assign(new Error("原始标签转换结果无效"), { code: "PRINT_PDF_INVALID" });
+    }
+    return this.backend.update(data => {
+      data.jobs ||= []; data.terminals ||= [];
+      const existing = data.jobs.filter(job => job.idempotencyKey?.startsWith(`${input.idempotencyKey}:page:`));
+      if (existing.length) return existing;
+      const terminal = data.terminals.find(item => !item.deletedAt && item.active !== false
+        && (item.memberUserIds || []).includes(input.userId));
+      const now = new Date().toISOString();
+      const jobs = rendered.pages.map((page, index) => ({
+        id: crypto.randomUUID(), terminalId: terminal?.id || "", requestedBy: clean(input.userId, 80),
+        requestedByName: clean(input.userName, 80), documentType: "RECLOUD_OLD_PART_PDF",
+        title: `瑞云旧件标签 · ${clean(page.partCode, 48)}`, rmaNo: clean(input.rmaNo, 40),
+        copies: 1, payloadFormat: "PNG", payloadBase64: page.payloadBase64,
+        imageWidthMm: page.widthMm, imageHeightMm: page.heightMm,
+        paperWidthMm: 76, paperHeightMm: 130, minimumAgentVersion: "1.1.0",
+        sourcePdfSha256: rendered.sha256, sourcePage: index + 1,
+        ...(index === 0 ? { originalPdfBase64: pdf.toString("base64") } : {}),
+        idempotencyKey: `${input.idempotencyKey}:page:${index + 1}`,
+        status: terminal ? "PENDING" : "UNASSIGNED", attempts: 0,
+        lastError: "需要 Windows 打印助手 1.1.0 或以上版本",
+        createdAt: now, updatedAt: now, leaseExpiresAt: "", printedAt: "",
+      }));
+      data.jobs.push(...jobs);
+      return jobs;
+    });
+  }
+
+  leaseNext(terminalId, agentVersion = "") {
+    const version = String(agentVersion).split(".").map(Number);
+    const supportsPdf = version.length >= 2 && version.every(Number.isInteger)
+      && (version[0] > 1 || (version[0] === 1 && version[1] >= 1));
     return this.backend.update((data) => {
       const now = Date.now();
       for (const job of data.jobs || []) {
@@ -183,13 +220,16 @@ class PrintJobStore {
           job.leaseExpiresAt = "";
         }
       }
-      const job = (data.jobs || []).find((item) => item.terminalId === terminalId && item.status === "PENDING");
+      const job = (data.jobs || []).find((item) => item.terminalId === terminalId && item.status === "PENDING"
+        && (!item.minimumAgentVersion || supportsPdf));
       if (!job) return null;
       job.status = "PRINTING";
+      job.lastError = "";
       job.attempts = Number(job.attempts || 0) + 1;
       job.updatedAt = new Date(now).toISOString();
       job.leaseExpiresAt = new Date(now + LEASE_MS).toISOString();
-      return job;
+      const { originalPdfBase64, ...printable } = job;
+      return printable;
     });
   }
 
@@ -227,7 +267,7 @@ class PrintJobStore {
     return [...(data.jobs || [])]
       .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
       .slice(0, Math.max(1, Math.min(500, Number(limit || 100))))
-      .map(({ payloadBase64, ...job }) => job);
+      .map(({ payloadBase64, originalPdfBase64, ...job }) => job);
   }
 }
 

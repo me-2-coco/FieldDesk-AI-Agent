@@ -3,7 +3,7 @@
 )
 
 $ErrorActionPreference = "Stop"
-$AgentVersion = "1.0.0"
+$AgentVersion = "1.1.0"
 
 if (-not (Test-Path -LiteralPath $ConfigPath)) {
   throw "未找到打印助手配置：$ConfigPath"
@@ -110,6 +110,49 @@ function Save-PrintedJobId {
   Move-Item -LiteralPath $TemporaryPath -Destination $StatePath -Force
 }
 
+function Send-OriginalLabelImage {
+  param([object]$Job, [byte[]]$Bytes)
+  if ($Job.imageWidthMm -ne 60 -or $Job.imageHeightMm -ne 80 -or
+      $Job.paperWidthMm -ne 76 -or $Job.paperHeightMm -ne 130) {
+    throw "原始标签纸张参数无效，请检查终端配置。"
+  }
+  Add-Type -AssemblyName System.Drawing
+  $Stream = New-Object System.IO.MemoryStream(,$Bytes)
+  $Image = $null
+  $Document = New-Object System.Drawing.Printing.PrintDocument
+  try {
+    $Image = [System.Drawing.Image]::FromStream($Stream)
+    $Document.PrinterSettings.PrinterName = $PrinterName
+    if (-not $Document.PrinterSettings.IsValid) { throw "Windows 打印机不可用。" }
+    $Document.DocumentName = "FieldDesk-$($Job.id)"
+    $Document.PrintController = New-Object System.Drawing.Printing.StandardPrintController
+    $Document.DefaultPageSettings.Landscape = $false
+    $Document.DefaultPageSettings.PaperSize = New-Object System.Drawing.Printing.PaperSize("FieldDesk 76x130", 299, 512)
+    $Document.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(0, 0, 0, 0)
+    $Document.PrinterSettings.Copies = 1
+    $Handler = [System.Drawing.Printing.PrintPageEventHandler]{
+      param($Sender, $Event)
+      $Area = $Event.PageSettings.PrintableArea
+      $Width = [single](60 / 25.4 * 100)
+      $Height = [single](80 / 25.4 * 100)
+      if ($Area.Width -lt $Width -or $Area.Height -lt $Height) {
+        throw "打印机可打印区域不足，无法按原尺寸打印旧件标签。"
+      }
+      $X = [single]($Area.X - $Event.PageSettings.HardMarginX + ($Area.Width - $Width) / 2)
+      $Y = [single]($Area.Y - $Event.PageSettings.HardMarginY + ($Area.Height - $Height) / 2)
+      $Event.Graphics.PageUnit = [System.Drawing.GraphicsUnit]::Display
+      $Event.Graphics.DrawImage($Image, $X, $Y, $Width, $Height)
+      $Event.HasMorePages = $false
+    }
+    $Document.add_PrintPage($Handler)
+    try { $Document.Print() } finally { $Document.remove_PrintPage($Handler) }
+  } finally {
+    $Document.Dispose()
+    if ($null -ne $Image) { $Image.Dispose() }
+    $Stream.Dispose()
+  }
+}
+
 Write-Host "FieldDesk 打印助手已启动：$TerminalId -> $PrinterName"
 while ($true) {
   try {
@@ -133,7 +176,11 @@ while ($true) {
       $Bytes = [Convert]::FromBase64String([string]$Job.payloadBase64)
       $Copies = [Math]::Max(1, [Math]::Min(20, [int]$Job.copies))
       for ($Copy = 1; $Copy -le $Copies; $Copy++) {
-        [FieldDesk.RawPrinter]::Send($PrinterName, $Bytes, "FieldDesk-$($Job.id)-$Copy")
+        if ([string]$Job.payloadFormat -eq "PNG") {
+          Send-OriginalLabelImage -Job $Job -Bytes $Bytes
+        } elseif (-not $Job.payloadFormat -or [string]$Job.payloadFormat -eq "TSPL") {
+          [FieldDesk.RawPrinter]::Send($PrinterName, $Bytes, "FieldDesk-$($Job.id)-$Copy")
+        } else { throw "不支持的打印任务格式，请更新打印助手。" }
       }
     } catch {
       $Message = $_.Exception.Message

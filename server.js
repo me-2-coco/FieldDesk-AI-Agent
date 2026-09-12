@@ -2141,7 +2141,7 @@ function createApp(
         computerName: req.headers["x-print-computer-name"],
         printerName: terminal.printerName,
       });
-      res.json({ success: true, data: await printJobStore.leaseNext(terminal.id) });
+      res.json({ success: true, data: await printJobStore.leaseNext(terminal.id, String(req.headers["x-print-agent-version"] || "")) });
     } catch (error) { next(error); }
   });
 

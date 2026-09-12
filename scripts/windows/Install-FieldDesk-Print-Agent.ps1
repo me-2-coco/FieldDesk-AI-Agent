@@ -22,6 +22,14 @@ if (-not (Get-Printer -Name $PrinterName -ErrorAction SilentlyContinue)) {
   throw "Windows 中未找到打印机‘$PrinterName’，请先安装驱动并打印 Windows 测试页。"
 }
 
+if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
+  Stop-ScheduledTask -TaskName $TaskName
+  $StopDeadline = (Get-Date).AddSeconds(15)
+  while ((Get-ScheduledTask -TaskName $TaskName).State -eq "Running") {
+    if ((Get-Date) -gt $StopDeadline) { throw "旧版打印助手仍在运行，请稍后重试。" }
+    Start-Sleep -Milliseconds 200
+  }
+}
 New-Item -ItemType Directory -Path $InstallDirectory -Force | Out-Null
 $AgentTarget = Join-Path $InstallDirectory "FieldDesk-Print-Agent.ps1"
 $ConfigTarget = Join-Path $InstallDirectory "print-agent.json"

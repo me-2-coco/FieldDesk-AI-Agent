@@ -942,26 +942,22 @@ function createRecloudRepairPageAdapter(page, context = {}) {
     },
 
     async printOldPartLabels(parts = []) {
-      if (!context.printJobStore) return { deferredToOutlet: true, jobs: [] };
+      if (!context.printJobStore) throw adapterError("未配置旧件标签队列", "PRINT_STORE_REQUIRED", "OLD_PART_LABELS");
       const payload = context.payload || {};
-      const jobs = [];
-      for (const [index, part] of parts.entries()) {
-        jobs.push(await context.printJobStore.enqueue({
-          userId: payload.technicianId,
-          userName: payload.technicianName || payload.assignee,
-          documentType: "OLD_PART_LABEL",
-          title: `旧件标签 · ${String(part.partCode || part.code || "").trim() || index + 1}`,
-          rmaNo: context.rmaNo,
-          sn: context.sn,
-          partCode: part.partCode || part.code,
-          partName: part.partName || part.name,
-          quantity: part.quantity || 1,
-          copies: part.quantity || 1,
-          technicianName: payload.technicianName || payload.assignee,
-          idempotencyKey: `old-part-label:${context.rmaNo}:${String(part.partCode || part.code || "part").trim()}:${index}`,
-        }));
-      }
+      if (String(payload.pricing?.warrantyStatus || "") === "OUT_OF_WARRANTY"
+        || String(payload.responsibilityType || "").includes("保外")) return { skipped: true, jobs: [] };
+      const captured = await (context.captureOldPartLabels || require("./recloud-old-part-labels").captureOldPartLabels)(page, parts, context);
+      const expected = { rmaNo: context.rmaNo, serviceOrderNo: captured.serviceOrderNo,
+        parts: parts.map(part => ({ partCode: part.partCode || part.code, quantity: part.quantity || 1 })) };
+      const rendered = await (context.renderOldPartPdf || require("../services/old-part-pdf-renderer").renderOldPartPdf)(captured.pdf, expected);
+      const selection = expected.parts.map(part => `${part.partCode}:${part.quantity}`).sort().join("|");
+      const jobs = await context.printJobStore.enqueueOriginalPdf({
+        pdf: captured.pdf, rendered, userId: payload.technicianId,
+        userName: payload.technicianName || payload.assignee, rmaNo: context.rmaNo,
+        idempotencyKey: `recloud-label:${context.rmaNo}:${captured.serviceOrderNo}:${crypto.createHash("sha256").update(selection).digest("hex")}`,
+      });
       return { queued: true, jobs };
+
     },
 
     async clickSubmit(options = {}) {
