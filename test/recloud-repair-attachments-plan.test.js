@@ -1,5 +1,17 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { parseRepairAttachmentPanelText } = require('../connectors/recloud-repair-attachments-reader');
+
+test('rounded megabyte display accepts rounding only, without accepting wrong files', () => {
+  const remote = parseRepairAttachmentPanelText('video.mp4\n12.46M |');
+  const desired = [{ fileName: 'video.mp4', size: 13062644, mimeType: 'video/mp4' }];
+  assert.equal(buildRecloudRepairAttachmentsPlan(desired, remote).skipped.length, 1);
+  assert.equal(buildRecloudRepairAttachmentsPlan([{ ...desired[0], size: 13000000 }], remote).conflicts[0].reason, 'SIZE_MISMATCH');
+  assert.equal(buildRecloudRepairAttachmentsPlan(desired, [...remote, ...remote]).conflicts[0].reason, 'DUPLICATE_EXISTING_NAME');
+  assert.equal(buildRecloudRepairAttachmentsPlan(desired, [{ ...remote[0], size: 0 }]).conflicts[0].reason, 'EXISTING_SIZE_UNKNOWN');
+  assert.equal(buildRecloudRepairAttachmentsPlan(desired, [{ ...remote[0], mimeType: 'image/jpeg' }]).conflicts[0].reason, 'TYPE_MISMATCH');
+  assert.equal(buildRecloudRepairAttachmentsPlan(desired, [{ ...remote[0], sizeRoundingBytes: undefined }]).conflicts[0].reason, 'SIZE_MISMATCH');
+});
 const {
   normalizeAttachmentName,
   buildRecloudRepairAttachmentsPlan,

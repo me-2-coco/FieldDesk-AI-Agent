@@ -8,7 +8,7 @@ const { LocalRepairAttachmentStore } = require('../database/repair-attachment-st
 const { parseRepairAttachmentPanelText } = require('../connectors/recloud-repair-attachments-reader');
 test('remote attachment readback recognizes every declared extension', () => {
   for (const [mimeType, extensions] of Object.entries(formats.types)) for (const ext of extensions) {
-    assert.deepEqual(parseRepairAttachmentPanelText(`test.${ext}\n1K |`), [{ fileName:`test.${ext}`, size:1024, mimeType }]);
+    assert.deepEqual(parseRepairAttachmentPanelText(`test.${ext}\n1K |`), [{ fileName:`test.${ext}`, size:1024, sizeRoundingBytes:512, mimeType }]);
   }
 });
 test('all declared image/video formats store and read back with empty or generic MIME', async t => {

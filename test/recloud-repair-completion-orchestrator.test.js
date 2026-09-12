@@ -113,8 +113,9 @@ for (const changes of [false, true]) {
   test(`verified repair attachment checkpoint resumes without upload; readback changes=${changes}`, async () => {
     const { repairAttachmentIdentity } = require('../services/repair-attachment-identity');
     const { repairCompletionFingerprint } = require('../services/recloud-repair-completion-orchestrator');
-    const file = repairAttachmentIdentity('LAB-RESUME', PAYLOAD.attachments[0], Buffer.from('synthetic'));
-    const adapter = remoteAdapter({ assignee: PAYLOAD.assignee, parts: PAYLOAD.usedParts, attachments: [file] });
+    const file = repairAttachmentIdentity('LAB-RESUME', PAYLOAD.attachments[0], Buffer.alloc(13062644, 1));
+    const remoteFile = { ...file, size: 13065257, sizeRoundingBytes: 5243 };
+    const adapter = remoteAdapter({ assignee: PAYLOAD.assignee, parts: PAYLOAD.usedParts, attachments: [remoteFile] });
     adapter.prepareAttachmentIdentities = async () => [file];
     adapter.uploadAttachments = async () => assert.fail('must not reupload');
     if (changes) adapter.readRemoteAttachments = async () => [];

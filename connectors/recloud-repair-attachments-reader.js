@@ -22,12 +22,19 @@ function parseRepairAttachmentPanelText(text) {
     const fileName = lines[index];
     if (!ATTACHMENT_NAME_PATTERN.test(fileName) || fileName.includes("/")) continue;
     let size = 0;
+    let sizeRoundingBytes = 0;
     for (let lookahead = index + 1; lookahead < Math.min(lines.length, index + 6); lookahead += 1) {
       size = parseDisplayedSize(lines[lookahead]);
-      if (size) break;
+      if (size) {
+        const match = lines[lookahead].match(/^(\d+(?:\.(\d+))?)\s*([KMGT]?)/i);
+        const unit = { '': 1, K: 1024, M: 1024 ** 2, G: 1024 ** 3, T: 1024 ** 4 }[match[3].toUpperCase()];
+        // UI sizes are rounded, not exact byte counts. Retain their precision.
+        sizeRoundingBytes = Math.ceil(unit * 10 ** -(match[2]?.length || 0) / 2);
+        break;
+      }
       if (ATTACHMENT_NAME_PATTERN.test(lines[lookahead])) break;
     }
-    attachments.push({ fileName, size, mimeType: mimeTypeFromName(fileName) });
+    attachments.push({ fileName, size, sizeRoundingBytes, mimeType: mimeTypeFromName(fileName) });
   }
   return attachments;
 }

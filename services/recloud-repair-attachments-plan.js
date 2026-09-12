@@ -56,6 +56,7 @@ function buildRecloudRepairAttachmentsPlan(desiredAttachments, existingAttachmen
     entries.push({
       fileName,
       size: normalizeAttachmentSize(source?.size),
+      sizeRoundingBytes: Number.isFinite(source?.sizeRoundingBytes) && source.sizeRoundingBytes > 0 ? source.sizeRoundingBytes : 0,
       mimeType: String(source?.mimeType || source?.type || "").trim().toLowerCase(),
     });
     existingByName.set(normalizedName, entries);
@@ -86,7 +87,7 @@ function buildRecloudRepairAttachmentsPlan(desiredAttachments, existingAttachmen
       conflicts.push({ fileName: attachment.fileName, reason: "EXISTING_SIZE_UNKNOWN" });
       continue;
     }
-    if (Math.abs(existing.size - attachment.size) > tolerance) {
+    if (Math.abs(existing.size - attachment.size) > Math.max(tolerance, existing.sizeRoundingBytes)) {
       conflicts.push({
         fileName: attachment.fileName,
         reason: "SIZE_MISMATCH",
