@@ -7,6 +7,7 @@ const names = [
   'media-formats',
   'business-alert-monitor',
   'hold-reconciliation', 'receipt-reconciliation',
+  'receipt-result-safety',
   'service-recovery-policy', 'owned-service-process', 'service-guardian', 'process-lock',
   'attachment-interruption', 'upload-admission', 'upload-client-retry', 'completion-api-recovery',
   'recloud-session', 'recloud-command-executor', 'recovery-fault-injection',

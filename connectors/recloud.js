@@ -11123,11 +11123,11 @@ async function confirmSign(page, sn, productType, remark, options = {}) {
       const verificationError = new Error("瑞云签收确认后仍显示签收入口");
       verificationError.code = "RECLOUD_RECEIPT_NOT_CONFIRMED";
       verificationError.status = 502;
-      verificationError.resultUnknown = false;
+      verificationError.resultUnknown = true;
       throw verificationError;
     }
   } catch (error) {
-    if (confirmationAttempted && error.code !== "RECLOUD_RECEIPT_NOT_CONFIRMED") {
+    if (confirmationAttempted) {
       error.code = "RECLOUD_RECEIPT_RESULT_UNKNOWN";
       error.status = 409;
       error.resultUnknown = true;
@@ -11283,18 +11283,24 @@ async function uploadRmaAttachments(page, attachments = [], options = {}) {
   }
   const deadline = Date.now() + (options.timeoutMs || 30_000);
   let after = [];
-  while (Date.now() < deadline) {
-    after = await readRmaAttachments(page);
-    if (pending.every((file) => after.some((item) => item.name === file.name))) break;
-    await page.waitForTimeout(300);
-  }
-  const missing = pending.filter((file) => !after.some((item) => item.name === file.name));
-  if (missing.length) {
-    const error = new Error(`瑞云未显示已上传附件：${missing.map((item) => item.name).join("、")}`);
-    error.code = "RECLOUD_RMA_ATTACHMENT_RESULT_UNKNOWN";
-    error.status = 409;
-    error.resultUnknown = true;
-    throw error;
+  try {
+    while (Date.now() < deadline) {
+      after = await readRmaAttachments(page);
+      if (pending.every((file) => after.some((item) => item.name === file.name))) break;
+      await page.waitForTimeout(300);
+    }
+    const missing = pending.filter((file) => !after.some((item) => item.name === file.name));
+    if (missing.length) {
+      const error = new Error(`瑞云未显示已上传附件：${missing.map((item) => item.name).join("、")}`);
+      error.code = "RECLOUD_RMA_ATTACHMENT_RESULT_UNKNOWN";
+      error.status = 409;
+      error.resultUnknown = true;
+      throw error;
+    }
+  } catch (cause) {
+    throw Object.assign(new Error("瑞云附件上传已触发，但结果回读失败，请核对后再操作", { cause }), {
+      code: "RECLOUD_RMA_ATTACHMENT_RESULT_UNKNOWN", status: 409, resultUnknown: true,
+    });
   }
   return { uploaded: pending.map((file) => file.name), skipped: files.filter((file) => !pending.includes(file)).map((file) => file.name) };
 }

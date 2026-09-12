@@ -1215,6 +1215,8 @@ function createApp(
     activeReceiptSyncs.add(rmaNo);
     scheduleBackgroundWork(async () => {
       let attachmentUploadTriggered = false;
+      let receiptRemoteConfirmed = false;
+      let attachmentsRemoteConfirmed = false;
       try {
         const result = await withRecloud(connector, async (page) => {
           let projectVerified = !projectNeedsSync;
@@ -1290,9 +1292,13 @@ function createApp(
                   ? { entry: null }
                   : null;
               if (!receiptTarget) {
+                if (receiptState.code !== "ALREADY_RECEIVED") {
+                  throw Object.assign(createApiError("RECLOUD_RECEIPT_RESULT_UNKNOWN", "未找到签收按钮且没有已签收证据，请核对瑞云", 409), { resultUnknown: true });
+                }
+                receiptRemoteConfirmed = true;
                 await receiptStore.markRecloudReceiptConfirmed(rmaNo, {
                   skipped: true,
-                  receipt: { confirmed: true, message: "瑞云当前没有签收按钮，已跳过签收操作" },
+                  receipt: { confirmed: true, message: "瑞云读取状态为已签收或后续阶段，未重复签收" },
                   operator,
                 });
               } else {
@@ -1320,6 +1326,7 @@ function createApp(
                     502
                   );
                 }
+                receiptRemoteConfirmed = true;
                 await receiptStore.markRecloudReceiptConfirmed(rmaNo, {
                   receipt,
                   operator,
@@ -1330,6 +1337,7 @@ function createApp(
                 await receiptStore.markRecloudReceiptFailed(rmaNo, {
                   code: error.code,
                   resultUnknown:
+                    receiptRemoteConfirmed ||
                     error.resultUnknown === true ||
                     error.code === "RECLOUD_RECEIPT_RESULT_UNKNOWN",
                   operator,
@@ -1453,6 +1461,7 @@ function createApp(
                 hydrated,
                 { writeEnabled: true }
               );
+              attachmentsRemoteConfirmed = true;
               await receiptStore.markRecloudReceiptAttachmentsConfirmed(rmaNo, {
                 result: attachmentResult,
                 operator,
@@ -1461,6 +1470,7 @@ function createApp(
               await receiptStore.markRecloudReceiptAttachmentsFailed(rmaNo, {
                 code: error.code,
                 resultUnknown:
+                  attachmentsRemoteConfirmed ||
                   error.resultUnknown === true ||
                   error.code === "RECLOUD_RMA_ATTACHMENT_RESULT_UNKNOWN",
               }).catch(() => {});
@@ -1488,7 +1498,7 @@ function createApp(
           await receiptStore.markRecloudReceiptFailed(rmaNo, {
             code: failureCode,
             resultUnknown:
-              error.resultUnknown === true
+              receiptRemoteConfirmed || error.resultUnknown === true
               || error.code === "RECLOUD_RECEIPT_RESULT_UNKNOWN"
               || error.code === "RECLOUD_RECEIPT_TIMEOUT",
             operator,
@@ -1498,7 +1508,7 @@ function createApp(
           await receiptStore.markRecloudReceiptAttachmentsFailed(rmaNo, {
             code: failureCode,
             resultUnknown:
-              attachmentUploadTriggered
+              attachmentsRemoteConfirmed || attachmentUploadTriggered
               && (error.resultUnknown === true || error.code === "RECLOUD_RECEIPT_TIMEOUT"),
           }).catch(() => {});
         }

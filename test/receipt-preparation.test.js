@@ -1157,7 +1157,7 @@ test("receipt attachment sync reads project code from the SN-bound product row w
   let uploaded = 0;
   const connector = {
     openRecloud: async () => ({ loginRequired: false, page: {} }),
-    queryRmaByLogisticsNo: async () => ({ rmaNo: "JXTH900001001", productLine: "扫地机", projectCode: "" }),
+    queryRmaByLogisticsNo: async () => ({ rmaNo: "JXTH900001001", productLine: "扫地机", projectCode: "", pickupStatus: "已取件" }),
     confirmSign: async () => ({ confirmed: true, message: "签收完成" }),
     readRmaProductIdentity: async () => ({ sn: "TEST-SN-A1", projectCode: "R2502", productLine: "扫地机" }),
     uploadRmaAttachments: async () => { uploaded += 1; return { uploaded: ["receipt.jpg"], skipped: [] }; },
