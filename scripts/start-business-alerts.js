@@ -2,6 +2,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { createBusinessAlertMonitor } = require('../services/business-alert-monitor');
+const { writeMonitorHealth } = require('../services/monitor-health');
 const { createAlertNotifier, createFeishuAlertSender } = require('../services/feishu-alert-notifier');
 async function main() {
   try { process.loadEnvFile?.(); } catch (error) { if (error.code !== 'ENOENT') throw error; }
@@ -14,6 +15,8 @@ async function main() {
   const lock = await fs.open(path.join(directory, 'monitor.lock'), 'wx', 0o600);
   await lock.writeFile(String(process.pid)); await lock.close();
   let timer; let stopping = false;
+  let lastSuccessfulScanAt = null;
+  const healthFile = path.join(directory, 'health.json');
   const notifier = createAlertNotifier({ directory: path.join(directory, 'deliveries'), send: createFeishuAlertSender(process.env) });
   const monitor = createBusinessAlertMonitor({ file: path.join(directory, 'incidents.json'), notifier });
   async function tick(initial = false) {
@@ -21,9 +24,12 @@ async function main() {
     try {
       const [orders, tasks] = await Promise.all(['receipt-preparations.json', 'recloud-sync-outbox.json'].map(async name => JSON.parse(await fs.readFile(path.join(data, name), 'utf8'))));
       const result = await monitor.scan(orders, tasks);
+      lastSuccessfulScanAt = new Date().toISOString();
+      await writeMonitorHealth(healthFile, { pid: process.pid, status: result.attention ? 'DELIVERY_FAILED' : 'HEALTHY', lastSuccessfulScanAt });
       if (result.baseline) console.log('BUSINESS_ALERTS: historical baseline saved');
       if (result.attention) console.warn('BUSINESS_ALERTS: delivery needs review');
     } catch (error) {
+      await writeMonitorHealth(healthFile, { pid: process.pid, status: 'SCAN_FAILED', lastSuccessfulScanAt }).catch(() => {});
       console.error('BUSINESS_ALERTS: scan failed; no recovery inferred');
       if (initial) { await fs.unlink(path.join(directory, 'monitor.lock')); throw error; }
     }

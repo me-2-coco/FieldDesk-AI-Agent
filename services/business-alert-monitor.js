@@ -17,13 +17,14 @@ function observations(orders, tasks, now = Date.now()) {
     const age = now - Date.parse(timestamp || '');
     const kind = ['RESULT_UNKNOWN', 'MANUAL_REVIEW'].includes(status) ? 'RESULT_UNKNOWN'
       : status === 'FAILED' ? 'FAILED'
-      : ['PENDING', 'SYNCING', 'PROCESSING', 'RUNNING'].includes(status) && Number.isFinite(age) && age >= timeout ? 'STALLED' : null;
+      : ['PENDING', 'SUBMITTING', 'SYNCING', 'PROCESSING', 'RUNNING'].includes(status) && Number.isFinite(age) && age >= timeout ? 'STALLED' : null;
     result.push({ key: `${rmaNo}:${identity}`, rmaNo, stage, kind, success: ['CONFIRMED', 'SUCCESS'].includes(status) });
   };
   for (const order of orders) {
     if (['CANCELLED', 'DELETED'].includes(order.status)) continue;
     for (const [stage, status, timestamp, timeout] of stages) add(order.rmaNo, stage, order[status], order[timestamp] || order.updatedAt, timeout);
     const prep = order.recloudRepairPreparation;
+    if (order.hold) add(order.rmaNo, 'HOLD', order.hold.status, order.hold.attemptedAt || order.updatedAt);
     if (prep) add(order.rmaNo, 'REPAIR_PREPARATION', prep.status, prep.startedAt || prep.updatedAt || order.updatedAt);
   }
   for (const task of tasks) add(task.rmaNo, task.nodeType, task.status, task.startedAt || task.updatedAt || task.createdAt, 180000, `task:${task.id}`);
@@ -68,7 +69,10 @@ function createBusinessAlertMonitor({ file, notifier, now = Date.now }) {
     }
     await save(); // Incident identity survives a crash before delivery.
     const results = [];
-    for (const event of events) results.push(await notifier.deliver(event));
+    for (const event of events) {
+      try { results.push(await notifier.deliver(event)); }
+      catch { results.push({ status: 'FAILED' }); }
+    }
     return { baseline: false, delivered: results.filter(r => r.status === 'SENT').length,
       attention: results.filter(r => r.status !== 'SENT').length };
   }

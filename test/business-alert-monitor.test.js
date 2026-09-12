@@ -8,6 +8,34 @@ const { once } = require('node:events');
 const { observations, createBusinessAlertMonitor } = require('../services/business-alert-monitor');
 const { createAlertNotifier, createFeishuAlertSender } = require('../services/feishu-alert-notifier');
 const row = status => ({ rmaNo: 'LAB-ALERT', recloudDetectionSyncStatus: status, updatedAt: '2026-01-01' });
+test('hold unknown and interrupted submission are visible, without inferring success', () => {
+  const held = status => ({ rmaNo: 'LAB-HOLD', status: 'ON_HOLD', hold: { status, attemptedAt: '2026-01-01' }, updatedAt: '2026-02-01' });
+  const now = Date.parse('2026-01-01T00:04:00Z');
+  assert.equal(observations([held('SUBMITTING')], [], now).find(x => x.stage === 'HOLD').kind, 'STALLED');
+  assert.equal(observations([held('RESULT_UNKNOWN')], [], now).find(x => x.stage === 'HOLD').kind, 'RESULT_UNKNOWN');
+});
+test('one broken delivery does not prevent alerts for other orders', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fielddesk-alert-isolation-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const calls = [];
+  const monitor = createBusinessAlertMonitor({ file: path.join(dir, 'ledger.json'), notifier: { async deliver(event) {
+    calls.push(event.rmaNo); if (event.rmaNo === 'LAB-ALERT') throw Error('synthetic'); return { status: 'SENT' };
+  } } });
+  await monitor.scan([], []);
+  const result = await monitor.scan([row('FAILED'), { ...row('FAILED'), rmaNo: 'LAB-SECOND' }], []);
+  assert.deepEqual(calls, ['LAB-ALERT', 'LAB-SECOND']);
+  assert.equal(result.attention, 1); assert.equal(result.delivered, 1);
+});
+test('monitor health rejects missing, failed, future and stale heartbeats', () => {
+  const { monitorIsHealthy } = require('../services/monitor-health');
+  const now = Date.parse('2026-01-01T00:01:00Z');
+  const state = { status: 'HEALTHY', lastSuccessfulScanAt: '2026-01-01T00:00:00Z' };
+  assert.equal(monitorIsHealthy(state, now), true);
+  assert.equal(monitorIsHealthy(state, now + 120000), false);
+  assert.equal(monitorIsHealthy(state, now - 120000), false);
+  assert.equal(monitorIsHealthy({ ...state, status: 'SCAN_FAILED' }, now), false);
+  assert.equal(monitorIsHealthy(null, now), false);
+});
 async function setup(t) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fielddesk-business-alert-'));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));

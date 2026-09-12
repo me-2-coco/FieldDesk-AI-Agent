@@ -6,7 +6,7 @@ function alertText(alert) {
   if (alert.scope === 'BUSINESS_TEST') return '【FieldDesk 正式告警通道验证】这是一条启用验证消息，不是真实故障。';
   if (alert.scope === 'BUSINESS') {
     const safe = value => String(value || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80);
-    const stages = { RECEIPT: '签收', PROJECT: '项目核对', RECEIPT_ATTACHMENTS: '签收附件', DETECTION: '检测', SERVICE_ORDER: '建维修单', REPAIR_PREPARATION: '维修资料', REPAIR_COMPLETED: '维修完工', RETURN_SHIPPED: '寄回', ORDER_COMPLETED: '工单完结' };
+    const stages = { HOLD: '暂存', RECEIPT: '签收', PROJECT: '项目核对', RECEIPT_ATTACHMENTS: '签收附件', DETECTION: '检测', SERVICE_ORDER: '建维修单', REPAIR_PREPARATION: '维修资料', REPAIR_COMPLETED: '维修完工', RETURN_SHIPPED: '寄回', ORDER_COMPLETED: '工单完结' };
     const state = alert.status === 'RECOVERED' ? '本地记录已确认该步骤成功' : alert.kind === 'STALLED' ? '长时间未完成，请检查' : alert.kind === 'RESULT_UNKNOWN' ? '结果未知，请核对瑞云，不要重复提交' : '同步异常，需要检查';
     return `【FieldDesk 做单告警】工单：${safe(alert.rmaNo)}；步骤：${stages[alert.stage] || '同步'}；${state}。故障编号：${safe(alert.id)}。请在 FieldDesk 查看详情。`;
   }

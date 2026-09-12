@@ -19,7 +19,7 @@ const names = [
   const tests = names.map(name => `test/${name}.test.js`);
   for (const file of [...tests, 'test/fixtures/detection-crash-worker.cjs',
     'shared/media-formats.json',
-    'services/business-alert-monitor.js', 'services/feishu-alert-notifier.js', 'scripts/start-business-alerts.js',
+    'services/business-alert-monitor.js', 'services/monitor-health.js', 'services/feishu-alert-notifier.js', 'scripts/start-business-alerts.js',
     'test/fixtures/outbox-crash-worker.cjs', 'init-recloud-login.js',
     'scripts/production-preflight.js', 'config/upload-paths.js', 'deploy/env/production.env.template', 'deploy/systemd/fielddesk.service', 'deploy/nginx/fielddesk.conf',
     'scripts/database-maintenance.js', 'services/upload-admission.js', 'frontend/package.json', 'frontend/src/shared/uploadRetry.js', 'frontend/src/App.jsx', 'frontend/src/pages/SyncTasks.jsx', '.gitignore']) {

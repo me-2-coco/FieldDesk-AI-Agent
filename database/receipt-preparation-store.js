@@ -906,7 +906,7 @@ class JsonReceiptPreparationStore {
       const existing = records.find(record => record.rmaNo === rmaNo);
       if (!existing?.hold || !["PENDING", "FAILED"].includes(existing.hold.status)) throw new Error("暂存不可重复提交");
       const timestamp = new Date().toISOString();
-      const updated = { ...existing, hold: { ...existing.hold, status: "SUBMITTING" }, updatedAt: timestamp,
+      const updated = { ...existing, hold: { ...existing.hold, status: "SUBMITTING", attemptedAt: timestamp }, updatedAt: timestamp,
         timeline: [...(existing.timeline || []), timelineEvent("RECLOUD_HOLD_SUBMITTING", "瑞云暂存同步开始", operator, timestamp)] };
       await this.writeAll(records.map(record => record.rmaNo === rmaNo ? updated : record));
       return updated;
