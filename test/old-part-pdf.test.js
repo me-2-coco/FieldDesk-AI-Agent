@@ -7,7 +7,7 @@ const { PrintJobStore } = require('../database/print-job-store');
 const { createRecloudRepairPageAdapter } = require('../connectors/recloud-repair-page-adapter');
 const pdf = Buffer.from('%PDF-1.4\nsynthetic fixture');
 const rendered = { sha256: crypto.createHash('sha256').update(pdf).digest('hex'), pages: [
-  {payloadBase64: Buffer.from([137,80,78,71,13,10,26,10]).toString('base64'), widthMm:60,heightMm:80,partCode:'P1',rasterWidth:480,rasterHeight:640,rasterBase64:Buffer.alloc(38400,255).toString('base64')}
+  {payloadBase64: Buffer.from([137,80,78,71,13,10,26,10]).toString('base64'), widthMm:72,heightMm:96,partCode:'P1',rasterWidth:576,rasterHeight:768,rasterBase64:Buffer.alloc(55296,255).toString('base64')}
 ]};
 const parts = [{partCode:'P1',quantity:1,returnRequired:true}];
 
@@ -54,10 +54,10 @@ test('PDF bitmap jobs atomic, idempotent, original PDF not in public list',async
  const job=await store.leaseNext(terminal.id,'1.0.0');
  assert.equal(job.payloadFormat,'TSPL');assert.equal(job.copies,1);
  const bytes=Buffer.from(job.payloadBase64,'base64');
- const header='SIZE 76 mm,130 mm\r\nGAP 2 mm,0 mm\r\nDENSITY 8\r\nDIRECTION 1\r\nREFERENCE 0,0\r\nCLS\r\nBITMAP 64,200,60,640,0,';
+ const header='SIZE 76 mm,130 mm\r\nGAP 2 mm,0 mm\r\nDENSITY 8\r\nDIRECTION 1\r\nREFERENCE 0,0\r\nCLS\r\nBITMAP 16,136,72,768,0,';
  assert.equal(bytes.subarray(0,header.length).toString(),header);
- assert.deepEqual(bytes.subarray(header.length,header.length+38400),Buffer.alloc(38400,255));
- assert.equal(bytes.subarray(header.length+38400).toString(),'\r\nPRINT 1,1\r\n');
+ assert.deepEqual(bytes.subarray(header.length,header.length+55296),Buffer.alloc(55296,255));
+ assert.equal(bytes.subarray(header.length+55296).toString(),'\r\nPRINT 1,1\r\n');
  assert.equal(job.renderMethod,'ORIGINAL_PDF_BITMAP');
  assert.equal(job.originalPdfBase64,undefined);
  assert.equal(job.paperWidthMm,76);assert.equal(job.paperHeightMm,130);

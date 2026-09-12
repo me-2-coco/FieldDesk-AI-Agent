@@ -48,12 +48,12 @@ function buildTsplLabel(input = {}) {
 
 function originalBitmapPayload(page) {
   const raster = Buffer.from(page.rasterBase64 || "", "base64");
-  if (page.rasterWidth !== 480 || page.rasterHeight !== 640 || raster.length !== 38400) {
+  if (page.rasterWidth !== 576 || page.rasterHeight !== 768 || raster.length !== 55296) {
     throw Object.assign(new Error("原始标签打印点阵无效"), { code: "PRINT_PDF_INVALID" });
   }
-  // 76 x 130 mm stock at 8 dots/mm; center the original 60 x 80 mm image.
+  // 76 x 130 mm stock at 8 dots/mm; center the uniformly enlarged 72 x 96 mm image.
   // Clear the buffer for every page. Emit the PDF pixels, never TEXT/BARCODE.
-  const header = "SIZE 76 mm,130 mm\r\nGAP 2 mm,0 mm\r\nDENSITY 8\r\nDIRECTION 1\r\nREFERENCE 0,0\r\nCLS\r\nBITMAP 64,200,60,640,0,";
+  const header = "SIZE 76 mm,130 mm\r\nGAP 2 mm,0 mm\r\nDENSITY 8\r\nDIRECTION 1\r\nREFERENCE 0,0\r\nCLS\r\nBITMAP 16,136,72,768,0,";
   return Buffer.concat([Buffer.from(header, "ascii"), raster, Buffer.from("\r\nPRINT 1,1\r\n", "ascii")]).toString("base64");
 }
 
@@ -191,7 +191,7 @@ class PrintJobStore {
     if (!Buffer.isBuffer(pdf) || !rendered?.pages?.length || rendered.pages.length > 40
       || rendered.sha256 !== crypto.createHash("sha256").update(pdf).digest("hex")
       || rendered.pages.some(page => !Buffer.from(page.payloadBase64 || "", "base64").subarray(0, 8)
-        .equals(Buffer.from([137,80,78,71,13,10,26,10])) || page.widthMm !== 60 || page.heightMm !== 80)) {
+        .equals(Buffer.from([137,80,78,71,13,10,26,10])) || page.widthMm !== 72 || page.heightMm !== 96)) {
       throw Object.assign(new Error("原始标签转换结果无效"), { code: "PRINT_PDF_INVALID" });
     }
     const payloads = rendered.pages.map(originalBitmapPayload);

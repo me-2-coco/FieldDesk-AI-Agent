@@ -159,7 +159,7 @@ test("瑞云完工适配器把返厂旧件标签按当前师傅自动入队", as
     captureOldPartLabels: async () => ({ pdf: Buffer.from("%PDF-test"), serviceOrderNo: "FWDTEST" }),
     renderOldPartPdf: async () => ({
       sha256: require("node:crypto").createHash("sha256").update("%PDF-test").digest("hex"),
-      pages: [{ payloadBase64: Buffer.from([137,80,78,71,13,10,26,10]).toString("base64"), widthMm:60, heightMm:80, partCode:"PART-4", rasterWidth:480, rasterHeight:640, rasterBase64:Buffer.alloc(38400,255).toString("base64") }],
+      pages: [{ payloadBase64: Buffer.from([137,80,78,71,13,10,26,10]).toString("base64"), widthMm:72, heightMm:96, partCode:"PART-4", rasterWidth:576, rasterHeight:768, rasterBase64:Buffer.alloc(55296,255).toString("base64") }],
     }),
   });
   const result = await adapter.printOldPartLabels([
