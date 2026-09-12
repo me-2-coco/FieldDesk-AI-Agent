@@ -372,6 +372,28 @@ class JsonReceiptPreparationStore {
     return operation;
   }
 
+  async reconcileReceiptFromSnapshot(expected, snapshot, operator = {}) {
+    const { receiptEvidenceMatches } = require('../services/receipt-reconciliation-evidence');
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const order = records.find(item => item.rmaNo === expected.rmaNo);
+      if (!order || order.updatedAt !== expected.updatedAt || order.sn !== expected.sn
+        || !['RESULT_UNKNOWN', 'FAILED'].includes(order.recloudReceiptSyncStatus)
+        || ['CANCELLED', 'DELETED'].includes(order.status) || order.recloudReceiptConfirmedAt
+        || !receiptEvidenceMatches(order, snapshot)) {
+        throw Object.assign(new Error('未取得同一工单和 SN 的明确签收证据，或本地资料已变化；未修改状态'), { code: 'RECEIPT_RECONCILIATION_NOT_CONFIRMED', status: 409 });
+      }
+      const timestamp = new Date().toISOString();
+      const updated = { ...order, recloudReceiptSyncStatus: 'CONFIRMED', recloudReceiptConfirmedAt: timestamp,
+        recloudReceiptLastError: null, recloudReceiptResult: { confirmed: true, reconciled: true, readBackVerified: true }, updatedAt: timestamp,
+        timeline: [...(order.timeline || []), timelineEvent('RECLOUD_RECEIPT_RECONCILED', '已只读核对对应 SN 签收，补齐本地状态', operator, timestamp)] };
+      await this.writeAll(records.map(item => item.rmaNo === order.rmaNo ? updated : item));
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
   async markRecloudReceiptConfirmed(rmaNo, input = {}) {
     const operation = this.writeQueue.then(async () => {
       const records = await this.readAll();

@@ -11848,6 +11848,34 @@ async function submitRmaHold(page, input = {}, options = {}) {
 }
 
 // Read-only reconciliation: reload persisted fields, never click Hold/Save or fill inputs.
+async function readRmaReceiptSnapshot(page, expectedRmaNo) {
+  await page.reload({ waitUntil: "domcontentloaded" });
+  const body = await page.locator('body').innerText({ timeout: 15000 });
+  const identities = [...new Set(body.match(/JXTH[A-Z0-9-]+/gi) || [])];
+  if (extractRmaNoFromTitle(body) !== expectedRmaNo || identities.length !== 1 || identities[0] !== expectedRmaNo) throw Object.assign(new Error("瑞云工单身份未确认"), { code: "RECEIPT_RECONCILIATION_ORDER_MISMATCH" });
+  const rows = await page.evaluate(() => {
+    const clean = value => String(value || '').replace(/\s+/g, ' ').trim();
+    const visible = element => { const box = element.getBoundingClientRect(); return box.width > 0 && box.height > 0 && getComputedStyle(element).visibility !== 'hidden'; };
+    const result = [];
+    for (const table of document.querySelectorAll('table, [role="grid"]')) {
+      if (!visible(table)) continue;
+      const headers = [...table.querySelectorAll('th, [role="columnheader"]')].map(el => clean(el.textContent));
+      const snIndex = headers.indexOf('产品序列号');
+      const statusIndex = headers.indexOf('签收状态');
+      const timeIndex = headers.indexOf('系统签收时间');
+      if (snIndex < 0 || statusIndex < 0 && timeIndex < 0) continue;
+      for (const row of table.querySelectorAll('tr, [role="row"]')) {
+        if (!visible(row)) continue;
+        const cells = [...row.querySelectorAll('td, [role="gridcell"], [role="cell"]')].map(el => clean(el.textContent));
+        if (!cells[snIndex]) continue;
+        result.push({ sn: cells[snIndex], systemReceiptStatus: cells[statusIndex] || '', systemSignedAt: cells[timeIndex] || '' });
+      }
+    }
+    return result;
+  });
+  return { rmaNo: expectedRmaNo, rows, readBackVerified: true };
+}
+
 async function readRmaHoldSnapshot(page, expectedRmaNo) {
   await page.reload({ waitUntil: "domcontentloaded" });
   const body = await page.locator('body').innerText({ timeout: 15000 });
@@ -11965,6 +11993,7 @@ module.exports = {
   readRmaHoldReasonOptions,
   submitRmaHold,
   readRmaHoldSnapshot,
+  readRmaReceiptSnapshot,
   fillReceiptFields,
   parseRepairDetail,
   readPendingRmaSupervisionOrders,

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { deleteLocalRepairOrder, getLocalRepairOrders, reopenRepairTreatment, reconcileRecloudHold } from "../shared/crmService.js"
+import { deleteLocalRepairOrder, getLocalRepairOrders, reopenRepairTreatment, reconcileRecloudHold, reconcileRecloudReceipt } from "../shared/crmService.js"
 import { getCurrentRepairOrder, removeDeletedRepairOrder, REPAIR_STATUS } from "../shared/repairOrderStore.js"
 import { getCurrentUser, USER_ROLES } from "../shared/userStore.js"
 
@@ -99,6 +99,17 @@ function AdminRepairRecovery({ setPage }) {
     }
   }
 
+  async function reconcileReceipt(order) {
+    try {
+      setWorkingRmaNo(order.rmaNo)
+      setMessage('正在只读核对对应 SN 的瑞云签收记录…')
+      const updated = await reconcileRecloudReceipt(order.rmaNo)
+      setOrders(current => current.map(item => item.rmaNo === order.rmaNo ? updated : item))
+      setMessage(`${order.rmaNo} 签收已核实，本地状态已补齐；未重复签收。`)
+    } catch (error) { setMessage(error.message) }
+    finally { setWorkingRmaNo('') }
+  }
+
   async function reconcileHold(order) {
     try {
       setWorkingRmaNo(order.rmaNo)
@@ -170,6 +181,8 @@ function AdminRepairRecovery({ setPage }) {
           <button type="button" disabled={!reopenAvailable || workingRmaNo === order.rmaNo} onClick={() => reopen(order)}>
             {workingRmaNo === order.rmaNo ? "正在处理…" : reopenAvailable ? "恢复到选择处理方式" : "当前已在处理方式选择前"}
           </button>
+          {!order.recloudReceiptConfirmedAt && ['RESULT_UNKNOWN', 'FAILED'].includes(order.recloudReceiptSyncStatus) &&
+            <button type="button" disabled={workingRmaNo === order.rmaNo} onClick={() => reconcileReceipt(order)}>核对瑞云签收（不重复提交）</button>}
           {order.status === "ON_HOLD" && ["RESULT_UNKNOWN", "SUBMITTING", "FAILED"].includes(order.hold?.status) &&
             <button type="button" disabled={workingRmaNo === order.rmaNo} onClick={() => reconcileHold(order)}>
               {workingRmaNo === order.rmaNo ? "正在核对…" : "核对瑞云暂存（不重复提交）"}

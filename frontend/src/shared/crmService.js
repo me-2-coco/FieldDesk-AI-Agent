@@ -580,3 +580,6 @@ export function retryRecloudHold(rmaNo) {
 export function reconcileRecloudHold(rmaNo) {
   return request("/api/repairs/hold/reconcile", { rmaNo })
 }
+export function reconcileRecloudReceipt(rmaNo) {
+  return request('/api/repairs/admin/reconcile-receipt', { rmaNo })
+}

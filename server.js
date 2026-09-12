@@ -3766,6 +3766,28 @@ function createApp(
     } catch (error) { return next(error); }
   });
 
+  app.post("/api/repairs/admin/reconcile-receipt", async (req, res, next) => {
+    const rmaNo = String(req.body?.rmaNo || '').trim(); let owned = false;
+    try {
+      const user = currentUserProvider(req);
+      if (!hasBusinessRole(user, USER_ROLES.ADMIN)) throw createApiError('RECEIPT_RECONCILIATION_FORBIDDEN', '请由管理员或负责人核对签收', 403);
+      const order = (await receiptStore.readAll()).find(item => item.rmaNo === rmaNo);
+      if (!order || !['RESULT_UNKNOWN', 'FAILED'].includes(order.recloudReceiptSyncStatus) || order.recloudReceiptConfirmedAt) throw createApiError('RECEIPT_RECONCILIATION_STATE_INVALID', '当前签收不需要核对', 409);
+      if (activeReceiptSyncs.has(rmaNo)) throw createApiError('RECEIPT_RECONCILIATION_BUSY', '该单仍在同步，请稍后核对', 409);
+      if (typeof connector.readRmaReceiptSnapshot !== 'function') throw createApiError('RECEIPT_RECONCILIATION_UNAVAILABLE', '签收核对不可用', 503);
+      activeReceiptSyncs.add(rmaNo); owned = true;
+      const snapshot = await withRecloud(connector, async page => {
+        const query = orderQuery(order);
+        const detail = await connector.queryRmaByLogisticsNo(page, query.identifier, { ...query.options, preserveDetailPage: true });
+        if (detail.rmaNo !== rmaNo) throw createApiError('RECEIPT_RECONCILIATION_ORDER_MISMATCH', '瑞云工单不一致', 409);
+        return connector.readRmaReceiptSnapshot(page, rmaNo);
+      }, { totalTimeoutMs: 45000, timeoutCode: 'RECEIPT_RECONCILIATION_TIMEOUT' });
+      const data = await receiptStore.reconcileReceiptFromSnapshot(order, snapshot, user);
+      res.json({ success: true, data });
+    } catch (error) { next(error); }
+    finally { if (owned) activeReceiptSyncs.delete(rmaNo); }
+  });
+
   app.post("/api/repairs/recloud-receipt/reconcile-confirmed", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);

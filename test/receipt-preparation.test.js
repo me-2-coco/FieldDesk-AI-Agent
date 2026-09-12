@@ -3,6 +3,11 @@ const assert = require("node:assert/strict");
 const fs = require("fs/promises");
 const os = require("os");
 const path = require("path");
+const { MemoryDocumentBackend } = require('../database/storage-backend');
+
+function isolatedCoordinationOptions() {
+  return { backend: new MemoryDocumentBackend({ locks: {}, idempotency: {}, audits: [] }) };
+}
 const {
   JsonReceiptPreparationStore,
   normalizeSn,
@@ -73,9 +78,14 @@ async function createTestStore(t) {
 async function startServer(t, connector, store, user = USERS.dual, options = {}) {
   const server = await new Promise((resolve, reject) => {
     const instance = createApp(connector, store, {
+      coordinationStoreOptions: isolatedCoordinationOptions(),
+      recloudRecoveryWatchdogEnabled: false,
+      resumePendingRecloudReceipts: false,
+      resumePendingRecloudDetections: false,
+      resumePendingRecloudServiceOrders: false,
       getCurrentUser: () => user,
       feishuModelCatalog: options.feishuModelCatalog || { authorize: async () => ({ repairability: "SUPPORTED", status: "MATCHED", canContinue: true }) },
-      ...(options.env ? { env: options.env } : {}),
+      env: options.env || { DRY_RUN: 'true' },
       ...(options.receiptAttachmentStore ? { receiptAttachmentStore: options.receiptAttachmentStore } : {}),
     }).listen(
       0,
@@ -484,6 +494,12 @@ test("inspection model match uses saved SN and product line without writing Recl
   await store.completeReceipt("JXTH900001001", USERS.sweep);
   let received;
   const app = createApp({ openRecloud: async () => assert.fail("must not open Recloud") }, store, {
+    env: { DRY_RUN: 'true' },
+    coordinationStoreOptions: isolatedCoordinationOptions(),
+    recloudRecoveryWatchdogEnabled: false,
+    resumePendingRecloudReceipts: false,
+    resumePendingRecloudDetections: false,
+    resumePendingRecloudServiceOrders: false,
     getCurrentUser: () => USERS.sweep,
     feishuModelCatalog: {
       match: async (input) => {
@@ -1324,6 +1340,7 @@ test("an already signed order can retry only its missing receipt photo", async (
   assert.equal(retried.response.status, 200);
   assert.equal(retried.result.data.queued, true);
   await waitForValue(() => uploadCount, 1);
+  await waitForValue(async () => (await store.readAll()).find(item => item.rmaNo === "JXTH900001001")?.recloudReceiptAttachmentResult?.uploaded?.length, 1);
   assert.equal(confirmCount, 0);
 });
 
@@ -1379,6 +1396,7 @@ test("a falsely skipped receipt can be reset and safely retried by its technicia
   assert.equal(retried.result.data.queued, true);
   await waitForValue(() => confirmCount, 1);
   await waitForValue(() => uploadCount, 1);
+  await waitForValue(async () => (await store.readAll()).find(item => item.rmaNo === "JXTH900001001")?.recloudReceiptAttachmentResult?.uploaded?.length, 1);
   const saved = (await store.readAll()).find((item) => item.rmaNo === "JXTH900001001");
   assert.equal(saved.recloudReceiptResult.skipped, false);
   assert.deepEqual(saved.recloudReceiptAttachmentResult.uploaded, ["receipt.jpg"]);
@@ -1768,7 +1786,8 @@ test("all five scanner entry points share a visible close action", async () => {
   assert.match(scannerPages[0], /setScannerMode\("logistics"\)/);
   assert.match(scannerPages[0], /setScannerMode\("sn"\)/);
   assert.match(scannerSource, /aria-label="关闭扫码"/);
-  assert.match(scannerSource, /<button[^>]*onClick=\{onClose\}[^>]*>关闭并手动输入<\/button>/);
+  assert.match(scannerSource, /<button[^>]*aria-label="关闭扫码"[^>]*onClick=\{onClose\}/);
+  assert.doesNotMatch(scannerSource, /关闭并手动输入/);
   assert.match(scannerSource, /event\.key === "Escape"/);
   assert.match(scannerSource, /await scanner\.stop\(\)\.catch/);
 });
@@ -1822,7 +1841,7 @@ test("frontend enables SN step, restores receipt progress and submits idempotent
   assert.match(source, /上次流程停在机型校验，请重新录入 SN/);
   assert.match(source, /receipt-inline-error/);
   assert.match(source, /recloudReceiptSyncStatus === "RESULT_UNKNOWN"/);
-  assert.match(source, /attachment\.uploaded/);
+  assert.match(source, /receiptAttachments\.filter\(\(item\) => !item\.uploaded\)/);
   assert.match(source, /validateReceiptSn\(localOrder\.sn, localOrder\.logisticsNo/);
   assert.match(source, /repairDetail\?\.pickupLogisticsNo \|\| repairDetail\?\.logisticsNo/);
   assert.match(source, /returnedSnInvalid \? "" : result\.productSerialNo/);
@@ -1873,7 +1892,7 @@ test("inspection page shows the required local order fields", async () => {
   assert.match(source, /\? "进入下一步"/);
   assert.doesNotMatch(source, /进入下一步（后台处理中）/);
   assert.doesNotMatch(source, /disabled=\{isSaving \|\| recloudWriteEnabled === null \|\|/);
-  assert.match(source, /window\.setTimeout\(refresh, 1000\)/);
+  assert.match(source, /window\.setTimeout\(refresh, 5000\)/);
   assert.match(source, /inspectionIsSaved/);
   assert.match(source, /repairOrder\.level3Fault && repairOrder\.warrantyType/);
   assert.match(source, /\{inspectionIsSaved[\s\S]*\? "已检测"/);
