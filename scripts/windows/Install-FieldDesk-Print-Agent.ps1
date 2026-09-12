@@ -1,4 +1,4 @@
-param(
+﻿param(
   [Parameter(Mandatory=$true)][string]$ApiBaseUrl,
   [Parameter(Mandatory=$true)][string]$TerminalId,
   [Parameter(Mandatory=$true)][string]$TerminalToken,
