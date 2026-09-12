@@ -1,7 +1,9 @@
 import { useState } from "react"
+import { canViewRecloudSyncDetails } from "../shared/accountAccessPolicy.js"
 import { getMachinesInHand } from "../shared/crmService.js"
 
-function MachineTracking({ setPage }) {
+function MachineTracking({ setPage, currentUser }) {
+  const showSyncDetails = canViewRecloudSyncDetails(currentUser)
   const [keyword, setKeyword] = useState("")
   const [machines, setMachines] = useState([])
   const [message, setMessage] = useState("")
@@ -55,7 +57,7 @@ function MachineTracking({ setPage }) {
               <span><small>机器 SN</small><strong>{machine.sn || "未记录"}</strong></span>
               <span><small>签收时间</small><strong>{machine.receivedAt ? new Date(machine.receivedAt).toLocaleString() : "未记录"}</strong></span>
             </div>
-            {machine.hold && <div className="machine-hold-detail"><strong>暂存原因：{machine.hold.reason}</strong><p>{machine.hold.remark}</p><small>瑞云同步：{machine.hold.status === "CONFIRMED" ? "已完成" : machine.hold.status === "FAILED" ? "失败待重试" : "后台处理中"}</small></div>}
+            {machine.hold && <div className="machine-hold-detail"><strong>暂存原因：{machine.hold.reason}</strong><p>{machine.hold.remark}</p>{showSyncDetails && <small>瑞云同步：{machine.hold.status === "CONFIRMED" ? "已完成" : machine.hold.status === "FAILED" ? "失败待重试" : "后台处理中"}</small>}</div>}
             {machine.recentTimeline?.length > 0 && <ol className="machine-progress-timeline">
               {machine.recentTimeline.map((event) => <li key={event.id}><span>{event.label}</span><small>{event.operatorName || "系统"} · {event.at ? new Date(event.at).toLocaleString() : ""}</small></li>)}
             </ol>}

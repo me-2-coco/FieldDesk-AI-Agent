@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { canViewRecloudSyncDetails } from "../shared/accountAccessPolicy.js"
 import { MEDIA_ACCEPT, mediaType } from "../shared/mediaFormats.js"
 import SupervisionNoticeCard from "../components/SupervisionNoticeCard.jsx"
 import PhotoCaptureModal from "../components/PhotoCaptureModal.jsx"
@@ -91,7 +92,8 @@ function persistedAttachment(attachment) {
   return copy
 }
 
-function RepairCompletion({ setPage }) {
+function RepairCompletion({ setPage, currentUser }) {
+  const showSyncDetails = canViewRecloudSyncDetails(currentUser)
   const [repairOrder, setRepairOrder] = useState(() => getCurrentRepairOrder())
   const treatmentMode = repairOrder?.treatmentMode || "REPAIR"
   const treatmentPreset = TREATMENT_PRESETS[treatmentMode] || null
@@ -489,7 +491,7 @@ function RepairCompletion({ setPage }) {
         <button type="button" className="secondary-btn" disabled={busy} onClick={retryPreparation}>恢复瑞云维修准备</button>
       </div>}
 
-      {syncStatus && <div className="card repair-sync-status-card">
+      {showSyncDetails && syncStatus && <div className="card repair-sync-status-card">
         <h2>瑞云同步状态</h2>
         <p>{({
           NOT_CREATED: "尚未创建维修完工同步任务",

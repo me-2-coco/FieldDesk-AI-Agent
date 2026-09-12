@@ -609,7 +609,7 @@ function App() {
         )}
 
         {page === "repairCompletion" && (
-          <RepairCompletion setPage={setPage} />
+          <RepairCompletion setPage={setPage} currentUser={currentUser} />
         )}
 
         {page === "adminRepairRecovery" && (
@@ -643,7 +643,7 @@ function App() {
         )}
 
         {page === "machineTracking" && (
-          <MachineTracking setPage={setPage} />
+          <MachineTracking setPage={setPage} currentUser={currentUser} />
         )}
 
         {page === "repairReports" && (

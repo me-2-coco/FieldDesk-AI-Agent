@@ -9,6 +9,10 @@ export function isOwnerAccount(user = {}) {
   return userIdOf(user) === OWNER_USER_ID
 }
 
+export function canViewRecloudSyncDetails(user = {}) {
+  return isOwnerAccount(user) || user.role === "admin"
+}
+
 export function isRecloudTestAccount(user = {}) {
   return userIdOf(user) === RECLOUD_TEST_USER_ID
 }

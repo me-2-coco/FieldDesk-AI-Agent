@@ -6,6 +6,7 @@ import { USER_ROLES } from "../shared/userStore.js"
 import { buildTechnicianDirectory, categorizeTechnicianWorkflows, technicianWorkloadStatusLabel } from "../shared/homeWorkload.js"
 import SupervisionInbox from "../components/SupervisionInbox.jsx"
 import WorkOrderDetail from "../components/WorkOrderDetail.jsx"
+import { canViewRecloudSyncDetails } from "../shared/accountAccessPolicy.js"
 import DailyWorkloadBoard from "../components/DailyWorkloadBoard.jsx"
 import MonthlyStatistics from "../components/MonthlyStatistics.jsx"
 import HomeTodos from "../components/HomeTodos.jsx"
@@ -31,6 +32,7 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
   const [order, setOrder] = useState(() => getCurrentRepairOrder())
   const [resumeError, setResumeError] = useState("")
   const [todoError, setTodoError] = useState("")
+  const showSyncDetails = canViewRecloudSyncDetails(currentUser)
   const [viewedRmaNo, setViewedRmaNo] = useState("")
   const [openingOrder, setOpeningOrder] = useState(false)
   const [holdRetryBusy, setHoldRetryBusy] = useState(false)
@@ -385,7 +387,7 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
 
   if (viewedRmaNo && canViewTechnicians) {
     const viewedOrder = workflows.find(item => item.rmaNo === viewedRmaNo)
-    return viewedOrder ? <WorkOrderDetail order={viewedOrder} onBack={() => setViewedRmaNo("")} /> : <div className="page"><p>工单已移除或不再可见</p><button onClick={() => setViewedRmaNo("")}>返回工单列表</button></div>
+    return viewedOrder ? <WorkOrderDetail order={viewedOrder} showSyncDetails={showSyncDetails} onBack={() => setViewedRmaNo("")} /> : <div className="page"><p>工单已移除或不再可见</p><button onClick={() => setViewedRmaNo("")}>返回工单列表</button></div>
   }
   return <div className={`page home-page home-desktop ${ordersHub ? "orders-hub" : ""}`}>
     {desktopView !== "desktop" && <div className="desktop-subpage-heading"><button type="button" onClick={() => detailStatus ? setDetailStatus("") : selectedTechnicianId ? setSelectedTechnicianId("") : openDesktopView("desktop")}>← {detailStatus ? "返回维修概览" : selectedTechnicianId ? "返回师傅列表" : "返回首页"}</button><h1>{({ dailyBoard: "当日看板", team: "师傅工作台", work: "师傅工作台", stats: "月度统计", messages: "督办消息" })[desktopView]}</h1></div>}
@@ -475,11 +477,11 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
       {detailStatus && <div className="home-work-order-list">
         <div className="home-list-heading"><strong>{detailStatus === "unfinished" ? "师傅手上未修走的机器" : detailStatus === "waiting" ? "待料工单" : detailStatus === "outOfWarranty" ? "保外暂存工单" : detailStatus === "held" ? "其他暂存工单" : "已完成维修"}</strong><span>{detailOrders.length} 台</span></div>
         {!detailOrders.length && <p>当前没有该状态的机器</p>}
-        {detailOrders.filter(item => item.status === "ON_HOLD").map(item => <div key={`hold-${item.rmaNo}`}>
+        {showSyncDetails && detailOrders.filter(item => item.status === "ON_HOLD").map(item => <div key={`hold-${item.rmaNo}`}>
           <p>{item.rmaNo} · {item.hold?.remark} · 瑞云：{({ CONFIRMED: "已同步", PENDING: "待同步", FAILED: "同步失败", SUBMITTING: "同步中，勿重复提交", RESULT_UNKNOWN: "结果待核对" })[item.hold?.status] || "待核对"}</p>
           {isTechnician && ["PENDING", "FAILED"].includes(item.hold?.status) && <button type="button" disabled={holdRetryBusy} onClick={() => retryHold(item)}>重试这单暂存同步</button>}
         </div>)}
-        {holdRetryMessage && <p role="status">{holdRetryMessage}</p>}
+        {showSyncDetails && holdRetryMessage && <p role="status">{holdRetryMessage}</p>}
         {!!detailOrders.length && <div className="home-work-order-scroll">
           {detailOrders.map((item) => <button type="button" key={item.rmaNo} onClick={() => openWorkOrder(item)} disabled={openingOrder}>
             <span className="home-order-main"><strong>{canViewTechnicians ? item.phoneMasked || "电话未记录" : fullLocalPhone(item)}</strong><small>{item.productLine || item.specialty || "品类未记录"} · SN {item.sn || "未记录"}{item.status === "ON_HOLD" && <> · {item.hold?.category || "分类未记录"}/{item.hold?.reason || "原因未记录"}</>}</small></span>
@@ -500,8 +502,8 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
     {desktopView === "desktop" && !ordersHub && (isAdmin || isTechnician || isInformationClerk) && <HomeTodos key={currentUser.userId || currentUser.id} technician={isTechnician} onOpen={openTodo} />}
     {todoError && <p className="error-text">{todoError}</p>}
 
-    {liveSyncEnabled === false && <p className="home-sync-status home-sync-status-off">● 瑞云后台同步未开启</p>}
-    {liveSyncEnabled === true && <p className="home-sync-status">● 瑞云后台同步已开启</p>}
+    {showSyncDetails && liveSyncEnabled === false && <p className="home-sync-status home-sync-status-off">● 瑞云后台同步未开启</p>}
+    {showSyncDetails && liveSyncEnabled === true && <p className="home-sync-status">● 瑞云后台同步已开启</p>}
   </div>
 }
 
