@@ -232,3 +232,20 @@ test("live model catalog finds the named worksheet when sheet id is not configur
   assert.ok(requested.some((url) => url.includes("sheets/query")));
   assert.ok(requested.some((url) => url.includes("MODEL-SHEET")));
 });
+
+test('model reads recover from one transport interruption without retrying business writes', async()=>{
+ let calls=0;
+ const catalog=new FeishuModelCatalog({fetch:async()=>{calls++;if(calls===1)throw new TypeError('fetch failed');return {status:200,ok:true};}});
+ assert.equal((await catalog.fetchReadOnly('https://example.test/read')).status,200);
+ assert.equal(calls,2);
+});
+test('model network failure is bounded and has a specific diagnostic code',async()=>{
+ let calls=0;
+ const catalog=new FeishuModelCatalog({fetch:async()=>{calls++;throw Object.assign(new TypeError('fetch failed'),{cause:{code:'ECONNRESET'}});}});
+ await assert.rejects(catalog.fetchReadOnly('https://example.test/read'),{code:'FEISHU_MODEL_NETWORK_FAILED'});
+ assert.equal(calls,2);
+});
+test('model authentication rejection is not retried as a network error',async()=>{
+ let calls=0;const catalog=new FeishuModelCatalog({fetch:async()=>{calls++;return {status:401};}});
+ assert.equal((await catalog.fetchReadOnly('https://example.test/read')).status,401);assert.equal(calls,1);
+});

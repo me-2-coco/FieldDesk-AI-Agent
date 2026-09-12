@@ -5835,6 +5835,9 @@ function createApp(
       },
       REPAIR_COMPLETION_QUEUE_FAILED: { status: 503, message: "完工资料已保存，但同步任务登记失败，请重试提交；不要重复维修操作" },
       REPAIR_COMPLETION_ALREADY_SUBMITTED: { status: 409, message: "已提交完工的资料不能覆盖为草稿" },
+      FEISHU_MODEL_NETWORK_FAILED: { status: 502, message: "飞书机型表暂时无法连接，机型核验未完成。请保留照片，稍后重试" },
+      FEISHU_AUTH_FAILED: { status: 502, message: "飞书机型表认证失败，请联系负责人检查配置" },
+      FEISHU_MODEL_READ_FAILED: { status: 502, message: "读取飞书机型表失败，机型核验未完成。请保留照片，稍后重试" },
       PRINT_ADMIN_REQUIRED: { status: 403, message: "只有负责人或管理员可以配置打印终端" },
       PRINT_AGENT_AUTH_INVALID: { status: 401, message: "打印终端认证失败" },
       PRINT_TERMINAL_INVALID: { status: 400, message: error.message },
@@ -5845,7 +5848,13 @@ function createApp(
       PRINT_JOB_NOT_FOUND: { status: 404, message: "打印任务不存在" },
     };
     const mapped = errors[error.code];
-    operationalLogger.write("error", { requestId: res.getHeader("X-Request-Id"), method: req.method, path: req.path, code: error.code || "INTERNAL_ERROR", status: mapped?.status || error.status || 502 });
+    // Keep diagnostic type/location, never raw messages, request bodies or tokens.
+    const errorName = /^[A-Za-z]{1,40}$/.test(error.name || "") ? error.name : "Error";
+    const rawCauseCode = error.cause?.cause?.code || error.cause?.code || "";
+    const causeCode = /^[A-Z0-9_]{1,60}$/.test(rawCauseCode) ? rawCauseCode : "";
+    const locations = String(error.stack || "").split("\n").slice(1, 4)
+      .map(line => line.match(/([A-Za-z0-9_.-]+\.js:\d+:\d+)/)?.[1]).filter(Boolean);
+    operationalLogger.write("error", { requestId: res.getHeader("X-Request-Id"), method: req.method, path: req.path, code: error.code || "INTERNAL_ERROR", status: mapped?.status || error.status || 502, errorName, causeCode, locations });
     console.error(
       "CRM request failed:",
       JSON.stringify({

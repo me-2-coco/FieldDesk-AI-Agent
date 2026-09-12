@@ -273,6 +273,27 @@ class FeishuModelCatalog {
     this.fetch = options.fetch || globalThis.fetch;
   }
 
+  async fetchReadOnly(url, options = {}) {
+    // Only used for model-sheet reads and their read-only access token.
+    // Never retry a repair, receipt, or other business mutation here.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const response = await this.fetch(url, { ...options, signal: AbortSignal.timeout(10000) });
+        if (response.status >= 500 && attempt === 0) {
+          await response.body?.cancel?.().catch(() => {});
+        } else return response;
+      } catch (cause) {
+        if (!["TypeError", "TimeoutError", "AbortError"].includes(cause.name)) throw cause;
+        if (attempt === 1) {
+          throw Object.assign(new Error("飞书机型表连接失败，尚未完成机型核验"), {
+            code: "FEISHU_MODEL_NETWORK_FAILED", status: 502, cause,
+          });
+        }
+      }
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
+  }
+
   async readRows() {
     const appId = normalize(this.env.FEISHU_APP_ID);
     const appSecret = normalize(this.env.FEISHU_APP_SECRET);
@@ -283,7 +304,7 @@ class FeishuModelCatalog {
       error.code = "FEISHU_MODEL_CONFIG_MISSING";
       throw error;
     }
-    const tokenResponse = await this.fetch("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal", {
+    const tokenResponse = await this.fetchReadOnly("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ app_id: appId, app_secret: appSecret }),
     });
     const tokenResult = await tokenResponse.json();
@@ -291,7 +312,7 @@ class FeishuModelCatalog {
       const error = new Error("获取飞书只读凭证失败"); error.code = "FEISHU_AUTH_FAILED"; throw error;
     }
     if (!sheetId) {
-      const sheetResponse = await this.fetch(
+      const sheetResponse = await this.fetchReadOnly(
         `https://open.feishu.cn/open-apis/sheets/v3/spreadsheets/${encodeURIComponent(spreadsheetToken)}/sheets/query`,
         { headers: { Authorization: `Bearer ${tokenResult.tenant_access_token}` } }
       );
@@ -310,7 +331,7 @@ class FeishuModelCatalog {
     }
     const range = `${sheetId}!${normalize(this.env.FEISHU_MODEL_RANGE) || DEFAULT_RANGE}`;
     const url = `https://open.feishu.cn/open-apis/sheets/v2/spreadsheets/${encodeURIComponent(spreadsheetToken)}/values/${encodeURIComponent(range)}`;
-    const response = await this.fetch(url, { headers: { Authorization: `Bearer ${tokenResult.tenant_access_token}` } });
+    const response = await this.fetchReadOnly(url, { headers: { Authorization: `Bearer ${tokenResult.tenant_access_token}` } });
     const result = await response.json();
     if (!response.ok || result.code !== 0) {
       const error = new Error("读取飞书型号表失败"); error.code = "FEISHU_MODEL_READ_FAILED"; throw error;
