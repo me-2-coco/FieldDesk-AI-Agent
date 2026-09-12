@@ -98,6 +98,7 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
       crmFault: workflow.faultCategory || "",
       level3Fault: workflow.faultCategory || "",
       treatmentMode: workflow.treatmentMode || "",
+      hold: workflow.hold || null,
       treatmentLabel: workflow.treatmentLabel || "",
       inspectionFaultOutcome: workflow.inspectionFaultOutcome || "",
       resumeStep: targetPage,
@@ -323,7 +324,7 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
     const rows = await getLocalRepairOrders()
     const latest = rows.find(row => row.rmaNo === item.rmaNo)
     if (!latest || (!isAdmin && (latest.technicianId || latest.operatorId) !== (currentUser?.userId || currentUser?.id))) throw new Error("工单已变更或不属于当前账号，请刷新后查看")
-    if (latest.repairCompletion?.submittedAt || COMPLETED_WORKFLOW_STATUSES.has(latest.status) || ['ON_HOLD', 'CANCELLED', 'TRANSFERRED_TO_HEADQUARTERS'].includes(latest.status)) throw new Error("工单状态已更新，当前不能直接继续维修")
+    if (latest.repairCompletion?.submittedAt || COMPLETED_WORKFLOW_STATUSES.has(latest.status) || ['CANCELLED', 'TRANSFERRED_TO_HEADQUARTERS'].includes(latest.status)) throw new Error("工单状态已更新，当前不能直接继续维修")
     openWorkflow(latest)
   }
 
@@ -453,7 +454,7 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
         </div>)}
         {holdRetryMessage && <p role="status">{holdRetryMessage}</p>}
         {!!detailOrders.length && <div className="home-work-order-scroll">
-          {detailOrders.map((item) => <button type="button" key={item.rmaNo} className={canViewTechnicians ? "read-only" : ""} onClick={() => isTechnician && item.status !== "ON_HOLD" && openWorkflow(item)} aria-disabled={canViewTechnicians || item.status === "ON_HOLD"}>
+          {detailOrders.map((item) => <button type="button" key={item.rmaNo} className={canViewTechnicians ? "read-only" : ""} onClick={() => isTechnician && (item.status === "ON_HOLD" ? continueWorkflow(item).catch(error => setTodoError(error.message)) : openWorkflow(item))} aria-disabled={canViewTechnicians}>
             <span className="home-order-main"><strong>{canViewTechnicians ? item.phoneMasked || "电话未记录" : fullLocalPhone(item)}</strong><small>{item.productLine || item.specialty || "品类未记录"} · SN {item.sn || "未记录"}{item.status === "ON_HOLD" && <> · {item.hold?.category || "分类未记录"}/{item.hold?.reason || "原因未记录"}</>}</small></span>
             <span className={`home-order-status ${detailStatus}`}>{technicianWorkloadStatusLabel(item)}</span>{isTechnician && <b>›</b>}
           </button>)}

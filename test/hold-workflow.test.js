@@ -60,6 +60,20 @@ test("a held order records reason, remark, holder, progress and Recloud sync res
   const confirmed = await store.markRecloudHoldConfirmed(order.rmaNo, { confirmed: true }, TECHNICIAN);
   assert.equal(confirmed.hold.status, "CONFIRMED");
   assert.equal(confirmed.timeline.at(-1).type, "RECLOUD_HOLD_CONFIRMED");
+  const resumed = await store.saveTreatmentDecision(order.rmaNo, { treatmentMode: "REPAIR", detectionResult: "需维修" }, TECHNICIAN);
+  assert.equal(resumed.status, "RECEIVED_PENDING_INSPECTION");
+  assert.equal(resumed.resumeStep, "partsApplication");
+  assert.equal(resumed.hold.remark, "用户考虑是否继续维修");
+  assert.ok(resumed.hold.resumedAt);
+  assert.deepEqual(resumed.receiptAttachments, confirmed.receiptAttachments);
+  assert.ok(resumed.timeline.some(event => event.type === "ORDER_HOLD_REQUESTED"));
+});
+
+test("held orders open treatment selection without mutating their hold state", async () => {
+  const { resumePageForLocalWorkflow } = await import("../frontend/src/shared/repairNavigation.js");
+  const order = { status: "ON_HOLD", treatmentMode: "ON_HOLD", resumeStep: "", hold: { status: "CONFIRMED" } };
+  assert.equal(resumePageForLocalWorkflow(order), "repairDecision");
+  assert.equal(order.status, "ON_HOLD");
 });
 
 test("only ordinary technicians are workflow-restricted while owner admin and FieldDesk0004 are exempt", async () => {

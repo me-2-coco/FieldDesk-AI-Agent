@@ -735,10 +735,13 @@ class JsonReceiptPreparationStore {
       const records = await this.readAll();
       const existing = records.find((record) => record.rmaNo === rmaNo);
       if (!existing) throw Object.assign(new Error("未找到已签收工单"), { code: "RECEIPT_PREPARATION_NOT_FOUND", status: 404 });
-      if (!["RECEIVED_PENDING_INSPECTION", "INSPECTION_IN_PROGRESS", "INSPECTION_COMPLETED_PENDING_REPAIR", "REPAIR_COMPLETION_DRAFT"].includes(existing.status)) {
+      if (!["RECEIVED_PENDING_INSPECTION", "INSPECTION_IN_PROGRESS", "INSPECTION_COMPLETED_PENDING_REPAIR", "REPAIR_COMPLETION_DRAFT", "ON_HOLD"].includes(existing.status)) {
         throw Object.assign(new Error("当前工单不能选择维修处理方式"), { code: "TREATMENT_DECISION_NOT_ALLOWED", status: 409 });
       }
       const treatmentMode = normalizeRequired(input.treatmentMode);
+      if (existing.status === "ON_HOLD" && ["SUBMITTING", "RESULT_UNKNOWN"].includes(existing.hold?.status)) {
+        throw Object.assign(new Error("瑞云暂存正在同步或结果待核对，请确认后继续维修"), { code: "HOLD_SYNC_UNRESOLVED", status: 409 });
+      }
       const labels = {
         REPAIR: "维修",
         ABANDONED: "弃修",
@@ -792,6 +795,9 @@ class JsonReceiptPreparationStore {
         technicianWarranty,
         warrantyDecision: input.warrantyDecision || existing.warrantyDecision || null,
         treatmentDecidedAt: timestamp,
+        ...(existing.status === "ON_HOLD" && treatmentMode !== "ON_HOLD" ? {
+          hold: { ...existing.hold, resumedAt: timestamp, resumedById: normalizeRequired(operator.userId) },
+        } : {}),
         ...(treatmentMode === "ON_HOLD" ? {
           hold: {
             category: normalizeRequired(input.holdCategory),

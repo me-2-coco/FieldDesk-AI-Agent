@@ -16,7 +16,7 @@ const OPTIONS = [
 
 function RepairDecision({ setPage }) {
   const [repairOrder, setRepairOrder] = useState(() => getCurrentRepairOrder())
-  const [selected, setSelected] = useState(repairOrder.treatmentMode || "")
+  const [selected, setSelected] = useState(repairOrder.status === REPAIR_STATUS.ON_HOLD ? "" : repairOrder.treatmentMode || "")
   const [inspectionFaultOutcome, setInspectionFaultOutcome] = useState(repairOrder.inspectionFaultOutcome || "")
   const [busy, setBusy] = useState(false)
   const [errorMessage, setErrorMessage] = useState("")

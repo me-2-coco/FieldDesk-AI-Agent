@@ -15,7 +15,8 @@ export function isTechnicianWorkflowLocked(order = {}) {
 }
 
 export function resumePageForLocalWorkflow(order = {}) {
-  if (["ON_HOLD", "TRANSFERRED_TO_HEADQUARTERS"].includes(order.status)) return ""
+  if (order.status === "ON_HOLD") return "repairDecision"
+  if (order.status === "TRANSFERRED_TO_HEADQUARTERS") return ""
   if (["REPAIR_COMPLETED_PENDING_SHIPMENT", "SHIPPED_PENDING_COMPLETION", "COMPLETED"].includes(order.status)) return "repairCompletion"
   if (order.treatmentMode === "REPAIR" && order.inspectionUpdatedAt && !order.repairStartedAt && !order.recloudServiceOrderCreatedAt) return "repairProcess"
   if (RESUMABLE_PAGES.has(order.resumeStep)) return order.resumeStep
