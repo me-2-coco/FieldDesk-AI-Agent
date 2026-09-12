@@ -46,15 +46,15 @@ function buildTsplLabel(input = {}) {
 }
 
 
-function originalBitmapPayload(page) {
+function originalBitmapPayload(page, accountSuffix) {
   const raster = Buffer.from(page.rasterBase64 || "", "base64");
   if (page.rasterWidth !== 576 || page.rasterHeight !== 768 || raster.length !== 55296) {
     throw Object.assign(new Error("原始标签打印点阵无效"), { code: "PRINT_PDF_INVALID" });
   }
   // 76 x 130 mm stock at 8 dots/mm; center the uniformly enlarged 72 x 96 mm image.
-  // Clear the buffer for every page. Emit the PDF pixels, never TEXT/BARCODE.
+  // Clear each page; keep the original PDF pixels intact. Account goes outside the table.
   const header = "SIZE 76 mm,130 mm\r\nGAP 2 mm,0 mm\r\nDENSITY 8\r\nDIRECTION 1\r\nREFERENCE 0,0\r\nCLS\r\nBITMAP 16,136,72,768,0,";
-  return Buffer.concat([Buffer.from(header, "ascii"), raster, Buffer.from("\r\nPRINT 1,1\r\n", "ascii")]).toString("base64");
+  return Buffer.concat([Buffer.from(header, "ascii"), raster, Buffer.from(`\r\nTEXT 16,64,"3",0,2,2,"${accountSuffix}"\r\nPRINT 1,1\r\n`, "ascii")]).toString("base64");
 }
 
 class PrintJobStore {
@@ -194,7 +194,15 @@ class PrintJobStore {
         .equals(Buffer.from([137,80,78,71,13,10,26,10])) || page.widthMm !== 72 || page.heightMm !== 96)) {
       throw Object.assign(new Error("原始标签转换结果无效"), { code: "PRINT_PDF_INVALID" });
     }
-    const payloads = rendered.pages.map(originalBitmapPayload);
+    const account = String(input.userId || "").trim();
+    // Use the task owner account, never a display name or printer operator.
+    // Reject unsupported/oversize IDs instead of truncating or injecting TSPL.
+    const accountMatch = /^FieldDesk([0-9]{4,12})$/.exec(account);
+    if (!accountMatch) {
+      throw Object.assign(new Error("缺少有效的师傅账号，无法标记旧件标签"), { code: "PRINT_ACCOUNT_INVALID" });
+    }
+    const accountSuffix = accountMatch[1]; // Preserve leading zeroes, e.g. 0005.
+    const payloads = rendered.pages.map(page => originalBitmapPayload(page, accountSuffix));
     return this.backend.update(data => {
       data.jobs ||= []; data.terminals ||= [];
       const existing = data.jobs.filter(job => job.idempotencyKey?.startsWith(`${input.idempotencyKey}:page:`));
@@ -208,7 +216,7 @@ class PrintJobStore {
         title: `瑞云旧件标签 · ${clean(page.partCode, 48)}`, rmaNo: clean(input.rmaNo, 40),
         copies: 1, payloadFormat: "TSPL", payloadBase64: payloads[index],
         imageWidthMm: page.widthMm, imageHeightMm: page.heightMm,
-        paperWidthMm: 76, paperHeightMm: 130, renderMethod: "ORIGINAL_PDF_BITMAP",
+        paperWidthMm: 76, paperHeightMm: 130, renderMethod: "ORIGINAL_PDF_BITMAP", technicianAccount: account, technicianAccountSuffix: accountSuffix,
         sourcePdfSha256: rendered.sha256, sourcePage: index + 1,
         ...(index === 0 ? { originalPdfBase64: pdf.toString("base64") } : {}),
         idempotencyKey: `${input.idempotencyKey}:page:${index + 1}`,

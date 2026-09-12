@@ -45,8 +45,8 @@ for(const scenario of ['wrong order','wrong part','return no','not complete']){
 }
 test('PDF bitmap jobs atomic, idempotent, original PDF not in public list',async()=>{
  const store=new PrintJobStore({driver:'memory'});
- const {terminal}=await store.saveTerminal({name:'fixture',printerName:'fixture',memberUserIds:['U1']});
- const input={pdf,rendered,userId:'U1',rmaNo:'R1',idempotencyKey:'batch1'};
+ const {terminal}=await store.saveTerminal({name:'fixture',printerName:'fixture',memberUserIds:['FieldDesk9001']});
+ const input={pdf,rendered,userId:'FieldDesk9001',rmaNo:'R1',idempotencyKey:'batch1'};
  const a=await store.enqueueOriginalPdf(input); const b=await store.enqueueOriginalPdf(input);
  assert.equal(a[0].id,b[0].id);
  assert.equal((await store.listJobs()).length,1);
@@ -57,7 +57,7 @@ test('PDF bitmap jobs atomic, idempotent, original PDF not in public list',async
  const header='SIZE 76 mm,130 mm\r\nGAP 2 mm,0 mm\r\nDENSITY 8\r\nDIRECTION 1\r\nREFERENCE 0,0\r\nCLS\r\nBITMAP 16,136,72,768,0,';
  assert.equal(bytes.subarray(0,header.length).toString(),header);
  assert.deepEqual(bytes.subarray(header.length,header.length+55296),Buffer.alloc(55296,255));
- assert.equal(bytes.subarray(header.length+55296).toString(),'\r\nPRINT 1,1\r\n');
+ assert.equal(bytes.subarray(header.length+55296).toString(),'\r\nTEXT 16,64,"3",0,2,2,"9001"\r\nPRINT 1,1\r\n');
  assert.equal(job.renderMethod,'ORIGINAL_PDF_BITMAP');
  assert.equal(job.originalPdfBase64,undefined);
  assert.equal(job.paperWidthMm,76);assert.equal(job.paperHeightMm,130);
@@ -66,7 +66,7 @@ test('PDF bitmap jobs atomic, idempotent, original PDF not in public list',async
 test('adapter never substitutes handwritten label for capture failure; warranty skip',async()=>{
  const store=new PrintJobStore({driver:'memory'});
  const adapter=createRecloudRepairPageAdapter({}, {rmaNo:'R1',printJobStore:store,
-   captureOldPartLabels:async()=>{throw Error('capture failed');},payload:{technicianId:'U1'}});
+   captureOldPartLabels:async()=>{throw Error('capture failed');},payload:{technicianId:'FieldDesk9001'}});
  await assert.rejects(adapter.printOldPartLabels(parts));assert.equal((await store.listJobs()).length,0);
  const skip=createRecloudRepairPageAdapter({}, {printJobStore:store,payload:{responsibilityType:'保外维修'}});
  assert.equal((await skip.printOldPartLabels(parts)).skipped,true);
@@ -75,7 +75,7 @@ test('adapter never substitutes handwritten label for capture failure; warranty 
 test('malformed raster rejected before any page is queued',async()=>{
  const store=new PrintJobStore({driver:'memory'});
  const bad={...rendered,pages:[rendered.pages[0],{...rendered.pages[0],rasterBase64:'AA=='}]};
- assert.throws(()=>store.enqueueOriginalPdf({pdf,rendered:bad,idempotencyKey:'bad'}),{code:'PRINT_PDF_INVALID'});
+ assert.throws(()=>store.enqueueOriginalPdf({pdf,rendered:bad,userId:'FieldDesk9001',idempotencyKey:'bad'}),{code:'PRINT_PDF_INVALID'});
  assert.equal((await store.listJobs()).length,0);
 });
 test('legacy PNG remains gated to a compatible Windows agent',async()=>{
@@ -83,4 +83,40 @@ test('legacy PNG remains gated to a compatible Windows agent',async()=>{
  await store.backend.update(data=>{data.jobs=[{id:'legacy',terminalId:'T',status:'PENDING',minimumAgentVersion:'1.1.0',payloadFormat:'PNG'}];});
  assert.equal(await store.leaseNext('T','1.0.0'),null);
  assert.equal((await store.leaseNext('T','1.1.0')).payloadFormat,'PNG');
+});
+
+test('every page identifies its technician account without printing display names',async()=>{
+ const store=new PrintJobStore({driver:'memory'});
+ const multi={...rendered,pages:[rendered.pages[0],rendered.pages[0]]};
+ for(const userId of ['FieldDesk9001','FieldDesk9002']){
+  const jobs=await store.enqueueOriginalPdf({pdf,rendered:multi,userId,userName:'DO-NOT-PRINT-NAME',idempotencyKey:userId});
+  assert.equal(jobs.length,2);
+  for(const job of jobs){
+   assert.equal(job.technicianAccount,userId);
+   const bytes=Buffer.from(job.payloadBase64,'base64');
+   const suffix=userId.slice("FieldDesk".length);
+   assert.equal(job.technicianAccountSuffix,suffix);
+   assert(bytes.includes(Buffer.from(`TEXT 16,64,"3",0,2,2,"${suffix}"`)));
+   assert(!bytes.includes(Buffer.from("FieldDesk")));
+   assert(!bytes.includes(Buffer.from('DO-NOT-PRINT-NAME')));
+   assert(!bytes.includes(Buffer.from(userId==='FieldDesk9001'?'9002':'9001')));
+  }
+ }
+});
+test('missing, injected and oversize technician accounts cannot queue anonymous or misleading labels',async()=>{
+ const store=new PrintJobStore({driver:'memory'});
+ for(const userId of ['', 'TEST"\r\nPRINT 20,1', 'FieldDesk'+'9'.repeat(13), 'unknown0005']){
+  assert.throws(()=>store.enqueueOriginalPdf({pdf,rendered,userId,idempotencyKey:'bad-account'}),{code:'PRINT_ACCOUNT_INVALID'});
+ }
+ assert.equal((await store.listJobs()).length,0);
+});
+
+test('account number preserves leading zeroes and uses larger digits outside table',async()=>{
+ const store=new PrintJobStore({driver:'memory'});
+ const [job]=await store.enqueueOriginalPdf({pdf,rendered,userId:'FieldDesk0005',userName:'NAME-NOT-ON-PAPER',idempotencyKey:'leading-zero'});
+ const bytes=Buffer.from(job.payloadBase64,'base64');
+ assert.equal(job.technicianAccountSuffix,'0005');
+ assert(bytes.includes(Buffer.from('TEXT 16,64,"3",0,2,2,"0005"')));
+ assert(!bytes.includes(Buffer.from('FieldDesk')));
+ assert(!bytes.includes(Buffer.from('NAME-NOT-ON-PAPER')));
 });
