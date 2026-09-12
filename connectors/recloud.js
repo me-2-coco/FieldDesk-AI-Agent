@@ -11739,7 +11739,7 @@ async function readRmaHoldReasonOptions(page) {
 async function submitRmaHold(page, input = {}, options = {}) {
   const category = normalizeText(input.category);
   const reason = normalizeText(input.reason);
-  const remark = normalizeText(input.remark);
+  const remark = String(input.remark || "").trim();
   if (!category || !reason || !remark) {
     const error = new Error("瑞云滞留缺少分类、原因或备注");
     error.code = "RECLOUD_HOLD_INPUT_INVALID";
@@ -11758,10 +11758,12 @@ async function submitRmaHold(page, input = {}, options = {}) {
   const scope = await dialog.isVisible().catch(() => false) ? dialog : page;
   const reasonInput = await openRmaHoldReasonDropdown(scope);
   const cascaderLabels = page.locator([
-    '.rtxpc-cascader__dropdown:visible .rtxpc-cascader-node__label:visible',
-    '.el-cascader__dropdown:visible .el-cascader-node__label:visible',
+    '.rtxpc-cascader-menu:visible .rtxpc-cascader-node__label:visible',
+    '.el-cascader-menu:visible .el-cascader-node__label:visible',
   ].join(", "));
-  const categoryOption = cascaderLabels.filter({ hasText: category });
+  const exactLabel = value => new RegExp(`^\\s*${value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`);
+  const categoryOption = cascaderLabels.filter({ hasText: exactLabel(category) });
+  await categoryOption.first().waitFor({ state: "visible", timeout: 10000 });
   const categoryValues = (await categoryOption.allTextContents()).map(normalizeText).filter((value) => value === category);
   if (categoryValues.length !== 1) {
     await reasonInput.press("Escape").catch(() => {});
@@ -11771,7 +11773,8 @@ async function submitRmaHold(page, input = {}, options = {}) {
   }
   await categoryOption.first().click();
   await page.waitForTimeout(200);
-  const reasonOption = cascaderLabels.filter({ hasText: reason });
+  const reasonOption = cascaderLabels.filter({ hasText: exactLabel(reason) });
+  await reasonOption.first().waitFor({ state: "visible", timeout: 10000 });
   const reasonValues = (await reasonOption.allTextContents()).map(normalizeText).filter((value) => value === reason);
   if (reasonValues.length !== 1) {
     await reasonInput.press("Escape").catch(() => {});
@@ -11814,7 +11817,22 @@ async function submitRmaHold(page, input = {}, options = {}) {
     error.resultUnknown = true;
     throw error;
   }
-  return { confirmed: true, category, reason, remarkSaved: true };
+  // Only a fresh server-backed page can confirm persistence; absence of an error is not success.
+  try {
+    await page.reload({ waitUntil: "domcontentloaded" });
+    const savedReason = findRmaFieldItem(page, /^\s*滞处理原因/).locator('input').first();
+    const savedRemark = findRmaFieldItem(page, /^\s*备注/).locator('textarea, input').first();
+    await savedReason.waitFor({ state: "visible", timeout: 15000 });
+    const reasonValue = (await savedReason.inputValue()).replace(/\s+/g, "");
+    if (reasonValue !== `${category}/${reason}`.replace(/\s+/g, "") || await savedRemark.inputValue() !== remark) {
+      throw new Error("瑞云暂存回读与提交内容不一致");
+    }
+  } catch (cause) {
+    throw Object.assign(new Error("瑞云暂存已尝试保存，但回读未确认，请核对后再操作", { cause }), {
+      code: "RECLOUD_HOLD_RESULT_UNKNOWN", resultUnknown: true,
+    });
+  }
+  return { confirmed: true, category, reason, remarkSaved: true, readBackVerified: true };
 }
 
 module.exports = {

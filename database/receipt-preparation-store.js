@@ -894,6 +894,21 @@ class JsonReceiptPreparationStore {
     return operation;
   }
 
+  async markRecloudHoldSubmitting(rmaNo, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find(record => record.rmaNo === rmaNo);
+      if (!existing?.hold || !["PENDING", "FAILED"].includes(existing.hold.status)) throw new Error("暂存不可重复提交");
+      const timestamp = new Date().toISOString();
+      const updated = { ...existing, hold: { ...existing.hold, status: "SUBMITTING" }, updatedAt: timestamp,
+        timeline: [...(existing.timeline || []), timelineEvent("RECLOUD_HOLD_SUBMITTING", "瑞云暂存同步开始", operator, timestamp)] };
+      await this.writeAll(records.map(record => record.rmaNo === rmaNo ? updated : record));
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
   async markRecloudHoldConfirmed(rmaNo, result = {}, operator = {}) {
     const operation = this.writeQueue.then(async () => {
       const records = await this.readAll();
@@ -923,7 +938,7 @@ class JsonReceiptPreparationStore {
         ...existing,
         hold: {
           ...existing.hold,
-          status: "FAILED",
+          status: error.resultUnknown || /TIMEOUT|RESULT_UNKNOWN/.test(error.code || "") ? "RESULT_UNKNOWN" : "FAILED",
           lastError: { code: normalizeRequired(error.code) || "RECLOUD_HOLD_SYNC_FAILED", at: timestamp },
         },
         updatedAt: timestamp,

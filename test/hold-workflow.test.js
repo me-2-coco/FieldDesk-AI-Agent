@@ -118,7 +118,7 @@ test("hold API returns immediately and syncs the same reason and remark to Reclo
     },
   };
   const app = createApp(connector, store, {
-    env: { ...process.env, RECLOUD_HOLD_WRITE_ENABLED: "true" },
+    env: { ...process.env, RECLOUD_HOLD_WRITE_ENABLED: "true", RECLOUD_WRITE_RMA_ALLOWLIST: "OTHER-SYNTHETIC", RECLOUD_WRITE_RMA_STRICT: "false" },
     getCurrentUser: () => TECHNICIAN,
     feishuModelCatalog: { authorize: async () => ({ repairability: "SUPPORTED", status: "MATCHED" }) },
   });
@@ -157,4 +157,20 @@ test("hold API returns immediately and syncs the same reason and remark to Reclo
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   assert.equal(saved.hold.status, "CONFIRMED");
+  const retry = () => fetch(`${url}/api/repairs/hold/retry`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rmaNo: prepared.rmaNo }),
+  });
+  assert.equal((await (await retry()).json()).data.queued, false, "confirmed orders must not repeat");
+  await store.writeAll([{ ...saved, updatedAt: "2020-01-01T00:00:00Z", hold: { ...saved.hold, status: "PENDING" } }]);
+  assert.equal((await (await retry()).json()).data.queued, true, "explicit retry can recover orders saved before restart");
+  for (let index = 0; index < 100; index += 1) {
+    saved = (await store.readAll())[0];
+    if (saved.hold.status === "CONFIRMED") break;
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+  assert.equal(saved.hold.status, "CONFIRMED");
+  await store.writeAll([{ ...saved, hold: { ...saved.hold, status: "RESULT_UNKNOWN" } }]);
+  assert.equal((await retry()).status, 409, "unknown remote outcome requires reconciliation");
+  await store.writeAll([{ ...saved, operatorId: "OTHER", technicianId: "OTHER", hold: { ...saved.hold, status: "PENDING" } }]);
+  assert.equal((await retry()).status, 403, "another technician cannot retry this order");
 });

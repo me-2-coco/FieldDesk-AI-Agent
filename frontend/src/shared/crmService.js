@@ -574,3 +574,6 @@ export async function queuePrintTest(terminalId) {
 export async function retryPrintJob(jobId, terminalId = "") {
   return request("/api/admin/print/jobs/retry", { jobId, terminalId })
 }
+export function retryRecloudHold(rmaNo) {
+  return request("/api/repairs/hold/retry", { rmaNo })
+}

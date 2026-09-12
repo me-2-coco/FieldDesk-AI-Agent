@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { getLocalRepairOrders, getShippingOrders, getSystemHealth, getTechnicianWorkloads, getWarrantyConversionRequests } from "../shared/crmService.js"
+import { getLocalRepairOrders, getShippingOrders, getSystemHealth, getTechnicianWorkloads, getWarrantyConversionRequests, retryRecloudHold } from "../shared/crmService.js"
 import { findRepairOrderByCrmOrderNo, getCurrentRepairOrder, REPAIR_STATUS, saveCurrentRepairOrder } from "../shared/repairOrderStore.js"
 import { pageForRepairStatus, repairStatusForLocalWorkflow, resumePageForLocalWorkflow } from "../shared/repairNavigation.js"
 import { USER_ROLES } from "../shared/userStore.js"
@@ -30,6 +30,17 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
   const [order, setOrder] = useState(() => getCurrentRepairOrder())
   const [resumeError, setResumeError] = useState("")
   const [todoError, setTodoError] = useState("")
+  const [holdRetryBusy, setHoldRetryBusy] = useState(false)
+  const [holdRetryMessage, setHoldRetryMessage] = useState("")
+  async function retryHold(item) {
+    if (holdRetryBusy) return
+    setHoldRetryBusy(true)
+    try {
+      const result = await retryRecloudHold(item.rmaNo)
+      setHoldRetryMessage(result.message)
+    } catch (error) { setHoldRetryMessage(error.message) }
+    finally { setHoldRetryBusy(false) }
+  }
   const [backgroundShippingCount, setBackgroundShippingCount] = useState(0)
   const [pendingWarrantyCount, setPendingWarrantyCount] = useState(0)
   const [workflows, setWorkflows] = useState([])
@@ -436,6 +447,11 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
       {detailStatus && <div className="home-work-order-list">
         <div className="home-list-heading"><strong>{detailStatus === "unfinished" ? "师傅手上未修走的机器" : detailStatus === "waiting" ? "待料工单" : detailStatus === "outOfWarranty" ? "保外暂存工单" : detailStatus === "held" ? "其他暂存工单" : "已完成维修"}</strong><span>{detailOrders.length} 台</span></div>
         {!detailOrders.length && <p>当前没有该状态的机器</p>}
+        {detailOrders.filter(item => item.status === "ON_HOLD").map(item => <div key={`hold-${item.rmaNo}`}>
+          <p>{item.rmaNo} · {item.hold?.remark} · 瑞云：{({ CONFIRMED: "已同步", PENDING: "待同步", FAILED: "同步失败", SUBMITTING: "同步中，勿重复提交", RESULT_UNKNOWN: "结果待核对" })[item.hold?.status] || "待核对"}</p>
+          {isTechnician && ["PENDING", "FAILED"].includes(item.hold?.status) && <button type="button" disabled={holdRetryBusy} onClick={() => retryHold(item)}>重试这单暂存同步</button>}
+        </div>)}
+        {holdRetryMessage && <p role="status">{holdRetryMessage}</p>}
         {!!detailOrders.length && <div className="home-work-order-scroll">
           {detailOrders.map((item) => <button type="button" key={item.rmaNo} className={canViewTechnicians ? "read-only" : ""} onClick={() => isTechnician && item.status !== "ON_HOLD" && openWorkflow(item)} aria-disabled={canViewTechnicians || item.status === "ON_HOLD"}>
             <span className="home-order-main"><strong>{canViewTechnicians ? item.phoneMasked || "电话未记录" : fullLocalPhone(item)}</strong><small>{item.productLine || item.specialty || "品类未记录"} · SN {item.sn || "未记录"}{item.status === "ON_HOLD" && <> · {item.hold?.category || "分类未记录"}/{item.hold?.reason || "原因未记录"}</>}</small></span>

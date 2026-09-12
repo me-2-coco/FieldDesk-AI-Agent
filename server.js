@@ -1148,15 +1148,17 @@ function createApp(
   const receiptRecoveryAttempts = new Map();
   const activeHoldSyncs = new Set();
 
-  function scheduleRecloudHoldSync(order, operator = {}) {
+  function scheduleRecloudHoldSync(order, operator = {}, { manualRetry = false } = {}) {
     const rmaNo = String(order?.rmaNo || "").trim();
-    if (!rmaNo || !isRecloudRmaWriteAllowed(rmaNo, order) || !order?.hold || !isRecloudHoldWriteEnabled(runtimeEnv) || activeHoldSyncs.has(rmaNo)) return false;
+    const guardCandidate = manualRetry ? { ...order, updatedAt: new Date().toISOString() } : order;
+    if (!rmaNo || !isRecloudRmaWriteAllowed(rmaNo, guardCandidate) || order.status !== "ON_HOLD" || !order?.hold || !["PENDING", "FAILED"].includes(order.hold.status) || !isRecloudHoldWriteEnabled(runtimeEnv) || activeHoldSyncs.has(rmaNo)) return false;
     activeHoldSyncs.add(rmaNo);
     setImmediate(async () => {
       try {
+        await receiptStore.markRecloudHoldSubmitting(rmaNo, operator);
         const result = await withRecloud(connector, async (page) => {
           const detail = await connector.queryRmaByLogisticsNo(page, order.logisticsNo || rmaNo, { preserveDetailPage: true });
-          if (detail.rmaNo && detail.rmaNo !== rmaNo) {
+          if (detail.rmaNo !== rmaNo) {
             throw createApiError("RECLOUD_HOLD_ORDER_MISMATCH", "瑞云查询结果与当前暂存工单不一致", 409);
           }
           if (typeof connector.submitRmaHold !== "function") {
@@ -1168,6 +1170,7 @@ function createApp(
             remark: order.hold.remark,
           }, { writeEnabled: true });
         }, { ...businessWriteOptions, timeoutCode: "RECLOUD_HOLD_TIMEOUT" });
+        if (result?.confirmed !== true) throw Object.assign(new Error("瑞云暂存结果未确认"), { resultUnknown: true });
         await receiptStore.markRecloudHoldConfirmed(rmaNo, result, operator);
       } catch (error) {
         await receiptStore.markRecloudHoldFailed(rmaNo, error, operator).catch(() => {});
@@ -3666,7 +3669,13 @@ function createApp(
       const rmaNo = String(req.body?.rmaNo || "").trim();
       const order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
       if (!order?.hold) throw createApiError("HOLD_NOT_FOUND", "未找到暂存记录", 404);
-      const queued = scheduleRecloudHoldSync(order, user);
+      if (!hasBusinessRole(user, USER_ROLES.ADMIN, USER_ROLES.INFORMATION_CLERK)
+        && ![order.operatorId, order.technicianId].includes(user.userId)) {
+        throw createApiError("RECLOUD_HOLD_RETRY_FORBIDDEN", "只能重试本人负责的暂存工单", 403);
+      }
+      if (!isRecloudHoldWriteEnabled(runtimeEnv)) throw createApiError("RECLOUD_HOLD_DISABLED", "瑞云暂存同步未启用", 409);
+      if (["SUBMITTING", "RESULT_UNKNOWN"].includes(order.hold.status)) throw createApiError("RECLOUD_HOLD_RESULT_UNKNOWN", "暂存正在执行或结果未确认，请先核对瑞云，勿重复提交", 409);
+      const queued = scheduleRecloudHoldSync(order, user, { manualRetry: true });
       res.json({ success: true, data: { queued, message: queued ? "瑞云滞留已进入后台重试" : "当前暂存无需重试或正在执行" } });
     } catch (error) { next(error); }
   });
