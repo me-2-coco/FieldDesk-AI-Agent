@@ -3,6 +3,14 @@ const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
 
 function alertText(alert) {
+  if (alert.scope === 'INFRA') {
+    const component = alert.component === 'BACKEND' ? '后端服务' : '告警监测程序';
+    const state = alert.status === 'RECOVERED' ? '连续健康检查已通过，服务已恢复（不代表工单已完成）'
+      : alert.kind === 'EXHAUSTED' ? '自动启动次数已达上限，已停止重试，需要人工检查'
+      : '健康检查异常，正在检查并尝试恢复；请暂缓提交';
+    const id = String(alert.id || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 100);
+    return `【FieldDesk 服务告警】${component}：${state}。故障编号：${id}。`;
+  }
   if (alert.scope === 'BUSINESS_TEST') return '【FieldDesk 正式告警通道验证】这是一条启用验证消息，不是真实故障。';
   if (alert.scope === 'BUSINESS') {
     const safe = value => String(value || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80);

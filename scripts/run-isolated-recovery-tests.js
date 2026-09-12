@@ -6,6 +6,7 @@ const { provision } = require('./start-isolated-lab');
 const names = [
   'media-formats',
   'business-alert-monitor',
+  'service-recovery-policy', 'owned-service-process', 'service-guardian', 'process-lock',
   'attachment-interruption', 'upload-admission', 'upload-client-retry', 'completion-api-recovery',
   'recloud-session', 'recloud-command-executor', 'recovery-fault-injection',
   'recloud-sync-outbox', 'recloud-repair-completion-orchestrator',
@@ -18,6 +19,8 @@ const names = [
   const root = await provision(source);
   const tests = names.map(name => `test/${name}.test.js`);
   for (const file of [...tests, 'test/fixtures/detection-crash-worker.cjs',
+    'services/service-recovery-policy.js', 'services/owned-service-process.js', 'services/process-lock.js', 'scripts/start-service-guardian.js',
+    'test/fixtures/owned-service.cjs', 'test/fixtures/guardian-entry.cjs', 'test/fixtures/guardian-backend.cjs', 'test/fixtures/guardian-notifier.cjs',
     'shared/media-formats.json',
     'services/business-alert-monitor.js', 'services/monitor-health.js', 'services/feishu-alert-notifier.js', 'scripts/start-business-alerts.js',
     'test/fixtures/outbox-crash-worker.cjs', 'init-recloud-login.js',

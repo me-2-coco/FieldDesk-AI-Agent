@@ -1966,6 +1966,7 @@ function createApp(
     res.json({
       success: true,
       service: "fielddesk-api",
+      pid: process.pid,
       dryRun: isDryRun(runtimeEnv),
       recloudWriteEnabled: isRecloudWriteEnabled(runtimeEnv),
       receiptWriteEnabled: isRecloudReceiptWriteEnabled(runtimeEnv),
@@ -5997,7 +5998,11 @@ if (require.main === module) {
     // 登录恢复后即可自动取得并展示真实督办内容。
     if (monitorEnabled(process.env)) supervisionMonitor.start();
   });
+  let shuttingDown = false;
   const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    if (process.connected) process.disconnect();
     app.locals.stopRecloudRecoveryWatchdog?.();
     supervisionMonitor.stop();
     pendingReceiptSync.stop();
@@ -6009,6 +6014,8 @@ if (require.main === module) {
   };
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
+  // When owned by the guardian, do not leave an orphan backend after guardian exit.
+  if (process.send) process.once("disconnect", shutdown);
 }
 
 module.exports = {

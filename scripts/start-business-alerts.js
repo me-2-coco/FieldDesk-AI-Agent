@@ -3,6 +3,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { createBusinessAlertMonitor } = require('../services/business-alert-monitor');
 const { writeMonitorHealth } = require('../services/monitor-health');
+const { acquireProcessLock } = require('../services/process-lock');
 const { createAlertNotifier, createFeishuAlertSender } = require('../services/feishu-alert-notifier');
 async function main() {
   try { process.loadEnvFile?.(); } catch (error) { if (error.code !== 'ENOENT') throw error; }
@@ -12,8 +13,7 @@ async function main() {
   const data = process.env.FIELDDESK_DATA_DIRECTORY || path.join(__dirname, '../database/data');
   const directory = path.join(data, 'business-alerts');
   await fs.mkdir(directory, { recursive: true, mode: 0o700 });
-  const lock = await fs.open(path.join(directory, 'monitor.lock'), 'wx', 0o600);
-  await lock.writeFile(String(process.pid)); await lock.close();
+  await acquireProcessLock(path.join(directory, 'monitor.lock'));
   let timer; let stopping = false;
   let lastSuccessfulScanAt = null;
   const healthFile = path.join(directory, 'health.json');
@@ -25,19 +25,20 @@ async function main() {
       const [orders, tasks] = await Promise.all(['receipt-preparations.json', 'recloud-sync-outbox.json'].map(async name => JSON.parse(await fs.readFile(path.join(data, name), 'utf8'))));
       const result = await monitor.scan(orders, tasks);
       lastSuccessfulScanAt = new Date().toISOString();
-      await writeMonitorHealth(healthFile, { pid: process.pid, status: result.attention ? 'DELIVERY_FAILED' : 'HEALTHY', lastSuccessfulScanAt });
+      await writeMonitorHealth(healthFile, { pid: process.pid, status: result.attention ? 'DELIVERY_FAILED' : 'HEALTHY', lastSuccessfulScanAt, checkedAt: new Date().toISOString() });
       if (result.baseline) console.log('BUSINESS_ALERTS: historical baseline saved');
       if (result.attention) console.warn('BUSINESS_ALERTS: delivery needs review');
     } catch (error) {
-      await writeMonitorHealth(healthFile, { pid: process.pid, status: 'SCAN_FAILED', lastSuccessfulScanAt }).catch(() => {});
+      await writeMonitorHealth(healthFile, { pid: process.pid, status: 'SCAN_FAILED', lastSuccessfulScanAt, checkedAt: new Date().toISOString() }).catch(() => {});
       console.error('BUSINESS_ALERTS: scan failed; no recovery inferred');
       if (initial) { await fs.unlink(path.join(directory, 'monitor.lock')); throw error; }
     }
     if (!stopping) timer = setTimeout(tick, 10000);
     else await fs.unlink(path.join(directory, 'monitor.lock'));
   }
-  function stop() { stopping = true; if (timer) { clearTimeout(timer); timer = null; fs.unlink(path.join(directory, 'monitor.lock')).catch(() => {}); } }
+  function stop() { stopping = true; if (process.connected) process.disconnect(); if (timer) { clearTimeout(timer); timer = null; fs.unlink(path.join(directory, 'monitor.lock')).catch(() => {}); } }
   process.once('SIGTERM', stop); process.once('SIGINT', stop);
+  if (process.send) process.once('disconnect', stop);
   await tick(true);
   console.log('BUSINESS_ALERTS: running (10 second checks, JSON only)');
 }
