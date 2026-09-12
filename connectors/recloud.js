@@ -11193,7 +11193,8 @@ async function uploadRmaAttachments(page, attachments = [], options = {}) {
     error.status = 403;
     throw error;
   }
-  const files = attachments.map((attachment) => ({
+  const identityFiles = require('../services/receipt-attachment-identity').receiptUploadFiles(options.rmaNo, attachments);
+  const files = identityFiles.map((attachment) => ({
     name: normalizeText(attachment.name),
     mimeType: normalizeText(attachment.mimeType) || "application/octet-stream",
     buffer: attachment.buffer,
@@ -11206,10 +11207,14 @@ async function uploadRmaAttachments(page, attachments = [], options = {}) {
     throw error;
   }
 
-  const existing = await readRmaAttachments(page);
-  // Recloud may transform an image while storing it, so its displayed size is
-  // not a stable checksum. FieldDesk camera filenames are unique per capture;
-  // exact names within the verified RMA are therefore the retry idempotency key.
+  const existing = (await readRmaReceiptAttachmentSnapshot(page, options.rmaNo)).attachments;
+  // Legacy names cannot prove identity. Never silently adopt or duplicate them.
+  if (identityFiles.some(file => existing.some(item => item.name === file.originalName))
+    || files.some(file => existing.filter(item => item.name === file.name).length > 1)) {
+    throw Object.assign(new Error('瑞云已有同名旧附件或重复附件，需核对，未触发上传'), {
+      code: 'RECLOUD_RMA_ATTACHMENT_RESULT_UNKNOWN', resultUnknown: true, status: 409,
+    });
+  }
   const pending = files.filter((file) => (
     !existing.some((item) => item.name === file.name)
   ));
@@ -11286,10 +11291,10 @@ async function uploadRmaAttachments(page, attachments = [], options = {}) {
   try {
     while (Date.now() < deadline) {
       after = await readRmaAttachments(page);
-      if (pending.every((file) => after.some((item) => item.name === file.name))) break;
+      if (pending.every((file) => after.filter((item) => item.name === file.name).length === 1)) break;
       await page.waitForTimeout(300);
     }
-    const missing = pending.filter((file) => !after.some((item) => item.name === file.name));
+    const missing = pending.filter((file) => after.filter((item) => item.name === file.name).length !== 1);
     if (missing.length) {
       const error = new Error(`瑞云未显示已上传附件：${missing.map((item) => item.name).join("、")}`);
       error.code = "RECLOUD_RMA_ATTACHMENT_RESULT_UNKNOWN";
@@ -11848,6 +11853,16 @@ async function submitRmaHold(page, input = {}, options = {}) {
 }
 
 // Read-only reconciliation: reload persisted fields, never click Hold/Save or fill inputs.
+async function readRmaReceiptAttachmentSnapshot(page, expectedRmaNo) {
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  const body = await page.locator('body').innerText({ timeout: 15000 });
+  const identities = [...new Set(body.match(/JXTH[A-Z0-9-]+/gi) || [])];
+  if (extractRmaNoFromTitle(body) !== expectedRmaNo || identities.length !== 1 || identities[0] !== expectedRmaNo) {
+    throw Object.assign(new Error('瑞云工单身份未确认'), { code: 'RECEIPT_ATTACHMENT_ORDER_MISMATCH', status: 409 });
+  }
+  return { rmaNo: expectedRmaNo, attachments: await readRmaAttachments(page), readBackVerified: true };
+}
+
 async function readRmaReceiptSnapshot(page, expectedRmaNo) {
   await page.reload({ waitUntil: "domcontentloaded" });
   const body = await page.locator('body').innerText({ timeout: 15000 });
@@ -11890,6 +11905,7 @@ async function readRmaHoldSnapshot(page, expectedRmaNo) {
 }
 
 module.exports = {
+  readRmaReceiptAttachmentSnapshot,
   hasExplicitMissingOrder,
   RECLOUD_URL,
   RECLOUD_PENDING_LIST_URL,

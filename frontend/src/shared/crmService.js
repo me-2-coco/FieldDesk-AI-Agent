@@ -583,3 +583,6 @@ export function reconcileRecloudHold(rmaNo) {
 export function reconcileRecloudReceipt(rmaNo) {
   return request('/api/repairs/admin/reconcile-receipt', { rmaNo })
 }
+export function reconcileRecloudReceiptAttachments(rmaNo) {
+  return request('/api/repairs/admin/reconcile-receipt-attachments', { rmaNo })
+}

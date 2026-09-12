@@ -560,6 +560,29 @@ class JsonReceiptPreparationStore {
     return operation;
   }
 
+  async reconcileReceiptAttachments(expected, files, snapshot, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const current = records.find(item => item.rmaNo === expected.rmaNo);
+      if (!current || current.updatedAt !== expected.updatedAt
+        || ['DELETED', 'CANCELLED', 'RECEIPT_PREPARATION_CANCELLED'].includes(current.status)
+        || JSON.stringify(current.receiptAttachments) !== JSON.stringify(expected.receiptAttachments)
+        || !current.recloudReceiptConfirmedAt || current.recloudReceiptAttachmentConfirmedAt
+        || !['FAILED', 'RESULT_UNKNOWN'].includes(current.recloudReceiptAttachmentSyncStatus)
+        || !require('../services/receipt-attachment-identity').receiptAttachmentsMatch(expected.rmaNo, files, snapshot)) {
+        throw Object.assign(new Error('附件证据不足或本地记录已变化，未改状态、未补传'), { code: 'RECEIPT_ATTACHMENT_NOT_VERIFIED', status: 409 });
+      }
+      const timestamp = new Date().toISOString();
+      const updated = { ...current, recloudReceiptAttachmentSyncStatus: 'CONFIRMED', recloudReceiptAttachmentConfirmedAt: timestamp,
+        recloudReceiptAttachmentLastError: null, recloudReceiptAttachmentResult: { uploaded: [], reconciled: files.map(file => file.name) }, updatedAt: timestamp,
+        timeline: [...(current.timeline || []), timelineEvent('RECLOUD_RECEIPT_ATTACHMENTS_RECONCILED', '签收附件稳定标识已核对，未重复上传', operator, timestamp)] };
+      await this.writeAll(records.map(item => item.rmaNo === expected.rmaNo ? updated : item));
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
   async markRecloudReceiptAttachmentsSyncing(rmaNo) {
     const operation = this.writeQueue.then(async () => {
       const records = await this.readAll();
@@ -570,9 +593,7 @@ class JsonReceiptPreparationStore {
         });
       }
       if (existing.recloudReceiptAttachmentConfirmedAt) return existing;
-      // The uploader first reads existing filenames from the verified RMA and
-      // sends only missing files, so an interrupted/unknown attempt is safe to
-      // reconcile and resume without creating duplicate attachments.
+      // Unknown attempts must first be reconciled by stable attachment identity.
       const timestamp = new Date().toISOString();
       const updated = {
         ...existing,

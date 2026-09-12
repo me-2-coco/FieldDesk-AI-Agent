@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { deleteLocalRepairOrder, getLocalRepairOrders, reopenRepairTreatment, reconcileRecloudHold, reconcileRecloudReceipt } from "../shared/crmService.js"
+import { deleteLocalRepairOrder, getLocalRepairOrders, reopenRepairTreatment, reconcileRecloudHold, reconcileRecloudReceipt, reconcileRecloudReceiptAttachments } from "../shared/crmService.js"
 import { getCurrentRepairOrder, removeDeletedRepairOrder, REPAIR_STATUS } from "../shared/repairOrderStore.js"
 import { getCurrentUser, USER_ROLES } from "../shared/userStore.js"
 
@@ -99,6 +99,17 @@ function AdminRepairRecovery({ setPage }) {
     }
   }
 
+  async function reconcileAttachments(order) {
+    try {
+      setWorkingRmaNo(order.rmaNo)
+      setMessage('正在核对签收附件稳定标识，不会重复上传…')
+      const updated = await reconcileRecloudReceiptAttachments(order.rmaNo)
+      setOrders(current => current.map(item => item.rmaNo === order.rmaNo ? updated : item))
+      setMessage('签收附件已核对一致，本地状态已补齐；未重复上传。')
+    } catch (error) { setMessage(error.message) }
+    finally { setWorkingRmaNo('') }
+  }
+
   async function reconcileReceipt(order) {
     try {
       setWorkingRmaNo(order.rmaNo)
@@ -183,6 +194,8 @@ function AdminRepairRecovery({ setPage }) {
           </button>
           {!order.recloudReceiptConfirmedAt && ['RESULT_UNKNOWN', 'FAILED'].includes(order.recloudReceiptSyncStatus) &&
             <button type="button" disabled={workingRmaNo === order.rmaNo} onClick={() => reconcileReceipt(order)}>核对瑞云签收（不重复提交）</button>}
+          {order.recloudReceiptConfirmedAt && !order.recloudReceiptAttachmentConfirmedAt && ['FAILED', 'RESULT_UNKNOWN'].includes(order.recloudReceiptAttachmentSyncStatus) &&
+            <button type="button" disabled={workingRmaNo === order.rmaNo} onClick={() => reconcileAttachments(order)}>核对签收附件（不重复上传）</button>}
           {order.status === "ON_HOLD" && ["RESULT_UNKNOWN", "SUBMITTING", "FAILED"].includes(order.hold?.status) &&
             <button type="button" disabled={workingRmaNo === order.rmaNo} onClick={() => reconcileHold(order)}>
               {workingRmaNo === order.rmaNo ? "正在核对…" : "核对瑞云暂存（不重复提交）"}

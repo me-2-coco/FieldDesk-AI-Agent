@@ -8,6 +8,7 @@ const names = [
   'business-alert-monitor',
   'hold-reconciliation', 'receipt-reconciliation',
   'receipt-result-safety',
+  'receipt-attachment-identity',
   'receipt-snapshot-reconciliation',
   'service-recovery-policy', 'owned-service-process', 'service-guardian', 'process-lock',
   'attachment-interruption', 'upload-admission', 'upload-client-retry', 'completion-api-recovery',
@@ -23,6 +24,7 @@ const names = [
   const tests = names.map(name => `test/${name}.test.js`);
   for (const file of [...tests, 'test/fixtures/detection-crash-worker.cjs',
     'services/receipt-reconciliation-evidence.js',
+    'services/receipt-attachment-identity.js',
     'services/service-recovery-policy.js', 'services/owned-service-process.js', 'services/process-lock.js', 'scripts/start-service-guardian.js',
     'test/fixtures/owned-service.cjs', 'test/fixtures/guardian-entry.cjs', 'test/fixtures/guardian-backend.cjs', 'test/fixtures/guardian-notifier.cjs',
     'shared/media-formats.json',
