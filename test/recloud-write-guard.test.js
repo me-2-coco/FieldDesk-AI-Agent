@@ -24,7 +24,8 @@ test("temporary RMA allowlist blocks historical backlog but permits new live wor
   assert.equal(allowed("RMA-RECOVERY", { createdAt: "2026-09-01T00:00:00.000Z" }), true);
   assert.equal(allowed("RMA-OLD", { updatedAt: "2026-09-06T11:29:59.999Z" }), false);
   assert.equal(allowed("RMA-NEW", { createdAt: "2026-09-06T11:30:00.000Z" }), true);
-  assert.equal(allowed("RMA-EDITED", { updatedAt: "2026-09-06T11:30:01.000Z" }), true);
+  assert.equal(allowed("RMA-EDITED", { inspectionUpdatedAt: "2026-09-06T11:30:01.000Z" }), true);
+  assert.equal(allowed("RMA-BACKGROUND-UPDATED", { updatedAt: "2026-09-06T11:30:01.000Z" }), false);
 });
 
 test("empty allowlist permits normal operation", () => {

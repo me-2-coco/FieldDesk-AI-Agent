@@ -151,16 +151,22 @@ function getAccountSessionToken(req) {
   return "";
 }
 
-function createRecloudRmaWriteGuard(allowlistValues, runtimeStartedAt = Date.now(), strict = false) {
+function createRecloudRmaWriteGuard(allowlistValues, runtimeStartedAt = Date.now(), strict = false, admissions = null) {
   const allowlist = new Set(Array.from(allowlistValues || []).map((value) => String(value || "").trim()).filter(Boolean));
   return (rmaNo, candidate = {}) => {
     if (strict) return allowlist.has(String(rmaNo || "").trim());
     if (allowlist.size === 0 || allowlist.has(String(rmaNo || "").trim())) return true;
-    // A temporary recovery allowlist must fence off historical backlog only.
-    // Tasks/orders created or changed by the user after this process started
-    // are live operations and must not be silently discarded.
-    const liveTimestamp = Date.parse(candidate.updatedAt || candidate.createdAt || "");
-    return Number.isFinite(liveTimestamp) && liveTimestamp >= runtimeStartedAt;
+    // Fence historical backlog while retaining persisted live-work admissions.
+    // A later restart must not revoke permission already used by normal work.
+    const key = require('./services/recloud-write-admissions').admissionKey(rmaNo, candidate);
+    if (admissions?.has(key)) return true;
+    // Only business events qualify; polling/retry bookkeeping updates updatedAt.
+    const events = [candidate.createdAt, candidate.receiptCompletedAt, candidate.inspectionUpdatedAt,
+      candidate.treatmentDecidedAt, candidate.hold?.requestedAt,
+      candidate.repairCompletion?.submittedAt, candidate.manualRecoveryRequestedAt];
+    const live = events.some(value => Number.isFinite(Date.parse(value)) && Date.parse(value) >= runtimeStartedAt);
+    if (!live) return false;
+    return admissions ? admissions.grant(key) : true;
   };
 }
 
@@ -917,7 +923,8 @@ function createApp(
   const isRecloudRmaWriteAllowed = createRecloudRmaWriteGuard(
     recloudWriteRmaAllowlist,
     Date.now(),
-    runtimeEnv.RECLOUD_WRITE_RMA_STRICT === "true"
+    runtimeEnv.RECLOUD_WRITE_RMA_STRICT === "true",
+    options.recloudWriteAdmissions || null
   );
   receiptStore ||= businessStores.receiptStore;
   const accountStore = options.accountStore || new AccountStore(options.accountStoreOptions);
@@ -1153,7 +1160,7 @@ function createApp(
 
   function scheduleRecloudHoldSync(order, operator = {}, { manualRetry = false } = {}) {
     const rmaNo = String(order?.rmaNo || "").trim();
-    const guardCandidate = manualRetry ? { ...order, updatedAt: new Date().toISOString() } : order;
+    const guardCandidate = manualRetry ? { ...order, manualRecoveryRequestedAt: new Date().toISOString() } : order;
     if (!rmaNo || !isRecloudRmaWriteAllowed(rmaNo, guardCandidate) || order.status !== "ON_HOLD" || !order?.hold || !["PENDING", "FAILED"].includes(order.hold.status) || !isRecloudHoldWriteEnabled(runtimeEnv) || activeHoldSyncs.has(rmaNo)) return false;
     activeHoldSyncs.add(rmaNo);
     setImmediate(async () => {
@@ -5999,6 +6006,9 @@ if (require.main === module) {
   });
   const printJobStore = new PrintJobStore();
   const app = createApp(recloudConnector, businessStores.receiptStore, {
+    recloudWriteAdmissions: new (require('./services/recloud-write-admissions').RecloudWriteAdmissions)(
+      path.join(process.env.FIELDDESK_DATA_DIRECTORY || path.join(__dirname, 'database/data'), 'recloud-write-admissions.json')
+    ),
     businessStores,
     printJobStore,
     supervisionMonitor,

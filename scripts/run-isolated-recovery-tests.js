@@ -4,6 +4,7 @@ const os = require('node:os');
 const { spawn } = require('node:child_process');
 const { provision } = require('./start-isolated-lab');
 const names = [
+  'recloud-write-guard', 'recloud-write-admissions',
   'media-formats',
   'business-alert-monitor',
   'hold-reconciliation', 'receipt-reconciliation',
@@ -25,6 +26,7 @@ const names = [
   const root = await provision(source);
   const tests = names.map(name => `test/${name}.test.js`);
   for (const file of [...tests, 'test/fixtures/detection-crash-worker.cjs',
+    'services/recloud-write-admissions.js',
     'services/receipt-reconciliation-evidence.js',
     'services/receipt-attachment-identity.js',
     'services/repair-attachment-identity.js',
