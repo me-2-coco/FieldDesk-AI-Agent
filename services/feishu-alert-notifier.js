@@ -2,6 +2,17 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
 
+function alertText(alert) {
+  if (alert.scope === 'BUSINESS_TEST') return '【FieldDesk 正式告警通道验证】这是一条启用验证消息，不是真实故障。';
+  if (alert.scope === 'BUSINESS') {
+    const safe = value => String(value || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80);
+    const stages = { RECEIPT: '签收', PROJECT: '项目核对', RECEIPT_ATTACHMENTS: '签收附件', DETECTION: '检测', SERVICE_ORDER: '建维修单', REPAIR_PREPARATION: '维修资料', REPAIR_COMPLETED: '维修完工', RETURN_SHIPPED: '寄回', ORDER_COMPLETED: '工单完结' };
+    const state = alert.status === 'RECOVERED' ? '本地记录已确认该步骤成功' : alert.kind === 'STALLED' ? '长时间未完成，请检查' : alert.kind === 'RESULT_UNKNOWN' ? '结果未知，请核对瑞云，不要重复提交' : '同步异常，需要检查';
+    return `【FieldDesk 做单告警】工单：${safe(alert.rmaNo)}；步骤：${stages[alert.stage] || '同步'}；${state}。故障编号：${safe(alert.id)}。请在 FieldDesk 查看详情。`;
+  }
+  return `【FieldDesk 隔离演练】${alert.status === 'OPEN' ? '服务自动恢复失败，需要检查' : '服务已重新启动'}。故障编号：${alert.id}。不是正式业务故障。`;
+}
+
 function createFeishuAlertSender(env, fetchImpl = fetch) {
   return async (alert, uuid) => {
     if (!env.FEISHU_APP_ID || !env.FEISHU_APP_SECRET || !env.FEISHU_ALERT_OPEN_ID) throw new Error('ALERT_CONFIG_MISSING');
@@ -20,7 +31,7 @@ function createFeishuAlertSender(env, fetchImpl = fetch) {
         method: 'POST', signal: AbortSignal.timeout(15000),
         headers: { Authorization: `Bearer ${auth.tenant_access_token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ receive_id: env.FEISHU_ALERT_OPEN_ID, msg_type: 'text', uuid,
-          content: JSON.stringify({ text: `【FieldDesk 隔离演练】${alert.status === 'OPEN' ? '服务自动恢复失败，需要检查' : '服务已重新启动'}。故障编号：${alert.id}。不是正式业务故障。` }),
+          content: JSON.stringify({ text: alertText(alert) }),
         }),
       });
       body = await response.json();
