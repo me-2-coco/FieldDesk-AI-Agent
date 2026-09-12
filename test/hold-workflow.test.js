@@ -183,6 +183,18 @@ test("hold API returns immediately and syncs the same reason and remark to Reclo
     await new Promise(resolve => setTimeout(resolve, 5));
   }
   assert.equal(saved.hold.status, "CONFIRMED");
+  const originalConfirm = store.markRecloudHoldConfirmed.bind(store);
+  store.markRecloudHoldConfirmed = async () => { throw Object.assign(new Error("synthetic local disk failure"), { code: "EIO" }); };
+  await store.writeAll([{ ...saved, hold: { ...saved.hold, status: "PENDING" } }]);
+  assert.equal((await (await retry()).json()).data.queued, true);
+  for (let index = 0; index < 100; index += 1) {
+    const current = (await store.readAll())[0];
+    if (current.hold.status === "RESULT_UNKNOWN") break;
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+  assert.equal((await store.readAll())[0].hold.status, "RESULT_UNKNOWN", "remote success followed by local failure must not become retryable");
+  assert.equal((await retry()).status, 409);
+  store.markRecloudHoldConfirmed = originalConfirm;
   await store.writeAll([{ ...saved, hold: { ...saved.hold, status: "RESULT_UNKNOWN" } }]);
   assert.equal((await retry()).status, 409, "unknown remote outcome requires reconciliation");
   await store.writeAll([{ ...saved, operatorId: "OTHER", technicianId: "OTHER", hold: { ...saved.hold, status: "PENDING" } }]);

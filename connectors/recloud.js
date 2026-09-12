@@ -11808,14 +11808,20 @@ async function submitRmaHold(page, input = {}, options = {}) {
     error.code = "RECLOUD_HOLD_SAVE_NOT_FOUND";
     throw error;
   }
-  await saveButton.click();
-  await page.waitForTimeout(800);
-  const errorNotice = page.getByText(/保存失败|操作失败|必填|请选择滞处理原因/).filter({ visible: true }).first();
-  if (await errorNotice.isVisible().catch(() => false)) {
-    const error = new Error("瑞云未确认滞留保存成功");
-    error.code = "RECLOUD_HOLD_RESULT_UNKNOWN";
-    error.resultUnknown = true;
-    throw error;
+  try {
+    await saveButton.click();
+    await page.waitForTimeout(800);
+    const errorNotice = page.getByText(/保存失败|操作失败|必填|请选择滞处理原因/).filter({ visible: true }).first();
+    if (await errorNotice.isVisible().catch(() => false)) {
+      const error = new Error("瑞云未确认滞留保存成功");
+      error.code = "RECLOUD_HOLD_RESULT_UNKNOWN";
+      error.resultUnknown = true;
+      throw error;
+    }
+  } catch (cause) {
+    throw Object.assign(new Error("瑞云暂存保存已尝试，结果需要核对", { cause }), {
+      code: "RECLOUD_HOLD_RESULT_UNKNOWN", resultUnknown: true,
+    });
   }
   // Only a fresh server-backed page can confirm persistence; absence of an error is not success.
   try {
@@ -11833,6 +11839,20 @@ async function submitRmaHold(page, input = {}, options = {}) {
     });
   }
   return { confirmed: true, category, reason, remarkSaved: true, readBackVerified: true };
+}
+
+// Read-only reconciliation: reload persisted fields, never click Hold/Save or fill inputs.
+async function readRmaHoldSnapshot(page, expectedRmaNo) {
+  await page.reload({ waitUntil: "domcontentloaded" });
+  const body = await page.locator('body').innerText({ timeout: 15000 });
+  const numbers = [...new Set(body.match(/JXTH[A-Z0-9-]+/gi) || [])];
+  if (numbers.length !== 1 || numbers[0] !== expectedRmaNo) {
+    throw Object.assign(new Error("无法唯一确认瑞云工单，未修改本地状态"), { code: "HOLD_RECONCILIATION_ORDER_MISMATCH" });
+  }
+  const reasonInput = findRmaFieldItem(page, /^\s*滞处理原因/).locator('input').first();
+  const remarkInput = findRmaFieldItem(page, /^\s*备注/).locator('textarea, input').first();
+  await reasonInput.waitFor({ state: "visible", timeout: 15000 });
+  return { rmaNo: expectedRmaNo, reasonPath: await reasonInput.inputValue(), remark: await remarkInput.inputValue(), readBackVerified: true };
 }
 
 module.exports = {
@@ -11938,6 +11958,7 @@ module.exports = {
   correctRmaProductSn,
   readRmaHoldReasonOptions,
   submitRmaHold,
+  readRmaHoldSnapshot,
   fillReceiptFields,
   parseRepairDetail,
   readPendingRmaSupervisionOrders,

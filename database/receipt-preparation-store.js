@@ -915,6 +915,29 @@ class JsonReceiptPreparationStore {
     return operation;
   }
 
+  async reconcileRecloudHold(rmaNo, expected, snapshot, operator = {}) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const current = records.find(item => item.rmaNo === rmaNo);
+      const fail = message => { throw Object.assign(new Error(message), { code: "HOLD_RECONCILIATION_NOT_CONFIRMED", status: 409 }); };
+      if (current?.status !== "ON_HOLD" || !["RESULT_UNKNOWN", "SUBMITTING", "FAILED"].includes(current.hold?.status)) fail("暂存状态已改变，请刷新");
+      if (JSON.stringify(current.hold) !== JSON.stringify(expected)) fail("核对期间暂存资料已改变，未覆盖本地记录");
+      const path = `${expected.category}/${expected.reason}`.replace(/\s+/g, "");
+      if (snapshot?.readBackVerified !== true || snapshot.rmaNo !== rmaNo
+        || String(snapshot.reasonPath || "").replace(/\s+/g, "") !== path || snapshot.remark !== expected.remark) {
+        fail("瑞云暂存分类、原因或备注未完全匹配，保留原状态，请人工检查");
+      }
+      const timestamp = new Date().toISOString();
+      const updated = { ...current, hold: { ...current.hold, status: "CONFIRMED", confirmedAt: timestamp, lastError: null,
+        result: { confirmed: true, readBackVerified: true, reconciled: true } }, updatedAt: timestamp,
+        timeline: [...(current.timeline || []), timelineEvent("RECLOUD_HOLD_RECONCILED", "已只读核对瑞云暂存，补齐本地状态", operator, timestamp)] };
+      await this.writeAll(records.map(item => item.rmaNo === rmaNo ? updated : item));
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
   async markRecloudHoldConfirmed(rmaNo, result = {}, operator = {}) {
     const operation = this.writeQueue.then(async () => {
       const records = await this.readAll();

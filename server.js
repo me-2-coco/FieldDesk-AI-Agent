@@ -1157,6 +1157,7 @@ function createApp(
     if (!rmaNo || !isRecloudRmaWriteAllowed(rmaNo, guardCandidate) || order.status !== "ON_HOLD" || !order?.hold || !["PENDING", "FAILED"].includes(order.hold.status) || !isRecloudHoldWriteEnabled(runtimeEnv) || activeHoldSyncs.has(rmaNo)) return false;
     activeHoldSyncs.add(rmaNo);
     setImmediate(async () => {
+      let remoteConfirmed = false;
       try {
         await receiptStore.markRecloudHoldSubmitting(rmaNo, operator);
         const result = await withRecloud(connector, async (page) => {
@@ -1174,9 +1175,11 @@ function createApp(
           }, { writeEnabled: true });
         }, { ...businessWriteOptions, timeoutCode: "RECLOUD_HOLD_TIMEOUT" });
         if (result?.confirmed !== true) throw Object.assign(new Error("瑞云暂存结果未确认"), { resultUnknown: true });
+        remoteConfirmed = true;
         await receiptStore.markRecloudHoldConfirmed(rmaNo, result, operator);
       } catch (error) {
-        await receiptStore.markRecloudHoldFailed(rmaNo, error, operator).catch(() => {});
+        await receiptStore.markRecloudHoldFailed(rmaNo, remoteConfirmed
+          ? { code: "RECLOUD_HOLD_RESULT_UNKNOWN", resultUnknown: true } : error, operator).catch(() => {});
       } finally {
         activeHoldSyncs.delete(rmaNo);
       }
@@ -3662,6 +3665,30 @@ function createApp(
 
   app.get("/api/repairs/hold-reasons", (_req, res) => {
     res.json({ success: true, data: { source: "LOCAL_MIRROR", groups: RECLOUD_HOLD_REASON_GROUPS } });
+  });
+
+  app.post("/api/repairs/hold/reconcile", async (req, res, next) => {
+    const rmaNo = String(req.body?.rmaNo || "").trim();
+    let owned = false;
+    try {
+      const user = currentUserProvider(req);
+      if (!hasBusinessRole(user, USER_ROLES.ADMIN)) throw createApiError("HOLD_RECONCILIATION_FORBIDDEN", "请由管理员或负责人核对暂存", 403);
+      const order = (await receiptStore.readAll()).find(item => item.rmaNo === rmaNo);
+      if (order?.status !== "ON_HOLD" || !["RESULT_UNKNOWN", "SUBMITTING", "FAILED"].includes(order.hold?.status)) {
+        throw createApiError("HOLD_RECONCILIATION_STATE_INVALID", "当前暂存不需要核对", 409);
+      }
+      if (activeHoldSyncs.has(rmaNo)) throw createApiError("HOLD_RECONCILIATION_BUSY", "暂存仍在执行，请稍后核对", 409);
+      if (typeof connector.readRmaHoldSnapshot !== "function") throw createApiError("HOLD_RECONCILIATION_UNAVAILABLE", "暂存核对不可用", 503);
+      activeHoldSyncs.add(rmaNo); owned = true;
+      const snapshot = await withRecloud(connector, async page => {
+        const detail = await connector.queryRmaByLogisticsNo(page, order.logisticsNo || rmaNo, { preserveDetailPage: true });
+        if (detail.rmaNo !== rmaNo) throw createApiError("HOLD_RECONCILIATION_ORDER_MISMATCH", "瑞云查询工单不一致", 409);
+        return connector.readRmaHoldSnapshot(page, rmaNo);
+      }, { totalTimeoutMs: 45000, timeoutCode: "HOLD_RECONCILIATION_TIMEOUT" });
+      const data = await receiptStore.reconcileRecloudHold(rmaNo, order.hold, snapshot, user);
+      res.json({ success: true, data });
+    } catch (error) { next(error); }
+    finally { if (owned) activeHoldSyncs.delete(rmaNo); }
   });
 
   app.post("/api/repairs/hold/retry", async (req, res, next) => {

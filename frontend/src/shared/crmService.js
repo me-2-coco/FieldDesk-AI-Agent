@@ -577,3 +577,6 @@ export async function retryPrintJob(jobId, terminalId = "") {
 export function retryRecloudHold(rmaNo) {
   return request("/api/repairs/hold/retry", { rmaNo })
 }
+export function reconcileRecloudHold(rmaNo) {
+  return request("/api/repairs/hold/reconcile", { rmaNo })
+}

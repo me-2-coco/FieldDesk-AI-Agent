@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { deleteLocalRepairOrder, getLocalRepairOrders, reopenRepairTreatment } from "../shared/crmService.js"
+import { deleteLocalRepairOrder, getLocalRepairOrders, reopenRepairTreatment, reconcileRecloudHold } from "../shared/crmService.js"
 import { getCurrentRepairOrder, removeDeletedRepairOrder, REPAIR_STATUS } from "../shared/repairOrderStore.js"
 import { getCurrentUser, USER_ROLES } from "../shared/userStore.js"
 
@@ -99,6 +99,17 @@ function AdminRepairRecovery({ setPage }) {
     }
   }
 
+  async function reconcileHold(order) {
+    try {
+      setWorkingRmaNo(order.rmaNo)
+      setMessage("正在只读核对瑞云，不会重复提交暂存…")
+      const updated = await reconcileRecloudHold(order.rmaNo)
+      setOrders(current => current.map(item => item.rmaNo === order.rmaNo ? updated : item))
+      setMessage(`${order.rmaNo} 已核对一致，本地暂存状态已补齐。`)
+    } catch (error) { setMessage(error.message) }
+    finally { setWorkingRmaNo("") }
+  }
+
   async function removeMistakenOrder(order) {
     const confirmed = window.confirm(
       `确定从 FieldDesk 删除误操作工单 ${order.rmaNo} 吗？\n\nSN：${order.sn || "未录入"}\n维修师傅：${technicianName(order)}\n\n该操作会停止后续自动同步；已完工、已发货或已完结工单不能删除。`
@@ -159,6 +170,10 @@ function AdminRepairRecovery({ setPage }) {
           <button type="button" disabled={!reopenAvailable || workingRmaNo === order.rmaNo} onClick={() => reopen(order)}>
             {workingRmaNo === order.rmaNo ? "正在处理…" : reopenAvailable ? "恢复到选择处理方式" : "当前已在处理方式选择前"}
           </button>
+          {order.status === "ON_HOLD" && ["RESULT_UNKNOWN", "SUBMITTING", "FAILED"].includes(order.hold?.status) &&
+            <button type="button" disabled={workingRmaNo === order.rmaNo} onClick={() => reconcileHold(order)}>
+              {workingRmaNo === order.rmaNo ? "正在核对…" : "核对瑞云暂存（不重复提交）"}
+            </button>}
           <button type="button" className="danger-outline-button" disabled={!deleteAvailable || workingRmaNo === order.rmaNo} onClick={() => removeMistakenOrder(order)}>
             {workingRmaNo === order.rmaNo ? "正在处理…" : deleteAvailable ? "删除误操作工单" : "已完工、已发货或已完结，不能删除"}
           </button>
