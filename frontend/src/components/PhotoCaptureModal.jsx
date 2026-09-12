@@ -57,9 +57,12 @@ function PhotoCaptureModal({ open, onCapture, onClose, title = "拍摄签收照�
   if (!open) return null
   return createPortal(<div className="fd-photo-overlay" role="dialog" aria-modal="true" aria-label={title}>
       <video ref={videoRef} className="fd-photo-video" playsInline muted autoPlay />
-      <header className="fd-photo-header"><span>{title}</span><button type="button" aria-label="关闭相机" onClick={onClose}>✕ 关闭</button></header>
+      <header className="fd-photo-header">
+        <button className="fd-camera-close" type="button" aria-label="关闭相机" onClick={onClose}><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg></button>
+        <span>{title}</span>
+        {cameraTrack ? <CameraTorchButton key={cameraTrack.id} track={cameraTrack} /> : <span />}
+      </header>
       <footer className="fd-photo-controls">
-        {cameraTrack && <CameraTorchButton key={cameraTrack.id} track={cameraTrack} />}
         {error && <p role="alert">{error}</p>}
         <button type="button" className="fd-photo-shutter" aria-label="拍照" onClick={takePhoto} disabled={Boolean(error)}><CameraIcon size={28} /></button>
         <span>拍照</span>

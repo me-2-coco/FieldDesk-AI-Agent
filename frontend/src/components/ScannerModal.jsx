@@ -88,13 +88,20 @@ function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onCl
   }, [areaId, mode, open, compatibility])
   if (!open) return null
   return createPortal(<div className="fd-scanner-overlay" role="dialog" aria-modal="true" aria-label={title}>
-    <header className="fd-scanner-header"><strong>{title}</strong><button type="button" aria-label="关闭扫码" onClick={onClose}>关闭扫码</button></header>
+    <header className="fd-scanner-header">
+      <button className="fd-camera-close" type="button" aria-label="关闭扫码" onClick={onClose}><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg></button>
+      <strong>{title}</strong>
+      {ready ? <CameraTorchButton key={cameraTrack?.id || "unavailable"} track={cameraTrack} /> : <span />}
+    </header>
     <div className="fd-scanner-view" id={areaId} />
     <footer className="fd-scanner-footer">
-      {ready && <CameraTorchButton key={cameraTrack?.id || "unavailable"} track={cameraTrack} />}
-      <button type="button" onClick={() => setCompatibility(value => !value)}>{compatibility ? "当前：兼容扫码 · 切换高清" : "识别不了？切换兼容扫码"}</button>
-      <p role="status">{cameraError || (!ready ? "正在启动相机…" : "条码 / 二维码自动识别 · 保持完整清晰，避开反光")}</p>
-      <button type="button" onClick={onClose}>关闭并手动输入</button>
+      <div className="fd-scanner-mode">扫码</div>
+      <p role="status">{cameraError || (!ready ? "正在启动相机…" : "对准条码或二维码，即可自动识别")}</p>
+      <details className="fd-scanner-help">
+        <summary>识别帮助</summary>
+        <p>保持条码完整清晰，避开反光；光线不足时可打开右上角补光灯。</p>
+        <button type="button" onClick={() => setCompatibility(value => !value)}>{compatibility ? "尝试另一种识别方式" : "恢复默认识别方式"}</button>
+      </details>
     </footer>
   </div>, document.body)
 }
