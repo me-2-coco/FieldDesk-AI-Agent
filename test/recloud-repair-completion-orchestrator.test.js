@@ -70,6 +70,7 @@ function remoteAdapter(initial = {}) {
   const calls = [];
   return {
     calls,
+    async readOldPartReturnRequirements() { return parts.map(part => ({ ...part, returnRequired: part.returnRequired ?? false })); },
     async readRemoteState() {
       calls.push("read");
       return {
@@ -183,7 +184,7 @@ test("normal repair uploads attachments, completes and submits Recloud", async (
     checkpointStore: { async load() { return null; }, async save(value) { checkpoints.push(value); } },
   });
   assert.equal(result.status, "SUCCESS");
-  assert.deepEqual(result.completedSteps, ["ASSIGNEE_VERIFIED", "PARTS_VERIFIED", "ATTACHMENTS_VERIFIED", "FIELDS_VERIFIED", "COMPLETE_CLICKED", "SUBMIT_READY", "SUBMIT_CLICKED_STOPPED"]);
+  assert.deepEqual(result.completedSteps, ["ASSIGNEE_VERIFIED", "PARTS_VERIFIED", "ATTACHMENTS_VERIFIED", "FIELDS_VERIFIED", "COMPLETE_CLICKED", "SUBMIT_READY", "REMOTE_RETURN_FLAGS_VERIFIED", "SUBMIT_CLICKED_STOPPED"]);
   assert.equal(result.finalConfirmClicked, true);
   assert.equal(result.stoppedImmediatelyAfterSubmit, true);
   assert.deepEqual(adapter.calls, [
@@ -424,12 +425,30 @@ test("normal in-warranty repair prints old-part labels before submit", async () 
   adapter.printOldPartLabels = async (parts) => adapter.calls.push(`labels:${parts.length}`);
   const result = await orchestrateRepairCompletion("ORDER-LABEL", {
     ...PAYLOAD,
-    usedParts: labelParts,
+    usedParts: labelParts.map(part => ({ ...part, returnRequired: false })),
   }, adapter, { writeEnabled: true, preparationCompleted: true });
   assert.equal(result.status, "SUCCESS");
   assert.equal(result.completedSteps.includes("OLD_PART_LABELS_QUEUED"), true);
   assert.equal(adapter.calls.some((call) => call.startsWith("labels:")), true);
   assert.equal(adapter.calls.some((call) => call.startsWith("submit:")), true);
+});
+
+test('unknown remote return flag blocks final submit even when local flag is false', async () => {
+  const adapter = remoteAdapter({ assignee: PAYLOAD.assignee, parts: PAYLOAD.usedParts });
+  adapter.readOldPartReturnRequirements = async () => PAYLOAD.usedParts;
+  await assert.rejects(orchestrateRepairCompletion('LAB-UNKNOWN-RETURN', PAYLOAD, adapter,
+    { writeEnabled: true, preparationCompleted: true }), { code: 'RECLOUD_RETURN_PARTS_MISMATCH' });
+  assert.equal(adapter.calls.some(call => call.startsWith('submit:')), false);
+});
+
+test('explicit remote no overrides local yes without printing', async () => {
+  const adapter = remoteAdapter({ assignee: PAYLOAD.assignee, parts: PAYLOAD.usedParts });
+  adapter.printOldPartLabels = async () => assert.fail('must not print');
+  const result = await orchestrateRepairCompletion('LAB-REMOTE-NO', { ...PAYLOAD,
+    usedParts: PAYLOAD.usedParts.map(part => ({ ...part, returnRequired: true })) }, adapter,
+    { writeEnabled: true, preparationCompleted: true });
+  assert.equal(result.status, 'SUCCESS');
+  assert.ok(result.completedSteps.includes('REMOTE_RETURN_FLAGS_VERIFIED'));
 });
 
 test("out-of-warranty repair skips old-part labels even when parts require return", async () => {

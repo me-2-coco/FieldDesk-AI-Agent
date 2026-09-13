@@ -955,6 +955,10 @@ function createRecloudRepairPageAdapter(page, context = {}) {
       return false;
     },
 
+    async readOldPartReturnRequirements() {
+      return readExistingRepairParts(page, { requireReturnFlag: true });
+    },
+
     async printOldPartLabels(parts = []) {
       if (!context.printJobStore) throw adapterError("未配置旧件标签队列", "PRINT_STORE_REQUIRED", "OLD_PART_LABELS");
       const payload = context.payload || {};

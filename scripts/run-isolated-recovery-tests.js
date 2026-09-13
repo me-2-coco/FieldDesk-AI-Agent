@@ -4,6 +4,7 @@ const os = require('node:os');
 const { spawn } = require('node:child_process');
 const { provision } = require('./start-isolated-lab');
 const names = [
+  'recloud-return-flags', 'recloud-repair-parts-reader',
   'reported-fault-sync', 'repair-measure',
   'recloud-write-guard', 'recloud-write-admissions',
   'media-formats',

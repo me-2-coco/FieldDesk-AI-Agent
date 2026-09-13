@@ -69,12 +69,14 @@ function findHeaderIndex(headers, aliases) {
   return -1;
 }
 
-async function readExistingRepairParts(page) {
+async function readExistingRepairParts(page, options = {}) {
   const section = await locateRepairPartsSection(page);
   const { headers, columnCount } = await readWidestHeaderRow(section);
   const codeIndex = findHeaderIndex(headers, ["新件编码", "配件编码", "物料编码"]);
   const quantityIndex = findHeaderIndex(headers, ["数量", "配件数量", "更换数量"]);
   const nameIndex = findHeaderIndex(headers, ["新件名称", "配件名称", "物料名称"]);
+  const returnIndex = findHeaderIndex(headers, ["是否返厂"]);
+  if (options.requireReturnFlag && returnIndex < 0) throw partsReaderError('瑞云是否返厂列缺失，不能跳过标签', 'RECLOUD_RETURN_FLAG_UNKNOWN');
   const missingFields = [codeIndex < 0 && "repair.parts.codeColumn", quantityIndex < 0 && "repair.parts.quantityColumn"].filter(Boolean);
   if (missingFields.length) {
     throw partsReaderError(
@@ -94,13 +96,48 @@ async function readExistingRepairParts(page) {
     const quantityText = String(await cells.nth(quantityIndex).innerText()).trim();
     const quantity = Number(quantityText);
     if (!partCode || !Number.isInteger(quantity) || quantity <= 0) continue;
+    let returnRequired;
+    if (options.requireReturnFlag) {
+      if (returnIndex >= cellCount) throw partsReaderError('瑞云返厂标记未加载', 'RECLOUD_RETURN_FLAG_UNKNOWN');
+      const cell = cells.nth(returnIndex);
+      const value = String(await cell.innerText()).trim();
+      const checks = cell.locator("input[type='checkbox']");
+      const count = await checks.count();
+      const checked = count === 1 ? await checks.isChecked() : undefined;
+      returnRequired = resolveReturnFlag(value, count, checked);
+    }
     result.push({
       partCode,
       partName: nameIndex >= 0 && nameIndex < cellCount ? String(await cells.nth(nameIndex).innerText()).trim() : "",
       quantity,
+      ...(options.requireReturnFlag ? { returnRequired } : {}),
     });
   }
   return result;
+}
+
+function resolveReturnFlag(text, checkboxCount, checked) {
+  const value = text === '是' ? true : text === '否' ? false : undefined;
+  if (checkboxCount > 1 || (value !== undefined && checkboxCount === 1 && value !== checked)) {
+    throw partsReaderError('瑞云返厂标记冲突，不能跳过标签', 'RECLOUD_RETURN_FLAG_UNKNOWN');
+  }
+  if (value !== undefined) return value;
+  if (!text && checkboxCount === 1 && typeof checked === 'boolean') return checked;
+  throw partsReaderError('瑞云返厂标记不明确，不能跳过标签', 'RECLOUD_RETURN_FLAG_UNKNOWN');
+}
+
+function selectRemoteReturnParts(expected, remote) {
+  const codes = new Set();
+  return expected.flatMap(part => {
+    const code = String(part.partCode || part.code || '').trim().toUpperCase();
+    const matches = remote.filter(row => String(row.partCode || '').trim().toUpperCase() === code);
+    if (!code || codes.has(code) || matches.length !== 1 || Number(matches[0].quantity) !== Number(part.quantity)
+      || typeof matches[0].returnRequired !== 'boolean') {
+      throw partsReaderError('瑞云配件编码、数量或返厂标记无法唯一核对', 'RECLOUD_RETURN_PARTS_MISMATCH');
+    }
+    codes.add(code);
+    return matches[0].returnRequired ? [{ ...part, returnRequired: true }] : [];
+  });
 }
 
 module.exports = {
@@ -110,4 +147,6 @@ module.exports = {
   inspectRepairPartsTable,
   readWidestHeaderRow,
   readExistingRepairParts,
+  resolveReturnFlag,
+  selectRemoteReturnParts,
 };

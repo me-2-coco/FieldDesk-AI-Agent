@@ -1,4 +1,4 @@
-const { locateRepairPartsSection, readWidestHeaderRow, findHeaderIndex } = require("./recloud-repair-parts-reader");
+const { locateRepairPartsSection, readWidestHeaderRow, findHeaderIndex, resolveReturnFlag } = require("./recloud-repair-parts-reader");
 
 function fail(code) {
   return Object.assign(new Error("瑞云旧件标签页面无法唯一核对，已停止打印"), { code, phase: "OLD_PART_LABELS", status: 502 });
@@ -41,7 +41,9 @@ async function captureOldPartLabels(page, parts, context) {
     const returnCell = cells.nth(returnIndex);
     const returnText = (await returnCell.innerText()).trim();
     const returnChecks = returnCell.locator("input[type='checkbox']");
-    const returnRequired = returnText === "是" || (await returnChecks.count() === 1 && await returnChecks.isChecked());
+    const checkCount = await returnChecks.count();
+    const returnRequired = selected ? resolveReturnFlag(returnText, checkCount,
+      checkCount === 1 ? await returnChecks.isChecked() : undefined) : false;
     if (selected && (found.has(code) || !returnRequired
       || Number((await cells.nth(quantityIndex).innerText()).trim()) !== expected.get(code))) {
       throw fail("RECLOUD_LABEL_PARTS_MISMATCH");

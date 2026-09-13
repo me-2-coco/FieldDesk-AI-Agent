@@ -418,7 +418,23 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
 
   const isOutOfWarranty = String(payload.pricing?.warrantyStatus || "").trim() === "OUT_OF_WARRANTY"
     || String(payload.responsibilityType || "").includes("保外");
-  const oldPartLabelParts = (payload.usedParts || []).filter((part) => part?.returnRequired === true);
+  let oldPartLabelParts = [];
+  if (!isOutOfWarranty && (payload.usedParts || []).length) {
+    if (typeof adapter.readOldPartReturnRequirements !== 'function') {
+      throw orchestratorError('缺少瑞云返厂标记读取器，不能跳过标签', 'RECLOUD_RETURN_READER_REQUIRED', 'OLD_PART_LABELS');
+    }
+    const { selectRemoteReturnParts } = require('../connectors/recloud-repair-parts-reader');
+    const remoteReturnParts = await adapter.readOldPartReturnRequirements();
+    const presentParts = payload.usedParts.filter(part => {
+      const code = String(part.partCode || '').trim().toUpperCase();
+      // Existing explicit shortage authorizations apply only to absent parts,
+      // never to an unreadable flag on a part that is actually present.
+      return !authorizedSkippedPartCodes.has(code)
+        || remoteReturnParts.some(row => String(row.partCode || '').trim().toUpperCase() === code);
+    });
+    oldPartLabelParts = selectRemoteReturnParts(presentParts, remoteReturnParts);
+    completedSteps.push('REMOTE_RETURN_FLAGS_VERIFIED');
+  }
   if (!isOutOfWarranty && oldPartLabelParts.length > 0) {
     if (typeof adapter.printOldPartLabels !== "function") {
       throw orchestratorError("缺少旧件标签打印执行器", "RECLOUD_OLD_PART_LABEL_ADAPTER_INVALID", "OLD_PART_LABELS");
