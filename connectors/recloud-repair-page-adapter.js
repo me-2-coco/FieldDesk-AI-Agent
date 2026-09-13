@@ -1004,6 +1004,7 @@ function createRecloudRepairPageAdapter(page, context = {}) {
     },
 
     async clickSubmit(options = {}) {
+      require('../services/manual-review-policy').assertAutomaticSubmitAllowed();
       if (options.stopImmediately !== true) throw adapterError("最终提交必须设置立即停止", "RECLOUD_REPAIR_SUBMIT_POLICY_INVALID", "SUBMIT");
       const button = await uniqueVisible(page.getByRole("button", { name: exactText("提交") }).filter({ visible: true }), "瑞云提交按钮不唯一", "RECLOUD_REPAIR_SUBMIT_AMBIGUOUS", "SUBMIT");
       const clearKnownNotices = () => dismissBlockingRepairMessageBoxes(page, { settleMs: 0, knownNoticesOnly: true });
@@ -1041,7 +1042,10 @@ function createRecloudRepairPageAdapter(page, context = {}) {
       const submit = await uniqueVisible(dialog.getByRole("button", { name: exactText("提交") }).filter({ visible: true }), "签核流程提交按钮不唯一", "RECLOUD_REPAIR_APPROVAL_SUBMIT_AMBIGUOUS", "SUBMIT");
       if (!await submit.isEnabled()) throw adapterError("签核流程提交按钮不可用", "RECLOUD_REPAIR_APPROVAL_SUBMIT_DISABLED", "SUBMIT");
       const clickResult = await clickAfterLoadingSettles(page, submit, {
-        beforeAttempt: clearKnownNotices,
+        beforeAttempt: async () => {
+          require('../services/manual-review-policy').assertAutomaticSubmitAllowed();
+          await clearKnownNotices();
+        },
         timeoutMs: 15_000,
         pollIntervalMs: 200,
         successCheck: () => isRecloudRepairFullySubmitted(page),

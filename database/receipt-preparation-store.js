@@ -910,6 +910,22 @@ class JsonReceiptPreparationStore {
     return operation;
   }
 
+  async markRepairReviewConfirmed(rmaNo) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const existing = records.find(record => record.rmaNo === rmaNo);
+      if (existing?.inspectionOnlyHandoff?.status !== 'PENDING_INFORMATION') return existing;
+      const timestamp = new Date().toISOString();
+      const updated = { ...existing, updatedAt: timestamp,
+        inspectionOnlyHandoff: { ...existing.inspectionOnlyHandoff, status: 'CONFIRMED',
+          message: '已核对瑞云最终提交完成', confirmedAt: timestamp, updatedAt: timestamp } };
+      await this.writeAll(records.map(record => record.rmaNo === rmaNo ? updated : record));
+      return updated;
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
   async markInspectionOnlyAwaitingInformation(rmaNo, result = {}, operator = {}) {
     const operation = this.writeQueue.then(async () => {
       const records = await this.readAll();

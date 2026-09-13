@@ -4,6 +4,7 @@ const os = require('node:os');
 const { spawn } = require('node:child_process');
 const { provision } = require('./start-isolated-lab');
 const names = [
+  'manual-review-policy',
   'recloud-upload-file-paths',
   'recloud-attachment-write-guard', 'recloud-attachment-upload-wait',
   'recloud-part-write-guard',
@@ -53,6 +54,8 @@ const names = [
     cwd: root, stdio: ['ignore', 'pipe', 'pipe'],
     env: { PATH: process.env.PATH, TMPDIR: os.tmpdir(), NODE_ENV: 'test',
       DRY_RUN: 'true', FIELDDESK_STORAGE_DRIVER: 'json',
+      // Legacy automatic-mode regression; manual-review tests explicitly test both modes.
+      RECLOUD_MANUAL_REVIEW_REQUIRED: 'false',
       FIELDDESK_DATA_DIRECTORY: path.join(root, 'database/data'),
       RECLOUD_WRITE_ENABLED: 'false', RECLOUD_RECEIPT_WRITE_ENABLED: 'false',
       RECLOUD_INSPECTION_WRITE_ENABLED: 'false', RECLOUD_COMPLETION_WRITE_ENABLED: 'false',

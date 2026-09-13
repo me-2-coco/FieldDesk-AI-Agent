@@ -72,6 +72,15 @@ function createRecloudCommandExecutor(options = {}) {
             { nodeKey: "repair" }
           );
         }
+        // The durable outbox handoff is a second read-only guard even if the
+        // browser checkpoint is missing or the global setting later changes.
+        if (task.resultStatus === 'AWAITING_INFORMATION_CLERK') {
+          const remote = await adapter.readRemoteState();
+          return { status: remote.completed === true ? 'SUCCESS' : 'AWAITING_INFORMATION_CLERK',
+            completedSteps: task.completedSteps || [], finalConfirmClicked: false,
+            informationClerkAction: task.payload?.treatmentMode === 'INSPECTION_ONLY'
+              ? '开检测报告、上传检测报告、修改地址并提交' : '核对维修资料并提交' };
+        }
         return orchestrateRepairCompletion(
           task.rmaNo || task.workOrderNo,
           task.payload,

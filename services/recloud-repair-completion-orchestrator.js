@@ -91,6 +91,17 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
 
   // 无论是否存在断点，都重新读取瑞云；断点不能替代远端核验。
   let remote = await adapter.readRemoteState();
+  // Once handed to a clerk, retries are read-only, even if automatic mode is
+  // enabled later. A persisted handoff must never become permission to submit.
+  if (prior?.status === 'AWAITING_INFORMATION_CLERK') {
+    if (!resumed) throw orchestratorError('待审核工单内容已变化，需人工核对', 'RECLOUD_REVIEW_PAYLOAD_CHANGED', 'RECONCILE', { permanent: true });
+    const status = remote.completed === true ? 'SUCCESS' : 'AWAITING_INFORMATION_CLERK';
+    await saveCheckpoint(options.checkpointStore, { orderKey, fingerprint, status,
+      completedSteps: prior.completedSteps || [] });
+    return { status, resumed: true, completedSteps: prior.completedSteps || [],
+      finalConfirmClicked: false, stoppedBeforeSubmit: status !== 'SUCCESS',
+      informationClerkAction: informationClerkActionFor(payload), remoteAlreadyCompleted: remote.completed === true };
+  }
   // A checkpoint survives process loss. Legacy name/size matches are not
   // sufficient proof that this particular upload was durably accepted.
   if (prior?.status === 'ATTACHMENTS_UPLOADING') {
@@ -448,6 +459,14 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
     completedSteps.push("OLD_PART_LABELS_QUEUED");
   }
 
+  if (require('./manual-review-policy').requiresManualReview()) {
+    completedSteps.push('SUBMIT_RESERVED_FOR_INFORMATION_CLERK');
+    await saveCheckpoint(options.checkpointStore, { orderKey, fingerprint,
+      status: 'AWAITING_INFORMATION_CLERK', completedSteps: [...completedSteps] });
+    return { status: 'AWAITING_INFORMATION_CLERK', resumed, completedSteps,
+      completeClicked: true, finalConfirmClicked: false, stoppedBeforeSubmit: true,
+      informationClerkAction: informationClerkActionFor(payload) };
+  }
   if (typeof adapter.clickSubmit !== "function") {
     throw orchestratorError("缺少瑞云提交按钮执行器", "RECLOUD_REPAIR_SUBMIT_ADAPTER_INVALID", "SUBMIT");
   }

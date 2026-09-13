@@ -996,6 +996,9 @@ function createApp(
           displayName: "FieldDesk 后台",
         });
       },
+      onRepairReviewConfirmed: async (task) => {
+        await receiptStore.markRepairReviewConfirmed?.(task.rmaNo);
+      },
       refreshTaskPayload: async (task) => {
         const order = (await receiptStore.readAll()).find((item) => item.rmaNo === task.rmaNo);
         return order ? { payload: buildNodePayload(order, task.nodeType), mappingVersion: MAPPING_VERSION } : null;

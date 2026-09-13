@@ -15,6 +15,38 @@ const PAYLOAD = {
   attachments: [{ fileName: "finish.jpg", path: "/safe/finish.jpg", size: 200000, mimeType: "image/jpeg" }],
 };
 
+test('manual review queues labels, never submits and resumes read-only until clerk submits', async () => {
+  const before = process.env.RECLOUD_MANUAL_REVIEW_REQUIRED;
+  process.env.RECLOUD_MANUAL_REVIEW_REQUIRED = 'true';
+  try {
+    const payload = {...PAYLOAD, treatmentMode:'REPAIR', usedParts: PAYLOAD.usedParts.map(p=>({...p,returnRequired:true}))};
+    const adapter = remoteAdapter({assignee:payload.assignee, parts:payload.usedParts});
+    let labels = 0; let checkpoint;
+    adapter.printOldPartLabels = async () => {labels++;};
+    const options = {writeEnabled:true, preparationCompleted:true, checkpointStore:{
+      load:async()=>checkpoint, save:async value=>{checkpoint=structuredClone(value);},
+    }};
+    const result = await orchestrateRepairCompletion('LAB-MANUAL',payload,adapter,options);
+    assert.equal(result.status,'AWAITING_INFORMATION_CLERK');
+    assert.equal(labels,1);
+    assert.equal(adapter.calls.some(c=>c.startsWith('submit:')),false);
+    adapter.calls.length = 0;
+    assert.equal((await orchestrateRepairCompletion('LAB-MANUAL',payload,adapter,options)).status,'AWAITING_INFORMATION_CLERK');
+    assert.deepEqual(adapter.calls,['read']);
+    // Changing the global setting cannot release previously handed-off orders.
+    process.env.RECLOUD_MANUAL_REVIEW_REQUIRED = 'false';
+    adapter.calls.length = 0;
+    assert.equal((await orchestrateRepairCompletion('LAB-MANUAL',payload,adapter,options)).status,'AWAITING_INFORMATION_CLERK');
+    assert.deepEqual(adapter.calls,['read']);
+    adapter.readRemoteState = async () => ({completed:true});
+    assert.equal((await orchestrateRepairCompletion('LAB-MANUAL',payload,adapter,options)).status,'SUCCESS');
+    assert.equal(labels,1);
+  } finally {
+    if (before === undefined) delete process.env.RECLOUD_MANUAL_REVIEW_REQUIRED;
+    else process.env.RECLOUD_MANUAL_REVIEW_REQUIRED = before;
+  }
+});
+
 for (const failure of ['response-lost', 'readback-failed', 'local-save-failed']) {
   test(`attachment uncertainty survives restart without reupload: ${failure}`, async () => {
     const adapter = remoteAdapter({ assignee: PAYLOAD.assignee, parts: PAYLOAD.usedParts });

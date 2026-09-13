@@ -108,6 +108,7 @@ function RepairCompletion({ setPage, currentUser }) {
   const [logisticsChargeMode, setLogisticsChargeMode] = useState("ROUND_TRIP")
   const [discountEnabled, setDiscountEnabled] = useState(false)
   const [outOfWarrantyReliefEnabled, setOutOfWarrantyReliefEnabled] = useState(false)
+  const [awaitingInformationReview, setAwaitingInformationReview] = useState(false)
   const [discountScope, setDiscountScope] = useState("ORDER_TOTAL")
   const [discountRate, setDiscountRate] = useState("")
   const [finalChargeAmount, setFinalChargeAmount] = useState(null)
@@ -167,6 +168,7 @@ function RepairCompletion({ setPage, currentUser }) {
         setFaultLevel3(confirmedFault.slice(2).join(" / "))
       }
       const draft = context.order?.repairCompletion
+      setAwaitingInformationReview(context.order?.inspectionOnlyHandoff?.status === 'PENDING_INFORMATION')
       setDetectionResult(treatmentPreset?.detectionResult || draft?.detectionResult || context.order?.inspectionResult || "维修")
       if (draft) {
         if (confirmedFault.length < 3) {
@@ -497,10 +499,11 @@ function RepairCompletion({ setPage, currentUser }) {
     <div className="page repair-completion-page">
       <div className="top-bar">
         <button className="arrow-back" onClick={leaveCompletion} disabled={busy}>←</button>
-        <h1>{completedDetail ? "维修完成详情" : "维修完工"}</h1>
+        <h1>{completedDetail ? awaitingInformationReview ? "待信息员审核" : "维修完成详情" : "维修完工"}</h1>
       </div>
 
       <SupervisionNoticeCard rmaNo={repairOrder.crmOrderNo} />
+      {awaitingInformationReview && <div className="card"><h2>待信息员审核</h2><p>资料已准备，瑞云尚未最终提交。请信息员核对后在瑞云手动提交，不要重复提交本工单。</p></div>}
 
       {preparationStatus?.recloudRepairPreparationStatus === "FAILED" && <div className="card repair-sync-status-card">
         <h2>瑞云维修准备未完成</h2>

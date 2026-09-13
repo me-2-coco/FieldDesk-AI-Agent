@@ -55,6 +55,7 @@ class RecloudSyncService {
     });
     this.onRepairPartsShortage = options.onRepairPartsShortage || null;
     this.onInspectionOnlyAwaitingInformation = options.onInspectionOnlyAwaitingInformation || null;
+    this.onRepairReviewConfirmed = options.onRepairReviewConfirmed || null;
     this.refreshTaskPayload = options.refreshTaskPayload || null;
     this.canProcessTask = typeof options.canProcessTask === "function" ? options.canProcessTask : null;
     this.dependencyPollMs = Math.max(250, Number(options.dependencyPollMs || 1000));
@@ -115,7 +116,9 @@ class RecloudSyncService {
       && task.nodeType === "REPAIR_COMPLETED"
       && task.status === TASK_STATUS.SUCCESS
       && task.resultStatus === "AWAITING_INFORMATION_CLERK"
-      && String(task.payload?.treatmentMode || "").trim() !== "INSPECTION_ONLY"
+      && (require('./manual-review-policy').requiresManualReview()
+        ? now - Date.parse(task.updatedAt) >= 5 * 60_000
+        : String(task.payload?.treatmentMode || "").trim() !== "INSPECTION_ONLY")
     ).slice(0, maxTasks);
     for (const task of stoppedNormalRepairs) {
       await this.outbox.reopenStoppedHandoff(task.id, {
@@ -325,6 +328,9 @@ class RecloudSyncService {
           resultStatus,
           completedSteps: Array.isArray(result.completedSteps) ? result.completedSteps.slice(0, 20) : [],
         });
+      }
+      if (task.nodeType === 'REPAIR_COMPLETED' && this.onRepairReviewConfirmed) {
+        await this.onRepairReviewConfirmed(task, result);
       }
       return await this.outbox.transition(task.id, TASK_STATUS.SUCCESS, { lastError: "", errorCategory: "", resultStatus: resultStatus || "SUCCESS" });
     } catch (error) {
