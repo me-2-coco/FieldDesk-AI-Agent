@@ -688,7 +688,7 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
 
           {!repairDetail.reportedFaultHiddenUntilReceipt && <div className="mobile-record-description">
             <span>用户报修描述</span>
-            <p>{repairDetail.reportedFault || "未提供"}</p>
+            <p>{repairDetail.reportedFault || "报修描述尚未同步，请重新查询"}</p>
           </div>}
 
           <MachineRepairHistory
@@ -762,7 +762,7 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
           )}
           {!repairDetail.reportedFaultHiddenUntilReceipt && <div className="mobile-record-description compact-note">
             <span>报修描述</span>
-            <p>{repairDetail.reportedFault || "未提供"}</p>
+            <p>{repairDetail.reportedFault || "报修描述尚未同步，请重新查询"}</p>
           </div>}
 
           <label htmlFor="receipt-sn">机器 SN <span className="inline-required">必填</span></label>

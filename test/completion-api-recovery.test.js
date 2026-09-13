@@ -18,6 +18,7 @@ test('real draft attachment readback and queue-failure retry keep one completion
   const store = new JsonReceiptPreparationStore(file);
   await store.writeAll([{ id: 'LAB-COMPLETION', rmaNo: 'LAB-COMPLETION', sn: 'LABSYNTHETIC0001',
     status: 'INSPECTION_COMPLETED_PENDING_REPAIR', treatmentMode: 'DEBUGGING', technicianWarranty: '保内',
+    reportedFault: '模拟故障原文',
     operatorId: 'LOCAL-ADMIN', technicianId: 'LOCAL-ADMIN', faultCategory: '模拟 / 模拟 / 模拟',
     inspectionUpdatedAt: new Date().toISOString(), modelAuthorization: { repairFees: { small: 1 } },
   }]);
@@ -47,7 +48,11 @@ test('real draft attachment readback and queue-failure retry keep one completion
   const bytes = Buffer.alloc(1024 * 1024, 8);
   const uploaded = await post('attachments', { rmaNo: 'LAB-COMPLETION', name: 'synthetic.png', mimeType: 'image/png', data: bytes.toString('base64') });
   assert.equal(uploaded.status, 200);
-  const payload = { rmaNo: 'LAB-COMPLETION', detectionResult: '维修', repairMeasure: '模拟处理', attachments: [uploaded.body.data] };
+  const payload = { rmaNo: 'LAB-COMPLETION', detectionResult: '维修', repairMeasure: '模拟故障原文# 模拟处理', attachments: [uploaded.body.data] };
+  const mismatch = await post('submit', { ...payload, repairMeasure: '机器故障# 模拟处理' });
+  assert.equal(mismatch.status, 409);
+  assert.equal(mismatch.body.code, 'REPORTED_FAULT_MISMATCH');
+  assert.equal((await outbox.readAll()).length, 0);
   assert.equal((await post('draft', payload)).status, 200);
   origin = await start(new JsonReceiptPreparationStore(file));
   const download = await fetch(`${origin}/api/repairs/LAB-COMPLETION/attachments/repair/${uploaded.body.data.id}`);

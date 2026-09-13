@@ -6,6 +6,11 @@ const { pathToFileURL } = require("node:url");
 async function generator() {
   return import(pathToFileURL(path.join(__dirname, "../frontend/src/shared/repairMeasure.js")));
 }
+test('missing reported fault never generates a fabricated prefix', async () => {
+  const { buildRepairMeasure } = await generator();
+  assert.equal(buildRepairMeasure('维修', [], ''), '');
+  assert.equal(buildRepairMeasure('维修', [], '   '), '');
+});
 
 test("仅清理配件前缀，不改原始报修描述或配件目录；瑞云映射与页面文本一致", async () => {
   const { buildRepairMeasure } = await generator();

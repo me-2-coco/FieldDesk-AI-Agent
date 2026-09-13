@@ -1,5 +1,5 @@
 const express = require("express");
-const { resolveReportedFault } = require("./services/reported-fault");
+const { resolveReportedFault, assertReportedFaultForSubmission, createReportedFaultLoader } = require("./services/reported-fault");
 const { monthlyStatistics, canExportMonthly, exportMonthly } = require("./shared/monthly-statistics");
 const crypto = require("crypto");
 const http = require("http");
@@ -2252,6 +2252,15 @@ function createApp(
   });
 
   const queryDetailRefreshes = new Map();
+  const loadReportedFault = createReportedFaultLoader({
+    query: order => withRecloud(connector, page => {
+      const query = orderQuery(order);
+      return connector.queryRmaByLogisticsNo(page, query.identifier, {
+        ...query.options, revealPhoneEnabled: false, phoneRevealTimeout: 0,
+      });
+    }, { ...foregroundQueryOptions, totalTimeoutMs: 30000 }),
+    save: (rmaNo, fault) => receiptStore.saveReportedFault(rmaNo, fault),
+  });
   app.post("/api/crm/repairs/query", async (req, res, next) => {
     const queryValue = normalizeLogisticsNo(req.body?.queryValue || req.body?.logisticsNo);
     if (!queryValue) {
@@ -4718,7 +4727,7 @@ function createApp(
   app.get("/api/repairs/parts", async (req, res, next) => {
     try {
       const rmaNo = String(req.query.rmaNo || "").trim();
-      const order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
+      let order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
       if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到当前工单", 404);
       if (!String(order.reportedFault || "").trim()) {
         const sources = [];
@@ -4726,6 +4735,10 @@ function createApp(
         if (pendingReceiptStore) sources.push(...await pendingReceiptStore.readAll());
         order.reportedFault = resolveReportedFault(rmaNo, sources);
         if (order.reportedFault && typeof receiptStore.saveReportedFault === "function") await receiptStore.saveReportedFault(rmaNo, order.reportedFault);
+      }
+      if (!order.reportedFault) {
+        try { order = await loadReportedFault(order); }
+        catch (error) { console.warn(`REPORTED_FAULT_REFRESH: ${error.code || 'FAILED'}`); }
       }
       const quoteOnly = order.treatmentMode === "ABANDONED";
       const diagnosticOnly = order.treatmentMode === "INSPECTION_ONLY" && order.inspectionFaultOutcome === "FAULT_REPRODUCED";
@@ -4885,6 +4898,11 @@ function createApp(
       const rmaNo = String(req.body?.rmaNo || "").trim();
       let order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
       if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到待维修工单", 404);
+      try { order = await loadReportedFault(order); }
+      catch (error) { order = { ...order, reportedFaultError: error.code === 'RECLOUD_LOGIN_REQUIRED'
+        ? '瑞云登录已失效，报修描述尚未同步；恢复登录后请点击重新读取描述'
+        : error.code === 'REPORTED_FAULT_EMPTY' ? error.message
+        : '报修描述读取失败，请点击重新读取描述；可保存草稿，暂不能提交完工' }; }
       if (
         order.recloudDetectionConfirmedAt
         && !order.recloudServiceOrderCreatedAt
@@ -4944,8 +4962,12 @@ function createApp(
   async function saveRepairCompletion(req, res, next, submit) {
     try {
       const rmaNo = String(req.body?.rmaNo || "").trim();
-      const order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
+      let order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
       if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到待维修工单", 404);
+      if (submit) {
+        order = await loadReportedFault(order);
+        assertReportedFaultForSubmission(order, req.body?.repairMeasure);
+      }
       const conversion = order.manufacturerWarrantyConversion || {};
       if (submit && conversion.requested === true && conversion.status !== "APPROVED") {
         throw createApiError("WARRANTY_CONVERSION_APPROVAL_PENDING", "保外转保内申请凭证尚未上传，请等待信息员处理", 409);
@@ -5841,6 +5863,10 @@ function createApp(
         message: "演练期间检测并阻止了非预期写请求",
       },
       REPAIR_COMPLETION_QUEUE_FAILED: { status: 503, message: "完工资料已保存，但同步任务登记失败，请重试提交；不要重复维修操作" },
+      REPORTED_FAULT_REQUIRED: { status: 409, message: "报修描述尚未同步，请重新进入维修页面读取原文；可先保存草稿，暂不能提交完工" },
+      REPORTED_FAULT_MISMATCH: { status: 409, message: "维修措施中的报修描述与同步原文不一致，请重新进入维修页面生成后再提交" },
+      REPORTED_FAULT_EMPTY: { status: 409, message: "已读取瑞云，但报修描述为空，请核实原文；可先保存草稿" },
+      REPORTED_FAULT_ORDER_MISMATCH: { status: 409, message: "瑞云返回的工单不一致，未保存描述，请重新读取" },
       REPAIR_COMPLETION_ALREADY_SUBMITTED: { status: 409, message: "已提交完工的资料不能覆盖为草稿" },
       LOCAL_DATA_CORRUPT: { status: 503, message: "本地工单记录异常，暂不能提交。请保留当前资料，联系负责人恢复记录" },
       FEISHU_MODEL_NETWORK_FAILED: { status: 502, message: "飞书机型表暂时无法连接，机型核验未完成。请保留照片，稍后重试" },

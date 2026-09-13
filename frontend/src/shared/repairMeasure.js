@@ -4,7 +4,8 @@ function cleanPartName(value) {
 
 export function buildRepairMeasure(template, usedParts = [], reportedFault = "", detectedFault = "") {
   if (!template) return ""
-  const faultPrefix = String(reportedFault || "机器故障").trim().replace(/#+$/, "")
+  if (!String(reportedFault || "").trim()) return ""
+  const faultPrefix = String(reportedFault).trim().replace(/#+$/, "")
   const withReportedFault = (description) => `${faultPrefix}# ${description}`
   const partNames = [...new Set(
     usedParts.map((part) => cleanPartName(part.partName)).filter(Boolean)

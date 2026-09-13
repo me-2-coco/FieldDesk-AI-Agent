@@ -249,7 +249,7 @@ function RepairProcess({ setPage }) {
         </dl>
         <div className="mobile-record-description">
           <span>报修描述</span>
-          <p>{repairOrder.originalFault || "未提供"}</p>
+          <p>{repairOrder.originalFault || "报修描述尚未同步，请重新读取"}</p>
         </div>
       </div>
 

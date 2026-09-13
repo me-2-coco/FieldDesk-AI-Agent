@@ -238,7 +238,7 @@ function PartsApplication({ setPage }) {
           <div><dt>用户姓名</dt><dd>{repairOrder.customer || "未提供"}</dd></div>
           <div><dt>维修品类</dt><dd>{repairOrder.specialty || repairOrder.product || "未提供"}</dd></div>
         </dl>
-        <div className="parts-order-fault"><span>报修描述</span><p>{repairOrder.originalFault || "未提供"}</p></div>
+        <div className="parts-order-fault"><span>报修描述</span><p>{repairOrder.originalFault || "报修描述尚未同步，请重新进入页面读取"}</p></div>
       </section>
 
       <section className="card selected-parts-card compact-selected-parts-card">

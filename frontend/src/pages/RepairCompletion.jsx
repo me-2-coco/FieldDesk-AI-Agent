@@ -124,6 +124,9 @@ function RepairCompletion({ setPage, currentUser }) {
   const [busy, setBusy] = useState(false)
   const [completionConfirmOpen, setCompletionConfirmOpen] = useState(false)
   const [contextLoading, setContextLoading] = useState(true)
+  const [descriptionRetry, setDescriptionRetry] = useState(0)
+  const [descriptionReady, setDescriptionReady] = useState(false)
+  const [reportedFault, setReportedFault] = useState("")
   const [syncStatus, setSyncStatus] = useState(null)
   const [preparationStatus, setPreparationStatus] = useState(null)
   const [warrantyConversion, setWarrantyConversion] = useState(repairOrder.manufacturerWarrantyConversion || null)
@@ -131,9 +134,19 @@ function RepairCompletion({ setPage, currentUser }) {
 
   useEffect(() => {
     let active = true
+    setContextLoading(true)
     getRepairCompletionContext(repairOrder.crmOrderNo).then((context) => {
       if (!active) return
+      setDescriptionReady(Boolean(context.order?.reportedFault?.trim()))
+      setReportedFault(context.order?.reportedFault || "")
+      if (context.order?.reportedFaultError) setErrorMessage(context.order.reportedFaultError)
+      else setErrorMessage("")
       const contextParts = isAbandoned ? (context.abandonedQuoteParts || []) : (context.usedParts || [])
+      if (descriptionRetry) {
+        // A description retry must not reset unsaved photos, fees or draft fields.
+        setRepairMeasure(buildRepairMeasure(speechTemplate, contextParts, context.order?.reportedFault, faultLevel3))
+        return
+      }
       const contextPricing = context.pricing || null
       const autoResponsibilityType = isAbandoned
         ? "保外维修"
@@ -167,10 +180,10 @@ function RepairCompletion({ setPage, currentUser }) {
         setSpeechTemplate(selectedTemplate)
         setRepairMeasure(completedDetail && draft.repairMeasure
           ? draft.repairMeasure
-          : buildRepairMeasure(selectedTemplate, contextParts, context.order?.reportedFault || repairOrder.originalFault, confirmedFault.at(-1)))
+          : buildRepairMeasure(selectedTemplate, contextParts, context.order?.reportedFault, confirmedFault.at(-1)))
         const combined = [...(draft.attachments || [])]
         for (const approval of approvalAttachments) if (!combined.some((item) => item.id === approval.id)) combined.push(approval)
-        setAttachments(combined)
+        if (!descriptionRetry) setAttachments(combined)
         setOneWayLogisticsFee(draftLogisticsMode === "WAIVED" && !isAbandoned ? "" : draftLogisticsFee)
         setLogisticsChargeMode(draftLogisticsMode)
         setDiscountEnabled(draft.discountEnabled === true || draft.pricing?.discountEnabled === true)
@@ -185,13 +198,13 @@ function RepairCompletion({ setPage, currentUser }) {
       if (!draft) {
         if (isAbandoned) setLogisticsChargeMode("ROUND_TRIP")
         setSpeechTemplate(presetTemplate)
-        setRepairMeasure(buildRepairMeasure(presetTemplate, contextParts, context.order?.reportedFault || repairOrder.originalFault, confirmedFault.at(-1)))
-        setAttachments(approvalAttachments)
+        setRepairMeasure(buildRepairMeasure(presetTemplate, contextParts, context.order?.reportedFault, confirmedFault.at(-1)))
+        if (!descriptionRetry) setAttachments(approvalAttachments)
       }
     }).catch((error) => active && setErrorMessage(error.message))
       .finally(() => active && setContextLoading(false))
     return () => { active = false }
-  }, [completedDetail, isAbandoned, isInspectionOnly, repairOrder.crmOrderNo, repairOrder.originalFault, treatmentMode, treatmentPreset])
+  }, [descriptionRetry, completedDetail, isAbandoned, isInspectionOnly, repairOrder.crmOrderNo, repairOrder.originalFault, treatmentMode, treatmentPreset])
 
   useEffect(() => {
     let active = true
@@ -273,7 +286,7 @@ function RepairCompletion({ setPage, currentUser }) {
   const displayedTotalFee = hasManualFinalCharge && hasValidFinalCharge
     ? Number(manualFinalChargeNumber.toFixed(2))
     : calculatedTotalFee
-  const canSubmitCompletion = canSubmitCompletionBase && (isAbandoned || hasValidFinalCharge)
+  const canSubmitCompletion = descriptionReady && !contextLoading && canSubmitCompletionBase && (isAbandoned || hasValidFinalCharge)
   const submitButtonLabel = !conversionReady
     ? "等待信息员上传转保凭证"
     : !hasRequiredAttachment
@@ -527,7 +540,7 @@ function RepairCompletion({ setPage, currentUser }) {
           <div><dt>维修师傅</dt><dd>{repairOrder.technician || "未记录"}</dd></div>
           <div><dt>{skipsParts ? "处理方式" : "已用配件"}</dt><dd>{skipsParts ? treatmentPreset?.label || repairOrder.treatmentLabel : partsText}</dd></div>
         </dl>
-        <div className="parts-order-fault"><span>报修描述</span><p>{repairOrder.originalFault || "未提供"}</p></div>
+        <div className="parts-order-fault"><span>报修描述</span><p>{reportedFault || "报修描述尚未同步，请重新读取；不是客户未提供"}</p></div>
         {isInspectionOnly ? (
           <p className="success-text">保内检测：不向客户收取配件费、维修费和运费；师傅上传现场照片/视频，检测报告由信息员制作并上传</p>
         ) : (isAbandoned || isOutOfWarranty) ? (
@@ -666,6 +679,7 @@ function RepairCompletion({ setPage, currentUser }) {
         {errorMessage && !/^缺少必填字段/.test(errorMessage) && <p className="error-message">{errorMessage}</p>}
         {message && <p role="status">{message}</p>}
         {!completedDetail && <div className="completion-actions">
+          {!descriptionReady && <button className="secondary-btn" disabled={busy || contextLoading} onClick={() => setDescriptionRetry(value => value + 1)}>{contextLoading ? "正在读取报修描述…" : "重新读取描述"}</button>}
           <button className="secondary-btn" disabled={busy} onClick={() => save(false)}>保存草稿</button>
           {isOutOfWarranty && !pricing?.canPrice
             ? <button type="button" className="fee-review-jump" disabled={busy} onClick={showPricingSummary}>查看费用明细</button>
