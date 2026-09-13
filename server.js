@@ -812,7 +812,11 @@ function shouldAutoResumeReceipt(order, now = Date.now()) {
 
 function shouldAutoResumeDetection(order, now = Date.now(), confirmedRecovery = false) {
   if (order?.recloudDetectionSubmissionStartedAt && !order.recloudDetectionConfirmedAt) return false;
-  const codeRecovery = confirmedRecovery && Boolean(order?.faultCategoryCode)
+  const authorization = order?.faultCategoryCodeAuthorization;
+  const orderCodeAuthorized = Boolean(order?.rmaNo && authorization?.rmaNo === order.rmaNo
+    && authorization?.path === order.faultCategory && authorization?.confirmedAt
+    && Array.isArray(authorization?.codes) && authorization.codes.includes(order.faultCategoryCode));
+  const codeRecovery = (confirmedRecovery || orderCodeAuthorized) && Boolean(order?.faultCategoryCode)
     && order?.recloudDetectionLastError?.code === "RECLOUD_DETECTION_OPTION_AMBIGUOUS";
   if (order?.status !== "INSPECTION_COMPLETED_PENDING_REPAIR"
     && !(codeRecovery && order?.status === "REPAIR_COMPLETED_PENDING_SHIPMENT")) return false;

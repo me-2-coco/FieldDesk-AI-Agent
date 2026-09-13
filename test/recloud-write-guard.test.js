@@ -17,6 +17,19 @@ test("strict recovery permits only the explicitly authorized order, including li
   assert.equal(createRecloudRmaWriteGuard([], 0, true)("RMA-OTHER"), false);
 });
 
+test("per-order category consent is scoped to the exact order, path and code, never unknown writes", () => {
+  const { shouldAutoResumeDetection } = require("../server");
+  const order = { rmaNo: "RMA-TEST", faultCategory: "A / B / C", status: "REPAIR_COMPLETED_PENDING_SHIPMENT",
+    inspectionUpdatedAt: "2020-01-01", faultCategoryCode: "TEST-A", recloudDetectionSyncStatus: "FAILED",
+    recloudDetectionLastError: { code: "RECLOUD_DETECTION_OPTION_AMBIGUOUS", at: "2020-01-01" },
+    faultCategoryCodeAuthorization: { rmaNo: "RMA-TEST", path: "A / B / C", codes: ["TEST-A", "TEST-B"], confirmedAt: "2020-01-01" } };
+  assert.equal(shouldAutoResumeDetection(order), true);
+  for (const patch of [{ rmaNo: "OTHER" }, { faultCategory: "A / X / C" }, { faultCategoryCode: "TEST-C" },
+    { recloudDetectionSyncStatus: "RESULT_UNKNOWN" }, { recloudDetectionSubmissionStartedAt: "2020-01-01" }]) {
+    assert.equal(shouldAutoResumeDetection({ ...order, ...patch }), false);
+  }
+});
+
 test("temporary RMA allowlist blocks historical backlog but permits new live work", () => {
   const startedAt = Date.parse("2026-09-06T11:30:00.000Z");
   const allowed = createRecloudRmaWriteGuard(["RMA-RECOVERY"], startedAt);
