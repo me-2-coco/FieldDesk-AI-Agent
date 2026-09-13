@@ -4,6 +4,7 @@ const os = require('node:os');
 const { spawn } = require('node:child_process');
 const { provision } = require('./start-isolated-lab');
 const names = [
+  'recloud-part-write-guard',
   'recloud-label-selection',
   'recloud-return-flags', 'recloud-repair-parts-reader',
   'reported-fault-sync', 'repair-measure',
@@ -29,6 +30,7 @@ const names = [
   const root = await provision(source);
   const tests = names.map(name => `test/${name}.test.js`);
   for (const file of [...tests, 'test/fixtures/detection-crash-worker.cjs',
+    'services/recloud-part-write-guard.js',
     'frontend/src/shared/repairMeasure.js',
     'services/recloud-write-admissions.js',
     'services/receipt-reconciliation-evidence.js',

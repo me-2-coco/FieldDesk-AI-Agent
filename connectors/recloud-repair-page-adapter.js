@@ -6,6 +6,7 @@ const { createRecloudRepairControlAdapter, normalizeRepairControlValue } = requi
 const path = require("path");
 const crypto = require("crypto");
 const fs = require('node:fs/promises');
+const { RecloudPartWriteGuard, existingPartMatches } = require('../services/recloud-part-write-guard');
 const { repairAttachmentIdentity } = require('../services/repair-attachment-identity');
 
 function adapterError(message, code, phase) {
@@ -575,8 +576,12 @@ function createRecloudRepairPageAdapter(page, context = {}) {
 
     async addParts(additions) {
       await openServiceReport(page);
+      const writeGuard = context.partWriteGuard || new RecloudPartWriteGuard();
       const missingParts = [];
       for (const part of additions) {
+        // Fresh read for each item, not only a plan captured before the batch.
+        if (existingPartMatches(await readExistingRepairParts(page), part)) continue;
+        await writeGuard.assertUnattempted(context.rmaNo, part.partCode);
         const dialog = await openRepairPartAddDialog(page, { timeoutMs: 7000 });
         const productInput = await locateDialogInput(dialog, "服务单产品明细");
         const partInput = await locateDialogInput(dialog, "新件名称");
@@ -620,6 +625,9 @@ function createRecloudRepairPageAdapter(page, context = {}) {
           "RECLOUD_REPAIR_PART_SAVE_AMBIGUOUS",
           "PARTS"
         );
+        // Durable intent precedes the irreversible save; a lost response or
+        // process restart must never authorize another save for this part.
+        await writeGuard.claim(context.rmaNo, part.partCode);
         await save.click({ timeout: 5000 });
         await confirmPartQuantityWarning(page, part.quantity);
         await page.waitForTimeout?.(400);

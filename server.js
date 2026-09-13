@@ -1,4 +1,5 @@
 const express = require("express");
+const { blocksPartRetry } = require('./services/recloud-part-write-guard');
 const { resolveReportedFault, assertReportedFaultForSubmission, createReportedFaultLoader } = require("./services/reported-fault");
 const { monthlyStatistics, canExportMonthly, exportMonthly } = require("./shared/monthly-statistics");
 const crypto = require("crypto");
@@ -829,6 +830,7 @@ function shouldAutoResumeDetection(order, now = Date.now(), confirmedRecovery = 
 }
 
 function shouldAutoResumeServiceOrder(order, now = Date.now()) {
+  if (blocksPartRetry(order?.recloudRepairPreparation?.lastError?.code)) return false;
   if (!order?.recloudDetectionConfirmedAt) return false;
   if (!["INSPECTION_COMPLETED_PENDING_REPAIR", "REPAIR_COMPLETION_DRAFT"].includes(order.status)) return false;
   if (order.recloudServiceOrderSyncStatus === "RESULT_UNKNOWN") return false;
@@ -1714,6 +1716,7 @@ function createApp(
   const serviceOrderRecoveryNextAt = new Map();
 
   function scheduleRecloudServiceOrderSync(order, operator = {}, recoveryOptions = {}) {
+    if (blocksPartRetry(order?.recloudRepairPreparation?.lastError?.code)) return false;
     const query = orderQuery(order);
     const rmaNo = String(order?.rmaNo || "").trim();
     const forcedPreparationRecovery = Boolean(
@@ -1862,7 +1865,7 @@ function createApp(
           `RECLOUD_SERVICE_ORDER_BACKGROUND: failed ${error.code || "UNKNOWN"}`,
           JSON.stringify({ name: error.name || "Error", message: error.message || "" })
         );
-        if ((serviceOrderCreated || !resultUnknown) && (serviceOrderRecoveryAttempts.get(rmaNo) || 0) < 4) {
+        if (!blocksPartRetry(error.code) && (serviceOrderCreated || !resultUnknown) && (serviceOrderRecoveryAttempts.get(rmaNo) || 0) < 4) {
           const retryCount = (serviceOrderRecoveryAttempts.get(rmaNo) || 0) + 1;
           serviceOrderRecoveryAttempts.set(rmaNo, retryCount);
           const retryDelay = [2000, 5000, 15000, 60000][Math.min(retryCount - 1, 3)];
