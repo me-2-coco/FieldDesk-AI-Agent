@@ -9,8 +9,19 @@ async function locateLabelSelection(cell) {
   const roles = cell.locator("[role='checkbox']");
   const nativeCount = await native.count();
   const roleCount = await roles.count();
-  if (nativeCount === 1 && (roleCount === 0 || (roleCount === 1
-    && await roles.locator("input[type='checkbox']").count() === 1))) return native;
+  if (nativeCount === 1 && roleCount === 1
+    && await roles.locator("input[type='checkbox']").count() === 1) {
+    return {
+      isChecked: () => native.isChecked(),
+      async setChecked(selected) {
+        if (await native.isChecked() === selected) return;
+        // Recloud hides the input; the visible label is the click target.
+        await roles.click({ timeout: 5000 });
+        if (await native.isChecked() !== selected) throw fail('RECLOUD_LABEL_SELECTION_FAILED');
+      },
+    };
+  }
+  if (nativeCount === 1 && roleCount === 0) return native;
   if (nativeCount === 0 && roleCount === 1) return roles;
   throw fail("RECLOUD_LABEL_SELECTION_AMBIGUOUS");
 }
