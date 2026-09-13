@@ -150,6 +150,7 @@ function InformationRepairReports({ setPage, initialRmaNo = "" }) {
         {!report.usedParts.length && <p className="empty-compact-state">未记录更换配件</p>}
         <div className="compact-part-list">{report.usedParts.map((part, index) => <div key={`${part.partCode}-${index}`}><span><strong>{value(part.partName)}</strong><small>{value(part.partCode)} · {value(part.repairLevel)}{part.returnRequired ? " · 需返旧件" : ""}</small></span><b>×{part.quantity}</b></div>)}</div>
       </div>
+      {report.followupRemark && <div className="card compact-data-card"><h2>工单备注</h2><p style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{report.followupRemark}</p>{report.paymentReceived && <p>信息员已确认费用收到</p>}</div>}
       {pricing && <div className="card compact-data-card report-pricing-card"><div className="section-title-row"><div><small>收费核对</small><h2>费用记录</h2></div><span>合计 ¥{Number(pricing.totalFee || 0).toFixed(2)}</span></div>
         <div className="report-fee-grid"><span><small>配件费</small><strong>¥{Number(pricing.partsFee || 0).toFixed(2)}</strong></span><span><small>维修费</small><strong>¥{Number(pricing.fee || 0).toFixed(2)}</strong></span><span><small>物流费</small><strong>¥{Number(pricing.logisticsFee || 0).toFixed(2)}</strong></span></div>
         <p className="report-note"><small>费用备注</small>{value(report.repairCompletion.secondaryRemark || report.repairCompletion.primaryRemark)}</p>

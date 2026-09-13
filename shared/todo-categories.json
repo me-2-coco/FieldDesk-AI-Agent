@@ -1,5 +1,6 @@
 {
   "groups": [
+    {"id":"payment","label":"收费跟进","action":"未收款追加备注，已收款通知原师傅"},
     {"id":"review","label":"待审核提交","action":"在瑞云核对后手动提交"},
     {"id":"shortage","label":"缺件待料","action":"跟进配件到货与补件"},
     {"id":"materials","label":"资料待补充","action":"联系师傅核对并补充资料"},

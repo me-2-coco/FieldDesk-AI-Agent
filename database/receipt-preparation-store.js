@@ -155,6 +155,30 @@ class JsonReceiptPreparationStore {
     return Array.isArray(parsed) ? parsed : [];
   }
 
+  async recordPaymentFollowup(rmaNo, input, user) {
+    const operation = this.writeQueue.then(async () => {
+      const records = await this.readAll();
+      const order = records.find(o=>o.rmaNo===rmaNo);
+      if (!order) throw Object.assign(new Error('工单不存在'),{status:404});
+      const updated = require('../services/payment-followup').recordFollowup(order,input,user);
+      await this.writeAll(records.map(o=>o===order?updated:o));
+      return updated;
+    });
+    this.writeQueue=operation.catch(()=>{}); return operation;
+  }
+
+  async confirmPaymentRemark(rmaNo, entryId, remoteRemark) {
+    const operation = this.writeQueue.then(async () => {
+      const records=await this.readAll();
+      const order=records.find(o=>o.rmaNo===rmaNo);
+      const entry=order?.paymentFollowup?.entries?.find(e=>e.id===entryId);
+      if (!entry || !remoteRemark.includes(entry.line)) throw new Error('备注回读未确认');
+      entry.syncStatus='CONFIRMED'; entry.syncedAt=new Date().toISOString();
+      await this.writeAll(records);
+    });
+    this.writeQueue=operation.catch(()=>{}); return operation;
+  }
+
   async deleteLocalOrder(rmaNo, operator = {}) {
     const operation = this.writeQueue.then(async () => {
       if (normalizeRequired(operator.role).toUpperCase() !== "ADMIN") {

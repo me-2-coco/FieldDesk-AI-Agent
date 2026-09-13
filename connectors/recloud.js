@@ -11916,7 +11916,24 @@ async function readRmaHoldSnapshot(page, expectedRmaNo) {
   return { rmaNo: expectedRmaNo, reasonPath: await reasonInput.inputValue(), remark: await remarkInput.inputValue(), readBackVerified: true };
 }
 
+async function appendRmaFollowupRemark(page, rmaNo, entry, options = {}) {
+  if (options.writeEnabled !== true) throw new Error('未授权备注写入');
+  const snapshot = await readRmaHoldSnapshot(page, rmaNo);
+  const next = require('../services/payment-followup').appendRemark(snapshot.remark, entry);
+  if (next === snapshot.remark) return snapshot;
+  const input = findRmaFieldItem(page, /^\s*备注/).locator('textarea, input').first();
+  if (await input.inputValue() !== snapshot.remark) throw new Error('备注已经变化，请重新核对');
+  await input.fill(next);
+  const save = page.getByRole('button', {name:/^保存$/}).filter({visible:true});
+  if (await save.count() !== 1) throw new Error('无法唯一确认瑞云保存按钮');
+  await save.click();
+  const result = await readRmaHoldSnapshot(page, rmaNo);
+  if (!result.remark.includes(entry.line) || !result.remark.startsWith(snapshot.remark)) throw new Error('瑞云备注保存结果未确认，请核对后重试');
+  return result;
+}
+
 module.exports = {
+  appendRmaFollowupRemark,
   readRmaReceiptAttachmentSnapshot,
   hasExplicitMissingOrder,
   RECLOUD_URL,

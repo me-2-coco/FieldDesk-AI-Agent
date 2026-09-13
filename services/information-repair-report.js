@@ -48,6 +48,8 @@ function buildInformationRepairReport(order) {
   const completion = order.repairCompletion || {};
   const parts = completion.usedParts?.length ? completion.usedParts : (order.partApplications || []);
   return {
+    followupRemark: order.hold?.remark || '',
+    paymentReceived: require('./payment-followup').currentFollowup(order)?.paid === true,
     rmaNo: order.rmaNo,
     logisticsNo: order.logisticsNo,
     sn: order.sn,

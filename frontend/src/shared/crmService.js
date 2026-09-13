@@ -588,6 +588,12 @@ export function retryRecloudHold(rmaNo) {
 export function reconcileRecloudHold(rmaNo) {
   return request("/api/repairs/hold/reconcile", { rmaNo })
 }
+export function recordPaymentFollowup(input) {
+  return request('/api/information/payment-followup',input)
+}
+export function syncPaymentFollowup(rmaNo,id) {
+  return request('/api/information/payment-followup/sync',{rmaNo,id})
+}
 export function reconcileRecloudReceipt(rmaNo) {
   return request('/api/repairs/admin/reconcile-receipt', { rmaNo })
 }

@@ -12,6 +12,16 @@ function buildHomeTodos(orders, tasks, user) {
   const items = [];
   const add = (group, o, message, suffix='') => items.push({id:`${group}:${o.rmaNo}:${suffix}`,group,rmaNo:o.rmaNo,message,action:categories.groups.find(g=>g.id===group)?.action || '查看工单详情',technicianName:o.technicianName || o.operatorName || '未记录',updatedAt:o.updatedAt || o.createdAt || ''});
   for (const o of own) {
+    const payment = require('./payment-followup');
+    const followup = payment.currentFollowup(o);
+    if (payment.eligible(o) && !tech) {
+      const pending = followup?.entries?.some(e=>e.syncStatus!=='CONFIRMED');
+      if (!followup?.paid || pending) {
+        add('payment',o,followup?.paid?'费用已收到；跟进备注待同步瑞云':`保外暂存：${o.hold.reason}；费用未收到`,'PAYMENT');
+        Object.assign(items.at(-1),{payment:{holdRequestedAt:o.hold.requestedAt,remark:o.hold.remark,entries:followup?.entries || [],paid:!!followup?.paid}});
+      }
+    }
+    if (tech && payment.eligible(o) && followup?.paid) add('messages',o,'信息员已确认费用收到，请继续维修','PAYMENT_RECEIVED');
     for (const e of detectOrderExceptions(o)) {
       const material = ['REPORT_INCOMPLETE','COMPLETION_MEDIA_MISSING','ATTACHMENT_FILE_MISSING'].includes(e.type);
       const group = tech ? (['PARTS_SHORTAGE_PENDING','MATERIAL_HOLD_PENDING'].includes(e.type)?'shortage':material?'materials':'exceptions') : categories.types[e.type] || 'exceptions';

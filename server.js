@@ -5660,6 +5660,39 @@ function createApp(
     } catch (error) { next(error); }
   });
 
+  app.post('/api/information/payment-followup', async (req,res,next) => {
+    try {
+      const user=currentUserProvider(req);
+      assertInformationReportAccess(user);
+      const data=await receiptStore.recordPaymentFollowup(String(req.body?.rmaNo || '').trim(),req.body || {},user);
+      res.json({success:true,data:{message:'跟进已保存；备注待同步瑞云',paid:data.paymentFollowup.paid}});
+    } catch(error) {next(error);}
+  });
+
+  app.post('/api/information/payment-followup/sync', async (req,res,next) => {
+    try {
+      const user=currentUserProvider(req);
+      assertInformationReportAccess(user);
+      const rmaNo=String(req.body?.rmaNo || '').trim();
+      const order=(await receiptStore.readAll()).find(o=>o.rmaNo===rmaNo);
+      const entry=order?.paymentFollowup?.entries?.find(e=>e.id===req.body?.id);
+      if (!entry) throw createApiError('FOLLOWUP_NOT_FOUND','未找到跟进记录',404);
+      if (entry.syncStatus==='CONFIRMED') return res.json({success:true,data:{message:'备注已核对同步'}});
+      if (!isRecloudHoldWriteEnabled(runtimeEnv) || !isRecloudRmaWriteAllowed(rmaNo,order)) throw createApiError('FOLLOWUP_WRITE_DISABLED','当前工单不允许写入瑞云，跟进记录已保留',409);
+      if (activeHoldSyncs.has(rmaNo)) throw createApiError('FOLLOWUP_BUSY','暂存同步正在执行，请稍后同步备注',409);
+      activeHoldSyncs.add(rmaNo);
+      try {
+        const result=await withRecloud(connector,async page=>{
+          const detail=await connector.queryRmaByLogisticsNo(page,order.logisticsNo || rmaNo,{preserveDetailPage:true});
+          if(detail.rmaNo!==rmaNo) throw new Error('瑞云工单不一致，未追加备注');
+          return connector.appendRmaFollowupRemark(page,rmaNo,entry,{writeEnabled:true});
+        },{...businessWriteOptions,timeoutCode:'FOLLOWUP_SYNC_TIMEOUT'});
+        await receiptStore.confirmPaymentRemark(rmaNo,entry.id,result.remark);
+        res.json({success:true,data:{message:'跟进备注已同步并回读确认'}});
+      } finally {activeHoldSyncs.delete(rmaNo);}
+    } catch(error) {next(error);}
+  });
+
   app.get("/api/information/repair-reports/:rmaNo", async (req, res, next) => {
     try {
       assertInformationReportAccess(currentUserProvider(req));

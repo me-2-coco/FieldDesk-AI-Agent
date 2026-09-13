@@ -362,7 +362,7 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
   function openTodo(item) {
     setTodoError("")
     if (!isTechnician) { setPage(item.group === "warranty" ? "warrantyApprovals" : item.group === "sync" && isAdmin ? "syncTasks" : "exceptionCenter"); return }
-    if (item.group === "messages") { openDesktopView("messages"); return }
+    if (item.group === "messages" && !item.id.endsWith(':PAYMENT_RECEIVED')) { openDesktopView("messages"); return }
     const workflow = workflows.find(order => order.rmaNo === item.rmaNo && (order.technicianId || order.operatorId) === (currentUser.userId || currentUser.id))
     if (!workflow) { setTodoError("工单进度正在更新，请稍后重试"); return }
     if (item.group === "shortage" || workflow.status === "ON_HOLD") { openDesktopView("work"); setDetailStatus("waiting"); return }

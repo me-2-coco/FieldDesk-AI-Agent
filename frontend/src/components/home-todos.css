@@ -44,3 +44,7 @@
 .home-todos .todo-message-tag { color:var(--todo-tone,#50637e); font-size:11px; font-weight:700; }
 .home-todos .todo-next-action { line-height:1.5; color:#2d608f; font-weight:600; }
 .home-todos button:focus-visible { outline:3px solid #8bbafa; outline-offset:2px; }
+.home-todos .payment-followup {padding:12px;border:1px solid #e3eaf5;border-radius:12px;margin-bottom:14px;background:#f8fbff;font-size:13px;color:#334155;}
+.home-todos .payment-followup textarea {box-sizing:border-box;width:100%;min-height:80px;margin-top:8px;font-size:14px;}
+.home-todos .payment-followup button {margin-top:8px;padding:10px;border-radius:8px;background:#e7f0ff;color:#165cba;font-size:13px;}
+.home-todos .payment-followup p {overflow-wrap:anywhere;}
