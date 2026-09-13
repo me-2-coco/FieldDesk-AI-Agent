@@ -781,10 +781,12 @@ function createRecloudRepairPageAdapter(page, context = {}) {
         .filter({ visible: true });
       const row = await uniqueVisible(rows, "无法唯一定位瑞云故障记录", "RECLOUD_REPAIR_FAULT_ROW_AMBIGUOUS", "FIELDS");
       await row.dblclick({ timeout: 5000 });
+      const measureDialogs = page.getByRole("dialog")
+        .filter({ has: page.getByText("故障模式及责任判定", { exact: true }) })
+        .filter({ visible: true });
+      await measureDialogs.first().waitFor({ state: "visible", timeout: 10000 });
       const dialog = await uniqueVisible(
-        page.getByRole("dialog")
-          .filter({ has: page.getByText("故障模式及责任判定", { exact: true }) })
-          .filter({ visible: true }),
+        measureDialogs,
         "维修措施编辑窗口不唯一",
         "RECLOUD_REPAIR_MEASURE_DIALOG_AMBIGUOUS",
         "FIELDS"
