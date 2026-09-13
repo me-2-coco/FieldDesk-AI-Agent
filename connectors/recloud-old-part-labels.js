@@ -4,6 +4,17 @@ function fail(code) {
   return Object.assign(new Error("瑞云旧件标签页面无法唯一核对，已停止打印"), { code, phase: "OLD_PART_LABELS", status: 502 });
 }
 
+async function locateLabelSelection(cell) {
+  const native = cell.locator("input[type='checkbox']");
+  const roles = cell.locator("[role='checkbox']");
+  const nativeCount = await native.count();
+  const roleCount = await roles.count();
+  if (nativeCount === 1 && (roleCount === 0 || (roleCount === 1
+    && await roles.locator("input[type='checkbox']").count() === 1))) return native;
+  if (nativeCount === 0 && roleCount === 1) return roles;
+  throw fail("RECLOUD_LABEL_SELECTION_AMBIGUOUS");
+}
+
 async function captureOldPartLabels(page, parts, context) {
   const body = await page.locator("body").innerText();
   const serviceOrders = [...new Set(body.match(/FWD\d{8,}/g) || [])];
@@ -49,8 +60,7 @@ async function captureOldPartLabels(page, parts, context) {
       throw fail("RECLOUD_LABEL_PARTS_MISMATCH");
     }
     // The selection column is distinct from the disabled 'return required' field.
-    const check = cells.first().locator("input[type='checkbox'], [role='checkbox']");
-    if (await check.count() !== 1) throw fail("RECLOUD_LABEL_SELECTION_AMBIGUOUS");
+    const check = await locateLabelSelection(cells.first());
     plan.push({ check, selected });
     if (selected) found.add(code);
   }
@@ -107,4 +117,4 @@ async function captureOldPartLabels(page, parts, context) {
   }
 }
 
-module.exports = { captureOldPartLabels };
+module.exports = { captureOldPartLabels, locateLabelSelection };
