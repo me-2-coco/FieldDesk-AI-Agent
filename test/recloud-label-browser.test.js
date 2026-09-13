@@ -10,6 +10,7 @@ test('parts reader expands five-row pagination before deciding what is missing',
     await page.route('**/*', route => route.abort());
     const rows = n => Array.from({ length: n }, (_, i) => `<tr><td>P${i}</td><td>1</td></tr>`).join('');
     await page.setContent(`<div>服务单更换件明细</div><div class="rt-table-content"><div class="el-table"><table><thead><tr><th>新件编码</th><th>数量</th></tr></thead><tbody>${rows(5)}</tbody></table></div><div class="el-pagination">共 7 条记录<button onclick="document.querySelector('#choice').hidden=false">5条/页</button></div></div><div id="choice" hidden onclick="document.querySelector('tbody').innerHTML=this.dataset.rows;this.hidden=true" data-rows='${rows(7)}'>50条/页</div>`);
+    await page.locator('#choice').evaluate(el => el.className = 'rt-dropdown-item-text');
     assert.equal((await readExistingRepairParts(page)).length, 7);
     await page.locator('.el-pagination').evaluate(el => el.firstChild.textContent = '共 8 条记录');
     await assert.rejects(readExistingRepairParts(page), /Timeout|数量|timeout/i);

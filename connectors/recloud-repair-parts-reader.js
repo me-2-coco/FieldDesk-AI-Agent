@@ -83,7 +83,7 @@ async function readExistingRepairParts(page, options = {}) {
       const size = pager.getByRole('button', { name: /条\/页/ });
       if (total > 0 && !/50\s*条\/页/.test(await size.innerText())) {
         await size.click({ timeout: 5000 });
-        await page.getByText('50条/页', { exact: true }).filter({ visible: true }).click({ timeout: 5000 });
+        await page.locator('.rt-dropdown-item-text').filter({ hasText: /^\s*50\s*条\/页\s*$/, visible: true }).click({ timeout: 5000 });
       }
       if (total > 0) await section.locator('tbody tr').nth(total - 1).waitFor({ state: 'visible', timeout: 10000 });
     }
