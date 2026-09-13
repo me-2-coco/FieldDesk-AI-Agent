@@ -116,7 +116,7 @@ async function captureOldPartLabels(page, parts, context) {
     throw fail("RECLOUD_LABEL_PDF_UNAVAILABLE");
   } finally {
     if (dialog) {
-      const close = dialog.locator(".el-dialog__headerbtn, .rtxpc-dialog__headerbtn, button[aria-label='Close'], button[aria-label='关闭']");
+      const close = dialog.locator(".el-dialog__headerbtn, .rtxpc-dialog__headerbtn, button[aria-label='Close'], button[aria-label='关闭'], .rt-dialog-title-right .rt-icon:has(.rt-base-close-x-lined)").filter({ visible: true });
       if (await close.count() === 1) {
         await close.click({ timeout: 3000 });
         await dialog.waitFor({ state: "hidden", timeout: 3000 });
