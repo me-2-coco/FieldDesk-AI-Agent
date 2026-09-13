@@ -9,7 +9,8 @@ function completedInformationTodos(orders, tasks) {
   };
   for(const order of orders) {
     const handoff=order.inspectionOnlyHandoff;
-    if(handoff?.status==='CONFIRMED') add(order,'RECLOUD_COMPLETED_SUBMIT_PENDING',handoff.confirmedAt,'已核对瑞云最终提交完成');
+    if(handoff?.manualConfirmedAt) add(order,'RECLOUD_COMPLETED_SUBMIT_PENDING',handoff.manualConfirmedAt,'信息员人工确认：已在瑞云处理并提交',handoff.manualConfirmedBy?.displayName || '信息员');
+    else if(handoff?.status==='CONFIRMED') add(order,'RECLOUD_COMPLETED_SUBMIT_PENDING',handoff.confirmedAt,'已核对瑞云最终提交完成');
     const shortage=order.partsShortage;
     if(shortage?.status==='RESOLVED') add(order,'PARTS_SHORTAGE_PENDING',shortage.resolvedAt,'信息员已确认在瑞云补件并提交',shortage.resolvedBy?.displayName || '信息员人工确认');
     for(const entry of order.paymentFollowup?.entries || []) {

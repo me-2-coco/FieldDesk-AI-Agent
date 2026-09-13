@@ -3,6 +3,7 @@ import { getInformationExceptions, resolveInformationPartsShortage } from "../sh
 import categories from '../../../shared/todo-categories.json'
 import './information-inbox.css'
 import PaymentFollowup from '../components/PaymentFollowup.jsx'
+import ConfirmInformationReview from '../components/ConfirmInformationReview.jsx'
 
 const TYPE_NAMES = {
   PAYMENT_FOLLOWUP: "收费跟进",
@@ -95,6 +96,7 @@ function InformationExceptionCenter({ setPage, onOpenReport }) {
       <div className="compact-record-detail"><div><small>物流单号</small><strong>{item.logisticsNo || "未记录"}</strong></div><div><small>负责师傅</small><strong>{item.technicianName || "未分配"}</strong></div><div><small>当前状态</small><strong>{item.status || "未记录"}</strong></div></div>
       {view==='completed' && <p>完成时间：{new Date(item.completedAt).toLocaleString()}<br/>处理人 / 确认来源：{item.completedBy || '未记录'}</p>}
       {view==='pending' && <>
+      {item.reviewVersion && <ConfirmInformationReview item={item} onUpdated={refresh}/>}
       {item.payment && <PaymentFollowup item={item} onUpdated={refresh}/>}
       {item.type === "SYNC_ATTENTION_REQUIRED" && <p><strong>处理方式：通知管理员进入同步任务页面处理，信息员不能修改或重试同步。</strong></p>}
       {item.type === "INSPECTION_ONLY_ADDRESS_AND_SUBMIT_PENDING" && <p><strong>处理方式：信息员开检测报告并上传到瑞云“附件（检测报告）”，再修改返件地址，确认无误后点击提交。</strong></p>}

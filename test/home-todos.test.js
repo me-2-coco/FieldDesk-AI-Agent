@@ -32,7 +32,7 @@ test('technician todos are self-only for both role formats; unknown roles fail c
 });
 test('todo endpoint enforces role and own-order boundary',async t=>{
  for(const role of ['TECHNICIAN','ADMIN','INFORMATION_CLERK','WAREHOUSE']){
-  const app=createApp({}, {readAll:async()=>orders},{getCurrentUser:()=>({role,userId:'T1'})});
+  const app=createApp({}, {readAll:async()=>orders},{syncService:{outbox:{readAll:async()=>tasks}},getCurrentUser:()=>({role,userId:'T1'})});
   const server=await new Promise(resolve=>{const s=app.listen(0,'127.0.0.1',()=>resolve(s))});t.after(()=>{server.closeAllConnections();server.close()});
   const res=await fetch(`http://127.0.0.1:${server.address().port}/api/home/todos`);
   assert.equal(res.status,role==='WAREHOUSE'?403:200);

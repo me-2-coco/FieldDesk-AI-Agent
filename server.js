@@ -5673,6 +5673,14 @@ function createApp(
     } catch(error) {next(error);}
   });
 
+  app.post('/api/information/review/confirm',async(req,res,next)=>{
+    try {
+      const user=currentUserProvider(req);assertInformationReportAccess(user);
+      await receiptStore.confirmInformationReview(String(req.body?.rmaNo || '').trim(),req.body || {},user);
+      res.json({success:true,data:{message:'已确认处理，记录已移入已完成'}});
+    }catch(error){next(error);}
+  });
+
   app.post('/api/information/payment-followup/sync', async (req,res,next) => {
     try {
       const user=currentUserProvider(req);

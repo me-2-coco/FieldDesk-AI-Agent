@@ -26,6 +26,7 @@ function buildHomeTodos(orders, tasks, user) {
       const material = ['REPORT_INCOMPLETE','COMPLETION_MEDIA_MISSING','ATTACHMENT_FILE_MISSING'].includes(e.type);
       const group = tech ? (['PARTS_SHORTAGE_PENDING','MATERIAL_HOLD_PENDING'].includes(e.type)?'shortage':material?'materials':'exceptions') : categories.types[e.type] || 'exceptions';
       add(group,o,e.message,e.type);
+      if(e.reviewVersion) items.at(-1).reviewVersion=e.reviewVersion;
     }
     if(tech) for(const s of o.supervisionOrders || []) if(!s.archivedAt && !(s.readBy || []).some(r=>r.userId===user.userId)) add('messages',o,'有未读督办消息',s.id);
     const w=o.manufacturerWarrantyConversion;

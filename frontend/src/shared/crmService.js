@@ -591,6 +591,9 @@ export function reconcileRecloudHold(rmaNo) {
 export function recordPaymentFollowup(input) {
   return request('/api/information/payment-followup',input)
 }
+export function confirmInformationReview(rmaNo,version) {
+  return request('/api/information/review/confirm',{rmaNo,version,confirmed:true})
+}
 export function syncPaymentFollowup(rmaNo,id) {
   return request('/api/information/payment-followup/sync',{rmaNo,id})
 }

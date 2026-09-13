@@ -950,6 +950,25 @@ class JsonReceiptPreparationStore {
     return operation;
   }
 
+  async confirmInformationReview(rmaNo, input, user) {
+    const operation=this.writeQueue.then(async()=>{
+      if(!['ADMIN','INFORMATION_CLERK'].includes(user?.role)) throw Object.assign(new Error('只有信息员或管理员可以确认处理'),{status:403});
+      if(input.confirmed!==true) throw Object.assign(new Error('请确认已经在瑞云处理并提交'),{status:400});
+      const records=await this.readAll(),order=records.find(o=>o.rmaNo===rmaNo);
+      if(!order?.inspectionOnlyHandoff) throw Object.assign(new Error('待审核事项不存在'),{status:404});
+      const h=order.inspectionOnlyHandoff;
+      if(input.version!==require('../services/review-confirmation').reviewVersion(order)) throw Object.assign(new Error('待办已更新，请刷新后重新核对'),{status:409});
+      if(h.manualConfirmedAt || h.status==='CONFIRMED') return order;
+      if(h.status!=='PENDING_INFORMATION') throw Object.assign(new Error('当前不是待审核事项'),{status:409});
+      const at=new Date().toISOString();
+      h.manualConfirmedAt=at;h.manualConfirmedBy={userId:user.userId,displayName:user.displayName || user.userId};
+      order.timeline=[...(order.timeline || []),timelineEvent('INFORMATION_REVIEW_CONFIRMED','信息员人工确认：已在瑞云处理并提交',user,at)];
+      // Do not forge remote confirmation, complete the repair, or mutate the outbox.
+      await this.writeAll(records);return order;
+    });
+    this.writeQueue=operation.catch(()=>{});return operation;
+  }
+
   async markInspectionOnlyAwaitingInformation(rmaNo, result = {}, operator = {}) {
     const operation = this.writeQueue.then(async () => {
       const records = await this.readAll();
@@ -964,6 +983,7 @@ class JsonReceiptPreparationStore {
       const updated = {
         ...existing,
         inspectionOnlyHandoff: {
+          ...(existing.inspectionOnlyHandoff?.status === 'PENDING_INFORMATION' ? existing.inspectionOnlyHandoff : {}),
           status: "PENDING_INFORMATION",
           message: handoffMessage,
           informationClerkAction,
