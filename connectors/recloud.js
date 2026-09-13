@@ -1,4 +1,5 @@
 const path = require("path");
+const { prepareRecloudUploadPaths } = require('../services/recloud-upload-file-paths');
 const {
   RecloudQueryError,
   extractRmaNoFromTitle,
@@ -11242,7 +11243,7 @@ async function uploadRmaAttachments(page, attachments = [], options = {}) {
   await dialog.waitFor({ state: "visible" });
   const input = dialog.locator('input[type="file"]');
   try {
-    await input.setInputFiles(pending.map(({ name, mimeType, buffer }) => ({ name, mimeType, buffer })));
+    await input.setInputFiles(await prepareRecloudUploadPaths(pending));
   } catch (error) {
     error.code = "RECLOUD_RMA_ATTACHMENT_FILE_SELECTION_FAILED";
     error.status = 502;

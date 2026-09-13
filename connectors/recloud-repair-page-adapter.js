@@ -10,6 +10,7 @@ const { RecloudPartWriteGuard, existingPartMatches } = require('../services/recl
 const { repairAttachmentIdentity } = require('../services/repair-attachment-identity');
 const { attachmentUploadTimeout, waitForAttachmentDialog } = require('../services/recloud-attachment-upload-wait');
 const { RecloudAttachmentWriteGuard, blocked: attachmentWriteBlocked } = require('../services/recloud-attachment-write-guard');
+const { prepareRecloudUploadPaths } = require('../services/recloud-upload-file-paths');
 
 function adapterError(message, code, phase) {
   const error = new Error(message);
@@ -918,7 +919,7 @@ function createRecloudRepairPageAdapter(page, context = {}) {
       );
       const fileInput = dialog.locator("input[type='file']");
       if (await fileInput.count() !== 1) throw adapterError("附件文件选择框不唯一", "RECLOUD_REPAIR_ATTACHMENT_INPUT_AMBIGUOUS", "ATTACHMENTS");
-      await fileInput.setInputFiles(uploadFiles);
+      await fileInput.setInputFiles(await prepareRecloudUploadPaths(uploadFiles));
       const upload = await uniqueVisible(dialog.getByRole("button", { name: /^\s*上\s*传\s*$/ }).filter({ visible: true }), "附件上传确认按钮不唯一", "RECLOUD_REPAIR_ATTACHMENT_CONFIRM_AMBIGUOUS", "ATTACHMENTS");
       // Persist intent before the irreversible click. A lost response cannot
       // make a subsequent process upload these files again.
