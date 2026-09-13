@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { getInformationExceptions, resolveInformationPartsShortage } from "../shared/crmService.js"
 import categories from '../../../shared/todo-categories.json'
+import './information-inbox.css'
 
 const TYPE_NAMES = {
   MATERIAL_HOLD_PENDING: "缺件待料",
@@ -67,15 +68,16 @@ function InformationExceptionCenter({ setPage, onOpenReport }) {
     <div className="top-bar"><button className="arrow-back" aria-label="返回" onClick={() => setPage("appBack")}>←</button><div><small>审核与业务跟进</small><h1>消息与待办</h1></div></div>
     <div className="backoffice-metric-grid exception-metric-grid"><div><span>全部待办</span><strong>{items.length}</strong></div><div><span>尽快处理</span><strong>{highCount}</strong></div><div><span>需要跟进</span><strong>{mediumCount}</strong></div></div>
     <div className="card compact-search-card exception-filter-card">
-      <div className="section-title-row"><div><small>本页只读汇总</small><h2>筛选消息</h2></div><button type="button" className="mini-refresh-button" onClick={refresh} disabled={loading}>{loading ? "检查中" : "刷新"}</button></div>
-      <input id="exception-search" value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="输入关键词" />
-      <label htmlFor="todo-category-filter">消息分类</label>
-      <select id="todo-category-filter" value={category} onChange={event=>setCategory(event.target.value)}>
-        <option value="ALL">全部消息</option>
-        {categories.groups.filter(g=>g.id!=='warranty').map(g=><option key={g.id} value={g.id}>{g.label}（{new Set(items.filter(i=>(categories.types[i.type] || 'exceptions')===g.id).map(i=>i.rmaNo || i.id)).size} 单）</option>)}
-      </select>
+      <div className="inbox-search-row"><input id="exception-search" aria-label="搜索工单、物流单或师傅" value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索工单号、物流单号或师傅" /><button type="button" className="mini-refresh-button" onClick={refresh} disabled={loading}>{loading ? "更新中" : "刷新"}</button></div>
+      <div className="inbox-category-tabs" aria-label="消息分类">
+        <button type="button" aria-pressed={category==='ALL'} onClick={()=>setCategory('ALL')}>全部消息 <span>{items.length}</span></button>
+        {categories.groups.filter(g=>g.id!=='warranty').map(g=>{
+          const count=items.filter(i=>(categories.types[i.type] || 'exceptions')===g.id).length
+          return count>0 && <button type="button" key={g.id} aria-pressed={category===g.id} onClick={()=>setCategory(g.id)}>{g.label} <span>{count}</span></button>
+        })}
+      </div>
       <div className="segmented-control" aria-label="严重程度"><button type="button" className={severity === "ALL" ? "active" : ""} onClick={() => setSeverity("ALL")}>全部</button><button type="button" className={severity === "HIGH" ? "active" : ""} onClick={() => setSeverity("HIGH")}>紧急</button><button type="button" className={severity === "MEDIUM" ? "active" : ""} onClick={() => setSeverity("MEDIUM")}>跟进</button></div>
-      <p className="compact-result-count">显示 {filtered.length} 个{lastRefreshedAt ? ` · ${lastRefreshedAt} 更新` : ""}</p>
+      <p className="compact-result-count">{filtered.length} 条待办 · 点击卡片展开详情{lastRefreshedAt ? ` · ${lastRefreshedAt} 更新` : ""}</p>
     </div>
     {!loading && !filtered.length && <p>当前没有符合条件的消息</p>}
     <div className="compact-result-list exception-list">{filtered.map((item) => <details className={`card compact-record-card exception-record severity-${String(item.severity).toLowerCase()}`} key={item.id}>

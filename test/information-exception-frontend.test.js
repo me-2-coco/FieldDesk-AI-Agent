@@ -9,7 +9,9 @@ test("information exception center is read-only searchable and refreshes automat
   assert.match(page, /消息与待办/);
   assert.match(page, /消息分类/);
   assert.match(page, /categories.types\[item.type\]/);
-  assert.match(page, /本页只读汇总/);
+  assert.match(page, /inbox-category-tabs/);
+  assert.match(page, /aria-pressed/);
+  assert.match(page, /搜索工单号、物流单号或师傅/);
   assert.match(page, /setInterval\(refresh, 30000\)/);
   assert.match(page, /查看完整报告和附件/);
   assert.match(page, /信息员不能修改或重试同步/);
