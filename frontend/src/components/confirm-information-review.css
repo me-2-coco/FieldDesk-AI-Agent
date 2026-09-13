@@ -1,0 +1,12 @@
+.review-confirmation { margin-left:auto; max-width:100%; text-align:right; }
+.review-confirmation .review-confirmation-button {
+  display:inline-flex; align-items:center; justify-content:center; gap:4px;
+  width:auto; min-height:34px; margin:0; padding:6px 10px;
+  border:1px solid #d4e3fb; border-radius:9px; background:#f0f6ff;
+  color:#2563c6; font-size:12px; font-weight:600; line-height:20px;
+  white-space:nowrap; box-shadow:none; cursor:pointer;
+}
+.review-confirmation .review-confirmation-button:hover { background:#e4efff; border-color:#a9c8f6; }
+.review-confirmation .review-confirmation-button:focus-visible { outline:3px solid #8bbafa; outline-offset:2px; }
+.review-confirmation .review-confirmation-button:disabled { opacity:.6; cursor:wait; }
+.review-confirmation .review-confirmation-error { margin:6px 0 0; color:#b42318; font-size:12px; line-height:1.5; overflow-wrap:anywhere; }

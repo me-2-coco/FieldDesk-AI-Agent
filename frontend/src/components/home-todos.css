@@ -38,7 +38,10 @@
 .home-todos .todo-list-heading small { font-size:11px; color:#708198; }
 .home-todos .todo-list { margin:0; max-height:460px; scrollbar-width:thin; scrollbar-color:#cbd5e1 transparent; padding-right:4px; }
 .home-todos .todo-message { margin:0 0 10px; padding:14px; border:1px solid #e5ebf3; border-left:3px solid var(--todo-tone,#8190a5); border-radius:12px; background:#fff; box-shadow:none; }
-.home-todos .todo-message > span { display:block; flex:1; }
+.home-todos .todo-message-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.home-todos .todo-message-heading > .todo-message-tag { flex-shrink:0; }
+.home-todos .todo-open { padding:0; margin:0; border:0; border-radius:0; background:none; box-shadow:none; }
+.home-todos .todo-open > span { display:block; flex:1; }
 .home-todos .todo-message strong { font-size:14px; line-height:1.5; margin:6px 0 2px; overflow-wrap:anywhere; }
 .home-todos .todo-message em { white-space:normal; line-height:1.6; color:#485970; margin:8px 0; }
 .home-todos .todo-message-tag { color:var(--todo-tone,#50637e); font-size:11px; font-weight:700; }

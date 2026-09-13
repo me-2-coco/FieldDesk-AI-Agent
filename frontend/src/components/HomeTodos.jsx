@@ -27,7 +27,16 @@ export default function HomeTodos({onOpen, technician}) {
     {data && <><div className="todo-grid">{data.groups.map(g=><button type="button" key={g.id} aria-pressed={activeGroup===g.id} className={`todo-category category-${g.id} ${activeGroup===g.id?'active':''}`} onClick={()=>setSelected(g.id)}><span>{g.label}</span><strong>{g.count}<small> 单</small></strong></button>)}</div>
       <div className="todo-list-heading"><strong>{label}</strong><small>{items.length} 条提醒 · 列表可上下滑动</small></div>
       {!items.length && !error && <p className="todo-empty">{selected?'该分类暂无待处理事项':'当前暂无待处理事项'}</p>}
-      {!!items.length && <div className="todo-list" aria-label={`${label}列表`} key={activeGroup}>{items.map(i=><div key={i.id}><button type="button" className={`todo-message category-${i.group}`} onClick={()=>onOpen(i)}><span><small className="todo-message-tag">{data.groups.find(g=>g.id===i.group)?.label}</small><strong>{i.rmaNo || '后台任务'}</strong><small>负责师傅：{i.technicianName || '未记录'}</small><em>{i.message}</em><small className="todo-next-action">下一步：{i.action || '查看详情'}</small></span><b aria-hidden="true">›</b></button>{i.reviewVersion && !technician && <ConfirmInformationReview item={i} onUpdated={async()=>setData(await getHomeTodos())}/>} {i.payment && !technician && <PaymentFollowup item={i} onUpdated={async()=>setData(await getHomeTodos())}/>}</div>)}</div>}
+      {!!items.length && <div className="todo-list" aria-label={`${label}列表`} key={activeGroup}>{items.map(i=><div key={i.id}>
+        <article className={`todo-message category-${i.group}`}>
+          <div className="todo-message-heading">
+            <small className="todo-message-tag">{data.groups.find(g=>g.id===i.group)?.label}</small>
+            {i.reviewVersion && !technician && <ConfirmInformationReview item={i} onUpdated={async()=>setData(await getHomeTodos())}/>}
+          </div>
+          <button type="button" className="todo-open" onClick={()=>onOpen(i)}><span><strong>{i.rmaNo || '后台任务'}</strong><small>负责师傅：{i.technicianName || '未记录'}</small><em>{i.message}</em><small className="todo-next-action">下一步：{i.action || '查看详情'}</small></span><b aria-hidden="true">›</b></button>
+        </article>
+        {i.payment && !technician && <PaymentFollowup item={i} onUpdated={async()=>setData(await getHomeTodos())}/>}
+      </div>)}</div>}
     </>}
   </section>
 }
