@@ -4,6 +4,18 @@ const {buildHomeTodos}=require('../services/home-todos');
 const {createApp}=require('../server');
 const orders=[{rmaNo:'SYNTH-1',technicianId:'T1',status:'ON_HOLD',updatedAt:new Date().toISOString(),hold:{reason:'网点缺件'},supervisionOrders:[{id:'M1',readBy:[]}],manufacturerWarrantyConversion:{requested:true,status:'PENDING_APPROVAL'}},{rmaNo:'SYNTH-2',technicianId:'T2',status:'ON_HOLD',updatedAt:new Date().toISOString(),hold:{reason:'总部缺件'}}];
 const tasks=[{id:'TASK-1',rmaNo:'SYNTH-1',status:'FAILED'},{id:'TASK-2',rmaNo:'SYNTH-2',status:'FAILED'}];
+test('clerk review is separate from system failures and missing materials',()=>{
+ const fixture={rmaNo:'LAB-REVIEW',status:'REPAIR_COMPLETED_PENDING_SHIPMENT',technicianId:'T1',technicianName:'测试师傅',inspectionOnlyHandoff:{status:'PENDING_INFORMATION'},repairCompletion:{}};
+ const result=buildHomeTodos([fixture],[{id:'LAB-TASK',rmaNo:'LAB-REVIEW',status:'FAILED'}],{role:'INFORMATION_CLERK'});
+ assert.equal(result.groups.find(g=>g.id==='review').count,1);
+ assert.equal(result.groups.find(g=>g.id==='sync').count,1);
+ assert.equal(result.groups.find(g=>g.id==='materials').count,1);
+ assert.equal(result.items.find(i=>i.group==='review').action,'在瑞云核对后手动提交');
+ assert.equal(result.items.find(i=>i.group==='sync').technicianName,'测试师傅');
+ assert.equal(result.items.filter(i=>i.group==='exceptions').length,0);
+ const resolved=buildHomeTodos([{...fixture,inspectionOnlyHandoff:{status:'CONFIRMED'}}],[],{role:'INFORMATION_CLERK'});
+ assert.equal(resolved.groups.find(g=>g.id==='review').count,0);
+});
 test('technician todos are self-only for both role formats; unknown roles fail closed',()=>{
  for(const role of ['TECHNICIAN','technician']) {
   const tech=buildHomeTodos(orders,tasks,{userId:'T1',role});

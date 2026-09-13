@@ -6,7 +6,9 @@ const path = require("node:path");
 test("information exception center is read-only searchable and refreshes automatically", async () => {
   const page = await fs.readFile(path.join(__dirname, "../frontend/src/pages/InformationExceptionCenter.jsx"), "utf8");
   const users = await fs.readFile(path.join(__dirname, "../frontend/src/shared/userStore.js"), "utf8");
-  assert.match(page, /问题工单/);
+  assert.match(page, /消息与待办/);
+  assert.match(page, /消息分类/);
+  assert.match(page, /categories.types\[item.type\]/);
   assert.match(page, /本页只读汇总/);
   assert.match(page, /setInterval\(refresh, 30000\)/);
   assert.match(page, /查看完整报告和附件/);

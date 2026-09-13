@@ -1,0 +1,23 @@
+{
+  "groups": [
+    {"id":"review","label":"待审核提交","action":"在瑞云核对后手动提交"},
+    {"id":"shortage","label":"缺件待料","action":"跟进配件到货与补件"},
+    {"id":"materials","label":"资料待补充","action":"联系师傅核对并补充资料"},
+    {"id":"warranty","label":"转保待审核","action":"核对转保申请及凭证"},
+    {"id":"sync","label":"系统异常","action":"联系管理员核对，勿重复提交"},
+    {"id":"shipping","label":"发货待完结","action":"核对物流并联系管理员完结"},
+    {"id":"exceptions","label":"其他待跟进","action":"查看工单详情并跟进"}
+  ],
+  "types": {
+    "RECLOUD_COMPLETED_SUBMIT_PENDING":"review",
+    "INSPECTION_ONLY_ADDRESS_AND_SUBMIT_PENDING":"review",
+    "PARTS_SHORTAGE_PENDING":"shortage",
+    "MATERIAL_HOLD_PENDING":"shortage",
+    "REPORT_INCOMPLETE":"materials",
+    "COMPLETION_MEDIA_MISSING":"materials",
+    "ATTACHMENT_FILE_MISSING":"materials",
+    "SYNC_ATTENTION_REQUIRED":"sync",
+    "RECLOUD_RECEIPT_RESULT_UNKNOWN":"sync",
+    "SHIPPED_NOT_COMPLETED":"shipping"
+  }
+}
