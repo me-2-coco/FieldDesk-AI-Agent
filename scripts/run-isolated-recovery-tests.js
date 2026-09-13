@@ -4,6 +4,7 @@ const os = require('node:os');
 const { spawn } = require('node:child_process');
 const { provision } = require('./start-isolated-lab');
 const names = [
+  'recloud-attachment-write-guard', 'recloud-attachment-upload-wait',
   'recloud-part-write-guard',
   'recloud-label-selection',
   'recloud-return-flags', 'recloud-repair-parts-reader',

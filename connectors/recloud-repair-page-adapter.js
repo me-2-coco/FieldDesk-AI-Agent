@@ -9,6 +9,7 @@ const fs = require('node:fs/promises');
 const { RecloudPartWriteGuard, existingPartMatches } = require('../services/recloud-part-write-guard');
 const { repairAttachmentIdentity } = require('../services/repair-attachment-identity');
 const { attachmentUploadTimeout, waitForAttachmentDialog } = require('../services/recloud-attachment-upload-wait');
+const { RecloudAttachmentWriteGuard, blocked: attachmentWriteBlocked } = require('../services/recloud-attachment-write-guard');
 
 function adapterError(message, code, phase) {
   const error = new Error(message);
@@ -881,8 +882,21 @@ function createRecloudRepairPageAdapter(page, context = {}) {
     },
 
     async uploadAttachments(plan, options = {}) {
+      // Discard the old page snapshot before any upload. An operator may have
+      // uploaded/submitted since the orchestrator built its plan.
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 });
+      await openServiceReport(page);
+      if (!context.rmaNo || !(await page.locator('body').innerText()).includes(String(context.rmaNo))) {
+        throw attachmentWriteBlocked();
+      }
+      if (await isRecloudRepairFullySubmitted(page)) throw attachmentWriteBlocked();
+      const target = String(options.target || "附件").trim();
+      const writeGuard = context.attachmentWriteGuard || new RecloudAttachmentWriteGuard();
+      const additions = await writeGuard.pending(context.rmaNo, plan.additions,
+        await readExistingRepairAttachments(page, target));
+      if (!additions.length) return { uploadedCount: 0, alreadyComplete: true };
       const uploadFiles = [];
-      for (const item of plan.additions) {
+      for (const item of additions) {
         const original = item.originalFileName;
         if (!original) throw adapterError('维修附件缺少稳定标识', 'REPAIR_ATTACHMENT_IDENTITY_REQUIRED', 'ATTACHMENTS');
         const buffer = await fs.readFile(attachmentPath(context.rmaNo, original));
@@ -892,7 +906,6 @@ function createRecloudRepairPageAdapter(page, context = {}) {
       }
       await openServiceReport(page);
       if (!plan.additions.length) return { uploadedCount: 0 };
-      const target = String(options.target || "附件").trim();
       const isDetectionReport = target === "附件（检测报告）";
       const headings = page.getByText(target, { exact: true }).filter({ visible: true });
       const heading = await uniqueVisible(headings, `瑞云${target}区域不唯一`, isDetectionReport ? "RECLOUD_DETECTION_REPORT_SECTION_AMBIGUOUS" : "RECLOUD_REPAIR_ATTACHMENT_SECTION_AMBIGUOUS", isDetectionReport ? "DETECTION_REPORT" : "ATTACHMENTS");
@@ -907,8 +920,11 @@ function createRecloudRepairPageAdapter(page, context = {}) {
       if (await fileInput.count() !== 1) throw adapterError("附件文件选择框不唯一", "RECLOUD_REPAIR_ATTACHMENT_INPUT_AMBIGUOUS", "ATTACHMENTS");
       await fileInput.setInputFiles(uploadFiles);
       const upload = await uniqueVisible(dialog.getByRole("button", { name: /^\s*上\s*传\s*$/ }).filter({ visible: true }), "附件上传确认按钮不唯一", "RECLOUD_REPAIR_ATTACHMENT_CONFIRM_AMBIGUOUS", "ATTACHMENTS");
+      // Persist intent before the irreversible click. A lost response cannot
+      // make a subsequent process upload these files again.
+      await writeGuard.claim(context.rmaNo, additions);
       await upload.click({ timeout: 5000 });
-      await dialog.waitFor({ state: "hidden", timeout: attachmentUploadTimeout(plan.additions) });
+      await dialog.waitFor({ state: "hidden", timeout: attachmentUploadTimeout(additions) });
       const saveOrder = await uniqueVisible(
         page.getByRole("button", { name: exactText("保存") }).filter({ visible: true }),
         "瑞云维修单保存按钮不唯一",
@@ -919,7 +935,7 @@ function createRecloudRepairPageAdapter(page, context = {}) {
       await page.waitForTimeout?.(600);
       await page.reload({ waitUntil: "domcontentloaded", timeout: 15000 });
       await openServiceReport(page);
-      return { uploadedCount: plan.additions.length };
+      return { uploadedCount: additions.length };
     },
 
     async clickComplete() {
