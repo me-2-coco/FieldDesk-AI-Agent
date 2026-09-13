@@ -286,6 +286,11 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
         orderKey, fingerprint, status: 'RUNNING', completedSteps: [...completedSteps, 'ATTACHMENTS_VERIFIED'],
       });
     } catch (cause) {
+      // Keep the low-level stage observable without logging filenames or customer data.
+      console.error('RECLOUD_ATTACHMENT_FAILURE_DETAIL', JSON.stringify({
+        code: cause?.code || 'UNKNOWN', name: cause?.name || 'Error',
+        phase: cause?.phase || 'ATTACHMENTS', timeout: /timeout/i.test(String(cause?.message || '')),
+      }));
       throw orchestratorError('维修附件上传或保存后的结果未核实，禁止重复上传',
         'RECLOUD_REPAIR_ATTACHMENT_UPLOAD_UNCERTAIN', 'ATTACHMENTS', { cause, resultUnknown: true, permanent: true });
     }

@@ -28,6 +28,9 @@ function createRecloudCommandExecutor(options = {}) {
           if (typeof adapter.prepareAttachmentIdentities !== 'function') return null;
           const files = await adapter.prepareAttachmentIdentities((task.payload.attachments || []).filter(file => file.source !== 'INSPECTION_REPORT'));
           if (!require('./repair-attachment-identity').verifiedRepairManifest(files, remote.attachments, prior.attachmentManifest)) return null;
+          // Another authorized operator may have submitted while this task was
+          // paused. Finalize locally only; never reopen a submitted repair for writes.
+          if (remote.completed === true) return { status: 'SUCCESS', completedSteps: ['REMOTE_SUBMISSION_RECONCILED'] };
           // Preserve the checkpoint until a scheduled execution has re-read it;
           // returning READY_TO_RESUME does not claim the repair is completed.
           return { status: 'READY_TO_RESUME', step: 'ATTACHMENTS_VERIFIED' };

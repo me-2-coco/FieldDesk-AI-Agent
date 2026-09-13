@@ -8,6 +8,7 @@ const crypto = require("crypto");
 const fs = require('node:fs/promises');
 const { RecloudPartWriteGuard, existingPartMatches } = require('../services/recloud-part-write-guard');
 const { repairAttachmentIdentity } = require('../services/repair-attachment-identity');
+const { attachmentUploadTimeout, waitForAttachmentDialog } = require('../services/recloud-attachment-upload-wait');
 
 function adapterError(message, code, phase) {
   const error = new Error(message);
@@ -899,18 +900,15 @@ function createRecloudRepairPageAdapter(page, context = {}) {
       if (await panel.count() !== 1) throw adapterError(`无法定位瑞云${target}上传按钮`, isDetectionReport ? "RECLOUD_DETECTION_REPORT_UPLOAD_NOT_FOUND" : "RECLOUD_REPAIR_ATTACHMENT_UPLOAD_NOT_FOUND", isDetectionReport ? "DETECTION_REPORT" : "ATTACHMENTS");
       const uploadEntry = await uniqueVisible(panel.getByRole("button", { name: exactText("上传附件") }).filter({ visible: true }), `瑞云${target}上传按钮不唯一`, isDetectionReport ? "RECLOUD_DETECTION_REPORT_UPLOAD_AMBIGUOUS" : "RECLOUD_REPAIR_ATTACHMENT_UPLOAD_AMBIGUOUS", isDetectionReport ? "DETECTION_REPORT" : "ATTACHMENTS");
       await uploadEntry.click({ timeout: 5000 });
-      const dialog = await uniqueVisible(
-        page.getByRole("dialog").filter({ has: page.getByText("上传附件", { exact: true }) }).filter({ visible: true }),
-        "附件上传窗口不唯一",
-        "RECLOUD_REPAIR_ATTACHMENT_DIALOG_AMBIGUOUS",
-        "ATTACHMENTS"
+      const dialog = await waitForAttachmentDialog(
+        page.getByRole("dialog").filter({ has: page.getByText("上传附件", { exact: true }) }).filter({ visible: true })
       );
       const fileInput = dialog.locator("input[type='file']");
       if (await fileInput.count() !== 1) throw adapterError("附件文件选择框不唯一", "RECLOUD_REPAIR_ATTACHMENT_INPUT_AMBIGUOUS", "ATTACHMENTS");
       await fileInput.setInputFiles(uploadFiles);
       const upload = await uniqueVisible(dialog.getByRole("button", { name: /^\s*上\s*传\s*$/ }).filter({ visible: true }), "附件上传确认按钮不唯一", "RECLOUD_REPAIR_ATTACHMENT_CONFIRM_AMBIGUOUS", "ATTACHMENTS");
       await upload.click({ timeout: 5000 });
-      await dialog.waitFor({ state: "hidden", timeout: 30000 });
+      await dialog.waitFor({ state: "hidden", timeout: attachmentUploadTimeout(plan.additions) });
       const saveOrder = await uniqueVisible(
         page.getByRole("button", { name: exactText("保存") }).filter({ visible: true }),
         "瑞云维修单保存按钮不唯一",
