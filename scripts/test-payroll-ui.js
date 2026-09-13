@@ -10,6 +10,7 @@ const assert = require('node:assert/strict');
 const accounts = [{ userId: 'FieldDesk0005', displayName: '合成师傅甲', role: 'TECHNICIAN' }, { userId: 'FieldDesk0006', displayName: '合成师傅乙', role: 'TECHNICIAN' }];
 const orders = [0, 1, 2, 3].map((n) => ({ rmaNo: 'SYNTHETIC-' + n, technicianId: n < 2 ? 'FieldDesk0005' : 'FieldDesk0006', productLine: n < 2 ? '洗地机' : '扫地机', sn: '00000000' + n, treatmentMode: n % 2 ? 'ABANDONED' : 'REPAIR', repairCompletion: { submittedAt: '2026-09-05T00:00:00Z' } }));
 orders.push({ ...orders[0] });
+orders.push({ ...orders[0], rmaNo: 'REPEAT-SYNTHETIC', repairCompletion: { submittedAt: '2026-09-10T00:00:00Z', usedParts: [{ partCode: 'P', partName: '合成电机', quantity: 1 }] } });
 orders.push({ ...orders[1], rmaNo: 'UNKNOWN', productLine: '未分类' });
 (async () => {
  const app = express(); let exportMonth;
@@ -38,6 +39,8 @@ orders.push({ ...orders[1], rmaNo: 'UNKNOWN', productLine: '未分类' });
   await page.getByLabel('筛选师傅').selectOption('FieldDesk0005');
   await page.getByRole('heading', { name: '合成师傅甲的明细' }).waitFor();
   assert.equal(await page.getByRole('tab', { name: '已计薪（2）', exact: true }).count(), 1);
+  await page.getByRole('tab', { name: '重复维修（1）', exact: true }).click();
+  await page.getByText('合成电机 × 1', { exact: true }).waitFor();
   await page.getByRole('tab', { name: '重复已排除（1）' }).click();
   assert.equal(await page.locator('td.payroll-reason').count(), 1);
   await page.getByLabel('搜索工单明细').fill('NO_MATCH');
@@ -50,6 +53,7 @@ orders.push({ ...orders[1], rmaNo: 'UNKNOWN', productLine: '未分类' });
   const download = await downloadEvent; await download.saveAs(path.join(output, 'ui-export.xlsx'));
   assert.equal(exportMonth, '2026-09');
   const ExcelJS = require(root + '/node_modules/exceljs'); const wb = new ExcelJS.Workbook(); await wb.xlsx.readFile(path.join(output, 'ui-export.xlsx'));
+  assert.equal(wb.getWorksheet('重复维修（不计薪）').rowCount, 2);
   assert.equal(wb.getWorksheet('计薪工单明细').rowCount, 5); // All technicians, despite the selected drilldown.
   await page.getByLabel('核算月份').fill('2026-08');
   await page.getByText('共计 0 台', { exact: true }).waitFor();

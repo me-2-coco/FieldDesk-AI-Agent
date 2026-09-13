@@ -60,7 +60,7 @@ test('unknown products/missing identifiers need review; test accounts visibly ex
 test('WPS workbook has complete detail, filters, formula results, safe string IDs and correct total', async () => {
   const data = report([order('=SYNTHETIC'), order('A'), order('A'), order('UNKNOWN', { productLine: '未知' })]);
   const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(await exportPayroll(data));
-  assert.equal(workbook.worksheets.length, 5);
+  assert.equal(workbook.worksheets.length, 6);
   const sheet = workbook.getWorksheet('工资汇总');
   assert.equal(sheet.getCell('O2').value.result, 30);
   assert.equal(sheet.getCell(`O${sheet.rowCount}`).value.result, 30);
@@ -96,4 +96,61 @@ test('payroll read/export owner only, rejects spoof query and headers before rea
   assert.equal(download.status, 200); assert.match(download.headers.get('content-type'), /spreadsheetml/);
   const wb = new ExcelJS.Workbook(); await wb.xlsx.load(Buffer.from(await download.arrayBuffer())); assert.equal(wb.getWorksheet('计薪工单明细').rowCount, 2);
   assert.equal((await fetch(`${base}?month=2026-13`)).status, 400);
+});
+
+const completed = (rmaNo, at, parts = [], overrides = {}) => order(rmaNo, { repairCompletion: { submittedAt: at, usedParts: parts }, ...overrides });
+const changedPart = [{ partCode: 'SYNTHETIC-PART', partName: '合成电机', quantity: 1 }];
+test('SN identifies machine regardless of phone/RMA; only later replacement repair is unpaid across month and technician', async () => {
+  const data = report([
+    completed('EARLIER', '2026-08-25T02:00:00Z', [], { phone: 'synthetic-phone-A' }),
+    completed('REPEAT', '2026-09-05T02:00:00Z', changedPart, { phone: 'synthetic-phone-B', technicianId: 'FieldDesk0006' }),
+    completed('OTHER-MACHINE', '2026-09-05T02:00:00Z', changedPart, { phone: 'synthetic-phone-B', sn: 'OTHER-SN' }),
+  ]);
+  assert.equal(data.summary.amount, 15); assert.equal(data.summary.grossAmount, 30);
+  assert.equal(data.summary.deduction, 15); assert.equal(data.summary.repeatRepairs, 1);
+  assert.equal(data.summary.completedTotal, 2); assert.equal(data.summary.total, 1);
+  const row = data.repeatRepairs[0]; assert.equal(row.previousRmaNo, 'EARLIER'); assert.equal(row.amount, 0);
+  assert.equal(row.technicianId, 'FieldDesk0006'); assert.equal(row.previousTechnicianId, 'FieldDesk0005');
+  assert.equal(row.parts[0].name, '合成电机');
+  const wb = new ExcelJS.Workbook(); await wb.xlsx.load(await exportPayroll(data));
+  const sheet = wb.getWorksheet('重复维修（不计薪）');
+  assert.equal(sheet.rowCount, 2); assert.equal(sheet.getCell('N2').value, 'EARLIER');
+  assert.match(sheet.getCell('M2').value, /合成电机.*1/); assert.equal(sheet.getCell('S2').value, 15);
+  const sum = wb.getWorksheet('工资汇总');
+  assert.equal(sum.getCell(`O${sum.rowCount}`).value.result, 15);
+  assert.equal(sum.getCell(`R${sum.rowCount}`).value.result, 30);
+  assert.equal(sum.getCell(`S${sum.rowCount}`).value.result, 15);
+  assert.equal(buildPayroll([completed('EARLIER', '2026-08-25T02:00:00Z'), completed('REPEAT', '2026-09-05T02:00:00Z', changedPart)], accounts, {month:'2026-08'}).summary.amount, 15);
+});
+test('no parts, zero quantities, applications only and different SN remain payable', () => {
+  const data = report([
+    completed('A', '2026-09-01T00:00:00Z'),
+    completed('B', '2026-09-02T00:00:00Z', []),
+    completed('C', '2026-09-03T00:00:00Z', [{partCode:'P',quantity:0}, {partCode:'P',quantity:-1}]),
+    completed('D', '2026-09-04T00:00:00Z', [], {partApplications: changedPart}),
+    completed('E', '2026-09-05T00:00:00Z', changedPart, {sn:'DIFFERENT'}),
+  ]);
+  assert.equal(data.summary.amount, 75); assert.equal(data.repeatRepairs.length, 0);
+});
+test('calendar month deadline includes exact anniversary and clamps month end including leap year', () => {
+  for (const [start, end, month] of [['2026-08-31T10:00:00Z','2026-09-30T10:00:00Z','2026-09'],['2028-01-31T10:00:00Z','2028-02-29T10:00:00Z','2028-02'],['2026-12-20T02:00:00Z','2027-01-20T02:00:00Z','2027-01']]) {
+    const make = at => buildPayroll([completed('A',start),completed('B',at,changedPart)],accounts,{month});
+    assert.equal(make(end).repeatRepairs.length, 1);
+    assert.equal(make(new Date(Date.parse(end)+1).toISOString()).repeatRepairs.length, 0);
+  }
+});
+test('latest distinct repair resets lookback; same-RMA copies do not; test history excluded from formal payroll', () => {
+  const all = [completed('A','2026-08-01T00:00:00Z'), completed('B','2026-08-25T00:00:00Z',changedPart), completed('C','2026-09-20T00:00:00Z',changedPart)];
+  assert.equal(report(all).repeatRepairs[0].previousRmaNo,'B');
+  const copies = [completed('A','2026-08-01T00:00:00Z'),completed('A','2026-08-25T00:00:00Z'),completed('C','2026-09-20T00:00:00Z',changedPart)];
+  assert.equal(report(copies).summary.amount,15);
+  const testFirst = [completed('TEST','2026-08-25T00:00:00Z',[],{technicianId:'FieldDesk0004'}),completed('FORMAL','2026-09-05T00:00:00Z',changedPart)];
+  assert.equal(report(testFirst).summary.amount,15);
+  assert.equal(buildPayroll(testFirst, accounts, {month:'2026-09',includeTest:true}).repeatRepairs.length,1);
+});
+test('SN normalization, missing SN and conflicting prior records cannot silently mispay', () => {
+  const data = report([completed('A','2026-08-25T00:00:00Z',[],{sn:' sn-Abc '}),completed('B','2026-09-01T00:00:00Z',changedPart,{sn:'SN-ABC'}),completed('NO-SN','2026-09-02T00:00:00Z',changedPart,{sn:''})]);
+  assert.equal(data.repeatRepairs.length,1); assert.equal(data.pending.length,1);
+  const conflict = report([completed('A','2026-08-25T00:00:00Z'),completed('A','2026-08-25T00:00:00Z',[],{technicianId:'FieldDesk0006'}),completed('B','2026-09-01T00:00:00Z',changedPart)]);
+  assert.equal(conflict.summary.amount,0); assert.match(conflict.pending[0].reason,/前次工单/);
 });
