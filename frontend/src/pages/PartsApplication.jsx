@@ -244,6 +244,7 @@ function PartsApplication({ setPage }) {
       <section className="card selected-parts-card compact-selected-parts-card">
         <div className="selected-parts-heading"><div><span>{quoteOnly ? "报价配件" : diagnosticOnly ? "故障记录" : "已选配件"}</span><h2>{quoteOnly ? "导致弃修的故障配件" : diagnosticOnly ? "检测确认的故障配件" : "本工单配件"}</h2></div><strong>{selectedPartsCount} 件</strong></div>
         {!selectedParts.length && <p>{recordOnly ? "尚未登记故障配件" : "尚未选择配件"}</p>}
+        <div className="selected-parts-scroll" role="region" aria-label="本工单已选配件，可上下滚动" tabIndex={selectedParts.length > 3 ? 0 : undefined}>
         {selectedParts.map((part) => (
           <div className="selected-part-row" key={part.id}>
             <div>
@@ -272,6 +273,7 @@ function PartsApplication({ setPage }) {
             <button type="button" className="secondary-btn" onClick={() => changeApplication(part, part.quantity, true)} disabled={isSaving}>删除</button>
           </div>
         ))}
+        </div>
         {!!selectedParts.length && <div className="selected-parts-total"><span>{quoteOnly ? "预计配件费" : diagnosticOnly ? "故障配件数量" : "配件小计"}</span><strong>{diagnosticOnly ? `${selectedPartsCount} 件` : selectedPartsTotal === null ? "待核价" : `¥${selectedPartsTotal.toFixed(2)}`}</strong><small>{quoteOnly ? "仅用于弃修费用明细，不会添加到瑞云更换件" : diagnosticOnly ? "仅用于确认故障，不申请库存、不写入瑞云更换件" : "完整费用在维修完工页核对"}</small></div>}
       </section>
 
