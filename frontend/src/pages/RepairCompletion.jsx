@@ -107,6 +107,7 @@ function RepairCompletion({ setPage, currentUser }) {
   const [oneWayLogisticsFee, setOneWayLogisticsFee] = useState("")
   const [logisticsChargeMode, setLogisticsChargeMode] = useState("ROUND_TRIP")
   const [discountEnabled, setDiscountEnabled] = useState(false)
+  const [outOfWarrantyReliefEnabled, setOutOfWarrantyReliefEnabled] = useState(false)
   const [discountScope, setDiscountScope] = useState("ORDER_TOTAL")
   const [discountRate, setDiscountRate] = useState("")
   const [finalChargeAmount, setFinalChargeAmount] = useState(null)
@@ -187,6 +188,7 @@ function RepairCompletion({ setPage, currentUser }) {
         setOneWayLogisticsFee(draftLogisticsMode === "WAIVED" && !isAbandoned ? "" : draftLogisticsFee)
         setLogisticsChargeMode(draftLogisticsMode)
         setDiscountEnabled(draft.discountEnabled === true || draft.pricing?.discountEnabled === true)
+        setOutOfWarrantyReliefEnabled(draft.outOfWarrantyReliefEnabled === true)
         setDiscountScope(draft.discountScope || draft.pricing?.discountScope || "ORDER_TOTAL")
         setDiscountRate((draft.discountEnabled === true || draft.pricing?.discountEnabled === true)
           ? String(draft.discountRate || draft.pricing?.discountRate || "")
@@ -196,6 +198,7 @@ function RepairCompletion({ setPage, currentUser }) {
           : String(draft.finalChargeAmount))
       }
       if (!draft) {
+        setOutOfWarrantyReliefEnabled(false)
         if (isAbandoned) setLogisticsChargeMode("ROUND_TRIP")
         setSpeechTemplate(presetTemplate)
         setRepairMeasure(buildRepairMeasure(presetTemplate, contextParts, context.order?.reportedFault, confirmedFault.at(-1)))
@@ -254,7 +257,7 @@ function RepairCompletion({ setPage, currentUser }) {
   const hasValidOptionalOutOfWarrantyFee = oneWayLogisticsFee === "" || hasValidOutOfWarrantyFee
   const discountRateNumber = Number(discountRate)
   const hasValidDiscount = !discountEnabled || (discountRate !== "" && Number.isFinite(discountRateNumber) && discountRateNumber > 0 && discountRateNumber < 10)
-  const technicianAttachments = attachments.filter((item) => item.source !== "WARRANTY_CONVERSION_APPROVAL")
+  const technicianAttachments = attachments.filter((item) => !["WARRANTY_CONVERSION_APPROVAL", "FREIGHT_WAIVER_APPLICATION"].includes(item.source))
   const hasInspectionMedia = technicianAttachments.some((item) => /^(image|video)\//.test(item.mimeType || ""))
   const hasRequiredAttachment = isInspectionOnly ? hasInspectionMedia : technicianAttachments.length > 0
   const conversionReady = warrantyConversion?.requested !== true || warrantyConversion?.status === "APPROVED"
@@ -269,7 +272,7 @@ function RepairCompletion({ setPage, currentUser }) {
   const originalTotalFee = originalServiceFee + displayedLogisticsFee
   const discountMultiplier = discountEnabled && hasValidDiscount ? discountRateNumber / 10 : 1
   const calculatedTotalFee = isAbandoned
-    ? 0
+    ? outOfWarrantyReliefEnabled ? 0 : displayedLogisticsFee
     : discountEnabled && hasValidDiscount
     ? discountScope === "ORDER_TOTAL"
       ? Number((originalTotalFee * discountMultiplier).toFixed(2))
@@ -309,11 +312,11 @@ function RepairCompletion({ setPage, currentUser }) {
   const displayedDiscountAmount = Number((originalTotalFee - displayedTotalFee).toFixed(2))
   const formatMoney = (value) => String(Number(Number(value || 0).toFixed(2)))
   const primaryRemark = isAbandoned
-    ? "申请运费减免"
+    ? outOfWarrantyReliefEnabled && logisticsChargeMode !== "WALK_IN" ? "申请运费减免" : "无减免"
     : discountEnabled && hasValidDiscount ? "申请折扣减免" : "无减免"
   const feeDetails = `配件费${formatMoney(pricing?.partsFee)}元，维修费${formatMoney(pricing?.fee)}元，运费${formatMoney(displayedLogisticsFee)}元，合计${formatMoney(originalTotalFee)}元`
   const secondaryRemark = isAbandoned
-    ? `${feeDetails}，用户放弃维修，免运费寄回`
+    ? `${feeDetails}，用户放弃维修${logisticsChargeMode === "WALK_IN" ? "" : outOfWarrantyReliefEnabled ? "，免运费寄回" : `，仅收运费${formatMoney(displayedLogisticsFee)}元`}`
     : discountEnabled && hasValidDiscount
       ? `${feeDetails}，${formatMoney(discountRateNumber)}折后费用合计${formatMoney(displayedTotalFee)}元`
       : feeDetails
@@ -326,6 +329,7 @@ function RepairCompletion({ setPage, currentUser }) {
     oneWayLogisticsFee: ["WAIVED", "WALK_IN"].includes(logisticsChargeMode) ? "" : oneWayLogisticsFee,
     logisticsChargeMode,
     discountEnabled,
+    outOfWarrantyReliefEnabled: isAbandoned && outOfWarrantyReliefEnabled,
     discountScope,
     discountRate: discountEnabled ? discountRate : "",
     finalChargeAmount: isAbandoned ? null : finalChargeAmount
@@ -546,8 +550,8 @@ function RepairCompletion({ setPage, currentUser }) {
         ) : (isAbandoned || isOutOfWarranty) ? (
             <div ref={pricingSummaryRef} className={`pricing-summary compact-pricing-summary ${isDebugging ? "debugging-pricing-summary" : ""} ${!pricing?.canPrice ? "pricing-needs-review" : ""}`}>
               <div className="pricing-summary-head">
-                <div><span>{isAbandoned ? "弃修报价明细" : "保外费用明细"}</span><strong>{isAbandoned ? "用于免运费申请" : isDebugging ? "调试费用（选填）" : "完工前请核对"}</strong></div>
-                <b>{pricing?.canPrice ? (isAbandoned ? "客户实付 ¥0.00" : `应收 ¥${displayedTotalFee.toFixed(2)}`) : "合计待核价"}</b>
+                <div><span>{isAbandoned ? "弃修报价明细" : "保外费用明细"}</span><strong>{isAbandoned ? outOfWarrantyReliefEnabled ? "用于免运费申请" : "不申请减免，仅核对运费" : isDebugging ? "调试费用（选填）" : "完工前请核对"}</strong></div>
+                <b>{pricing?.canPrice ? `应收 ¥${displayedTotalFee.toFixed(2)}` : "合计待核价"}</b>
               </div>
               {!isDebugging && <div className="pricing-stat-grid fee-detail-grid">
                 <div><span>维修等级</span><strong>{pricing?.highestLevel || "待确认"}</strong></div>
@@ -572,6 +576,10 @@ function RepairCompletion({ setPage, currentUser }) {
                   </label>
                 ))}
               </fieldset>
+              {isAbandoned && <section className={`discount-panel ${outOfWarrantyReliefEnabled ? "is-enabled" : ""}`}>
+                <label><input type="checkbox" role="switch" checked={outOfWarrantyReliefEnabled} disabled={completedDetail} onChange={(event) => setOutOfWarrantyReliefEnabled(event.target.checked)} /> 保外折扣减免</label>
+                <p>{outOfWarrantyReliefEnabled ? "提交时生成减免申请单，填写减免备注并同步瑞云。" : "默认关闭：不生成、不上传减免申请单，不申请减免。"}</p>
+              </section>}
               {requiresOutOfWarrantyFee && <section className={`discount-panel ${discountEnabled ? "is-enabled" : ""}`}>
                 <fieldset className="discount-toggle-options">
                   <legend>是否打折</legend>

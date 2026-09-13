@@ -1832,6 +1832,7 @@ class JsonReceiptPreparationStore {
           oneWayLogisticsFee: Number(input.oneWayLogisticsFee) || 0,
           logisticsFee: Number(input.logisticsFee) || 0,
           discountEnabled: input.discountEnabled === true,
+          outOfWarrantyReliefEnabled: input.outOfWarrantyReliefEnabled === true,
           discountScope: normalizeRequired(input.discountScope) || "ORDER_TOTAL",
           discountRate: Number(input.discountRate) || 10,
           primaryRemark: normalizeRequired(input.primaryRemark),

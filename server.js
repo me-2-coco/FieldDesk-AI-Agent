@@ -275,7 +275,7 @@ function formatFeeAmount(value) {
   return String(Number(Number(value || 0).toFixed(2)));
 }
 
-function abandonedReturnPricing({ partsFee = 0, repairFee = 0, oneWayLogisticsFee = 0, logisticsChargeMode = "ROUND_TRIP", highestLevel = "无配件", canPrice = true } = {}) {
+function abandonedReturnPricing({ partsFee = 0, repairFee = 0, oneWayLogisticsFee = 0, logisticsChargeMode = "ROUND_TRIP", highestLevel = "无配件", canPrice = true, outOfWarrantyReliefEnabled = false } = {}) {
   const normalizedPartsFee = Number(partsFee || 0);
   const normalizedRepairFee = Number(repairFee || 0);
   const normalizedOneWayLogisticsFee = logisticsChargeMode === "WALK_IN" ? 0 : Number(oneWayLogisticsFee || 0);
@@ -297,18 +297,19 @@ function abandonedReturnPricing({ partsFee = 0, repairFee = 0, oneWayLogisticsFe
     logisticsChargeLabel: mode.label,
     oneWayLogisticsFee: normalizedOneWayLogisticsFee,
     quotedLogisticsFee,
-    logisticsFee: 0,
+    logisticsFee: outOfWarrantyReliefEnabled ? 0 : quotedLogisticsFee,
     logisticsMultiplier: mode.multiplier,
     subtotal: Number((normalizedPartsFee + normalizedRepairFee).toFixed(2)),
     quotedTotalFee,
-    totalFee: 0,
+    totalFee: outOfWarrantyReliefEnabled ? 0 : quotedLogisticsFee,
+    outOfWarrantyReliefEnabled,
     discountEnabled: false,
     discountScope: "ORDER_TOTAL",
     discountRate: 10,
     discountAmount: 0,
-    primaryRemark: logisticsChargeMode === "WALK_IN" ? "无减免" : "申请运费减免",
-    secondaryRemark: `配件费${formatFeeAmount(normalizedPartsFee)}元，维修费${formatFeeAmount(normalizedRepairFee)}元，运费${formatFeeAmount(quotedLogisticsFee)}元，合计${formatFeeAmount(quotedTotalFee)}元，用户放弃维修${logisticsChargeMode === "WALK_IN" ? "" : "，免运费寄回"}`,
-    logisticsSource: "ABANDONED_RETURN_WAIVER",
+    primaryRemark: outOfWarrantyReliefEnabled && logisticsChargeMode !== "WALK_IN" ? "申请运费减免" : "无减免",
+    secondaryRemark: `配件费${formatFeeAmount(normalizedPartsFee)}元，维修费${formatFeeAmount(normalizedRepairFee)}元，运费${formatFeeAmount(quotedLogisticsFee)}元，合计${formatFeeAmount(quotedTotalFee)}元，用户放弃维修${logisticsChargeMode === "WALK_IN" ? "" : outOfWarrantyReliefEnabled ? "，免运费寄回" : `，仅收运费${formatFeeAmount(quotedLogisticsFee)}元`}`,
+    logisticsSource: outOfWarrantyReliefEnabled ? "ABANDONED_RETURN_WAIVER" : "ABANDONED_RETURN",
   };
 }
 
@@ -4610,6 +4611,7 @@ function createApp(
 
   async function refreshFreightWaiverApplication(order, operator = {}, options = {}) {
     if (!order || order.treatmentMode !== "ABANDONED" || !receiptStore.saveFreightWaiverApplication) return null;
+    if (order.repairCompletion?.outOfWarrantyReliefEnabled !== true) return null;
     if ((options.logisticsChargeMode || order.repairCompletion?.logisticsChargeMode) === "WALK_IN") return null;
     const hydratedOrder = await hydrateFreightWaiverOrder(order);
     const parts = await hydratePartRecords(order, order.abandonedQuoteParts || []);
@@ -5022,6 +5024,7 @@ function createApp(
         throw createApiError("LOGISTICS_CHARGE_MODE_INVALID", "弃修免运费申请请选择收取往返运费或只收单边运费", 400);
       }
       const discountEnabled = isOutOfWarranty && req.body?.discountEnabled === true;
+      const outOfWarrantyReliefEnabled = order.treatmentMode === "ABANDONED" && req.body?.outOfWarrantyReliefEnabled === true;
       const discountScope = discountEnabled
         ? String(req.body?.discountScope || "ORDER_TOTAL").trim()
         : "ORDER_TOTAL";
@@ -5077,6 +5080,7 @@ function createApp(
             logisticsChargeMode,
             highestLevel: repairPricing.highestLevel,
             canPrice,
+            outOfWarrantyReliefEnabled,
           })
         : isOutOfWarranty
           ? {
@@ -5121,7 +5125,7 @@ function createApp(
       const responsibilityType = order.treatmentMode === "INSPECTION_ONLY"
         ? "保内质保"
         : order.technicianWarranty === "保外" ? "保外维修" : "保内质保";
-      if (submit && order.treatmentMode === "ABANDONED") {
+      if (submit && outOfWarrantyReliefEnabled) {
         let generated;
         try {
           const hydratedOrder = await hydrateFreightWaiverOrder(order);
@@ -5176,6 +5180,7 @@ function createApp(
           responsibilityType,
           usedParts: order.treatmentMode === "ABANDONED" ? [] : usedParts,
           abandonedQuoteParts,
+          outOfWarrantyReliefEnabled,
           logisticsChargeMode: pricing.logisticsChargeMode,
           oneWayLogisticsFee,
           logisticsFee: pricing.logisticsFee,

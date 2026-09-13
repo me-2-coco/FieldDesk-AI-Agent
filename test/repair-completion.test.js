@@ -54,6 +54,7 @@ test("弃修免运费按报价生成瑞云费用备注，但实际收款为零",
     oneWayLogisticsFee: 64,
     logisticsChargeMode: "ONE_WAY",
     highestLevel: "中修",
+    outOfWarrantyReliefEnabled: true,
   });
   assert.equal(pricing.primaryRemark, "申请运费减免");
   assert.equal(pricing.secondaryRemark, "配件费249元，维修费70元，运费64元，合计383元，用户放弃维修，免运费寄回");
@@ -69,16 +70,17 @@ test("弃修免运费按报价生成瑞云费用备注，但实际收款为零",
     oneWayLogisticsFee: 64,
     logisticsChargeMode: "ROUND_TRIP",
     highestLevel: "中修",
+    outOfWarrantyReliefEnabled: true,
   });
   assert.equal(roundTripPricing.quotedLogisticsFee, 128);
   assert.equal(roundTripPricing.quotedTotalFee, 447);
   assert.equal(roundTripPricing.totalFee, 0);
   assert.equal(roundTripPricing.secondaryRemark, "配件费249元，维修费70元，运费128元，合计447元，用户放弃维修，免运费寄回");
-  assert.match(serverSource, /logisticsSource: "ABANDONED_RETURN_WAIVER"/);
-  assert.match(completionSource, /isAbandoned\s*\? "申请运费减免"/);
+  assert.match(serverSource, /if \(submit && outOfWarrantyReliefEnabled\)/);
+  assert.match(completionSource, /保外折扣减免/);
   assert.match(completionSource, /LOGISTICS_MODES\.filter\(\(item\) => !isAbandoned \|\| item\.value !== "WAIVED"\)/);
   assert.match(completionSource, /原应收运费方式/);
-  assert.match(completionSource, /`\$\{feeDetails\}，用户放弃维修，免运费寄回`/);
+  assert.match(completionSource, /outOfWarrantyReliefEnabled \? "，免运费寄回"/);
   assert.match(serverSource, /FREIGHT_WAIVER_APPLICATION_SOURCE/);
   assert.match(serverSource, /免运费申请单-\$\{rmaNo\}\.png/);
   assert.match(serverSource, /systemGenerated: true/);
