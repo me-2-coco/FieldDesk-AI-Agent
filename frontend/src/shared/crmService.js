@@ -497,8 +497,8 @@ export async function getInformationRepairReports(keyword) {
   return get(`/api/information/repair-reports?keyword=${encodeURIComponent(String(keyword || "").trim())}`, { timeoutMs: 3000 })
 }
 
-export async function getInformationExceptions() {
-  return get("/api/information/exceptions", { timeoutMs: 10000 })
+export async function getInformationExceptions(view='pending') {
+  return get(`/api/information/exceptions?view=${encodeURIComponent(view)}`, { timeoutMs: 10000 })
 }
 
 export async function resolveInformationPartsShortage(rmaNo) {

@@ -10,6 +10,7 @@
     {"id":"exceptions","label":"其他待跟进","action":"查看工单详情并跟进"}
   ],
   "types": {
+    "PAYMENT_FOLLOWUP":"payment",
     "RECLOUD_COMPLETED_SUBMIT_PENDING":"review",
     "INSPECTION_ONLY_ADDRESS_AND_SUBMIT_PENDING":"review",
     "PARTS_SHORTAGE_PENDING":"shortage",

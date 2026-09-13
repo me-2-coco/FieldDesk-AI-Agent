@@ -5630,6 +5630,9 @@ function createApp(
     try {
       assertInformationReportAccess(currentUserProvider(req));
       const orders = await receiptStore.readAll();
+      if(req.query?.view==='completed') {
+        return res.json({success:true,data:require('./services/completed-information-todos').completedInformationTodos(orders,await syncService.outbox.readAll())});
+      }
       const stalledAfterMs = Math.max(60 * 60 * 1000, Number(runtimeEnv.INFORMATION_STALLED_AFTER_HOURS || 24) * 60 * 60 * 1000);
       const orderExceptions = await Promise.all(orders.map(async (order) => {
         const missingAttachmentIds = [];
@@ -5643,7 +5646,8 @@ function createApp(
         return detectOrderExceptions(order, { stalledAfterMs, missingAttachmentIds });
       }));
       const syncExceptions = detectSyncExceptions(await syncService.outbox.readAll());
-      res.json({ success: true, data: sortExceptions([...orderExceptions.flat(), ...syncExceptions]).slice(0, 500) });
+      const paymentItems=require('./services/home-todos').buildHomeTodos(orders,[],currentUserProvider(req)).items.filter(i=>i.payment).map(i=>({...i,type:'PAYMENT_FOLLOWUP',severity:'MEDIUM',status:'ON_HOLD'}));
+      res.json({ success: true, data: sortExceptions([...orderExceptions.flat(), ...syncExceptions,...paymentItems]) });
     } catch (error) { next(error); }
   });
 
