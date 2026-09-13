@@ -71,6 +71,23 @@ function findHeaderIndex(headers, aliases) {
 
 async function readExistingRepairParts(page, options = {}) {
   const section = await locateRepairPartsSection(page);
+  const container = section.locator("xpath=ancestor::*[contains(concat(' ', normalize-space(@class), ' '), ' rt-table-content ')][1]");
+  let total;
+  if (await container.count() === 1) {
+    const pager = container.locator('.el-pagination');
+    if (await pager.count() === 1) {
+      const match = (await pager.innerText()).match(/共\s*(\d+)\s*条记录/);
+      if (!match) throw partsReaderError('配件总数无法核对', 'RECLOUD_REPAIR_PART_PRECHECK_FAILED');
+      total = Number(match[1]);
+      if (total > 50) throw partsReaderError('配件超过单页核对上限，禁止按缺件新增', 'RECLOUD_REPAIR_PART_PRECHECK_FAILED');
+      const size = pager.getByRole('button', { name: /条\/页/ });
+      if (total > 0 && !/50\s*条\/页/.test(await size.innerText())) {
+        await size.click({ timeout: 5000 });
+        await page.getByText('50条/页', { exact: true }).filter({ visible: true }).click({ timeout: 5000 });
+      }
+      if (total > 0) await section.locator('tbody tr').nth(total - 1).waitFor({ state: 'visible', timeout: 10000 });
+    }
+  }
   const { headers, columnCount } = await readWidestHeaderRow(section);
   const codeIndex = findHeaderIndex(headers, ["新件编码", "配件编码", "物料编码"]);
   const quantityIndex = findHeaderIndex(headers, ["数量", "配件数量", "更换数量"]);
@@ -112,6 +129,9 @@ async function readExistingRepairParts(page, options = {}) {
       quantity,
       ...(options.requireReturnFlag ? { returnRequired } : {}),
     });
+  }
+  if (total !== undefined && result.length !== total) {
+    throw partsReaderError('配件读取数量与瑞云总数不一致，禁止新增', 'RECLOUD_REPAIR_PART_PRECHECK_FAILED');
   }
   return result;
 }
