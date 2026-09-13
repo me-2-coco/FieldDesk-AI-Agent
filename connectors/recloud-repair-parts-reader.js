@@ -82,8 +82,11 @@ async function readExistingRepairParts(page, options = {}) {
       if (total > 50) throw partsReaderError('配件超过单页核对上限，禁止按缺件新增', 'RECLOUD_REPAIR_PART_PRECHECK_FAILED');
       const size = pager.getByRole('button', { name: /条\/页/ });
       if (total > 0 && !/50\s*条\/页/.test(await size.innerText())) {
-        await size.click({ timeout: 5000 });
-        await page.locator('.rt-dropdown-item-text').filter({ hasText: /^\s*50\s*条\/页\s*$/, visible: true }).click({ timeout: 5000 });
+        const option = page.locator('.rt-dropdown-item-text').filter({ hasText: /^\s*50\s*条\/页\s*$/, visible: true });
+        await size.hover({ timeout: 5000 });
+        try { await option.waitFor({ state: 'visible', timeout: 1000 }); }
+        catch { await size.click({ timeout: 5000 }); }
+        await option.click({ timeout: 5000 });
       }
       if (total > 0) await section.locator('tbody tr').nth(total - 1).waitFor({ state: 'visible', timeout: 10000 });
     }
