@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { isOwnerAccount } from "../shared/accountAccessPolicy.js"
 
 import {
   getCurrentUser,
@@ -124,6 +125,12 @@ function Profile({
           ))}
         </div>
       </div>
+
+      {isOwnerAccount(currentUser) && <div className="card profile-section-card">
+        <div className="profile-section-heading"><div><span>财务</span><h2>工资核算</h2></div><small>仅负责人可见</small></div>
+        <p className="profile-section-description">查看每月师傅工资、逐单核对台数，导出 WPS 工资表。</p>
+        <div className="desktop-app-grid"><button type="button" className="desktop-app" onClick={() => setPage("payroll")}><span className="desktop-app-icon desktop-tone-0"><AppIcon name="records" size={27} /></span><span>工资核算</span></button></div>
+      </div>}
 
       {isAdmin && (
         <div className="card profile-section-card">

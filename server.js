@@ -2,6 +2,7 @@ const express = require("express");
 const { blocksPartRetry } = require('./services/recloud-part-write-guard');
 const { resolveReportedFault, assertReportedFaultForSubmission, createReportedFaultLoader } = require("./services/reported-fault");
 const { monthlyStatistics, canExportMonthly, exportMonthly } = require("./shared/monthly-statistics");
+const { canViewPayroll, payrollMonth, buildPayroll, exportPayroll } = require("./shared/payroll");
 const crypto = require("crypto");
 const http = require("http");
 const https = require("https");
@@ -5366,6 +5367,23 @@ function createApp(
     } catch (error) { next(error); }
   });
 
+  app.get(["/api/finance/payroll", "/api/finance/payroll/export"], async (req, res, next) => {
+    res.setHeader("Cache-Control", "private, no-store");
+    try {
+      if (!canViewPayroll(currentUserProvider(req))) {
+        return res.status(403).json({ success: false, code: "PAYROLL_FORBIDDEN", message: "工资核算仅负责人可见" });
+      }
+      const month = payrollMonth(req.query.month);
+      const [orders, accounts] = await Promise.all([receiptStore.readAll(), accountStore.list()]);
+      const data = buildPayroll(orders, accounts, { month, includeTest: req.query.includeTest === "true" });
+      if (!req.path.endsWith("/export")) return res.json({ success: true, data });
+      const filename = `${data.includeTest ? "试算-" : ""}工资表-${month}.xlsx`;
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename="payroll-${month}.xlsx"; filename*=UTF-8''${encodeURIComponent(filename)}`);
+      res.send(Buffer.from(await exportPayroll(data)));
+    } catch (error) { next(error); }
+  });
+
   app.get(["/api/repairs/monthly-statistics", "/api/repairs/monthly-statistics/export"], async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
@@ -5875,6 +5893,7 @@ function createApp(
       FEISHU_MODEL_NETWORK_FAILED: { status: 502, message: "飞书机型表暂时无法连接，机型核验未完成。请保留照片，稍后重试" },
       FEISHU_AUTH_FAILED: { status: 502, message: "飞书机型表认证失败，请联系负责人检查配置" },
       FEISHU_MODEL_READ_FAILED: { status: 502, message: "读取飞书机型表失败，机型核验未完成。请保留照片，稍后重试" },
+      PAYROLL_MONTH_INVALID: { status: 400, message: "请选择有效月份" },
       PRINT_ADMIN_REQUIRED: { status: 403, message: "只有负责人或管理员可以配置打印终端" },
       PRINT_AGENT_AUTH_INVALID: { status: 401, message: "打印终端认证失败" },
       PRINT_TERMINAL_INVALID: { status: 400, message: error.message },

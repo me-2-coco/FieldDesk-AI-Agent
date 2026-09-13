@@ -255,6 +255,14 @@ export function getMonthlyStatistics(filters) {
   return get(`/api/repairs/monthly-statistics?${new URLSearchParams(filters)}`)
 }
 
+export function getPayroll(filters) {
+  return get(`/api/finance/payroll?${new URLSearchParams(filters)}`)
+}
+
+export function downloadPayroll(filters) {
+  return downloadFile(`/api/finance/payroll/export?${new URLSearchParams(filters)}`, "工资表.xlsx")
+}
+
 export function getHomeTodos() { return get('/api/home/todos') }
 
 export function downloadMonthlyStatistics(filters) {

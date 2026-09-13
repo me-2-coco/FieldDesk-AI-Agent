@@ -25,6 +25,7 @@ import SyncDiagnostics from "./pages/SyncDiagnostics.jsx"
 import AccountManagement from "./pages/AccountManagement.jsx"
 import AdminRepairRecovery from "./pages/AdminRepairRecovery.jsx"
 import PrintManagement from "./pages/PrintManagement.jsx"
+import Payroll from "./pages/Payroll.jsx"
 
 import BottomNav from "./components/BottomNav.jsx"
 import NotificationCenter from "./components/NotificationCenter.jsx"
@@ -707,6 +708,8 @@ function App() {
         {page === "accountManagement" && (
           <AccountManagement setPage={setPage} />
         )}
+
+        {page === "payroll" && <Payroll setPage={setPage} />}
 
         {page === "printManagement" && (
           <PrintManagement setPage={setPage} />
