@@ -1,9 +1,9 @@
+import { accountPersonName, accountRoleLabel } from "../shared/accountIdentity.js"
 import { useState } from "react"
 import { isOwnerAccount } from "../shared/accountAccessPolicy.js"
 
 import {
   getCurrentUser,
-  getRoleName,
   setAuthenticatedUser,
   USER_ROLES
 } from "../shared/userStore.js"
@@ -98,15 +98,15 @@ function Profile({
 
         <div className="profile-user-panel">
           <div className="profile-user-avatar">
-            {currentUser.name.slice(0, 1)}
+            {accountPersonName(currentUser).slice(0, 1) || "人"}
           </div>
           <div className="profile-user-copy">
             <span>当前账号</span>
-            <strong>{currentUser.name}</strong>
+            <strong>{accountPersonName(currentUser) || "\u00a0"}</strong>
             <small>@{currentUser.account}</small>
           </div>
           <span className="profile-role-badge">
-            {getRoleName(currentUser.role)}
+            {accountRoleLabel(currentUser)}
           </span>
         </div>
       </div>
@@ -114,7 +114,7 @@ function Profile({
       <div className="card profile-section-card">
         <div className="profile-section-heading">
           <div><span>个人工作</span><h2>我的功能</h2></div>
-          <small>{getRoleName(currentUser.role)}</small>
+          <small>{accountRoleLabel(currentUser)}</small>
         </div>
         <div className="desktop-app-grid">
           {personalActions.map((action, index) => (
@@ -170,7 +170,7 @@ function Profile({
         <div className="profile-section-heading">
           <div><span>服务与支持</span><h2>设置与帮助</h2></div>
         </div>
-        <div className="profile-info-row"><span>当前角色</span><strong>{getRoleName(currentUser.role)}</strong></div>
+        <div className="profile-info-row"><span>当前角色</span><strong>{accountRoleLabel(currentUser)}</strong></div>
         {isTechnician && <div className="profile-info-row"><span>维修品类</span><strong>{currentUser.repairSpecialties?.join(" / ") || "未配置"}</strong></div>}
         <div className="profile-info-row"><span>系统版本</span><strong>FieldDesk 当前版本</strong></div>
         <p className="profile-help-tip">使用过程中遇到账号、权限或同步问题，请联系系统管理员。</p>

@@ -1,3 +1,4 @@
+import { accountPersonName, accountRoleLabel } from "../shared/accountIdentity.js"
 import { useCallback, useEffect, useState } from "react"
 import { getLocalRepairOrders, getShippingOrders, getSystemHealth, getTechnicianWorkloads, getWarrantyConversionRequests, retryRecloudHold } from "../shared/crmService.js"
 import { findRepairOrderByCrmOrderNo, getCurrentRepairOrder, REPAIR_STATUS, saveCurrentRepairOrder } from "../shared/repairOrderStore.js"
@@ -223,8 +224,8 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
     REPAIR_STATUS.SHIPPED_PENDING_COMPLETION,
     REPAIR_STATUS.COMPLETED
   ].includes(order?.status)
-  const roleName = isAdmin ? "管理员" : isWarehouse ? "库房" : isInformationClerk ? "信息员" : "维修师傅"
-  const accountName = currentUser?.name || "未识别"
+  const roleName = accountRoleLabel(currentUser)
+  const accountName = accountPersonName(currentUser)
   const canViewTechnicians = isInformationClerk || isAdmin
   const technicianDirectory = buildTechnicianDirectory(technicians, workflows)
   const searchedTechnicians = technicianDirectory.filter(item => item.displayName.toLocaleLowerCase().includes(technicianSearch.trim().toLocaleLowerCase()))
@@ -398,8 +399,8 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
         <div><span>FieldDesk 工作台</span><h1>{ordersHub ? "维修管理" : "网点维修管理"}</h1></div>
       </div>
       {ordersHub ? <div className="orders-hub-title"><span>FieldDesk · {roleName}</span><h1>维修管理</h1><p>{accountName}{isTechnician ? ` · ${(currentUser.repairSpecialties || []).join(' / ')}` : ''}</p></div> : <div className="home-user-panel">
-        <div className="home-user-avatar">{accountName.slice(0, 1)}</div>
-        <div className="home-user-copy"><span>欢迎回来</span><strong>{accountName}</strong></div>
+        <div className="home-user-avatar">{accountName.slice(0, 1) || "人"}</div>
+        <div className="home-user-copy"><span>欢迎回来</span><strong>{accountName || "\u00a0"}</strong></div>
         <span className="home-role-badge">{roleName}</span>
       </div>}
       {isTechnician && !ordersHub && <div className="home-specialty-row">
@@ -457,7 +458,7 @@ function Home({ setPage, currentUser, ordersHub = false, supervisionOpenKey = 0,
     </section>}
 
     {desktopView === "work" && isTechnician && <section className="card home-technician-selected"><div className="home-technician-profile">
-      <span className="home-technician-avatar">{accountName.slice(0, 1)}</span>
+      <span className="home-technician-avatar">{accountName.slice(0, 1) || "人"}</span>
       <div><span>我的工作台</span><strong>{accountName}</strong><small>{(currentUser.repairSpecialties || []).join(" + ")} · {currentUser.userId || currentUser.id}</small></div><em>仅本人</em>
     </div></section>}
 
