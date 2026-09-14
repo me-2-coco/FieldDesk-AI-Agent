@@ -9,6 +9,7 @@ import {
   renewPrintEnrollment
 } from "../shared/crmService.js"
 import { buildStoredZip, installerFiles } from "../shared/printInstaller.js"
+import './print-management.css'
 
 const EMPTY_FORM = { id: "", name: "", printerName: "XP-420B", memberUserIds: [], active: true }
 
@@ -153,7 +154,7 @@ function PrintManagement({ setPage }) {
   }
 
   return <div className="page print-management-page">
-    <div className="top-bar"><button className="arrow-back" onClick={() => credential ? setCredential(null) : form.id ? setForm(EMPTY_FORM) : setPage("appBack")}>←</button><div><small>Windows 共享打印</small><h1>打印终端</h1></div></div>
+    <div className="print-page-header"><button aria-label="返回" onClick={() => credential ? setCredential(null) : form.id ? setForm(EMPTY_FORM) : setPage("appBack")}>←</button><div><h1>打印终端</h1><small>连接电脑，让标签自动打印</small></div></div>
 
     {credential && <section className="card print-credential-card">
       <div className="section-title-row"><div><small>已自动配置</small><h2>Windows 打印终端安装包</h2></div></div>
@@ -163,7 +164,7 @@ function PrintManagement({ setPage }) {
 
     <section className="card print-editor-card">
       <div className="section-title-row"><div><small>电脑与打印机</small><h2>{form.id ? "编辑终端" : "新增终端"}</h2></div><span>{form.id ? "已配置" : "开机自启"}</span></div>
-      <p className="section-description">一台 Windows 电脑连接一台打印机，可勾选 2–5 名共用师傅。电脑锁屏或显示器熄屏仍可打印，但不能进入睡眠。</p>
+      <p className="section-description">选择共用账号，保存后下载安装。电脑需保持联网且不休眠。</p>
       <form onSubmit={submit}>
         <label>终端名称<input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="例如：维修区一号打印机" required /></label>
         <label>Windows 打印机名称<input value={form.printerName} onChange={(event) => setForm({ ...form, printerName: event.target.value })} placeholder="例如：XP-420B" required /><small>必须与 Windows“打印机和扫描仪”中的名称完全一致</small></label>

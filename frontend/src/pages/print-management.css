@@ -1,0 +1,35 @@
+/* Scoped layout: keep global full-width form/button styles out of this page. */
+.print-management-page .print-page-header { display:flex; align-items:center; gap:12px; padding:16px 4px 22px; text-align:left; }
+.print-management-page .print-page-header button { width:36px; min-height:36px; margin:0; padding:0; border:1px solid #dce5f1; border-radius:10px; background:white; color:#2467cd; box-shadow:none; font-size:22px; }
+.print-management-page .print-page-header h1 { margin:0; font-size:22px; line-height:1.4; color:#24364d; text-align:left; }
+.print-management-page .print-page-header small { color:#7b899c; font-size:12px; }
+.print-management-page .card { padding:18px!important; border-radius:16px!important; text-align:left; box-shadow:0 4px 18px #23395505!important; }
+.print-management-page .section-title-row { margin:0 0 14px; align-items:center; }
+.print-management-page .section-title-row h2 { margin:3px 0 0!important; font-size:17px!important; text-align:left!important; }
+.print-management-page .section-title-row small { font-size:11px; color:#8b98a9; }
+.print-management-page .section-title-row > span { padding:5px 9px; border-radius:8px; font-size:11px; min-height:0; white-space:nowrap; }
+.print-management-page .section-description { margin:0 0 18px!important; padding:10px 12px; border-radius:9px; background:#f2f6fc; font-size:12px!important; line-height:1.6!important; text-align:left!important; color:#718097; }
+.print-management-page .print-editor-card form { gap:16px; }
+.print-management-page .print-editor-card form > label { margin:0!important; padding:0!important; text-align:left!important; line-height:1.5; }
+.print-management-page .print-editor-card form > label:not(.switch-row) { gap:6px; font-size:12px; }
+.print-management-page .print-editor-card form > label input { height:42px!important; min-height:42px!important; margin:0!important; padding:10px 12px!important; border-radius:9px!important; font-size:14px!important; font-weight:500; background:#fafbfd; }
+.print-management-page .print-editor-card form > label small { margin:0; line-height:1.5; font-size:11px; text-align:left; }
+.print-management-page .print-member-picker { margin:0!important; padding:0!important; min-width:0; }
+.print-management-page .print-member-picker legend { width:100%; text-align:left; margin:0 0 8px; padding:0; font-size:12px; }
+.print-management-page .print-member-picker > div { max-height:210px; overflow-y:auto; scrollbar-width:thin; }
+.print-management-page .print-member-picker label { margin:0!important; min-height:58px; padding:10px!important; text-align:left!important; border-radius:10px; gap:9px; }
+.print-management-page .print-member-picker input { appearance:auto!important; width:16px!important; height:16px!important; min-height:16px!important; padding:0!important; margin:0!important; box-shadow:none; }
+.print-management-page .print-member-picker strong { font-size:12px; line-height:1.5; }
+.print-management-page .print-member-picker small { font-size:10px; overflow-wrap:anywhere; }
+.print-management-page .compact-action-row { display:flex; gap:8px; margin:2px 0 0; }
+.print-management-page .compact-action-row button { min-height:40px!important; margin:0!important; padding:9px 18px!important; font-size:13px!important; border-radius:9px!important; }
+.print-management-page .print-terminal-main { margin:0!important; min-height:66px; padding:12px!important; border-radius:0; }
+.print-management-page .print-terminal-stats { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; padding:12px; }
+.print-management-page .print-terminal-stats span { white-space:nowrap; text-align:center; padding:5px 0; font-size:11px; background:#f6f8fb; border-radius:6px; }
+.print-management-page .print-terminal-stats button { width:auto!important; min-height:34px!important; margin:0!important; padding:6px 10px!important; border-radius:8px; font-size:12px!important; box-shadow:none; }
+.print-management-page .print-terminal-stats button:first-of-type { grid-column:1; color:#286bc9; background:#edf4ff; }
+.print-management-page .print-terminal-stats button:last-of-type { grid-column:2/4; }
+.print-management-page .print-job-list article { text-align:left; }
+.print-management-page .print-job-list strong { line-height:1.5; overflow-wrap:anywhere; }
+.print-management-page .print-job-list small { line-height:1.5; overflow-wrap:anywhere; }
+.print-management-page .print-credential-card > button { min-height:40px; font-size:13px; border-radius:9px; }
