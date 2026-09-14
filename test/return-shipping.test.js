@@ -111,6 +111,9 @@ test("frontend exposes read-only background shipping progress to information rol
   assert.match(server, /\/api\/shipping\/submit/);
   assert.match(server, /\/api\/shipping\/complete/);
   assert.match(server, /hasBusinessRole\(user, USER_ROLES\.ADMIN\)/);
-  const shippingBlock = server.slice(server.indexOf('app.get("/api/shipping/orders"'), server.indexOf("// 保留已有调用方兼容性"));
+  const shippingStart = server.indexOf('app.get("/api/shipping/orders"');
+  const shippingEnd = server.indexOf('app.get("/api/recloud-sync/tasks"', shippingStart);
+  assert.ok(shippingStart >= 0 && shippingEnd > shippingStart);
+  const shippingBlock = server.slice(shippingStart, shippingEnd);
   assert.doesNotMatch(shippingBlock, /withRecloud|connector\./);
 });
