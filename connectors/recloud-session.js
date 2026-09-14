@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { execFile } = require("child_process");
 const { chromium } = require("playwright");
+const { readRecloudSecretFile } = require('../config/recloud-secret-file');
 
 const RECLOUD_PROFILE_DIRECTORY = path.join(
   __dirname,
@@ -241,7 +242,9 @@ function createRecloudSessionManager(options = {}) {
   const defaultTimeout = options.defaultTimeout || 30000;
   const readPassword =
     options.readPassword ||
-    ((username) => readPasswordFromKeychain(username, options));
+    ((username) => env.RECLOUD_CREDENTIALS_FILE
+      ? readRecloudSecretFile(env.RECLOUD_CREDENTIALS_FILE, username)
+      : readPasswordFromKeychain(username, options));
 
   let context = null;
   let page = null;

@@ -1,0 +1,20 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const {readRecloudSecretFile} = require('../config/recloud-secret-file');
+test('restricted credential file validates permissions, identity and symlinks without revealing secrets', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(),'fd-secret-test-'));
+  t.after(() => fs.rmSync(dir,{recursive:true,force:true}));
+  const file = path.join(dir,'credential');
+  fs.writeFileSync(file, JSON.stringify({username:'fixture',password:'synthetic-secret'}), {mode:0o600});
+  const result = readRecloudSecretFile(file,'fixture');
+  assert.equal(result.toString(),'synthetic-secret'); result.fill(0);
+  const invalid = () => {try {readRecloudSecretFile(file,'fixture');assert.fail();} catch(e) {assert.equal(e.code,'RECLOUD_SECRET_FILE_INVALID');assert.ok(!e.message.includes('synthetic-secret'));}};
+  assert.throws(()=>readRecloudSecretFile(file,'wrong'),{code:'RECLOUD_SECRET_FILE_INVALID'});
+  fs.chmodSync(file,0o644); invalid(); fs.chmodSync(file,0o600);
+  const link = path.join(dir,'link');fs.symlinkSync(file,link);
+  assert.throws(()=>readRecloudSecretFile(link,'fixture'),{code:'RECLOUD_SECRET_FILE_INVALID'});
+  fs.writeFileSync(file,'invalid-json synthetic-secret'); invalid();
+});
