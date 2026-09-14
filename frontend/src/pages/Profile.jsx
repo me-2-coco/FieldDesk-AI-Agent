@@ -136,7 +136,7 @@ function Profile({
         <div className="card profile-section-card">
           <div className="profile-section-heading">
             <div><span>管理工具</span><h2>系统管理</h2></div>
-            <small>管理员</small>
+            <small>{accountRoleLabel(currentUser)}</small>
           </div>
           <div className="desktop-app-grid">
             {[
