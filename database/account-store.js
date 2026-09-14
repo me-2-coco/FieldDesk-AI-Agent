@@ -181,6 +181,8 @@ class AccountStore {
     const requestedUserId = String(input.userId || "").trim();
     const isRecloudTestAccount = requestedUserId === RECLOUD_TEST_USER_ID;
     const specialties = [...new Set(input.repairSpecialties || [])];
+    if (!displayName) throw Object.assign(new Error("请填写姓名"), { code: "ACCOUNT_NAME_REQUIRED", status: 400 });
+    if (!phone) throw Object.assign(new Error("请填写电话"), { code: "ACCOUNT_PHONE_REQUIRED", status: 400 });
     if (phone && !/^1[3-9]\d{9}$/.test(phone)) throw Object.assign(new Error("请填写正确的11位手机号"), { code: "ACCOUNT_PHONE_INVALID", status: 400 });
     if (!MANAGED_ACCOUNT_ROLES.has(role)) throw Object.assign(new Error("请选择账号角色"), { code: "ACCOUNT_ROLE_INVALID", status: 400 });
     if (role === USER_ROLES.ADMIN && !isOwner(operator)) throw Object.assign(new Error("只有负责人可以创建管理员账号"), { code: "ACCOUNT_OWNER_REQUIRED", status: 403 });
@@ -313,6 +315,12 @@ class AccountStore {
     }
     return this.backend.update((data) => {
       const existing = data.users.find((item) => item.userId === userId);
+      if (!existing) {
+        if (!displayName) throw Object.assign(new Error("请填写姓名"), { code: "ACCOUNT_NAME_REQUIRED", status: 400 });
+        const phone = normalizeTechnicianPhone(input.phone);
+        if (!phone) throw Object.assign(new Error("请填写电话"), { code: "ACCOUNT_PHONE_REQUIRED", status: 400 });
+        if (!/^1[3-9]\d{9}$/.test(phone)) throw Object.assign(new Error("请填写正确的11位手机号"), { code: "ACCOUNT_PHONE_INVALID", status: 400 });
+      }
       if ((role === USER_ROLES.ADMIN || existing?.role === USER_ROLES.ADMIN) && !isOwner(operator)) throw Object.assign(new Error("只有负责人可以管理管理员账号及权限"), { code: "ACCOUNT_OWNER_REQUIRED", status: 403 });
       const password = input.password || input.accessToken;
       const passwordHash = password
