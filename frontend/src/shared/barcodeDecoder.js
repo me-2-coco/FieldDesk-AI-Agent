@@ -20,7 +20,10 @@ async function readFrame(frame, formats, mode) {
 }
 
 export async function decodeBarcodeFrame(frame) {
-  const formats = frame.scannerMode === 'logistics' ? ['Code128', 'QRCode'] : ['Linear-Codes', 'QRCode']
+  // An app-pairing QR can sit beside the machine's serial barcode. Decode the
+  // linear symbols first so the QR cannot mask a valid SN in the same frame.
+  const formats = frame.scannerMode === 'logistics' ? ['Code128', 'QRCode']
+    : frame.scannerMode === 'sn' ? ['Linear-Codes'] : ['Linear-Codes', 'QRCode']
   const direct = await readFrame(frame, formats, frame.scannerMode)
   if (direct) return direct
   // Built-in tryRotate covers quarter turns, not arbitrary skew. Add diagonal

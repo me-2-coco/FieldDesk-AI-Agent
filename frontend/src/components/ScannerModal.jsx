@@ -14,9 +14,16 @@ function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onCl
   const [cameraError, setCameraError] = useState("")
   const [ready, setReady] = useState(false)
   const [cameraTrack, setCameraTrack] = useState(null)
-  // Keep the previously working mobile path as default until the new engine
-  // has passed physical-device verification. Users can explicitly try HD.
-  const [compatibility, setCompatibility] = useState(true)
+  const [compatibility, setCompatibility] = useState(mode !== 'sn')
+  const [zoom, setZoom] = useState(1)
+  const zoomCapability = cameraTrack?.getCapabilities?.().zoom
+  const changeZoom = async () => {
+    const next = zoom === 1 ? Math.min(2, zoomCapability?.max || 1) : 1
+    try {
+      await cameraTrack.applyConstraints({ advanced: [{ zoom: Math.max(zoomCapability?.min || 1, next) }] })
+      setZoom(next)
+    } catch { setCameraError('当前相机不支持放大，请调整手机与条码的距离') }
+  }
   useEffect(() => { callbacks.current = { onScan, onClose } }, [onScan, onClose])
   useEffect(() => {
     if (!open) return
@@ -39,13 +46,14 @@ function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onCl
       setCameraError("")
       setReady(false)
       setCameraTrack(null)
+      setZoom(1)
       if (!navigator.mediaDevices?.getUserMedia) {
         setCameraError("当前浏览器无法调用相机，请使用已信任证书的 HTTPS 地址")
         return
       }
       scanner = !compatibility ? new FullFrameBarcodeScanner(areaId, mode)
         : new Html5Qrcode(areaId, { formatsToSupport: mode === 'logistics' ? [Formats.CODE_128, Formats.QR_CODE]
-          : [Formats.QR_CODE, Formats.CODE_128, Formats.CODE_39, Formats.CODE_93, Formats.ITF, Formats.CODABAR, Formats.EAN_13, Formats.EAN_8, Formats.UPC_A, Formats.UPC_E] })
+          : [...(mode === 'sn' ? [] : [Formats.QR_CODE]), Formats.CODE_128, Formats.CODE_39, Formats.CODE_93, Formats.ITF, Formats.CODABAR, Formats.EAN_13, Formats.EAN_8, Formats.UPC_A, Formats.UPC_E] })
       starting = scanner.start({ facingMode: "environment" }, fullFrameScanConfig, async (text, result) => {
         if (!active || decoded) return
         const isQr = /qr/i.test(String(result?.result?.format?.formatName || ''))
@@ -74,7 +82,8 @@ function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onCl
         }
         else void stop()
       }).catch(error => {
-        if (active) setCameraError(`相机启动失败：${error?.message || String(error)}。请关闭重试或手动输入。`)
+        if (active && !compatibility) setCompatibility(true)
+        else if (active) setCameraError(`相机启动失败：${error?.message || String(error)}。请关闭重试或手动输入。`)
       })
     }, 0)
     const escape = event => { if (event.key === "Escape") callbacks.current.onClose() }
@@ -95,12 +104,13 @@ function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onCl
     </header>
     <div className="fd-scanner-view" id={areaId} />
     <footer className="fd-scanner-footer">
-      <div className="fd-scanner-mode">扫码</div>
-      <p role="status">{cameraError || (!ready ? "正在启动相机…" : "对准条码或二维码，即可自动识别")}</p>
+      <div className="fd-scanner-mode">{mode === 'sn' ? '扫描机器 SN 条码' : '扫码'}</div>
+      {ready && zoomCapability?.max > 1 && <button type="button" onClick={changeZoom} aria-label="切换相机放大倍数">{zoom === 1 ? '放大条码 2×' : '恢复 1×'}</button>}
+      <p role="status">{cameraError || (!ready ? "正在启动相机…" : mode === 'sn' ? "对准 S/N 旁边的长条码，保持两端完整；稍微离远，让画面清晰" : "对准条码或二维码，即可自动识别")}</p>
       <details className="fd-scanner-help">
         <summary>识别帮助</summary>
         <p>保持条码完整清晰，避开反光；光线不足时可打开右上角补光灯。</p>
-        <button type="button" onClick={() => setCompatibility(value => !value)}>{compatibility ? "尝试另一种识别方式" : "恢复默认识别方式"}</button>
+        <button type="button" onClick={() => setCompatibility(value => !value)}>{compatibility ? "切换高清识别" : "切换兼容识别"}</button>
       </details>
     </footer>
   </div>, document.body)
