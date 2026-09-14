@@ -603,3 +603,6 @@ export function reconcileRecloudReceipt(rmaNo) {
 export function reconcileRecloudReceiptAttachments(rmaNo) {
   return request('/api/repairs/admin/reconcile-receipt-attachments', { rmaNo })
 }
+
+export async function syncShipping(rmaNo = "") { return request("/api/shipping/sync", { rmaNo }) }
+export async function getShippingSyncStatus() { return get("/api/shipping/sync-status") }

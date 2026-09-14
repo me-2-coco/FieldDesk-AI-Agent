@@ -26,3 +26,5 @@
 .fdship-page .fdship-search input{min-height:44px;font-size:13px}
 
 .fdship-queue .fdship-counter{margin-left:auto}.fdship-queue .fdship-refresh{border:0;background:#f3f7fd;color:#5f81ae;padding:7px 9px;min-height:36px;font-size:11px}.fdship-order-heading .fdship-refresh{float:right;font-size:11px;padding:6px 9px;min-height:34px}.fdship-header{min-height:46px}
+
+.fdship-sync-bar{display:flex;align-items:center;gap:10px;margin:0 0 14px}.fdship-sync-bar small{flex:1;color:#8292aa;font-size:11px}.fdship-fields dd{overflow-wrap:anywhere}.fdship-timeline li p{font-size:13px;line-height:1.6;color:#536781}.fdship-filters button{padding-left:5px;padding-right:5px}

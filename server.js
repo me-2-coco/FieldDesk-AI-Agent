@@ -935,6 +935,15 @@ function createApp(
     options.recloudWriteAdmissions || null
   );
   receiptStore ||= businessStores.receiptStore;
+  const { ReturnLogisticsService } = require('./services/return-logistics-service');
+  const { readReturnLogistics } = require('./connectors/recloud-return-logistics');
+  const returnLogistics = options.returnLogisticsService || new ReturnLogisticsService(
+    path.join(runtimeEnv.FIELDDESK_DATA_DIRECTORY || path.dirname(receiptStore.filePath || path.join(__dirname, 'database/data/receipt-preparations.json')), 'return-logistics.json'),
+    (order, queryOptions) => withRecloud(connector, page => readReturnLogistics(page, order, queryOptions), {
+      channel: 'return-logistics-read', background: true, timeoutMs: 90000, totalTimeoutMs: 120000,
+      resultUnknownOnTimeout: false,
+    })
+  );
   const accountStore = options.accountStore || new AccountStore(options.accountStoreOptions);
   const coordinationStore = options.coordinationStore || new WorkCoordinationStore(options.coordinationStoreOptions);
   const pendingReceiptStore = options.pendingReceiptStore || null;
@@ -5231,7 +5240,7 @@ function createApp(
   app.get("/api/shipping/orders", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      res.json({ success: true, data: await receiptStore.listShippingOrders(user, USER_ROLES) });
+      res.json({ success: true, data: await returnLogistics.decorate(await receiptStore.listShippingOrders(user, USER_ROLES)) });
     } catch (error) { next(error); }
   });
 
@@ -5248,7 +5257,27 @@ function createApp(
         throw createApiError("RETURN_SHIPMENT_NOT_ALLOWED", "当前工单不能进入返件发货", 409);
       }
       const usedParts = await inventoryStore.usedPartsForOrder(order.rmaNo, order.sn);
-      res.json({ success: true, data: { order, usedParts, syncProvider: "RECLOUD_RESERVED", recloudSynced: false } });
+      res.json({ success: true, data: { order: (await returnLogistics.decorate([order]))[0], usedParts, syncProvider: "RECLOUD", recloudSynced: false } });
+    } catch (error) { next(error); }
+  });
+
+  app.get("/api/shipping/sync-status", (req, res, next) => {
+    try {
+      if (!hasBusinessRole(currentUserProvider(req), USER_ROLES.ADMIN, USER_ROLES.INFORMATION_CLERK)) throw createApiError("SHIPPING_ORDER_FORBIDDEN", "无权查看物流同步", 403);
+      res.json({success:true,data:returnLogistics.job});
+    } catch (error) { next(error); }
+  });
+  app.post("/api/shipping/sync", async (req, res, next) => {
+    try {
+      const user=currentUserProvider(req);
+      if (!hasBusinessRole(user, USER_ROLES.ADMIN, USER_ROLES.INFORMATION_CLERK)) throw createApiError("SHIPPING_ORDER_FORBIDDEN", "无权同步物流", 403);
+      const rows=await receiptStore.listShippingOrders(user, USER_ROLES);
+      const rmaNo=String(req.body?.rmaNo || '').trim();
+      if (rmaNo) {
+        const order=rows.find(row=>row.rmaNo===rmaNo);
+        if (!order) throw createApiError("SHIPPING_ORDER_NOT_FOUND", "未找到可查看的返件工单", 404);
+        res.json({success:true,data:await returnLogistics.sync(order,true)});
+      } else res.status(202).json({success:true,data:returnLogistics.start(rows)});
     } catch (error) { next(error); }
   });
 
