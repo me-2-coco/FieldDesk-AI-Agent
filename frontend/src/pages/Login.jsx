@@ -142,42 +142,6 @@ function Login({ onLogin }) {
         )}
 
 
-        {!passwordChangeProfile && <div className="login-demo-accounts">
-
-          <strong>
-            账号快捷填写（仍需输入密码）
-          </strong>
-
-
-          <button
-            type="button"
-            onClick={() => setAccount("zhang")}
-          >
-            张师傅：zhang
-          </button>
-
-
-          <button
-            type="button"
-            onClick={() => setAccount("wang")}
-          >
-            王库管：wang
-          </button>
-
-
-          <button
-            type="button"
-            onClick={() => setAccount("admin")}
-          >
-            管理员：admin
-          </button>
-
-          <button type="button" onClick={() => setAccount("li")}>洗地机师傅：li</button>
-          <button type="button" onClick={() => setAccount("zhao")}>双品类师傅：zhao</button>
-
-        </div>}
-
-
       </div>
 
 
