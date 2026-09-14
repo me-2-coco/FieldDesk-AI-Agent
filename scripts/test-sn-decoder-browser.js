@@ -22,10 +22,27 @@ const { chromium } = require('playwright');
       ctx.fillStyle='white';ctx.fillRect(0,0,1280,720);
       ctx.drawImage(await createImageBitmap(qr.image),850,100);
       const qrOnly=ctx.getImageData(0,0,1280,720);qrOnly.scannerMode='sn';
-      return {expected,actual,qrOnly:await decodeBarcodeFrame(qrOnly)};
+      const samples=[];
+      const bitmap=await createImageBitmap(barcode.image);
+      for(const angle of [7,12,18,28]) {
+        ctx.fillStyle='white';ctx.fillRect(0,0,1280,720);
+        ctx.save();ctx.translate(640,360);ctx.rotate(angle*Math.PI/180);
+        ctx.drawImage(bitmap,0,bitmap.height/2,bitmap.width,4,-bitmap.width/2,-15,bitmap.width,30);
+        ctx.restore();
+        const tilted=ctx.getImageData(0,0,1280,720);tilted.scannerMode='sn';
+        let found='';
+        for(let pass=0;pass<18&&!found;pass++) {tilted.anglePass=pass;found=await decodeBarcodeFrame(tilted);}
+        samples.push({angle,found});
+      }
+      return {expected,actual,qrOnly:await decodeBarcodeFrame(qrOnly),samples};
     });
     assert.equal(result.actual,result.expected);
     assert.equal(result.qrOnly,'');
+    for(const sample of result.samples) {
+      // Resampled narrow bars can still be unreadable; never accept a wrong ID.
+      assert.ok(sample.found === '' || sample.found === result.expected);
+      if (sample.angle !== 18) assert.equal(sample.found,result.expected,`thin barcode at ${sample.angle} degrees`);
+    }
     console.log('PASS: SN Code128 is decoded beside an unrelated pairing QR');
   } finally { await browser.close(); }
 })().catch(e=>{console.error(e);process.exitCode=1;});

@@ -32,5 +32,17 @@ export async function decodeBarcodeFrame(frame) {
     const text = await readFrame(rotateBarcodeFrame(frame, angle), formats, frame.scannerMode)
     if (text) return text
   }
+  // Very short linear symbols can fit between the coarse rotation passes.
+  // Sweep two finer angles per camera frame rather than trying 35 rotations
+  // at once (which would stall mobile scanning). Quarter turns are native.
+  if (frame.scannerMode === 'sn') {
+    const pass = Number.isInteger(frame.anglePass) && frame.anglePass >= 0 ? frame.anglePass : 0
+    for (let offset = 0; offset < 2; offset++) {
+      const angle = -2.5 * (1 + ((pass * 2 + offset) % 35))
+      if ([-45, -22.5, -67.5].includes(angle)) continue
+      const text = await readFrame(rotateBarcodeFrame(frame, angle), formats, frame.scannerMode)
+      if (text) return text
+    }
+  }
   return ''
 }
