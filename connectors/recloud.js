@@ -11875,11 +11875,25 @@ async function readRmaReceiptAttachmentSnapshot(page, expectedRmaNo, options = {
   });
 }
 
-async function readRmaReceiptSnapshot(page, expectedRmaNo) {
+async function readRmaReceiptSnapshot(page, expectedRmaNo, options = {}) {
   await page.reload({ waitUntil: "domcontentloaded" });
-  const body = await page.locator('body').innerText({ timeout: 15000 });
-  const identities = [...new Set(body.match(/JXTH[A-Z0-9-]+/gi) || [])];
-  if (extractRmaNoFromTitle(body) !== expectedRmaNo || identities.length !== 1 || identities[0] !== expectedRmaNo) throw Object.assign(new Error("瑞云工单身份未确认"), { code: "RECEIPT_RECONCILIATION_ORDER_MISMATCH" });
+  // Recloud is an SPA: DOMContentLoaded precedes the persisted order data.
+  // Wait for the exact identity and product grid; never treat the empty shell
+  // as a mismatched order, or relax the identity guard to make it pass.
+  const deadline = Date.now() + (options.timeoutMs ?? 15000);
+  let ready = false;
+  do {
+    const body = await page.locator('body').innerText({ timeout: 15000 });
+    const identities = [...new Set(body.match(/JXTH[A-Z0-9-]+/gi) || [])];
+    if (extractRmaNoFromTitle(body) === expectedRmaNo && identities.length === 1 && identities[0] === expectedRmaNo
+      && body.includes('产品序列号')
+      && await page.locator('.el-loading-mask:visible, .ant-spin-spinning:visible').count() === 0) {
+      ready = true;
+      break;
+    }
+    await page.waitForTimeout(options.pollIntervalMs ?? 200);
+  } while (Date.now() < deadline);
+  if (!ready) throw Object.assign(new Error("刷新后未能确认目标工单及产品区域加载完成"), { code: "RECEIPT_RECONCILIATION_ORDER_MISMATCH" });
   const rows = await page.evaluate(() => {
     const clean = value => String(value || '').replace(/\s+/g, ' ').trim();
     const visible = element => { const box = element.getBoundingClientRect(); return box.width > 0 && box.height > 0 && getComputedStyle(element).visibility !== 'hidden'; };
@@ -11890,12 +11904,23 @@ async function readRmaReceiptSnapshot(page, expectedRmaNo) {
       const snIndex = headers.indexOf('产品序列号');
       const statusIndex = headers.indexOf('签收状态');
       const timeIndex = headers.indexOf('系统签收时间');
-      if (snIndex < 0 || statusIndex < 0 && timeIndex < 0) continue;
-      for (const row of table.querySelectorAll('tr, [role="row"]')) {
+      const quantityIndex = headers.indexOf('签收数量');
+      const actionIndex = headers.indexOf('操作');
+      if (snIndex < 0) continue;
+      // Element-style grids render their header and body as separate tables.
+      // Bind only inside the nearest shared grid, never to unrelated page rows.
+      let region = table;
+      while (!region.querySelector('td, [role="gridcell"], [role="cell"]') && region.parentElement && region.parentElement !== document.body) {
+        const parentHeaders = [...region.parentElement.querySelectorAll('th, [role="columnheader"]')].filter(el => clean(el.textContent) === '产品序列号');
+        if (parentHeaders.length !== 1) break;
+        region = region.parentElement;
+      }
+      for (const row of region.querySelectorAll('tr, [role="row"]')) {
         if (!visible(row)) continue;
         const cells = [...row.querySelectorAll('td, [role="gridcell"], [role="cell"]')].map(el => clean(el.textContent));
-        if (!cells[snIndex]) continue;
-        result.push({ sn: cells[snIndex], systemReceiptStatus: cells[statusIndex] || '', systemSignedAt: cells[timeIndex] || '' });
+        if (!cells[snIndex] || cells.length !== headers.length) continue;
+        const receiptActionVisible = actionIndex >= 0 && /^签收$/.test(cells[actionIndex]);
+        result.push({ sn: cells[snIndex], systemReceiptStatus: cells[statusIndex] || (receiptActionVisible ? '待签收' : ''), systemSignedAt: cells[timeIndex] || '', receiptQuantity: cells[quantityIndex] || '', receiptActionKnown: actionIndex >= 0, receiptActionVisible });
       }
     }
     return result;

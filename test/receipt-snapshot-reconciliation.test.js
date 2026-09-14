@@ -17,13 +17,13 @@ async function fixture(t) {
   await store.writeAll([order]); return store;
 }
 test('connector reloads for fresh evidence and rejects ambiguous RMA before reading rows', async () => {
-  let reloads = 0; let reads = 0; let body = 'RMA JXTH202609120001';
-  const page = { reload: async () => { reloads++; }, locator: () => ({ innerText: async () => body }),
+  let reloads = 0; let reads = 0; let body = 'RMA JXTH202609120001 产品序列号';
+  const page = { reload: async () => { reloads++; }, locator: () => ({ innerText: async () => body, count: async () => 0 }), waitForTimeout: async () => {},
     evaluate: async () => { reads++; return [row]; } };
   const result = await readRmaReceiptSnapshot(page, 'JXTH202609120001');
   assert.equal(result.readBackVerified, true); assert.equal(reloads, 1); assert.equal(reads, 1);
   body += ' JXTH202609120002';
-  await assert.rejects(readRmaReceiptSnapshot(page, 'JXTH202609120001'), { code: 'RECEIPT_RECONCILIATION_ORDER_MISMATCH' });
+  await assert.rejects(readRmaReceiptSnapshot(page, 'JXTH202609120001', {timeoutMs:0}), { code: 'RECEIPT_RECONCILIATION_ORDER_MISMATCH' });
   assert.equal(reads, 1);
 });
 test('receipt evidence rejects logistics dates, wrong SN, ambiguous rows and negative status', () => {
