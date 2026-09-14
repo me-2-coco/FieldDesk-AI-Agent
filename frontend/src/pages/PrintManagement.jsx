@@ -185,7 +185,7 @@ function PrintManagement({ setPage }) {
           <span><strong>{terminal.name}</strong><small>{terminal.printerName} · {(terminal.memberUserIds || []).length} 名师傅</small></span>
           <em>{terminal.online ? "在线" : "离线"}</em><b>›</b>
         </button>
-        <div className="print-terminal-stats"><span>等待 {terminal.queue?.pending || 0}</span><span>失败 {terminal.queue?.failed || 0}</span><span>成功 {terminal.queue?.success || 0}</span><button type="button" onClick={() => testPrint(terminal.id)} disabled={busy}>测试打印</button><button type="button" onClick={() => downloadPackage(terminal)} disabled={busy}>安装到新电脑</button></div>
+        <div className="print-terminal-stats"><span>等待 {terminal.queue?.pending || 0}</span><span>失败 {terminal.queue?.failed || 0}</span><span>成功 {terminal.queue?.success || 0}</span><button type="button" onClick={() => testPrint(terminal.id)} disabled={busy}>测试打印</button><button type="button" onClick={() => downloadPackage(terminal)} disabled={busy}>下载终端</button></div>
       </article>)}</div>
       {!terminals.length && <p className="print-empty">还没有打印终端，请先新增一台 Windows 电脑。</p>}
     </section>
