@@ -3583,7 +3583,7 @@ background:#fafafa;
 .switch-row { display: flex !important; align-items: center; justify-content: space-between; min-height: 46px; margin: 9px 0 !important; padding: 0 12px; background: #f7f9fc; border-radius: 11px; }
 .compact-action-row { display: flex; gap: 8px; }
 .compact-action-row button { flex: 1; margin-top: 5px; }
-.account-directory { display: grid; gap: 7px; max-height: 360px; overflow-y: auto; }
+.account-directory { display: grid; grid-auto-rows: minmax(64px, max-content); gap: 7px; max-height: 206px; overflow-y: auto; overflow-x: hidden; overscroll-behavior-y: contain; scrollbar-width: thin; scrollbar-gutter: stable; -webkit-overflow-scrolling: touch; }
 .account-directory-row { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto 10px; align-items: center; gap: 9px; min-height: 54px !important; margin: 0 !important; padding: 8px 10px !important; color: #2c3d55 !important; background: #f8fafc !important; border: 1px solid #e8ecf2 !important; box-shadow: none !important; text-align: left; }
 .account-directory-avatar { display: grid; place-items: center; width: 36px; height: 36px; color: var(--fd-blue); background: #eaf2ff; border-radius: 11px; }
 .account-directory-row > span:nth-child(2) { min-width: 0; }
