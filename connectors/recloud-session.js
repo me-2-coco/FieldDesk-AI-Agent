@@ -4,7 +4,7 @@ const { execFile } = require("child_process");
 const { chromium } = require("playwright");
 const { readRecloudSecretFile } = require('../config/recloud-secret-file');
 
-const RECLOUD_PROFILE_DIRECTORY = path.join(
+const RECLOUD_PROFILE_DIRECTORY = process.env.RECLOUD_PROFILE_DIRECTORY || path.join(
   __dirname,
   ".recloud-browser-profile"
 );

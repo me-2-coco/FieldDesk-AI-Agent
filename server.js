@@ -6203,7 +6203,7 @@ if (require.main === module) {
   });
   const tlsOptions = loadTlsOptions(runtimeConfig);
   const server = tlsOptions ? https.createServer(tlsOptions, app) : http.createServer(app);
-  server.listen(port, () => {
+  server.listen(port, process.env.HOST || undefined, () => {
     console.log(`FieldDesk API 启动成功 http://localhost:${port}`);
     console.log(
       isDryRun()
