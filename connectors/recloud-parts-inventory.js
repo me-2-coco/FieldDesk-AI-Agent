@@ -88,17 +88,10 @@ async function queryRecloudPartsInventory(page, keyword, options = {}) {
     error.code = "RECLOUD_PARTS_INVENTORY_TABLE_NOT_FOUND";
     throw error;
   }
-  const headers = (await table.locator(".el-table__header-wrapper th").allInnerTexts()).map(normalizeCell);
-  const rowLocators = table.locator(".el-table__body-wrapper tbody tr");
-  const rowCount = await rowLocators.count();
-  const records = [];
-  for (let index = 0; index < rowCount; index += 1) {
-    const row = rowLocators.nth(index);
-    if (!(await row.isVisible().catch(() => false))) continue;
-    const cells = await row.locator("td").allInnerTexts();
-    const record = parseInventoryRow(headers, cells);
-    if (record.partCode || record.partName) records.push(record);
-  }
+  // Read one consistent DOM snapshot instead of two browser round trips per row.
+  const snapshot = await table.evaluate(readInventoryTableSnapshot);
+  const records = snapshot.rows.map(cells => parseInventoryRow(snapshot.headers, cells))
+    .filter(record => record.partCode || record.partName);
   return {
     query,
     records,
@@ -108,10 +101,23 @@ async function queryRecloudPartsInventory(page, keyword, options = {}) {
   };
 }
 
+function readInventoryTableSnapshot(table) {
+  const visible = element => {
+    const style = getComputedStyle(element);
+    return style.visibility !== 'hidden' && style.display !== 'none' && element.getClientRects().length > 0;
+  };
+  return {
+    headers: Array.from(table.querySelectorAll('.el-table__header-wrapper th'), cell => cell.innerText),
+    rows: Array.from(table.querySelectorAll('.el-table__body-wrapper tbody tr'))
+      .filter(visible).map(row => Array.from(row.querySelectorAll('td'), cell => cell.innerText)),
+  };
+}
+
 module.exports = {
   INVENTORY_HEADERS,
   RECLOUD_PARTS_INVENTORY_URL,
   normalizeCell,
   parseInventoryRow,
   queryRecloudPartsInventory,
+  readInventoryTableSnapshot,
 };

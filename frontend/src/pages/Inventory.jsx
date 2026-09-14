@@ -21,6 +21,13 @@ function InventoryContent({ view }) {
   const [recloudResult, setRecloudResult] = useState(null)
   const [recloudLoading, setRecloudLoading] = useState(false)
   const [recloudError, setRecloudError] = useState("")
+  const [querySeconds, setQuerySeconds] = useState(0)
+  useEffect(() => {
+    if (!recloudLoading) return
+    const started = Date.now()
+    const timer = setInterval(() => setQuerySeconds(Math.floor((Date.now() - started) / 1000)), 1000)
+    return () => clearInterval(timer)
+  }, [recloudLoading])
   const order = getCurrentRepairOrder()
 
   async function refresh() {
@@ -56,6 +63,8 @@ function InventoryContent({ view }) {
     const query = recloudQuery.trim()
     if (!query || recloudLoading) return
     setRecloudLoading(true)
+    setQuerySeconds(0)
+    setRecloudResult(null)
     setRecloudError("")
     try {
       setRecloudResult(await queryRecloudPartsInventory(query))
@@ -79,14 +88,15 @@ function InventoryContent({ view }) {
       <form className="recloud-inventory-search" onSubmit={searchRecloudInventory}>
         <label className="inventory-search-field">
           <span aria-hidden="true">⌕</span>
-          <input value={recloudQuery} onChange={(event) => setRecloudQuery(event.target.value)} placeholder="仓库编码或配件编码" aria-label="瑞云备件库存查询" />
+          <input value={recloudQuery} disabled={recloudLoading} onChange={(event) => setRecloudQuery(event.target.value)} placeholder="仓库编码或配件编码" aria-label="瑞云备件库存查询" />
         </label>
         <button type="submit" disabled={!recloudQuery.trim() || recloudLoading}>{recloudLoading ? "查询中…" : "查询"}</button>
       </form>
-      {!recloudResult && !recloudError && <p className="recloud-inventory-hint"><span>数据源</span> 瑞云 · 备件管理 · 备件库存</p>}
+      {recloudLoading && <p role="status" className="recloud-inventory-hint">{querySeconds < 8 ? '正在请求瑞云最新库存' : '瑞云查询仍在等待，请勿重复提交'} · 已等待 {querySeconds} 秒</p>}
+      {!recloudLoading && !recloudResult && !recloudError && <p className="recloud-inventory-hint"><span>数据源</span> 瑞云 · 备件管理 · 备件库存</p>}
       {recloudError && <p className="error-text recloud-inventory-message">{recloudError}</p>}
       {recloudResult && <>
-        <div className="recloud-inventory-summary"><span>查询结果</span><strong>{recloudResult.count} 条</strong></div>
+        <div className="recloud-inventory-summary"><span>{recloudResult.query} · 查询结果</span><strong>{recloudResult.count} 条</strong></div>
         <div className="recloud-inventory-results">
           {!recloudResult.records.length && <p>瑞云未查询到匹配库存</p>}
           {recloudResult.records.map((part, index) => <div key={`${part.warehouseCode}-${part.partCode}-${index}`}>
