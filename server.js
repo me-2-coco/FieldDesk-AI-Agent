@@ -5131,7 +5131,7 @@ function createApp(
             discountEnabled: false, discountScope: "ORDER_TOTAL", discountRate: 10, discountAmount: 0,
             primaryRemark: null, secondaryRemark: null, logisticsSource: "NOT_CHARGED",
             };
-      const confirmedFaultPath = String(order.faultCategory || "").split(/[|/]/).map((item) => item.trim()).filter(Boolean);
+      const confirmedFaultPath = require('./services/fault-category-path').splitFaultCategoryPath(order.faultCategory);
       const confirmedFault = confirmedFaultPath.length >= 3
         ? {
             faultLevel1: confirmedFaultPath[0],
