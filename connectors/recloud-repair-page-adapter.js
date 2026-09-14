@@ -344,7 +344,7 @@ async function ensurePicklistValue(page, item, value, label) {
 
 function attachmentPath(rmaNo, fileName) {
   const digest = crypto.createHash("sha256").update(String(rmaNo || "").trim()).digest("hex");
-  return path.join(__dirname, "..", "database", "uploads", "repairs", digest, path.basename(fileName));
+  return path.join(require('../config/upload-paths').resolveUploadDirectory(), "repairs", digest, path.basename(fileName));
 }
 
 function enrichExpectedAttachmentMetadata(attachments, expectedAttachments) {
