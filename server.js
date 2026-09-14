@@ -2094,6 +2094,14 @@ function createApp(
     } catch (error) { next(error); }
   });
 
+  app.post("/api/admin/print/terminals/enrollment", async (req, res, next) => {
+    try {
+      requirePrintAdministrator(req);
+      res.setHeader("Cache-Control", "no-store");
+      res.json({ success: true, data: await printJobStore.renewEnrollment(req.body?.id) });
+    } catch (error) { next(error); }
+  });
+
   app.post("/api/admin/print/terminals/delete", async (req, res, next) => {
     try {
       requirePrintAdministrator(req);

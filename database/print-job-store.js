@@ -120,6 +120,19 @@ class PrintJobStore {
     });
   }
 
+  renewEnrollment(id) {
+    return this.backend.update((data) => {
+      const terminal = (data.terminals || []).find((item) => item.id === clean(id, 80) && !item.deletedAt);
+      if (!terminal) throw Object.assign(new Error("打印终端不存在"), { status: 404 });
+      if ((data.jobs || []).some((job) => job.terminalId === terminal.id && job.status === "PRINTING")) {
+        throw Object.assign(new Error("仍有正在打印的任务，请处理完成后再更换电脑"), { status: 409 });
+      }
+      const enrollmentToken = crypto.randomBytes(32).toString("base64url");
+      Object.assign(terminal, { tokenHash: hashToken(enrollmentToken), lastSeenAt: "", updatedAt: new Date().toISOString() });
+      return { terminal: publicTerminal(terminal), enrollmentToken };
+    });
+  }
+
   deleteTerminal(id) {
     return this.backend.update((data) => {
       const terminal = (data.terminals || []).find((item) => item.id === clean(id, 80) && !item.deletedAt);

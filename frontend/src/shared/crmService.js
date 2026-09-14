@@ -571,6 +571,10 @@ export async function savePrintTerminal(payload) {
   return request("/api/admin/print/terminals", payload)
 }
 
+export async function renewPrintEnrollment(id) {
+  return request("/api/admin/print/terminals/enrollment", { id })
+}
+
 export async function deletePrintTerminal(id) {
   return request("/api/admin/print/terminals/delete", { id })
 }

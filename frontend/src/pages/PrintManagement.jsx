@@ -5,8 +5,10 @@ import {
   getPrintTerminals,
   queuePrintTest,
   retryPrintJob,
-  savePrintTerminal
+  savePrintTerminal,
+  renewPrintEnrollment
 } from "../shared/crmService.js"
+import { buildStoredZip, installerFiles } from "../shared/printInstaller.js"
 
 const EMPTY_FORM = { id: "", name: "", printerName: "XP-420B", memberUserIds: [], active: true }
 
@@ -84,7 +86,7 @@ function PrintManagement({ setPage }) {
       const result = await savePrintTerminal(form)
       setCredential(result.enrollmentToken ? { terminal: result.terminal, token: result.enrollmentToken } : null)
       setForm(EMPTY_FORM)
-      setMessage(result.enrollmentToken ? "终端已创建，请立即复制一次性密钥" : "打印终端已保存")
+      setMessage(result.enrollmentToken ? "终端已创建，请下载预配置安装包" : "打印终端已保存")
       await refresh({ quiet: true })
     } catch (error) {
       setMessage(error.message)
@@ -125,22 +127,43 @@ function PrintManagement({ setPage }) {
     finally { setBusy(false) }
   }
 
-  const installCommand = credential ? `.\\Install-FieldDesk-Print-Agent.ps1 -ApiBaseUrl "${window.location.origin}" -TerminalId "${credential.terminal.id}" -TerminalToken "${credential.token}" -PrinterName "${credential.terminal.printerName}"` : ""
+  async function downloadPackage(existingTerminal) {
+    if (existingTerminal && !window.confirm("生成新安装包会使旧电脑的终端密钥失效。请先退出旧电脑的打印助手，确认继续？")) return
+    setBusy(true)
+    try {
+      const scripts = await Promise.all(['installer', 'agent'].map(async (name) => {
+        const response = await fetch(`/api/print-agent/download/${name}`, { cache: 'no-store' })
+        if (!response.ok) throw new Error('安装文件下载失败，请重试')
+        return response.text()
+      }))
+      let current = credential
+      if (existingTerminal) {
+        const result = await renewPrintEnrollment(existingTerminal.id)
+        current = { terminal: result.terminal, token: result.enrollmentToken }
+        setCredential(current)
+      }
+      if (!current) throw new Error('请先选择打印终端')
+      const blob = buildStoredZip(installerFiles(current, window.location.origin, ...scripts))
+      const url = URL.createObjectURL(blob), link = document.createElement('a')
+      link.href = url; link.download = 'FieldDesk-Print-Setup.zip'; link.click()
+      window.setTimeout(() => URL.revokeObjectURL(url), 30000)
+      setMessage('安装包已下载：解压后双击 Install.cmd，无需填写服务器地址或密钥。')
+    } catch (error) { setMessage(error.message) }
+    finally { setBusy(false) }
+  }
 
   return <div className="page print-management-page">
     <div className="top-bar"><button className="arrow-back" onClick={() => credential ? setCredential(null) : form.id ? setForm(EMPTY_FORM) : setPage("appBack")}>←</button><div><small>Windows 共享打印</small><h1>打印终端</h1></div></div>
 
     {credential && <section className="card print-credential-card">
-      <div className="section-title-row"><div><small>只显示一次</small><h2>安装密钥已生成</h2></div><span>请立即保存</span></div>
-      <p>在对应 Windows 电脑上以管理员身份运行以下命令。关闭这里后，密钥不能再次查看。</p>
-      <code>{installCommand}</code>
-      <button type="button" onClick={() => navigator.clipboard?.writeText(installCommand).then(() => setMessage("安装命令已复制"))}>复制安装命令</button>
+      <div className="section-title-row"><div><small>已自动配置</small><h2>Windows 打印终端安装包</h2></div></div>
+      <p>已包含服务器地址和终端密钥。解压全部文件，双击 Install.cmd，允许管理员授权即可安装。安装后请删除安装包，不要转发。</p>
+      <button type="button" disabled={busy} onClick={() => downloadPackage()}>下载预配置安装包</button>
     </section>}
 
     <section className="card print-editor-card">
       <div className="section-title-row"><div><small>电脑与打印机</small><h2>{form.id ? "编辑终端" : "新增终端"}</h2></div><span>{form.id ? "已配置" : "开机自启"}</span></div>
       <p className="section-description">一台 Windows 电脑连接一台打印机，可勾选 2–5 名共用师傅。电脑锁屏或显示器熄屏仍可打印，但不能进入睡眠。</p>
-      <a className="print-agent-download" href="/api/print-agent/download/installer" download>下载 Windows 打印助手安装脚本</a>
       <form onSubmit={submit}>
         <label>终端名称<input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="例如：维修区一号打印机" required /></label>
         <label>Windows 打印机名称<input value={form.printerName} onChange={(event) => setForm({ ...form, printerName: event.target.value })} placeholder="例如：XP-420B" required /><small>必须与 Windows“打印机和扫描仪”中的名称完全一致</small></label>
@@ -162,7 +185,7 @@ function PrintManagement({ setPage }) {
           <span><strong>{terminal.name}</strong><small>{terminal.printerName} · {(terminal.memberUserIds || []).length} 名师傅</small></span>
           <em>{terminal.online ? "在线" : "离线"}</em><b>›</b>
         </button>
-        <div className="print-terminal-stats"><span>等待 {terminal.queue?.pending || 0}</span><span>失败 {terminal.queue?.failed || 0}</span><span>成功 {terminal.queue?.success || 0}</span><button type="button" onClick={() => testPrint(terminal.id)} disabled={busy}>测试打印</button></div>
+        <div className="print-terminal-stats"><span>等待 {terminal.queue?.pending || 0}</span><span>失败 {terminal.queue?.failed || 0}</span><span>成功 {terminal.queue?.success || 0}</span><button type="button" onClick={() => testPrint(terminal.id)} disabled={busy}>测试打印</button><button type="button" onClick={() => downloadPackage(terminal)} disabled={busy}>安装到新电脑</button></div>
       </article>)}</div>
       {!terminals.length && <p className="print-empty">还没有打印终端，请先新增一台 Windows 电脑。</p>}
     </section>
