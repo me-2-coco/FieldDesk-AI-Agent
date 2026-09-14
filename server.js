@@ -5240,7 +5240,9 @@ function createApp(
   app.get("/api/shipping/orders", async (req, res, next) => {
     try {
       const user = currentUserProvider(req);
-      res.json({ success: true, data: await returnLogistics.decorate(await receiptStore.listShippingOrders(user, USER_ROLES)) });
+      const rows=await receiptStore.listShippingOrders(user, USER_ROLES);
+      await returnLogistics.ensureAll(rows);
+      res.json({ success: true, data: await returnLogistics.decorate(rows) });
     } catch (error) { next(error); }
   });
 
@@ -5256,6 +5258,7 @@ function createApp(
       if (!["REPAIR_COMPLETED_PENDING_SHIPMENT", "SHIPPED_PENDING_COMPLETION"].includes(order.status)) {
         throw createApiError("RETURN_SHIPMENT_NOT_ALLOWED", "当前工单不能进入返件发货", 409);
       }
+      await returnLogistics.ensure(order);
       const usedParts = await inventoryStore.usedPartsForOrder(order.rmaNo, order.sn);
       res.json({ success: true, data: { order: (await returnLogistics.decorate([order]))[0], usedParts, syncProvider: "RECLOUD", recloudSynced: false } });
     } catch (error) { next(error); }

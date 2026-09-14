@@ -23,9 +23,10 @@ function ReturnShipping({ setPage }) {
   const [syncError, setSyncError] = useState("")
   const [job, setJob] = useState(null)
   const lastJobRunning = useRef(false)
+  const lastListPoll = useRef(0)
   useEffect(() => {
     let active=true
-    const check=async()=>{ try { const next=await getShippingSyncStatus(); if(active) { setJob(next); if(next.running || lastJobRunning.current) setRevision(v=>v+1); lastJobRunning.current=next.running; } } catch { /* List errors are displayed separately. */ } }
+    const check=async()=>{ try { const next=await getShippingSyncStatus(); if(active) { setJob(next); if(next.running || lastJobRunning.current || Date.now()-lastListPoll.current >= 30000) { setRevision(v=>v+1); lastListPoll.current=Date.now(); } lastJobRunning.current=next.running; } } catch { /* List errors are displayed separately. */ } }
     check(); const timer=window.setInterval(check,5000)
     return ()=>{active=false;window.clearInterval(timer)}
   }, [])
@@ -52,12 +53,16 @@ function ReturnShipping({ setPage }) {
     let active = true
     const timer = window.setTimeout(() => {
       if (!selectedRmaNo) { setContext(null); setDetailLoading(false); setDetailError(""); return }
-      setDetailLoading(true); setDetailError(""); setContext(null)
+      setDetailError(""); setContext(current => current?.order?.rmaNo === selectedRmaNo ? current : null)
       getShippingContext(selectedRmaNo).then(data => { if (active) setContext(data) })
         .catch(error => { if (active) setDetailError(error.message) })
         .finally(() => { if (active) setDetailLoading(false) })
     }, 0)
-    return () => { active = false; window.clearTimeout(timer) }
+    const poll=window.setInterval(() => {
+      if (!selectedRmaNo) return
+      getShippingContext(selectedRmaNo).then(data=>{if(active)setContext(data)}).catch(()=>{})
+    },5000)
+    return () => { active = false; window.clearTimeout(timer); window.clearInterval(poll) }
   }, [selectedRmaNo, revision])
 
   function refresh() { setLoading(true); setRevision(value => value + 1) }
@@ -75,7 +80,7 @@ function ReturnShipping({ setPage }) {
     {!selectedRmaNo && <section className="fdship-metrics" aria-label="发货统计">
       {[{ label: "待发货", value: pendingCount, icon: "inventory", tone: "amber", note: "维修已完成，等待寄出" }, { label: "已发货", value: orders.filter(shipped).length, icon: "shipping", tone: "blue", note: "返件已寄出，等待完结" }, { label: "当前队列", value: orders.length, icon: "records", tone: "slate", note: "全部待处理返件工单" }].map(metric => <div className="fdship-metric" key={metric.label}><div><span>{metric.label}</span><strong>{unavailable ? "—" : metric.value}<small>单</small></strong><p>{metric.note}</p></div><span className={`fdship-icon fdship-${metric.tone}`}><AppIcon name={metric.icon} size={23} /></span></div>)}
     </section>}
-    <div className="fdship-sync-bar"><button className="fdship-refresh" onClick={synchronize} disabled={syncing || job?.running}>{syncing ? "正在同步…" : job?.running ? `同步中 ${job.done}/${job.total}` : selectedRmaNo ? "同步本单物流" : "同步瑞云物流"}</button><small>{job?.running ? "正在逐单核对，可继续查看已有结果" : job?.finishedAt ? `上次批量同步：${job.done - job.failed} 单成功，${job.failed} 单待重试${job.paused ? "，连续查询失败，已暂停" : ""}` : "未核对的工单不计入待发货"}</small></div>
+    <div className="fdship-sync-bar"><button className="fdship-refresh" onClick={synchronize} disabled={syncing || job?.running}>{syncing ? "正在同步…" : job?.running ? `同步中 ${job.done}/${job.total}` : selectedRmaNo ? "立即刷新物流" : "立即刷新全部"}</button><small>{job?.running ? "正在逐单核对，可继续查看已有结果" : job?.finishedAt ? `上次批量同步：${job.done - job.failed} 单成功，${job.failed} 单待重试${job.paused ? "，连续查询失败，已暂停" : ""}` : "物流自动同步，无需逐单操作"}</small></div>
     {syncError && <p className="fdship-alert" role="alert">{syncError}</p>}
     {listError && <div className="fdship-alert" role="alert"><AppIcon name="alert" size={21} /><div><strong>工单列表暂时无法加载</strong><p>{listError}</p><small>连接恢复后点击刷新，即可重新查看工单。</small></div><button onClick={refresh} disabled={loading}>重试</button></div>}
     <div className="fdship-workspace">
@@ -90,7 +95,7 @@ function ReturnShipping({ setPage }) {
           <div className="fdship-panel fdship-order-heading">{refreshControl}<span className={`fdship-badge ${shipped(order) ? "is-shipped" : ""}`}>{statusLabel(order)}</span><h2>{order.rmaNo}</h2><p>{order.productLine || "机型未记录"}<span>·</span>SN {order.sn || "未提供"}</p></div>
           <div className="fdship-panel"><div className="fdship-panel-heading"><h2>返件资料</h2><span className="fdship-readonly">仅查看</span></div><dl className="fdship-fields"><div><dt>用户姓名</dt><dd>{order.customerName || "未提供"}</dd></div><div><dt>联系电话</dt><dd>{order.phoneMasked || "未提供"}</dd></div><div className="fdship-wide"><dt>收件地址</dt><dd>{order.regionAddress || "未提供"}</dd></div><div className="fdship-wide"><dt>维修结果</dt><dd>{order.repairCompletion?.repairMeasure || "未提供"}</dd></div><div className="fdship-wide"><dt>已使用配件</dt><dd>{context.usedParts?.length ? context.usedParts.map(part => `${part.partName} × ${part.quantity}`).join("、") : "无实际使用配件"}</dd></div></dl></div>
           <div className="fdship-panel"><div className="fdship-panel-heading"><h2>发货进度</h2><AppIcon name="shipping" size={20} /></div><div className="fdship-progress"><span className="fdship-progress-dot" /><div><strong>{statusLabel(order)}</strong><p>{order.recloudShipping?.rawStatus ? `瑞云状态：${order.recloudShipping.rawStatus}` : "尚未确认瑞云返件状态，请同步核对。"}</p></div></div><dl className="fdship-fields"><div><dt>快递公司</dt><dd>{order.recloudShipping?.logisticsCompany || "未提供"}</dd></div><div><dt>返件单号</dt><dd>{order.recloudShipping?.trackingNo || "未提供"}</dd></div><div><dt>发货时间</dt><dd>{order.recloudShipping?.shippedAt || "未提供"}</dd></div><div><dt>签收时间</dt><dd>{order.recloudShipping?.signedAt || "暂无确认记录"}</dd></div></dl>
-          <details className="fdship-timeline" open><summary>物流轨迹<span>{order.recloudShipping?.traces?.length || 0} 条</span></summary>{order.recloudShipping?.traces?.length ? <ol>{order.recloudShipping.traces.map((trace,index)=><li key={index}><time>{trace.at}</time><p>{trace.description}</p></li>)}</ol> : <p>{order.recloudShipping?.traceStatus === "UNAVAILABLE" ? "本次未能取得物流轨迹，请重试。" : "点击“同步本单物流”读取瑞云最新轨迹。"}</p>}</details>
+          <details className="fdship-timeline" open><summary>物流轨迹<span>{order.recloudShipping?.traces?.length || 0} 条</span></summary>{order.recloudShipping?.traces?.length ? <ol>{order.recloudShipping.traces.map((trace,index)=><li key={index}><time>{trace.at}</time><p>{trace.description}</p></li>)}</ol> : <p>{order.recloudShipping?.traceStatus === "UNAVAILABLE" ? "暂未取得物流轨迹，系统会自动重试。" : order.logisticsSyncing ? "正在自动同步物流轨迹，请稍候…" : "物流轨迹将自动更新，暂无可显示的轨迹。"}</p>}</details>
           {order.recloudShipping?.error && <p role="alert">{order.recloudShipping.error}，保留上次成功结果。</p>}
           <details className="fdship-timeline"><summary>查看处理记录<span>{(order.timeline || []).length} 条</span></summary>{order.timeline?.length ? <ol>{order.timeline.map((item, index) => <li key={item.id || index}><strong>{item.label}</strong><time>{new Date(item.at).toLocaleString()}</time></li>)}</ol> : <p>暂无处理记录。</p>}</details><p className="fdship-footnote">来自瑞云 · 最后成功同步：{order.recloudShipping?.syncedAt ? new Date(order.recloudShipping.syncedAt).toLocaleString() : "尚未同步"}</p></div>
         </>}

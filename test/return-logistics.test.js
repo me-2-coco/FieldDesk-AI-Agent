@@ -39,3 +39,18 @@ test('shipping synchronization rejects unauthorized roles and unknown orders bef
  user={userId:'TEST',role:'INFORMATION_CLERK'};assert.equal((await post('OTHER')).status,404);assert.equal(calls,0);
  assert.equal((await post(order.rmaNo)).status,200);assert.equal(calls,1);assert.equal((await post('')).status,202);assert.equal(calls,2);
 });
+test('automatic list synchronization includes traces and skips fresh cache',async t=>{
+ const dir=await fs.mkdtemp(path.join(os.tmpdir(),'shipping-auto-'));t.after(()=>fs.rm(dir,{recursive:true,force:true}));
+ let calls=0;const service=new ReturnLogisticsService(path.join(dir,'cache.json'),async(o,options)=>{calls++;assert.equal(options.includeTraces,true);return {...parseReturnRow(row,o),traces:[{at:'2026-09-14 10:00:00',description:'测试运输记录'}],traceStatus:'SUCCESS'}});
+ await service.ensureAll([order]);await service.work;assert.equal(calls,1);
+ await service.ensureAll([order]);await service.ensure(order);assert.equal(calls,1);
+ const decorated=await service.decorate([order]);assert.equal(decorated[0].recloudShipping.traces.length,1);
+});
+test('opening an order automatically fills missing traces, with failure backoff',async t=>{
+ const dir=await fs.mkdtemp(path.join(os.tmpdir(),'shipping-auto-'));t.after(()=>fs.rm(dir,{recursive:true,force:true}));
+ let calls=0;const service=new ReturnLogisticsService(path.join(dir,'cache.json'),async()=>{calls++;throw Error('offline')});
+ await service.save(order.rmaNo,{...parseReturnRow(row,order),attemptedAt:new Date().toISOString()});
+ await service.ensure(order);await assert.rejects(service.inflight.get(order.rmaNo));assert.equal(calls,1);
+ await service.ensure(order);assert.equal(calls,1);
+ assert.equal(service.needsRefresh(order,{sn:order.sn,status:'SHIPPED',traceStatus:'SUCCESS',attemptedAt:new Date(Date.now()-31*60000).toISOString()}),true);
+});
