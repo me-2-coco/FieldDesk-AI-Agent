@@ -1,4 +1,11 @@
 /* Scoped layout: keep global full-width form/button styles out of this page. */
+.print-management-page .print-members-summary { display:flex; align-items:center; gap:10px; padding:0 12px 12px; }
+.print-management-page .print-members-summary > span { flex:1; min-width:0; color:#748399; font-size:11px; overflow-wrap:anywhere; }
+.print-management-page .print-members-summary button { width:auto!important; min-height:30px!important; padding:5px 10px!important; margin:0!important; border-radius:8px; color:#2467cd; background:#eaf2ff; font-size:12px; white-space:nowrap; box-shadow:none; }
+.print-management-page .print-inline-members { padding:12px; background:#fff; border-top:1px solid #e6ebf3; }
+.print-management-page .print-inline-members p { margin:0 0 10px!important; font-size:12px; color:#748399; text-align:left; }
+.print-management-page .print-inline-members [role=alert] { color:#c33e34; }
+.print-management-page .print-inline-members .compact-action-row { margin-top:12px; }
 .print-management-page .print-page-header { display:flex; align-items:center; gap:12px; padding:16px 4px 22px; text-align:left; }
 .print-management-page .print-page-header button { width:36px; min-height:36px; margin:0; padding:0; border:1px solid #dce5f1; border-radius:10px; background:white; color:#2467cd; box-shadow:none; font-size:22px; }
 .print-management-page .print-page-header h1 { margin:0; font-size:22px; line-height:1.4; color:#24364d; text-align:left; }

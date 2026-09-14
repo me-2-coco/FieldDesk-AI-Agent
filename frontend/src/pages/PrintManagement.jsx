@@ -29,6 +29,33 @@ function PrintManagement({ setPage }) {
   const [credential, setCredential] = useState(null)
   const [message, setMessage] = useState("")
   const [busy, setBusy] = useState(false)
+  const [memberTerminalId, setMemberTerminalId] = useState('')
+  const [addedMembers, setAddedMembers] = useState([])
+  const [memberError, setMemberError] = useState('')
+
+  async function openMembers(terminal) {
+    setMemberTerminalId(terminal.id)
+    setAddedMembers([])
+    setMemberError('')
+    try { setUsers(await getAdminUsers() || []) }
+    catch (error) { setMemberError(error.message) }
+  }
+
+  async function saveMembers() {
+    setBusy(true)
+    setMemberError('')
+    try {
+      const data = await getPrintTerminals()
+      const terminal = data.terminals.find(item => item.id === memberTerminalId)
+      if (!terminal) throw new Error('打印终端不存在，请刷新页面')
+      await savePrintTerminal({ ...terminal, memberUserIds: [...new Set([...(terminal.memberUserIds || []), ...addedMembers])] })
+      setMemberTerminalId('')
+      setAddedMembers([])
+      setMessage('师傅已加入，新打印任务将使用这台打印机，无需重新安装终端。')
+      await refresh({ quiet: true })
+    } catch (error) { setMemberError(error.message) }
+    finally { setBusy(false) }
+  }
 
   const printableUsers = useMemo(() => users.filter((user) => (
     ["TECHNICIAN", "ADMIN"].includes(user.role) && user.active !== false
@@ -186,6 +213,17 @@ function PrintManagement({ setPage }) {
           <span><strong>{terminal.name}</strong><small>{terminal.printerName} · {(terminal.memberUserIds || []).length} 名师傅</small></span>
           <em>{terminal.online ? "在线" : "离线"}</em><b>›</b>
         </button>
+        <div className="print-members-summary"><span>共用师傅：{(terminal.memberUserIds || []).map(id => users.find(user => user.userId === id)?.displayName || id).join('、') || '暂无'}</span><button type="button" disabled={busy} onClick={() => openMembers(terminal)}>添加师傅</button></div>
+        {memberTerminalId === terminal.id && <div className="print-inline-members">
+          <p>勾选要加入的师傅，已加入的账号会保留。</p>
+          <fieldset className="print-member-picker"><legend>可添加账号</legend><div>{users.filter(user => user.role === 'TECHNICIAN' && user.active !== false && !user.deletedAt && !(terminal.memberUserIds || []).includes(user.userId)).map(user => {
+            const other = terminals.find(item => item.id !== terminal.id && item.active !== false && (item.memberUserIds || []).includes(user.userId))
+            return <label key={user.userId} className={addedMembers.includes(user.userId) ? 'selected' : ''}><input type="checkbox" disabled={busy || Boolean(other)} checked={addedMembers.includes(user.userId)} onChange={() => setAddedMembers(current => current.includes(user.userId) ? current.filter(id => id !== user.userId) : [...current, user.userId])} /><span><strong>{user.displayName || user.userId}</strong><small>{other ? `已分配：${other.name}` : user.userId}</small></span></label>
+          })}</div></fieldset>
+          {!users.some(user => user.role === 'TECHNICIAN' && user.active !== false && !user.deletedAt && !(terminal.memberUserIds || []).includes(user.userId)) && <p>暂无其他师傅账号，请先在账号管理中创建。</p>}
+          {memberError && <p role="alert">{memberError}</p>}
+          <div className="compact-action-row"><button type="button" disabled={busy || !addedMembers.length} onClick={saveMembers}>确认添加{addedMembers.length ? `（${addedMembers.length}）` : ''}</button><button type="button" disabled={busy} onClick={() => setMemberTerminalId('')}>取消</button></div>
+        </div>}
         <div className="print-terminal-stats"><span>等待 {terminal.queue?.pending || 0}</span><span>失败 {terminal.queue?.failed || 0}</span><span>成功 {terminal.queue?.success || 0}</span><button type="button" onClick={() => testPrint(terminal.id)} disabled={busy}>测试打印</button><button type="button" onClick={() => downloadPackage(terminal)} disabled={busy}>下载终端</button></div>
       </article>)}</div>
       {!terminals.length && <p className="print-empty">还没有打印终端，请先新增一台 Windows 电脑。</p>}
