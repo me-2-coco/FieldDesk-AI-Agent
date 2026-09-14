@@ -1,0 +1,28 @@
+.account-management-page .account-editor-card { padding: 20px !important; }
+.account-management-page .account-editor-card .section-description { margin: 5px 0 18px; text-align: left; font-size: 12px; line-height: 1.6; }
+.account-management-page .account-editor-card label { display: block; text-align: left !important; font-size: 12px !important; color: #526176; }
+.account-management-page .account-editor-card input:not([type=checkbox]):not([type=radio]) { box-sizing: border-box; width: 100%; height: 42px; min-height: 42px; margin: 7px 0 0; padding: 10px 12px; font-size: 14px; font-weight: 500; border-radius: 10px; background: #f8fafc; }
+.account-management-page .account-id-editor { margin-top: 7px; border-radius: 10px; align-items: center; }
+.account-management-page .account-id-editor input { margin: 0 !important; }
+.account-management-page .account-setup-note { margin: 8px 0 6px; color: #8490a1; text-align: left; font-size: 10px; line-height: 1.6; }
+.account-contact-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 12px; }
+.account-management-page .account-role-picker { margin: 20px 0 14px; }
+.account-management-page .account-role-picker legend, .account-assignment legend { text-align: left; font-size: 12px; font-weight: 700; color: #43536a; padding: 0; margin-bottom: 8px; }
+.account-management-page .account-role-option { min-height: 70px; padding: 10px; border-radius: 12px; box-shadow: none; }
+.account-management-page .account-role-copy small { font-size: 9px; line-height: 1.5; }
+.account-management-page .account-role-option.is-selected { border-color: #2878ec; background: #eff6ff; box-shadow: none; }
+.account-assignment { margin: 18px 0; padding: 12px; border: 1px solid #e6edf5; border-radius: 12px; background: #fafcff; min-width: 0; }
+.account-assignment-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.account-management-page .account-assignment-modes label { display: flex; align-items: center; gap: 6px; margin: 0 !important; font-size: 11px !important; }
+.account-assignment-modes input { width: 15px; height: 15px; margin: 0; accent-color: #2878ec; }
+.account-management-page .account-assignment .section-description { margin: 0; }
+.account-management-page .account-editor-card .switch-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; background: transparent; }
+.account-management-page .account-editor-card .switch-row input { width: 18px; height: 18px; accent-color: #2878ec; }
+.account-save-actions { display: flex; gap: 10px; align-items: center; margin-top: 12px; }
+.account-management-page .account-save-actions button { width: auto; flex: 1; min-height: 40px; margin: 0; padding: 10px 16px; border-radius: 10px; font-size: 13px; box-shadow: none; }
+.account-management-page .account-save-actions .secondary-btn { flex: 0 0 auto; color: #64748b; background: #f0f4f8; }
+.account-security-actions { display: flex; justify-content: space-between; gap: 12px; }
+.account-security-actions:not(:empty) { border-top: 1px solid #edf1f6; margin-top: 18px; padding-top: 10px; }
+.account-management-page .account-security-actions button { width: auto; min-height: 32px; margin: 0; padding: 6px 2px; font-size: 11px; color: #758298; background: transparent !important; border: 0; box-shadow: none; }
+.account-management-page .account-security-actions .account-delete-button { color: #cf5353 !important; }
+@media (max-width: 360px) { .account-contact-grid { grid-template-columns: 1fr; gap: 0; } }
