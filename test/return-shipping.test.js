@@ -102,9 +102,9 @@ test("shipping proof store accepts images and rejects video", async (t) => {
 
 test("frontend exposes read-only background shipping progress to information roles", async () => {
   const page = await fs.readFile(path.join(__dirname, "../frontend/src/pages/ReturnShipping.jsx"), "utf8");
-  assert.match(page, /后台发货进度/);
-  assert.match(page, /仅供信息员和管理员查询/);
-  assert.match(page, /工单时间线/);
+  assert.match(page, /发货进度/);
+  assert.match(page, /仅查看/);
+  assert.match(page, /查看处理记录/);
   assert.doesNotMatch(page, /扫描返件物流单号|发货凭证照片|管理员确认完结|提交本地发货/);
   assert.doesNotMatch(page, /queryCrm|recloudConnector/);
   const server = await fs.readFile(path.join(__dirname, "../server.js"), "utf8");
