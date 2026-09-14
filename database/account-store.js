@@ -190,7 +190,7 @@ class AccountStore {
     if (role === USER_ROLES.ADMIN && !isOwner(operator)) throw Object.assign(new Error("只有负责人可以创建管理员账号"), { code: "ACCOUNT_OWNER_REQUIRED", status: 403 });
     if (isRecloudTestAccount && !isOwner(operator)) throw Object.assign(new Error("只有负责人可以创建和管理 FieldDesk0004 测试账号"), { code: "ACCOUNT_OWNER_REQUIRED", status: 403 });
     if (requestedUserId && !/^FieldDesk\d{4,}$/.test(requestedUserId)) throw Object.assign(new Error("账号必须由 FieldDesk 加4位以上数字组成"), { code: "ACCOUNT_USER_ID_INVALID", status: 400 });
-    if (requestedUserId && Number(requestedUserId.slice(MANAGED_ACCOUNT_PREFIX.length)) < Number(RECLOUD_TEST_USER_ID.slice(MANAGED_ACCOUNT_PREFIX.length))) throw Object.assign(new Error("账号数字不能小于0004"), { code: "ACCOUNT_USER_ID_BELOW_MINIMUM", status: 400 });
+    if (requestedUserId && !isOwner(operator) && Number(requestedUserId.slice(MANAGED_ACCOUNT_PREFIX.length)) < Number(RECLOUD_TEST_USER_ID.slice(MANAGED_ACCOUNT_PREFIX.length))) throw Object.assign(new Error("账号数字不能小于0004"), { code: "ACCOUNT_USER_ID_BELOW_MINIMUM", status: 400 });
     if (isRecloudTestAccount && role !== USER_ROLES.TECHNICIAN) throw Object.assign(new Error("FieldDesk0004 是瑞云对接测试师傅账号，请选择扫地机或洗地机师傅"), { code: "ACCOUNT_RECLOUD_TEST_ROLE_REQUIRED", status: 400 });
     if (specialties.some((item) => !SPECIALTIES.has(item))) throw Object.assign(new Error("维修品类无效"), { code: "ACCOUNT_SPECIALTY_INVALID", status: 400 });
     if (role === USER_ROLES.TECHNICIAN && isRecloudTestAccount && !(specialties.length === SPECIALTIES.size && specialties.every((item) => SPECIALTIES.has(item)))) throw Object.assign(new Error("FieldDesk0004 必须同时拥有扫地机和洗地机权限"), { code: "ACCOUNT_SPECIALTY_REQUIRED", status: 400 });

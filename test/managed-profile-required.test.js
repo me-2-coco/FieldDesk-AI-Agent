@@ -5,6 +5,18 @@ const os = require('node:os');
 const path = require('node:path');
 const { AccountStore } = require('../database/account-store');
 const owner = { userId: 'FieldDesk0001', role: 'ADMIN', accountAuthority: 'OWNER' };
+test('owner can specify unused low account numbers without relaxing admin or duplicate guards', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fd-owner-number-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const store = new AccountStore({ driver: 'json', filePath: path.join(dir, 'accounts.json') });
+  const input = { userId: 'FieldDesk0003', displayName: 'Test', phone: '13800000003', role: 'ADMIN' };
+  const user = await store.createManagedAccount(input, owner);
+  assert.equal(user.userId, 'FieldDesk0003');
+  assert.equal(user.accountAuthority, undefined);
+  await assert.rejects(async () => store.createManagedAccount(input, owner), { code: 'ACCOUNT_USER_ID_EXISTS' });
+  const ordinary = { userId: 'FieldDesk0010', role: 'ADMIN' };
+  await assert.rejects(async () => store.createManagedAccount({ ...input, userId: 'FieldDesk0002', role: 'INFORMATION_CLERK' }, ordinary), { code: 'ACCOUNT_USER_ID_BELOW_MINIMUM' });
+});
 test('new accounts require name and phone on both creation paths', async t => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fd-required-profile-'));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
