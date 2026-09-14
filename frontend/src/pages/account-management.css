@@ -25,4 +25,7 @@
 .account-security-actions:not(:empty) { border-top: 1px solid #edf1f6; margin-top: 18px; padding-top: 10px; }
 .account-management-page .account-security-actions button { width: auto; min-height: 32px; margin: 0; padding: 6px 2px; font-size: 11px; color: #758298; background: transparent !important; border: 0; box-shadow: none; }
 .account-management-page .account-security-actions .account-delete-button { color: #cf5353 !important; }
+.account-management-page .account-security-actions .secondary-btn { min-height: 36px; padding: 8px 14px; border: 1px solid #93bdf5; border-radius: 9px; color: #175fbd; background: #edf5ff !important; font-size: 12px; font-weight: 700; }
+.account-management-page .account-security-actions .secondary-btn:hover { border-color: #2878ec; background: #deedff !important; }
+.account-management-page .account-security-actions .secondary-btn:focus-visible { outline: 2px solid #2878ec; outline-offset: 3px; }
 @media (max-width: 360px) { .account-contact-grid { grid-template-columns: 1fr; gap: 0; } }
