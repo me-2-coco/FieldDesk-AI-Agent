@@ -6,6 +6,7 @@ import { FullFrameBarcodeScanner } from "../shared/FullFrameBarcodeScanner.js"
 import { extractScannedIdentifier } from '../shared/queryIdentifier.js'
 import "./scanner-modal.css"
 import CameraTorchButton from "./CameraTorchButton.jsx"
+import SnPhotoOcr from './SnPhotoOcr.jsx'
 
 function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onClose }) {
   const areaId = `scanner-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`
@@ -16,6 +17,7 @@ function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onCl
   const [cameraTrack, setCameraTrack] = useState(null)
   const [compatibility, setCompatibility] = useState(mode !== 'sn')
   const [zoom, setZoom] = useState(1)
+  const [photoMode, setPhotoMode] = useState(false)
   const zoomCapability = cameraTrack?.getCapabilities?.().zoom
   const changeZoom = async () => {
     const next = zoom === 1 ? Math.min(2, zoomCapability?.max || 1) : 1
@@ -26,7 +28,7 @@ function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onCl
   }
   useEffect(() => { callbacks.current = { onScan, onClose } }, [onScan, onClose])
   useEffect(() => {
-    if (!open) return
+    if (!open || photoMode) return
     let active = true
     let scanner
     let starting
@@ -94,16 +96,17 @@ function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onCl
       window.removeEventListener("keydown", escape)
       shutdown.current = stop()
     }
-  }, [areaId, mode, open, compatibility])
+  }, [areaId, mode, open, compatibility, photoMode])
   if (!open) return null
   return createPortal(<div className="fd-scanner-overlay" role="dialog" aria-modal="true" aria-label={title}>
     <header className="fd-scanner-header">
       <button className="fd-camera-close" type="button" aria-label="关闭扫码" onClick={onClose}><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg></button>
       <strong>{title}</strong>
-      {ready ? <CameraTorchButton key={cameraTrack?.id || "unavailable"} track={cameraTrack} /> : <span />}
+      {ready && !photoMode ? <CameraTorchButton key={cameraTrack?.id || "unavailable"} track={cameraTrack} /> : <span />}
     </header>
-    <div className="fd-scanner-view" id={areaId} />
-    <footer className="fd-scanner-footer">
+    {photoMode ? <SnPhotoOcr onBack={() => setPhotoMode(false)} onConfirm={value => { onScan(value); onClose() }} /> : <div className="fd-scanner-view" id={areaId} />}
+    {!photoMode && <footer className="fd-scanner-footer">
+      {mode === 'sn' && <button type="button" onClick={() => setPhotoMode(true)}>拍照识别 SN</button>}
       <div className="fd-scanner-mode">{mode === 'sn' ? '扫描机器 SN 条码' : '扫码'}</div>
       {ready && zoomCapability?.max > 1 && <button type="button" onClick={changeZoom} aria-label="切换相机放大倍数">{zoom === 1 ? '放大条码 2×' : '恢复 1×'}</button>}
       <p role="status">{cameraError || (!ready ? "正在启动相机…" : mode === 'sn' ? "对准 S/N 旁边的长条码，保持两端完整；稍微离远，让画面清晰" : "对准条码或二维码，即可自动识别")}</p>
@@ -112,7 +115,7 @@ function ScannerModal({ open, mode = "logistics", title = "扫码", onScan, onCl
         <p>保持条码完整清晰，避开反光；光线不足时可打开右上角补光灯。</p>
         <button type="button" onClick={() => setCompatibility(value => !value)}>{compatibility ? "切换高清识别" : "切换兼容识别"}</button>
       </details>
-    </footer>
+    </footer>}
   </div>, document.body)
 }
 export default ScannerModal
