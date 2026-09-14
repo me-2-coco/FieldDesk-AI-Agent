@@ -152,7 +152,6 @@ function AccountManagement({ setPage }) {
             ? <label>瑞云姓名<input value={form.recloudAssigneeName} onChange={(event) => setForm({ ...form, recloudAssigneeName: event.target.value })} placeholder="留空则使用显示名称" /></label>
             : <label>兜底负责人<input value={form.recloudFallbackAssigneeName} onChange={(event) => setForm({ ...form, recloudFallbackAssigneeName: event.target.value })} placeholder="请输入瑞云中已存在的姓名" required /></label>}
         </fieldset>}
-        {form.accountAuthority !== "OWNER" && <label className="switch-row"><span>账号启用</span><input type="checkbox" checked={form.active} onChange={(event) => setForm({ ...form, active: event.target.checked })} /></label>}
         <div className="account-save-actions">{form.accountAuthority !== "OWNER" && <button type="submit" disabled={saving}>{saving ? "保存中…" : form.userId ? "保存修改" : "创建账号"}</button>}{form.userId && <button type="button" className="secondary-btn" onClick={() => setForm(EMPTY)}>取消</button>}</div>
         <div className="account-security-actions">{form.userId && form.accountAuthority !== "OWNER" && <button type="button" className="secondary-btn" onClick={resetUserPassword}>重置密码</button>}
         {form.userId && form.accountAuthority !== "OWNER" && <button type="button" className="account-delete-button" onClick={removeUser}>删除账号</button>}</div>
