@@ -14,7 +14,7 @@
 .fdship-panel{padding:16px;border-radius:14px}
 .fdship-panel-heading{margin-bottom:14px}
 .fdship-page h2{font-size:15px}
-.fdship-order-list{max-height:none;overflow:visible;margin-top:12px}
+.fdship-order-list{height:320px;height:clamp(220px,calc(100dvh - 440px),420px);max-height:none;overflow-y:auto;overflow-x:hidden;margin-top:12px;overscroll-behavior-y:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:#c5d2e4 transparent}
 .fdship-page .fdship-order{padding:12px;margin-bottom:8px}
 .fdship-order strong{font-size:13px}
 .fdship-order>small{font-size:11px}
