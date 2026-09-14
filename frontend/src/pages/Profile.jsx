@@ -103,7 +103,7 @@ function Profile({
           <div className="profile-user-copy">
             <span>当前账号</span>
             <strong>{accountPersonName(currentUser) || "\u00a0"}</strong>
-            <small>@{currentUser.account}</small>
+            <small>{currentUser.account}</small>
           </div>
           <span className="profile-role-badge">
             {accountRoleLabel(currentUser)}

@@ -8,7 +8,10 @@ import { changeFieldDeskPassword, loginFieldDeskAccount } from "../shared/crmSer
 
 function Login({ onLogin }) {
 
-  const [account, setAccount] = useState("")
+  const [account, setAccount] = useState(() => {
+    try { return localStorage.getItem("fielddeskLastLoginAccount") || "" }
+    catch { return "" }
+  })
   const [password, setPassword] = useState("")
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
@@ -37,6 +40,7 @@ function Login({ onLogin }) {
     if (password) {
       try {
         const profile = await loginFieldDeskAccount(account, password)
+        try { localStorage.setItem("fielddeskLastLoginAccount", account.trim()) } catch { /* Login still works if browser storage is unavailable. */ }
         setPassword("")
         if (profile.mustChangePassword) {
           setPasswordChangeProfile(profile)
@@ -101,7 +105,7 @@ function Login({ onLogin }) {
 
 
         <label htmlFor="login-account">
-          登录账号
+          账号 / 手机号
         </label>
 
 
@@ -113,7 +117,7 @@ function Login({ onLogin }) {
             setMessage("")
           }}
           onKeyDown={handleKeyDown}
-          placeholder="请输入账号"
+          placeholder="请输入FieldDesk账号或已绑定手机号"
           autoComplete="username"
           disabled={Boolean(passwordChangeProfile)}
         />

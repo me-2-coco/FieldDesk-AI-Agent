@@ -122,7 +122,9 @@ class AccountStore {
     const normalizedUserId = String(userId || "").trim();
     const tokenHash = crypto.createHash("sha256").update(String(password || "")).digest("hex");
     const data = await this.backend.read();
-    const user = data.users.find((item) => item.active !== false && item.userId === normalizedUserId && (item.passwordHash || item.tokenHash) === tokenHash);
+    const candidates = data.users.filter((item) => !item.deletedAt && (item.userId === normalizedUserId || (/^1[3-9]\d{9}$/.test(normalizedUserId) && normalizeTechnicianPhone(item.phone) === normalizedUserId)));
+    // Ambiguous legacy phone bindings must never authenticate an arbitrary account.
+    const user = candidates.length === 1 && candidates[0].active !== false && (candidates[0].passwordHash || candidates[0].tokenHash) === tokenHash ? candidates[0] : null;
     if (!user) return null;
     const { tokenHash: ignoredToken, passwordHash: ignoredPassword, ...safe } = user;
     return safe;

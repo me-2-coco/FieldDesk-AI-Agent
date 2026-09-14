@@ -1,0 +1,24 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
+const { AccountStore } = require('../database/account-store');
+test('phone and account authenticate the same identity; ambiguous and inactive accounts fail', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fd-phone-login-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const store = new AccountStore({ driver: 'json', filePath: path.join(dir, 'accounts.json') });
+  const owner = { userId: 'FieldDesk0001', role: 'ADMIN', accountAuthority: 'OWNER' };
+  const user = await store.createManagedAccount({ displayName: 'Synthetic', phone: '13800000005', role: 'INFORMATION_CLERK' }, owner);
+  const byId = await store.findByCredentials(user.userId, '000000');
+  const byPhone = await store.findByCredentials('13800000005', '000000');
+  assert.deepEqual(byPhone, byId);
+  assert.equal(byPhone.userId, user.userId);
+  assert.equal(await store.findByCredentials('13800000005', 'wrong'), null);
+  assert.equal(await store.findByCredentials('13800000009', '000000'), null);
+  await store.backend.update(d => { d.users[0].active = false; return d; });
+  assert.equal(await store.findByCredentials('13800000005', '000000'), null);
+  await store.backend.update(d => { d.users[0].active = true; d.users.push({ ...d.users[0], userId: 'FieldDesk0006' }); return d; });
+  assert.equal(await store.findByCredentials('13800000005', '000000'), null);
+  assert.equal((await store.findByCredentials(user.userId, '000000')).userId, user.userId);
+});
