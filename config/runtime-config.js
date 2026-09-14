@@ -13,8 +13,10 @@ function validateRuntimeConfig(env = process.env) {
   const errors = [];
   const secret = String(env.FIELDDESK_BOOTSTRAP_ADMIN_TOKEN || "");
   if (production) {
-    if (!boolean(env.DRY_RUN, true)) errors.push("生产环境当前必须保持 DRY_RUN=true");
-    if (boolean(env.RECLOUD_WRITE_ENABLED, false)) errors.push("生产环境当前禁止启用瑞云写入");
+    const reviewTrial = env.FIELDDESK_PRODUCTION_RECLOUD_MODE === "manual-review";
+    if (reviewTrial && env.RECLOUD_MANUAL_REVIEW_REQUIRED !== "true") errors.push("生产试用必须显式启用信息员最终提交限制");
+    if (!reviewTrial && !boolean(env.DRY_RUN, true)) errors.push("生产环境当前必须保持 DRY_RUN=true");
+    if (!reviewTrial && boolean(env.RECLOUD_WRITE_ENABLED, false)) errors.push("生产环境当前禁止启用瑞云写入");
     if (boolean(env.RECLOUD_REVEAL_PHONE_ENABLED, false)) errors.push("生产环境当前禁止显示完整电话");
     if (String(env.FIELDDESK_AUTH_MODE || "") !== "accounts") errors.push("生产环境必须启用正式账号模式");
     if (secret && (secret.length < 32 || WEAK_SECRETS.has(secret.toLowerCase()) || /replace|changeme|example/i.test(secret))) errors.push("管理员引导密钥长度至少为 32 位且不能使用默认或弱密钥");
