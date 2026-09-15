@@ -17,6 +17,9 @@ async function orchestrateRepairStart(payload, adapter, options = {}) {
   if (!adapter || typeof adapter.readAssignee !== "function" || typeof adapter.readRemoteState !== "function") {
     throw startError("瑞云维修准备执行器不可用", "RECLOUD_REPAIR_START_ADAPTER_INVALID", "PLAN");
   }
+  // Retain every fresh pre/post-write check, but avoid unrelated attachments.
+  const readPartsState = () => typeof adapter.readPartsState === "function"
+    ? adapter.readPartsState() : adapter.readRemoteState();
   // 改派只有首次从寄修单点击“维修”进入服务单时可用。这里在任何
   // 页签切换、配件读取或保外转保内动作之前先完成改派和复核。
   let assignee = await adapter.readAssignee();
@@ -29,7 +32,7 @@ async function orchestrateRepairStart(payload, adapter, options = {}) {
   }
   let assignmentRequired = String(assignee || "").replace(/\s/g, "") !== assignmentPlan.servicePerson.replace(/\s/g, "");
   if (options.writeEnabled !== true) {
-    const remote = await adapter.readRemoteState();
+    const remote = await readPartsState();
     const partsPlan = buildRecloudRepairPartsPlan(payload.usedParts, remote.parts);
     return {
       status: "READY_DRY_RUN",
@@ -61,7 +64,7 @@ async function orchestrateRepairStart(payload, adapter, options = {}) {
     }
   }
 
-  let remote = await adapter.readRemoteState();
+  let remote = await readPartsState();
   let partsPlan = buildRecloudRepairPartsPlan(payload.usedParts, remote.parts);
   if (!partsPlan.readyToAdd) {
     throw startError("配件新增前瑞云明细冲突", "RECLOUD_REPAIR_PART_PRECHECK_FAILED", "PARTS");
@@ -91,7 +94,7 @@ async function orchestrateRepairStart(payload, adapter, options = {}) {
     };
   }
 
-  remote = await adapter.readRemoteState();
+  remote = await readPartsState();
   partsPlan = buildRecloudRepairPartsPlan(payload.usedParts, remote.parts);
   if (!partsPlan.readyToAdd) {
     throw startError("配件新增前瑞云明细冲突", "RECLOUD_REPAIR_PART_PRECHECK_FAILED", "PARTS");
@@ -106,7 +109,7 @@ async function orchestrateRepairStart(payload, adapter, options = {}) {
       target: RECLOUD_WORK_ORDER_OPERATION_POLICY.partEntryTarget,
       forbiddenAction: RECLOUD_WORK_ORDER_OPERATION_POLICY.forbiddenPartLookup,
     });
-    remote = await adapter.readRemoteState();
+    remote = await readPartsState();
     partsPlan = buildRecloudRepairPartsPlan(payload.usedParts, remote.parts);
     const reportedMissingParts = Array.isArray(addResult?.missingParts) ? addResult.missingParts : [];
     const missingCodes = new Set(reportedMissingParts.map((part) => String(part.partCode || "").trim().toUpperCase()));

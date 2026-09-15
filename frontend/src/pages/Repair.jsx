@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import { MEDIA_ACCEPT, mediaType } from "../shared/mediaFormats.js"
+import { optimizeUploadPhoto } from "../shared/photoUpload.js"
 import ScannerModal from "../components/ScannerModal"
 import PhotoCaptureModal from "../components/PhotoCaptureModal"
 import { CameraIcon, ScanIcon } from "../components/AppIcons.jsx"
@@ -452,11 +453,12 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
         return
       }
       for (const attachment of receiptAttachments.filter((item) => !item.uploaded)) {
+        const uploadFile = await optimizeUploadPhoto(attachment.file)
         await uploadReceiptAttachment({
           rmaNo: repairDetail.rmaNo,
           name: attachment.name,
           mimeType: attachment.mimeType,
-          data: await fileToDataUrl(attachment.file)
+          data: await fileToDataUrl(uploadFile)
         })
       }
       // A corrected SN is a new receipt attempt for the same RMA. Include the

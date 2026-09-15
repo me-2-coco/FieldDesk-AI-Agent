@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { canViewRecloudSyncDetails } from "../shared/accountAccessPolicy.js"
 import { MEDIA_ACCEPT, mediaType } from "../shared/mediaFormats.js"
+import { optimizeUploadPhoto } from "../shared/photoUpload.js"
 import SupervisionNoticeCard from "../components/SupervisionNoticeCard.jsx"
 import PhotoCaptureModal from "../components/PhotoCaptureModal.jsx"
 import { CameraIcon } from "../components/AppIcons.jsx"
@@ -402,7 +403,7 @@ function RepairCompletion({ setPage, currentUser }) {
         }
       }
       for (const file of files) {
-        let uploadFile = file
+        let uploadFile = await optimizeUploadPhoto(file)
         if (needsVideoCompression(file)) {
           let lastProgress = -1
           setMessage(`视频 ${formatFileMb(file.size)}，正在自动压缩…`)

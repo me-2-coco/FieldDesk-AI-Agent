@@ -19,6 +19,23 @@ function adapterFixture() {
   };
 }
 
+test('narrow parts reader replaces full reads without removing pre/post checks', async () => {
+  const adapter = adapterFixture();
+  const read = adapter.readRemoteState;
+  adapter.readPartsState = async () => { const state = await read(); adapter.calls[adapter.calls.length - 1] = 'parts-read'; return state; };
+  adapter.readRemoteState = async () => { throw new Error('unnecessary full read'); };
+  const result = await orchestrateRepairStart({assignee: '新师傅', usedParts: [{partCode:'P1', quantity:1}]}, adapter, {writeEnabled:true});
+  assert.equal(result.partsVerified, true);
+  assert.deepEqual(adapter.calls, ['assignee','assign:新师傅','assignee','parts-read','conversion:false','parts-read','parts:1','parts-read']);
+});
+
+test('narrow reader failure stops before adding parts, no full-read fallback', async () => {
+  const adapter = adapterFixture();
+  adapter.readPartsState = async () => { throw Object.assign(new Error('table unavailable'), {code:'TABLE_UNAVAILABLE'}); };
+  await assert.rejects(orchestrateRepairStart({assignee:'新师傅', usedParts:[{partCode:'P1',quantity:1}]}, adapter, {writeEnabled:true}), {code:'TABLE_UNAVAILABLE'});
+  assert.equal(adapter.calls.some(call => call.startsWith('parts:') || call === 'read'), false);
+});
+
 test("explicit keep-current authorization preserves assignee and still adds parts", async () => {
   const adapter = adapterFixture();
   const result = await orchestrateRepairStart({ assignee: "新师傅", usedParts: [{ partCode: "TEST-1", quantity: 1 }] }, adapter,

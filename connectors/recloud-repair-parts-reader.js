@@ -49,6 +49,14 @@ async function inspectRepairPartsTable(page) {
 
 async function readWidestHeaderRow(section) {
   const rows = section.getByRole("row").filter({ visible: true });
+  if (typeof rows.evaluateAll === 'function') {
+    const candidates = await rows.evaluateAll(elements => elements.map(row =>
+      [...row.querySelectorAll('th, [role="columnheader"]')]
+        .filter(cell => cell.getClientRects().length && getComputedStyle(cell).visibility !== 'hidden')
+        .map(cell => cell.innerText)));
+    const headers = candidates.reduce((widest, current) => current.length > widest.length ? current : widest, []).map(normalizeHeader);
+    return { headers, columnCount: headers.length };
+  }
   let headers = [];
   for (let index = 0; index < await rows.count(); index += 1) {
     const current = (await rows.nth(index).getByRole("columnheader").filter({ visible: true }).allInnerTexts()).map(normalizeHeader);
@@ -81,12 +89,19 @@ async function readExistingRepairParts(page, options = {}) {
       total = Number(match[1]);
       if (total > 50) throw partsReaderError('配件超过单页核对上限，禁止按缺件新增', 'RECLOUD_REPAIR_PART_PRECHECK_FAILED');
       const size = pager.getByRole('button', { name: /条\/页/ });
-      if (total > 0 && !/50\s*条\/页/.test(await size.innerText())) {
+      // Most orders have one or two parts. If all rows are already visible,
+      // changing page size only triggers another remote request. The final
+      // parsed-row count below still has to equal the authoritative total.
+      const visibleRows = await section.locator('tbody tr:visible').count();
+      if (total > visibleRows) {
+        if (await size.count() !== 1) throw partsReaderError('配件分页控件不唯一，禁止新增', 'RECLOUD_REPAIR_PART_PRECHECK_FAILED');
+        if (!/50\s*条\/页/.test(await size.innerText())) {
         const option = page.locator('.rt-dropdown-item-text').filter({ hasText: /^\s*50\s*条\/页\s*$/, visible: true });
         await size.hover({ timeout: 5000 });
         try { await option.waitFor({ state: 'visible', timeout: 1000 }); }
         catch { await size.click({ timeout: 5000 }); }
         await option.click({ timeout: 5000 });
+        }
       }
       if (total > 0) await section.locator('tbody tr').nth(total - 1).waitFor({ state: 'visible', timeout: 10000 });
     }
@@ -112,8 +127,9 @@ async function readExistingRepairParts(page, options = {}) {
     const cellCount = await cells.count();
     if (columnCount && cellCount < Math.max(codeIndex, quantityIndex) + 1) continue;
     if (codeIndex >= cellCount || quantityIndex >= cellCount) continue;
-    const partCode = String(await cells.nth(codeIndex).innerText()).trim().toUpperCase();
-    const quantityText = String(await cells.nth(quantityIndex).innerText()).trim();
+    const texts = await cells.allInnerTexts();
+    const partCode = String(texts[codeIndex] || "").trim().toUpperCase();
+    const quantityText = String(texts[quantityIndex] || "").trim();
     const quantity = Number(quantityText);
     if (!partCode || !Number.isInteger(quantity) || quantity <= 0) continue;
     let returnRequired;
@@ -128,7 +144,7 @@ async function readExistingRepairParts(page, options = {}) {
     }
     result.push({
       partCode,
-      partName: nameIndex >= 0 && nameIndex < cellCount ? String(await cells.nth(nameIndex).innerText()).trim() : "",
+      partName: nameIndex >= 0 && nameIndex < cellCount ? String(texts[nameIndex] || "").trim() : "",
       quantity,
       ...(options.requireReturnFlag ? { returnRequired } : {}),
     });

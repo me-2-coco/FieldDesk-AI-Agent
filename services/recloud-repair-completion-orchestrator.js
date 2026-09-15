@@ -1,4 +1,5 @@
 const crypto = require("crypto");
+const { timeRecloudPhase } = require("./recloud-phase-timing");
 const { buildRecloudRepairFormPlan } = require("../connectors/recloud-sync-mapping");
 const { buildRecloudRepairPartsPlan } = require("./recloud-repair-parts-plan");
 const { buildRecloudRepairAttachmentsPlan } = require("./recloud-repair-attachments-plan");
@@ -90,7 +91,7 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
   const completedSteps = [];
 
   // 无论是否存在断点，都重新读取瑞云；断点不能替代远端核验。
-  let remote = await adapter.readRemoteState();
+  let remote = await timeRecloudPhase(orderKey, "completion_initial_read", () => adapter.readRemoteState());
   // Once handed to a clerk, retries are read-only, even if automatic mode is
   // enabled later. A persisted handoff must never become permission to submit.
   if (prior?.status === 'AWAITING_INFORMATION_CLERK') {
@@ -314,7 +315,7 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
   if (typeof adapter.applyRepairFields !== "function") {
     throw orchestratorError("缺少维修字段执行器", "RECLOUD_REPAIR_FIELD_WRITE_ADAPTER_INVALID", "FIELDS");
   }
-  await adapter.applyRepairFields(formPlan);
+  await timeRecloudPhase(orderKey, "completion_write_fields", () => adapter.applyRepairFields(formPlan));
   let repairFieldsVerified = false;
   if (typeof adapter.verifyRepairFields === "function") {
     const verificationAttempts = Math.max(1, Number(options.fieldVerificationAttempts || 5));
@@ -390,7 +391,7 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
   if (typeof adapter.clickComplete !== "function") {
     throw orchestratorError("缺少瑞云完工按钮执行器", "RECLOUD_REPAIR_COMPLETE_ADAPTER_INVALID", "COMPLETE");
   }
-  await adapter.clickComplete();
+  await timeRecloudPhase(orderKey, "completion_remote_confirm", () => adapter.clickComplete());
   completedSteps.push("COMPLETE_CLICKED");
   if (blockingMissingParts().length) {
     completedSteps.push("SUBMIT_SKIPPED_FOR_PARTS_SHORTAGE");
@@ -455,7 +456,7 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
     if (typeof adapter.printOldPartLabels !== "function") {
       throw orchestratorError("缺少旧件标签打印执行器", "RECLOUD_OLD_PART_LABEL_ADAPTER_INVALID", "OLD_PART_LABELS");
     }
-    await adapter.printOldPartLabels(oldPartLabelParts);
+    await timeRecloudPhase(orderKey, "completion_old_part_labels", () => adapter.printOldPartLabels(oldPartLabelParts));
     completedSteps.push("OLD_PART_LABELS_QUEUED");
   }
 

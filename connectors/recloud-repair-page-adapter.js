@@ -391,6 +391,17 @@ function createRecloudRepairPageAdapter(page, context = {}) {
       return result;
     },
 
+    async readPartsState() {
+      await dismissRepairNotices();
+      const bodyText = String(await page.locator("body").innerText());
+      if (!context.rmaNo || !bodyText.includes(String(context.rmaNo))) {
+        throw adapterError("当前瑞云页面不是待同步的维修单", "RECLOUD_REPAIR_ORDER_MISMATCH", "PAGE");
+      }
+      await openServiceReport(page);
+      // A missing/unready table must not be interpreted as an empty list.
+      return { parts: await readExistingRepairParts(page) };
+    },
+
     async readRemoteState() {
       await dismissRepairNotices();
       console.info("RECLOUD_REPAIR_REMOTE_READ: body_start");
@@ -952,7 +963,8 @@ function createRecloudRepairPageAdapter(page, context = {}) {
       // make a subsequent process upload these files again.
       await writeGuard.claim(context.rmaNo, additions);
       await upload.click({ timeout: 5000 });
-      await dialog.waitFor({ state: "hidden", timeout: attachmentUploadTimeout(additions) });
+      await require('../services/recloud-phase-timing').timeRecloudPhase(context.rmaNo,
+        'completion_upload_transfer', () => dialog.waitFor({ state: "hidden", timeout: attachmentUploadTimeout(additions) }));
       const saveOrder = await uniqueVisible(
         page.getByRole("button", { name: exactText("保存") }).filter({ visible: true }),
         "瑞云维修单保存按钮不唯一",
