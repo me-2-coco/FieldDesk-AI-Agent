@@ -712,9 +712,7 @@ function RepairCompletion({ setPage, currentUser }) {
             ? <button type="button" className="fee-review-jump" disabled={busy} onClick={showPricingSummary}>查看费用明细</button>
             : <button className="primary-btn" disabled={busy || !canSubmitCompletion} onClick={() => setCompletionConfirmOpen(true)}>{submitButtonLabel}</button>}
         </div>}
-        {completedDetail
-          ? <button className="secondary-btn" onClick={() => setPage("repair")}>返回工单</button>
-          : <p className="dry-run-notice">提交后由系统继续同步瑞云，无需停留本页等待。</p>}
+        {completedDetail && <button className="secondary-btn" onClick={() => setPage("repair")}>返回工单</button>}
       </div>
       {completionConfirmOpen && <div className="completion-confirm-overlay" onClick={() => setCompletionConfirmOpen(false)}>
         <section className="completion-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="completion-confirm-title" onClick={(event) => event.stopPropagation()}>

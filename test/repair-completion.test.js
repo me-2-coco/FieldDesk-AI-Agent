@@ -423,7 +423,7 @@ test("frontend completion page reuses confirmed fault and includes warranty, med
   assert.doesNotMatch(source, /const canSubmitCompletion = preparationReady/);
   assert.doesNotMatch(source, /瑞云配件同步恢复中/);
   assert.doesNotMatch(source, /瑞云配件正在同步/);
-  assert.match(source, /提交后由系统继续同步瑞云，无需停留本页等待/);
+  assert.doesNotMatch(source, /提交后由系统继续同步瑞云，无需停留本页等待/);
   assert.match(source, /保外费用待核对/);
   assert.match(source, /请填写单程物流费/);
   assert.match(source, /保外调试费用选填/);
