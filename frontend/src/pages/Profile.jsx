@@ -42,7 +42,6 @@ function Profile({
     { page: "exceptionCenter", title: "问题记录", description: "查看待处理异常", icon: "alert" }
   ] : [
     { page: "records", title: "全部工单", description: "查询历史业务记录", icon: "records" },
-    { page: "inventory", title: "库存总览", description: "查看全局库存情况", icon: "inventory" },
     { page: "exceptionCenter", title: "异常中心", description: "查看全局问题工单", icon: "alert" }
   ]
 
