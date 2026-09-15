@@ -819,8 +819,10 @@ function shouldAutoResumeDetection(order, now = Date.now(), confirmedRecovery = 
     && Array.isArray(authorization?.codes) && authorization.codes.includes(order.faultCategoryCode));
   const codeRecovery = (confirmedRecovery || orderCodeAuthorized) && Boolean(order?.faultCategoryCode)
     && order?.recloudDetectionLastError?.code === "RECLOUD_DETECTION_OPTION_AMBIGUOUS";
-  if (order?.status !== "INSPECTION_COMPLETED_PENDING_REPAIR"
-    && !(codeRecovery && order?.status === "REPAIR_COMPLETED_PENDING_SHIPMENT")) return false;
+  // Local completion can precede the receipt uploads and remote detection.
+  // Resume missing prerequisites without rolling back the local repair result.
+  if (!["INSPECTION_COMPLETED_PENDING_REPAIR", "REPAIR_COMPLETION_DRAFT",
+    "REPAIR_COMPLETED_PENDING_SHIPMENT"].includes(order?.status)) return false;
   if (!order.inspectionUpdatedAt || order.recloudDetectionConfirmedAt) return false;
   const status = String(order.recloudDetectionSyncStatus || "");
   if (status === "PENDING") return true;
@@ -838,7 +840,8 @@ function shouldAutoResumeDetection(order, now = Date.now(), confirmedRecovery = 
 function shouldAutoResumeServiceOrder(order, now = Date.now()) {
   if (blocksPartRetry(order?.recloudRepairPreparation?.lastError?.code)) return false;
   if (!order?.recloudDetectionConfirmedAt) return false;
-  if (!["INSPECTION_COMPLETED_PENDING_REPAIR", "REPAIR_COMPLETION_DRAFT"].includes(order.status)) return false;
+  if (!["INSPECTION_COMPLETED_PENDING_REPAIR", "REPAIR_COMPLETION_DRAFT",
+    "REPAIR_COMPLETED_PENDING_SHIPMENT"].includes(order.status)) return false;
   if (order.recloudServiceOrderSyncStatus === "RESULT_UNKNOWN") return false;
   const preparationStatus = String(order.recloudRepairPreparation?.status || "");
   const needsCreation = !order.recloudServiceOrderCreatedAt
