@@ -746,6 +746,13 @@ class JsonReceiptPreparationStore {
           code: "RECEIPT_ATTACHMENT_NOT_ALLOWED", status: 409,
         });
       }
+      // A retried upload may return the same content-addressed attachment.
+      // Do not append its reference again or reset confirmed state on a replay.
+      const duplicate = (existing.receiptAttachments || []).find(item =>
+        attachment.id && item.id === attachment.id
+        && item.fileName === attachment.fileName
+        && item.mimeType === attachment.mimeType && item.size === attachment.size);
+      if (duplicate) return existing;
       const timestamp = new Date().toISOString();
       const updated = {
         ...existing,

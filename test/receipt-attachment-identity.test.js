@@ -13,7 +13,25 @@ test('stable names bind content, order and attachment identity and preserve exte
   assert.equal(receiptUploadFiles('LAB', [file])[0].name, name);
   for (const changed of [{ ...file, id: 'LAB-2' }, { ...file, buffer: Buffer.from('different') }]) assert.notEqual(receiptUploadFiles('LAB', [changed])[0].name, name);
   assert.notEqual(receiptUploadFiles('OTHER', [file])[0].name, name);
-  assert.throws(() => receiptUploadFiles('LAB', [file, file]));
+  assert.equal(receiptUploadFiles('LAB', [file, file]).length, 1);
+});
+test('deduplication retains different content, IDs and extensions', () => {
+  const different = { ...file, buffer: Buffer.from('other') };
+  assert.equal(receiptUploadFiles('LAB', [file, file, different, { ...file, id: 'OTHER' }, { ...file, name: 'x.png' }]).length, 4);
+});
+test('repeated attachment saves are idempotent under concurrent retries', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'fd-attachment-dedup-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const store = new JsonReceiptPreparationStore(path.join(root, 'orders.json'));
+  await store.writeAll([{ rmaNo: 'LAB', status: 'RECEIPT_PREPARED', receiptAttachments: [] }]);
+  const attachment = { id: 'ID', fileName: 'ID.jpg', name: 'original.jpg', mimeType: 'image/jpeg', size: 20 };
+  await Promise.all([store.addReceiptAttachment('LAB', attachment), store.addReceiptAttachment('LAB', attachment)]);
+  const saved = (await store.readAll())[0];
+  assert.equal(saved.receiptAttachments.length, 1);
+  await store.addReceiptAttachment('LAB', attachment);
+  assert.deepEqual((await store.readAll())[0], saved);
+  await store.addReceiptAttachment('LAB', { ...attachment, id: 'DIFFERENT', fileName: 'DIFFERENT.jpg' });
+  assert.equal((await store.readAll())[0].receiptAttachments.length, 2);
 });
 test('readback refuses ordinary filenames, duplicate markers, missing files and wrong order', () => {
   const files = receiptUploadFiles('LAB', [file]);
