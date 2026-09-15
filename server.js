@@ -4193,6 +4193,7 @@ function createApp(
           recloudServiceOrderLastError: order.recloudServiceOrderLastError || null,
           recloudRepairPreparationStatus: order.recloudRepairPreparation?.status || "NOT_STARTED",
           recloudRepairPreparationLastError: order.recloudRepairPreparation?.lastError || null,
+          partsShortage: order.partsShortage || null,
           recloudRepairPreparationCanComplete:
             order.recloudRepairPreparation?.status === "CONFIRMED"
             || order.recloudRepairPreparation?.status === "PARTS_SHORTAGE",

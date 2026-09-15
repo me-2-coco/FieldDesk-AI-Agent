@@ -1,4 +1,5 @@
 export function workOrderStage(order = {}) {
+  if (order.partsShortage?.status === 'PENDING_INFORMATION') return '瑞云缺件，待信息员处理'
   const statuses = {
     ON_HOLD: "暂存", CANCELLED: "已取消", TRANSFERRED_TO_HEADQUARTERS: "已转总部",
     TRANSFER_TO_HEADQUARTERS_PENDING: "待转总部", REPAIR_COMPLETED_PENDING_SHIPMENT: "维修完成，待发货",

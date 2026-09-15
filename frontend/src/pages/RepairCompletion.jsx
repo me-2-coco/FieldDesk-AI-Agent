@@ -134,6 +134,9 @@ function RepairCompletion({ setPage, currentUser }) {
   const [reportedFault, setReportedFault] = useState("")
   const [syncStatus, setSyncStatus] = useState(null)
   const [preparationStatus, setPreparationStatus] = useState(null)
+  const [partsShortage, setPartsShortage] = useState(null)
+  const currentShortage = preparationStatus ? preparationStatus.partsShortage : partsShortage
+  const awaitingPartsInformation = currentShortage?.status === 'PENDING_INFORMATION'
   const [warrantyConversion, setWarrantyConversion] = useState(repairOrder.manufacturerWarrantyConversion || null)
   const pricingSummaryRef = useRef(null)
 
@@ -175,6 +178,7 @@ function RepairCompletion({ setPage, currentUser }) {
       }
       const draft = context.order?.repairCompletion
       setAwaitingInformationReview(context.order?.inspectionOnlyHandoff?.status === 'PENDING_INFORMATION')
+      setPartsShortage(context.order?.partsShortage || null)
       setDetectionResult(treatmentPreset?.detectionResult || draft?.detectionResult || context.order?.inspectionResult || "维修")
       if (draft) {
         if (confirmedFault.length < 3) {
@@ -510,10 +514,15 @@ function RepairCompletion({ setPage, currentUser }) {
     <div className="page repair-completion-page">
       <div className="top-bar">
         <button className="arrow-back" onClick={leaveCompletion} disabled={busy}>←</button>
-        <h1>{completedDetail ? awaitingInformationReview ? "待信息员审核" : "维修完成详情" : "维修完工"}</h1>
+        <h1>{awaitingPartsInformation ? "缺件待信息员处理" : completedDetail ? awaitingInformationReview ? "待信息员审核" : "维修完成详情" : "维修完工"}</h1>
       </div>
 
       <SupervisionNoticeCard rmaNo={repairOrder.crmOrderNo} />
+      {awaitingPartsInformation && <div className="card" role="status">
+        <h2>瑞云缺件，待信息员处理</h2>
+        <p>检测到缺件，本单不能最终提交瑞云。请信息员核对库存并补录处理；不要重复提交完工或重复领件。</p>
+        <ul>{(currentShortage.parts || []).map(part => <li key={part.partCode}>{part.partName || part.partCode}（{part.partCode}）× {part.quantity}：{part.reason || "待核对"}</li>)}</ul>
+      </div>}
       {awaitingInformationReview && <div className="card"><h2>待信息员审核</h2><p>资料已准备，瑞云尚未最终提交。请信息员核对后在瑞云手动提交，不要重复提交本工单。</p></div>}
 
       {preparationStatus?.recloudRepairPreparationStatus === "FAILED" && <div className="card repair-sync-status-card">
@@ -524,7 +533,7 @@ function RepairCompletion({ setPage, currentUser }) {
 
       {showSyncDetails && syncStatus && <div className="card repair-sync-status-card">
         <h2>瑞云同步状态</h2>
-        <p>{({
+        <p>{awaitingPartsInformation && syncStatus.status === "SUCCESS" ? "本轮同步已结束，缺件待信息员处理，尚未最终提交瑞云" : ({
           NOT_CREATED: "尚未创建维修完工同步任务",
           PENDING: "等待执行",
           PROCESSING: "正在执行",

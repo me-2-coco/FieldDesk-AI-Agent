@@ -260,10 +260,11 @@ class RecloudSyncService {
   }
 
   async executeReadyTask(task) {
-    // A retry may happen minutes after the task was first queued.  Always rebuild
-    // failed-task payloads from the current order so recovery sees preparation,
-    // attachments and fee changes made after the original attempt.
-    if (!task.localRecoveryResult && task.status === TASK_STATUS.FAILED && typeof this.refreshTaskPayload === "function") {
+    // A completion can be queued before preparation discovers a shortage.
+    // Refresh after dependency readiness even on its FIRST attempt, so the
+    // existing shortage guard sees authoritative preparation data immediately.
+    // Never refresh or replay a task whose remote result is already recorded.
+    if (!task.localRecoveryResult && (task.status === TASK_STATUS.FAILED || task.nodeType === "REPAIR_COMPLETED") && typeof this.refreshTaskPayload === "function") {
       const refreshed = await this.refreshTaskPayload(task);
       if (refreshed?.payload || refreshed?.mappingVersion) {
         task = await this.outbox.update(task.id, {

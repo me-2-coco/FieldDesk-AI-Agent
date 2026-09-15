@@ -120,6 +120,45 @@ test("completion stays pending until its Recloud preparation dependency is ready
   assert.ok(timing.some(row => row.phase === 'sync_persist_remote_result' && row.taskId === task.id));
 });
 
+test("first completion attempt refreshes shortage discovered while waiting, without a failed retry", async t => {
+  const outbox = await outboxFixture(t);
+  let ready = false;
+  let refreshes = 0;
+  let calls = 0;
+  let reported = 0;
+  const missingParts = [{ partCode: 'TEST-PART', quantity: 1, reason: '库存不足' }];
+  const service = new RecloudSyncService(outbox, {
+    async syncRepairCompleted(task) {
+      calls++;
+      assert.deepEqual(task.payload.missingParts, missingParts);
+      return { status: 'AWAITING_PARTS', missingParts, completedSteps: ['SUBMIT_SKIPPED_FOR_PARTS_SHORTAGE'] };
+    }
+  }, {
+    scheduler: () => {}, retryScheduler: () => {},
+    canProcessTask: async () => ready,
+    refreshTaskPayload: async () => {
+      refreshes++;
+      return { payload: { missingParts }, mappingVersion: 'test-current' };
+    },
+    onRepairPartsShortage: async () => { reported++; }
+  });
+  const task = await service.enqueueOrderNode(ORDER, 'REPAIR_COMPLETED', 'FIRST-SHORTAGE');
+  await service.processTask(task.id);
+  assert.equal(refreshes, 0);
+  assert.equal(calls, 0);
+  ready = true;
+  await service.processTask(task.id);
+  const result = await outbox.get(task.id);
+  assert.equal(result.status, TASK_STATUS.SUCCESS);
+  assert.equal(result.resultStatus, 'AWAITING_PARTS');
+  assert.equal(result.retryCount, 0);
+  assert.equal(calls, 1);
+  assert.equal(refreshes, 1);
+  assert.equal(reported, 1);
+  await service.processTask(task.id);
+  assert.equal(calls, 1);
+});
+
 test("reopened orders cancel stale sync tasks and can enqueue a new local completion record", async (t) => {
   const outbox = await outboxFixture(t);
   const service = new RecloudSyncService(outbox, new DryRunRecloudAdapter(), { scheduler: () => {} });
