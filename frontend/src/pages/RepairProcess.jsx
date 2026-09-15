@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react"
+import RepairIdentity from "../components/RepairIdentity.jsx"
 import { getRepairSyncStatus, saveInspection, saveRepairResumeStep, searchRecloudFaultCategories, startRepair } from "../shared/crmService.js"
 import SupervisionNoticeCard from "../components/SupervisionNoticeCard.jsx"
 import { rankFaultOptions } from "../shared/faultSearch.js"
@@ -236,17 +237,7 @@ function RepairProcess({ setPage }) {
               : "待检测"}
           </span>
         </div>
-        <div className="mobile-record-hero">
-          <span>寄修单号</span>
-          <strong>{repairOrder.crmOrderNo || "-"}</strong>
-          <small>{repairOrder.product || "待确认品类"}</small>
-        </div>
-        <dl className="mobile-record-grid">
-          <div><dt>物流单号</dt><dd>{repairOrder.logisticsNo || "-"}</dd></div>
-          <div><dt>机器 SN</dt><dd>{repairOrder.sn || "-"}</dd></div>
-          <div><dt>产品线</dt><dd>{repairOrder.product || "-"}</dd></div>
-          <div><dt>维修师傅</dt><dd>{repairOrder.technician || "本地测试用户"}</dd></div>
-        </dl>
+        <RepairIdentity order={repairOrder} />
         <div className="mobile-record-description">
           <span>报修描述</span>
           <p>{repairOrder.originalFault || "报修描述尚未同步，请重新读取"}</p>

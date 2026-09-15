@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import RepairIdentity from "../components/RepairIdentity.jsx"
 import { canViewRecloudSyncDetails } from "../shared/accountAccessPolicy.js"
 import { MEDIA_ACCEPT, mediaType } from "../shared/mediaFormats.js"
 import { optimizeUploadPhoto } from "../shared/photoUpload.js"
@@ -550,13 +551,9 @@ function RepairCompletion({ setPage, currentUser }) {
       </div>}
 
       <section className="card parts-order-card completion-order-card">
-        <div className="parts-order-hero"><span>机器 SN</span><strong>{repairOrder.sn || "-"}</strong><small>{repairOrder.product || "待确认品类"}</small></div>
-        <dl className="parts-order-grid">
-          <div><dt>寄修单号</dt><dd>{repairOrder.crmOrderNo || "-"}</dd></div>
-          <div><dt>物流单号</dt><dd>{repairOrder.logisticsNo || "送修（无物流单号）"}</dd></div>
-          <div><dt>维修师傅</dt><dd>{repairOrder.technician || "未记录"}</dd></div>
-          <div><dt>{skipsParts ? "处理方式" : "已用配件"}</dt><dd>{skipsParts ? treatmentPreset?.label || repairOrder.treatmentLabel : partsText}</dd></div>
-        </dl>
+        <RepairIdentity order={repairOrder}>
+          <div style={{ gridColumn: "1 / -1" }}><dt>{skipsParts ? "处理方式" : "已用配件"}</dt><dd>{skipsParts ? treatmentPreset?.label || repairOrder.treatmentLabel : partsText}</dd></div>
+        </RepairIdentity>
         <div className="parts-order-fault"><span>报修描述</span><p>{reportedFault || "报修描述尚未同步，请重新读取；不是客户未提供"}</p></div>
         {isInspectionOnly ? (
           <p className="success-text">保内检测：不向客户收取配件费、维修费和运费；师傅上传现场照片/视频，检测报告由信息员制作并上传</p>
