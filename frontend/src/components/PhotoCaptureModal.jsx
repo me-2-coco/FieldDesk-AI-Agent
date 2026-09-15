@@ -2,11 +2,15 @@ import { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { CameraIcon } from "./AppIcons.jsx"
 import CameraTorchButton from "./CameraTorchButton.jsx"
+import { locatePhoto, stampPhoto } from "../shared/photoWatermark.js"
 import "./photo-capture-modal.css"
 
 function PhotoCaptureModal({ open, onCapture, onClose, title = "拍摄签收照片", filePrefix = "签收照片" }) {
   const videoRef = useRef(null)
   const streamRef = useRef(null)
+  const generationRef = useRef(0)
+  const busyRef = useRef(false)
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const [cameraTrack, setCameraTrack] = useState(null)
 
@@ -14,6 +18,8 @@ function PhotoCaptureModal({ open, onCapture, onClose, title = "拍摄签收照�
     if (!open) return undefined
     let active = true
     const timer = setTimeout(() => {
+    busyRef.current = false
+    setBusy(false)
     setError("")
     setCameraTrack(null)
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -33,6 +39,7 @@ function PhotoCaptureModal({ open, onCapture, onClose, title = "拍摄签收照�
       .catch(() => { if (active) setError("无法打开摄像头，请允许相机权限后重试") })
     }, 0)
     return () => {
+      generationRef.current += 1
       active = false
       clearTimeout(timer)
       streamRef.current?.getTracks().forEach((track) => track.stop())
@@ -40,18 +47,36 @@ function PhotoCaptureModal({ open, onCapture, onClose, title = "拍摄签收照�
     }
   }, [open])
 
-  function takePhoto() {
+  async function takePhoto() {
+    if (busyRef.current) return
     const video = videoRef.current
     if (!video?.videoWidth) return setError("相机尚未准备好")
-    const canvas = document.createElement("canvas")
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
-    canvas.getContext("2d").drawImage(video, 0, 0)
-    canvas.toBlob((blob) => {
-      if (!blob) return setError("照片生成失败，请重试")
-      onCapture(new File([blob], `${filePrefix}-${Date.now()}.jpg`, { type: "image/jpeg" }))
+    busyRef.current = true
+    setBusy(true)
+    setError("")
+    const generation = generationRef.current
+    const capturedAt = new Date()
+    try {
+      const canvas = document.createElement("canvas")
+      canvas.width = video.videoWidth
+      canvas.height = video.videoHeight
+      canvas.getContext("2d").drawImage(video, 0, 0)
+      const position = await locatePhoto()
+      if (generation !== generationRef.current) return
+      const stamped = stampPhoto(canvas, capturedAt, position)
+      const blob = await new Promise((resolve) => stamped.toBlob(resolve, "image/jpeg", 0.92))
+      if (generation !== generationRef.current) return
+      if (!blob) throw new Error("照片生成失败，请重试")
+      onCapture(new File([blob], `${filePrefix}-${capturedAt.getTime()}.jpg`, { type: "image/jpeg" }))
       onClose()
-    }, "image/jpeg", 0.9)
+    } catch (err) {
+      if (generation === generationRef.current) setError(err.message || "拍照失败，请重试")
+    } finally {
+      if (generation === generationRef.current) {
+        busyRef.current = false
+        setBusy(false)
+      }
+    }
   }
 
   if (!open) return null
@@ -64,8 +89,9 @@ function PhotoCaptureModal({ open, onCapture, onClose, title = "拍摄签收照�
       </header>
       <footer className="fd-photo-controls">
         {error && <p role="alert">{error}</p>}
-        <button type="button" className="fd-photo-shutter" aria-label="拍照" onClick={takePhoto} disabled={Boolean(error)}><CameraIcon size={28} /></button>
-        <span>拍照</span>
+        <span role="status">{busy ? "正在定位并生成水印，请稍候…" : "照片底部强制添加拍摄时间与定位经纬度"}</span>
+        <button type="button" className="fd-photo-shutter" aria-label="拍照" onClick={takePhoto} disabled={busy || !cameraTrack}><CameraIcon size={28} /></button>
+        <span>拍照 · 请允许位置权限</span>
       </footer>
   </div>, document.body)
 }
