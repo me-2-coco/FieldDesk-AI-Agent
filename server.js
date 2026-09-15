@@ -1832,14 +1832,14 @@ function createApp(
               }
             }
             try {
-              result = await require('./services/recloud-phase-timing').timeRecloudPhase(rmaNo, 'preparation_create_service_order', () => connector.startRepair(page, { dryRun: false, writeEnabled: true, onBeforeCreate: () => { creationAttempted = true; } }));
+              result = await require('./services/recloud-phase-timing').timeRecloudPhase(rmaNo, 'preparation_create_service_order', () => connector.startRepair(page, { dryRun: false, writeEnabled: true, entryTimeoutMs: reusedDetectionDetail ? 1200 : 15000, onBeforeCreate: () => { creationAttempted = true; } }));
             } catch (error) {
               // Recloud may keep the just-confirmed detection page visible
               // before refreshing its operation column. Reuse is only an
               // optimization: if the untouched page still has no Repair
               // action, rescan once and continue through the authoritative
               // path instead of retrying the same stale DOM.
-              if (!reusedDetectionDetail || error.code !== "RECLOUD_ACTION_NOT_FOUND") throw error;
+              if (creationAttempted || !reusedDetectionDetail || error.code !== "RECLOUD_ACTION_NOT_FOUND") throw error;
               const detail = await connector.queryRmaByLogisticsNo(page, query.identifier, {
                 ...query.options,
                 preserveDetailPage: true,
@@ -6205,13 +6205,16 @@ if (require.main === module) {
     recloudRepairAdapterProvider: {
       run: (task, work) => withRecloud(recloudConnector, async (page) => require('./services/recloud-phase-timing').withRecloudTimingContext(task, async () => {
         const operationStartedAt = Date.now();
+        // The task may have been queued before preparation created its service
+        // order. Resolve again inside the acquired lane, not from that snapshot.
+        const serviceOrderNo = await require('./services/recloud-repair-navigation').resolveLatestServiceOrderNo(task, businessStores.receiptStore);
         const opened = await require('./services/recloud-phase-timing').timeRecloudPhase(task.rmaNo, 'completion_open_service_order', () => recloudConnector.openExistingRepairServiceOrder(page, {
           rmaNo: task.rmaNo,
           logisticsNo: task.logisticsNo,
-          serviceOrderNo: task.payload?.serviceOrderNo,
+          serviceOrderNo,
         }));
         console.info(
-          `RECLOUD_REPAIR_TIMING: rma=${task.rmaNo} phase=open_service_order ms=${Date.now() - operationStartedAt} direct=${Boolean(task.payload?.serviceOrderNo)} alreadyOpen=${opened.alreadyOpen === true}`
+          `RECLOUD_REPAIR_TIMING: rma=${task.rmaNo} phase=open_service_order ms=${Date.now() - operationStartedAt} direct=${Boolean(serviceOrderNo)} alreadyOpen=${opened.alreadyOpen === true}`
         );
         const pageText = String(await page.locator("body").innerText().catch(() => ""));
         if (!pageText.includes(String(task.rmaNo || ""))) {

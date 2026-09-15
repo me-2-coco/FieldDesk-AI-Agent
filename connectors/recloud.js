@@ -9964,7 +9964,9 @@ async function startRepair(page, options = {}) {
     throw error;
   }
   assertRecloudAuthenticated(page);
-  const repairEntry = await waitForUniqueAction(page, "维修", options.actionTimeout || 15000);
+  // A reused detection page gets a short entry probe only. Never shorten
+  // the post-click creation confirmation window: a write may already exist.
+  const repairEntry = await waitForUniqueAction(page, "维修", options.entryTimeoutMs ?? (options.actionTimeout || 15000));
   let actionAttempted = false;
   try {
     options.onBeforeCreate?.();
