@@ -945,6 +945,23 @@ test("business write pool accepts thirty orders without exceeding its fixed limi
   assert.equal(new Set(channels).size, 5);
 });
 
+test("idle business workers preserve order affinity without adding a lane", async () => {
+  const connector = { openRecloud: async ({ channel }) => ({ loginRequired: false, page: { channel } }) };
+  const options = { background: true, channel: "affinity-test", concurrency: 2 };
+  const releases = [];
+  const firstJobs = ["order-a", "order-b"].map(affinityKey => withRecloud(connector, async page => {
+    await new Promise(resolve => releases.push(resolve));
+    return page.channel;
+  }, { ...options, affinityKey }));
+  while (releases.length < 2) await new Promise(resolve => setImmediate(resolve));
+  releases.forEach(release => release());
+  const [firstChannel, secondChannel] = await Promise.all(firstJobs);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.notEqual(firstChannel, secondChannel);
+  assert.equal(await withRecloud(connector, page => page.channel, { ...options, affinityKey: "order-b" }), secondChannel);
+  assert.equal(await withRecloud(connector, page => page.channel, { ...options, affinityKey: "order-a" }), firstChannel);
+});
+
 test("new technician writes overtake queued historical recovery work", async () => {
   const order = [];
   const releases = [];

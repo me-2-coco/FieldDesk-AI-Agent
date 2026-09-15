@@ -690,11 +690,13 @@ function runRecloudPool(coordinator, connector, operation, options, requestedCha
       right.priority - left.priority || left.sequence - right.sequence
     ));
     const dispatch = () => {
-      for (const worker of pool.workers) {
-        if (worker.busy || pool.waiting.length === 0) continue;
+      while (pool.waiting.length > 0) {
+        const worker = require('./services/recloud-idle-worker').chooseIdleRecloudWorker(pool.workers, pool.waiting[0].options.affinityKey);
+        if (!worker) break;
         const job = pool.waiting.shift();
         clearTimeout(job.queueTimer);
         worker.busy = true;
+        worker.affinityKey = job.options.affinityKey || '';
         const startedAt = Date.now();
         console.info('RECLOUD_QUEUE_TIMING', JSON.stringify({ channel: requestedChannel,
           job: job.sequence, phase: 'started', queueMs: startedAt - job.queuedAt, waiting: pool.waiting.length }));
@@ -1878,6 +1880,7 @@ function createApp(
           ...businessWriteOptions,
           queuePriority: recoveryOptions.queuePriority ?? businessWriteOptions.queuePriority,
           timeoutCode: "RECLOUD_SERVICE_ORDER_TIMEOUT",
+          affinityKey: rmaNo,
         });
         if (!liveResult?.serviceOrderCreated) {
           throw createApiError("RECLOUD_SERVICE_ORDER_NOT_CREATED", "瑞云未确认创建维修服务单", 502);
@@ -6233,6 +6236,7 @@ if (require.main === module) {
         background: true,
         channel: "business-write",
         priority: true,
+        affinityKey: task.rmaNo,
         concurrency: recloudBusinessWriteConcurrency(process.env),
         timeoutMs: recloudBusinessWriteTimeoutMs(process.env),
         idleReleaseMs: recloudIdleChannelReleaseMs(process.env),

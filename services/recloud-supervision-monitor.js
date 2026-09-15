@@ -26,6 +26,7 @@ function hasTechnicianReceipt(order) {
   );
 }
 
+const { backgroundSyncDelay } = require('./background-sync-delay');
 class RecloudSupervisionMonitor {
   constructor({ receiptStore, supervisionInboxStore, readOrders, readPendingOrders, logger = console, intervalMs = 30000, setTimer = setTimeout, clearTimer = clearTimeout }) {
     this.receiptStore = receiptStore;
@@ -51,6 +52,7 @@ class RecloudSupervisionMonitor {
     this.lastUnmatchedCount = 0;
     this.lastPendingCount = 0;
     this.lastNotifiableCount = 0;
+    this.consecutiveFailures = 0;
   }
 
   getStatus() {
@@ -148,6 +150,7 @@ class RecloudSupervisionMonitor {
       }
       if (captured) this.logger.info?.(`RECLOUD_SUPERVISION_MONITOR: captured ${captured}`);
       this.lastSuccessAt = new Date().toISOString();
+      this.consecutiveFailures = 0;
       this.lastErrorCode = null;
       this.lastCapturedCount = captured;
       this.totalCaptured += captured;
@@ -158,6 +161,7 @@ class RecloudSupervisionMonitor {
       this.lastNotifiableCount = notifiable;
       return { skipped: false, captured };
     } catch (error) {
+      this.consecutiveFailures += 1;
       this.lastErrorAt = new Date().toISOString();
       this.lastErrorCode = error.code || "UNKNOWN";
       this.lastCapturedCount = 0;
@@ -175,7 +179,7 @@ class RecloudSupervisionMonitor {
     const tick = async () => {
       await this.pollNow();
       if (this.stopped) return;
-      this.timer = this.setTimer(tick, this.intervalMs);
+      this.timer = this.setTimer(tick, backgroundSyncDelay(this.intervalMs, this.consecutiveFailures));
       this.timer?.unref?.();
     };
     tick();

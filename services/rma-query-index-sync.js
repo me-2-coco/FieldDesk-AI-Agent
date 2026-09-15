@@ -1,4 +1,5 @@
 const DEFAULT_INTERVAL_MS = 60 * 1000;
+const { backgroundSyncDelay } = require('./background-sync-delay');
 const MINIMUM_INTERVAL_MS = 30 * 1000;
 
 function rmaQueryIndexSyncEnabled(env = process.env) {
@@ -26,6 +27,7 @@ class RmaQueryIndexSync {
     this.stopped = true;
     this.running = false;
     this.primed = false;
+    this.consecutiveFailures = 0;
   }
 
   async syncNow({ force = false } = {}) {
@@ -61,11 +63,13 @@ class RmaQueryIndexSync {
           nextPage: result?.incomplete ? result.nextPage : 0, lastAttemptAt: current.toISOString() },
       });
       this.primed = true;
+      this.consecutiveFailures = 0;
       this.logger.info?.(
         `RMA_QUERY_INDEX_SYNC: catchUp=${catchUp} discovered=${result?.discovered ?? orders.length} added=${merged.added} updated=${merged.updated} total=${merged.total}`
       );
       return { skipped: false, catchUp, ...merged };
     } catch (error) {
+      this.consecutiveFailures += 1;
       if (snapshot) {
         const latest = await this.store.readSnapshot();
         await this.store.mergeIncremental([], {
@@ -87,7 +91,7 @@ class RmaQueryIndexSync {
     this.timer = this.setTimer(async () => {
       await this.syncNow();
       this.scheduleNext();
-    }, this.intervalMs);
+    }, backgroundSyncDelay(this.intervalMs, this.consecutiveFailures));
     this.timer?.unref?.();
   }
 

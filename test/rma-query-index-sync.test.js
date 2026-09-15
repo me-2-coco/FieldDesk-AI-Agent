@@ -83,3 +83,22 @@ test('RMA query index yield leaves the local cursor unchanged', async () => {
   assert.equal(result.reason, 'FOREGROUND_QUERY_PRIORITY');
   assert.equal(merges, 0);
 });
+test('scheduled index scans increase failure backoff and reset after success', async () => {
+  let failing = true;
+  const delays = [];
+  const sync = new RmaQueryIndexSync({
+    intervalMs: 300000,
+    store: { readSnapshot: async () => ({}), mergeIncremental: async () => ({}) },
+    readOrders: async () => { if (failing) throw new Error('offline'); return []; },
+    logger: { info() {}, error() {} },
+    setTimer: (work, delay) => { delays.push(delay); return { unref() {} }; },
+  });
+  sync.stopped = false;
+  await sync.syncNow(); sync.scheduleNext();
+  assert.ok(delays[0] >= 600000 && delays[0] <= 630000);
+  await sync.syncNow(); sync.scheduleNext();
+  assert.ok(delays[1] >= 1200000);
+  failing = false;
+  await sync.syncNow(); sync.scheduleNext();
+  assert.ok(delays[2] >= 300000 && delays[2] <= 330000);
+});

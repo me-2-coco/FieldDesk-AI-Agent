@@ -108,16 +108,20 @@ async function waitForRepairSubmissionConfirmed(page, options = {}) {
   return isRecloudRepairFullySubmitted(page);
 }
 
-async function openServiceReport(page, timeoutMs = 15000) {
-  await dismissBlockingRepairMessageBoxes(page, { settleMs: 0 });
+async function openServiceReport(page, timeoutMs = 15000, orderKey) {
+  const timed = (phase, operation) => orderKey ? timeRecloudPhase(orderKey, phase, operation) : operation();
+  await timed('report_dismiss_messages', () => dismissBlockingRepairMessageBoxes(page, { settleMs: 0 }));
   const partsHeading = page.getByText("服务单更换件明细", { exact: true }).filter({ visible: true });
   if (await partsHeading.count() === 1) return;
   const tabs = page.getByText("服务报告", { exact: true }).filter({ visible: true });
   const deadline = Date.now() + timeoutMs;
+  await timed('report_wait_tab', async () => {
   while (Date.now() < deadline && await tabs.count() !== 1) {
     if (await partsHeading.count() === 1) return;
     await page.waitForTimeout?.(200);
   }
+  });
+  if (await partsHeading.count() === 1) return;
   const tab = await uniqueVisible(
     tabs,
     "无法唯一定位瑞云服务报告",
@@ -132,7 +136,7 @@ async function openServiceReport(page, timeoutMs = 15000) {
       // already rendered. Clear them immediately before each tab-click retry.
       await dismissBlockingRepairMessageBoxes(page, { settleMs: 0 });
       try {
-        await tab.click({ timeout: 5000 });
+        await timed('report_click_tab', () => tab.click({ timeout: 5000 }));
         lastError = null;
         break;
       } catch (error) {
@@ -144,7 +148,7 @@ async function openServiceReport(page, timeoutMs = 15000) {
     if (lastError) throw lastError;
     // Continue as soon as the actual report content is ready, not after a
     // fixed delay. Keep a bounded wait and fail closed if it never appears.
-    await partsHeading.waitFor({ state: 'visible', timeout: timeoutMs });
+    await timed('report_wait_content', () => partsHeading.waitFor({ state: 'visible', timeout: timeoutMs }));
   }
 }
 
@@ -625,9 +629,9 @@ function createRecloudRepairPageAdapter(page, context = {}) {
       const missingParts = [];
       for (const part of additions) {
         // Fresh read for each item, not only a plan captured before the batch.
-        if (existingPartMatches(await readExistingRepairParts(page), part)) continue;
+        if (existingPartMatches(await timeRecloudPhase(context.rmaNo, 'preparation_part_existing_check', () => readExistingRepairParts(page)), part)) continue;
         await writeGuard.assertUnattempted(context.rmaNo, part.partCode);
-        const dialog = await openRepairPartAddDialog(page, { timeoutMs: 7000 });
+        const dialog = await timeRecloudPhase(context.rmaNo, 'preparation_part_open_dialog', () => openRepairPartAddDialog(page, { timeoutMs: 7000 }));
         const productInput = await locateDialogInput(dialog, "服务单产品明细");
         const partInput = await locateDialogInput(dialog, "新件名称");
         const partCodeInput = await locateDialogInput(dialog, "新件编码");
@@ -646,8 +650,8 @@ function createRecloudRepairPageAdapter(page, context = {}) {
           await page.waitForTimeout?.(700 + attempt * 300);
           await partInput.press("ArrowDown");
           await partInput.press("Enter");
-          await page.waitForTimeout?.(400);
-          selectedPartCode = String(await partCodeInput.inputValue().catch(() => "")).trim().toUpperCase();
+          selectedPartCode = await timeRecloudPhase(context.rmaNo, 'preparation_part_code_ready', () =>
+            require('../services/recloud-part-selection-wait').waitForExpectedPartCode(partCodeInput, requestedPartCode, ms => page.waitForTimeout(ms)));
         }
         if (selectedPartCode !== requestedPartCode) {
           missingParts.push({
@@ -673,7 +677,7 @@ function createRecloudRepairPageAdapter(page, context = {}) {
         // Durable intent precedes the irreversible save; a lost response or
         // process restart must never authorize another save for this part.
         await writeGuard.claim(context.rmaNo, part.partCode);
-        await save.click({ timeout: 5000 });
+        await timeRecloudPhase(context.rmaNo, 'preparation_part_save_click', () => save.click({ timeout: 5000 }));
         await confirmPartQuantityWarning(page, part.quantity);
         await page.waitForTimeout?.(400);
         const immediateMessages = await page
@@ -701,7 +705,7 @@ function createRecloudRepairPageAdapter(page, context = {}) {
         }
         let saveResultNeedsRemoteVerification = false;
         try {
-          await dialog.waitFor({ state: "hidden", timeout: 10000 });
+          await timeRecloudPhase(context.rmaNo, 'preparation_part_save_wait', () => dialog.waitFor({ state: "hidden", timeout: 10000 }));
         } catch (error) {
           // 瑞云的配件关系窗口在部分环境中“保存”后不会自动关闭。
           // 先检查明确的表单错误；没有错误时只关闭窗口，随后由编排器
@@ -928,7 +932,7 @@ function createRecloudRepairPageAdapter(page, context = {}) {
       // Discard the old page snapshot before any upload. An operator may have
       // uploaded/submitted since the orchestrator built its plan.
       await timeRecloudPhase(context.rmaNo, 'completion_upload_initial_reload', () => page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 }));
-      await timeRecloudPhase(context.rmaNo, 'completion_upload_open_report', () => openServiceReport(page));
+      await timeRecloudPhase(context.rmaNo, 'completion_upload_open_report', () => openServiceReport(page, 15000, context.rmaNo));
       if (!context.rmaNo || !(await page.locator('body').innerText()).includes(String(context.rmaNo))) {
         throw attachmentWriteBlocked();
       }
@@ -984,7 +988,7 @@ function createRecloudRepairPageAdapter(page, context = {}) {
       await page.waitForTimeout?.(600);
       });
       await timeRecloudPhase(context.rmaNo, 'completion_upload_saved_reload', () => page.reload({ waitUntil: "domcontentloaded", timeout: 15000 }));
-      await timeRecloudPhase(context.rmaNo, 'completion_upload_saved_report', () => openServiceReport(page));
+      await timeRecloudPhase(context.rmaNo, 'completion_upload_saved_report', () => openServiceReport(page, 15000, context.rmaNo));
       return { uploadedCount: additions.length };
     },
 
