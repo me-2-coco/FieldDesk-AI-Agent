@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { CameraIcon } from "./AppIcons.jsx"
 import CameraTorchButton from "./CameraTorchButton.jsx"
-import { locatePhoto, stampPhoto } from "../shared/photoWatermark.js"
+import { stampPhoto } from "../shared/photoWatermark.js"
 import "./photo-capture-modal.css"
 
 function PhotoCaptureModal({ open, onCapture, onClose, title = "拍摄签收照片", filePrefix = "签收照片" }) {
@@ -61,9 +61,7 @@ function PhotoCaptureModal({ open, onCapture, onClose, title = "拍摄签收照�
       canvas.width = video.videoWidth
       canvas.height = video.videoHeight
       canvas.getContext("2d").drawImage(video, 0, 0)
-      const position = await locatePhoto()
-      if (generation !== generationRef.current) return
-      const stamped = stampPhoto(canvas, capturedAt, position)
+      const stamped = stampPhoto(canvas, capturedAt)
       const blob = await new Promise((resolve) => stamped.toBlob(resolve, "image/jpeg", 0.92))
       if (generation !== generationRef.current) return
       if (!blob) throw new Error("照片生成失败，请重试")
@@ -89,7 +87,7 @@ function PhotoCaptureModal({ open, onCapture, onClose, title = "拍摄签收照�
       </header>
       <footer className="fd-photo-controls">
         {error && <p role="alert">{error}</p>}
-        {busy && <span role="status">正在定位并生成水印，请稍候…</span>}
+        {busy && <span role="status">正在生成水印，请稍候…</span>}
         <button type="button" className="fd-photo-shutter" aria-label="拍照" onClick={takePhoto} disabled={busy || !cameraTrack}><CameraIcon size={28} /></button>
       </footer>
   </div>, document.body)
