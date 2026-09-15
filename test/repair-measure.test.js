@@ -6,6 +6,12 @@ const { pathToFileURL } = require("node:url");
 async function generator() {
   return import(pathToFileURL(path.join(__dirname, "../frontend/src/shared/repairMeasure.js")));
 }
+test('multiple units appear in both diagnosis and replacement without changing catalog', async () => {
+  const {buildRepairMeasure}=await generator();
+  const parts=[{partName:'售后地刷电机',quantity:2}];
+  assert.equal(buildRepairMeasure('维修',parts,'滚刷不转'),'滚刷不转# 客诉故障复现，检测地刷电机2个不良，更换地刷电机2个，清理，测试ok寄回');
+  assert.equal(parts[0].partName,'售后地刷电机');
+});
 test('missing reported fault never generates a fabricated prefix', async () => {
   const { buildRepairMeasure } = await generator();
   assert.equal(buildRepairMeasure('维修', [], ''), '');

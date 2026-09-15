@@ -7,10 +7,15 @@ export function buildRepairMeasure(template, usedParts = [], reportedFault = "",
   if (!String(reportedFault || "").trim()) return ""
   const faultPrefix = String(reportedFault).trim().replace(/#+$/, "")
   const withReportedFault = (description) => `${faultPrefix}# ${description}`
-  const partNames = [...new Set(
-    usedParts.map((part) => cleanPartName(part.partName)).filter(Boolean)
-  )]
-  const partsText = partNames.join("、")
+  const quantities = new Map()
+  for (const part of usedParts) {
+    const name = cleanPartName(part.partName)
+    if (!name) continue
+    const quantity = Number(part.quantity ?? 1)
+    quantities.set(name, (quantities.get(name) || 0) + (Number.isInteger(quantity) && quantity > 0 ? quantity : 1))
+  }
+  const partNames = [...quantities.keys()]
+  const partsText = partNames.map(name => quantities.get(name) > 1 ? `${name}${quantities.get(name)}个` : name).join("、")
   const detectedFaultText = String(detectedFault || "").trim() || partsText || "故障部件"
   let description
 

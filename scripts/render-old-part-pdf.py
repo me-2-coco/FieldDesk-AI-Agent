@@ -93,7 +93,7 @@ def render(request):
         raise ValueError("PRINT_PDF_EXPECTATION_INVALID")
     pdf = pdfium.PdfDocument(raw)
     try:
-        if len(pdf) != sum(counts.values()):
+        if len(pdf) < len(counts) or len(pdf) > sum(counts.values()):
             raise ValueError("PRINT_PDF_PAGE_COUNT_MISMATCH")
         pages = []
         observed = collections.Counter()
@@ -120,16 +120,28 @@ def render(request):
                 output = io.BytesIO()
                 image.save(output, format="PNG")
                 pages.append({"payloadBase64": base64.b64encode(output.getvalue()).decode(),
-                              "widthMm": 72, "heightMm": 96, "partCode": matches[0],
+                              "widthMm": 72, "heightMm": 96, "partCode": matches[0], "sourcePage": index + 1,
                               "rasterWidth": 576, "rasterHeight": 768,
                               "rasterBase64": base64.b64encode(printer_bitmap(image, codes)).decode()})
             finally:
                 page.close()
-        if observed != counts:
-            raise ValueError("PRINT_PDF_PART_QUANTITY_MISMATCH")
-        return {"sha256": hashlib.sha256(raw).hexdigest(), "pages": pages}
+        return {"sha256": hashlib.sha256(raw).hexdigest(), "pages": expand_label_quantities(pages, counts)}
     finally:
         pdf.close()
+
+
+def expand_label_quantities(pages, counts):
+    # Recloud may emit one original label per part row, not per physical unit.
+    # Only accept one template or the exact requested count for each code.
+    # Never multiply an already expanded PDF or accept a partially missing set.
+    observed = collections.Counter(page["partCode"] for page in pages)
+    if set(observed) != set(counts) or any(observed[code] not in (1, count) for code, count in counts.items()):
+        raise ValueError("PRINT_PDF_PART_QUANTITY_MISMATCH")
+    result = []
+    for page in pages:
+        copies = counts[page["partCode"]] if observed[page["partCode"]] == 1 else 1
+        result.extend(dict(page) for _ in range(copies))
+    return result
 
 
 if __name__ == "__main__":

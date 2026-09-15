@@ -230,7 +230,7 @@ class PrintJobStore {
         copies: 1, payloadFormat: "TSPL", payloadBase64: payloads[index],
         imageWidthMm: page.widthMm, imageHeightMm: page.heightMm,
         paperWidthMm: 76, paperHeightMm: 130, renderMethod: "ORIGINAL_PDF_BITMAP", technicianAccount: account, technicianAccountSuffix: accountSuffix,
-        sourcePdfSha256: rendered.sha256, sourcePage: index + 1,
+        sourcePdfSha256: rendered.sha256, sourcePage: page.sourcePage || index + 1,
         ...(index === 0 ? { originalPdfBase64: pdf.toString("base64") } : {}),
         idempotencyKey: `${input.idempotencyKey}:page:${index + 1}`,
         status: terminal ? "PENDING" : "UNASSIGNED", attempts: 0,

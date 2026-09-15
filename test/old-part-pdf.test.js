@@ -120,3 +120,13 @@ test('account number preserves leading zeroes and uses larger digits outside tab
  assert(!bytes.includes(Buffer.from('FieldDesk')));
  assert(!bytes.includes(Buffer.from('NAME-NOT-ON-PAPER')));
 });
+test('two copies of one original page remain two jobs on retry',async()=>{
+ const store=new PrintJobStore({driver:'memory'});
+ const page={...rendered.pages[0],sourcePage:1};
+ const input={pdf,rendered:{...rendered,pages:[page,page]},userId:'FieldDesk9001',rmaNo:'LAB-RMA',idempotencyKey:'quantity-two'};
+ const first=await store.enqueueOriginalPdf(input);
+ const again=await store.enqueueOriginalPdf(input);
+ assert.equal(first.length,2); assert.deepEqual(first.map(j=>j.id),again.map(j=>j.id));
+ assert.deepEqual(first.map(j=>j.sourcePage),[1,1]);
+ assert.equal((await store.listJobs()).length,2);
+});
