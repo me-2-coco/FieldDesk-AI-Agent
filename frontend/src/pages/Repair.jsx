@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { MEDIA_ACCEPT, mediaType } from "../shared/mediaFormats.js"
 import { optimizeUploadPhoto } from "../shared/photoUpload.js"
+import { createReceiptPhotoPreparation } from "../shared/receiptPhotoPreparation.js"
 import ScannerModal from "../components/ScannerModal"
 import PhotoCaptureModal from "../components/PhotoCaptureModal"
 import { CameraIcon, ScanIcon } from "../components/AppIcons.jsx"
@@ -71,6 +72,8 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
   const [specialty, setSpecialty] = useState("")
   const [receiptMessage, setReceiptMessage] = useState("")
   const [isSaving, setIsSaving] = useState(false)
+  const [receiptSaveProgress, setReceiptSaveProgress] = useState("")
+  const [photoPreparation] = useState(() => createReceiptPhotoPreparation(optimizeUploadPhoto))
   const [currentUser, setCurrentUser] = useState(signedInUser)
   const [authError, setAuthError] = useState("")
   const [receiptAttachments, setReceiptAttachments] = useState([])
@@ -380,6 +383,7 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
     })
     setErrorMessage("")
     setReceiptAttachments((current) => [...current, ...accepted])
+    for (const attachment of accepted) void photoPreparation.prepare(attachment.file)
   }
 
   async function uploadReceiptFiles(event) {
@@ -415,6 +419,7 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
     }
     try {
       setIsSaving(true)
+      setReceiptSaveProgress("正在核对签收资料...")
       setErrorMessage("")
       const preparation = await prepareReceipt({
         logisticsNo: queriedLogisticsNo,
@@ -452,8 +457,11 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
         setErrorMessage("每张工单都必须至少拍摄或选择一张签收照片/视频；瑞云已签收时只跳过签收按钮，不跳过附件")
         return
       }
-      for (const attachment of receiptAttachments.filter((item) => !item.uploaded)) {
-        const uploadFile = await optimizeUploadPhoto(attachment.file)
+      const pendingAttachments = receiptAttachments.filter((item) => !item.uploaded)
+      for (const [index, attachment] of pendingAttachments.entries()) {
+        setReceiptSaveProgress(`正在准备附件 ${index + 1}/${pendingAttachments.length}...`)
+        const uploadFile = await photoPreparation.prepare(attachment.file)
+        setReceiptSaveProgress(`正在保存附件 ${index + 1}/${pendingAttachments.length}...`)
         await uploadReceiptAttachment({
           rmaNo: repairDetail.rmaNo,
           name: attachment.name,
@@ -464,6 +472,7 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
       // A corrected SN is a new receipt attempt for the same RMA. Include the
       // scanned SN in the idempotency key so an earlier wrong-SN response can
       // never be replayed into the corrected workflow.
+      setReceiptSaveProgress("正在确认签收，随后进入下一步...")
       const result = await completeLocalReceipt(repairDetail.rmaNo, normalizedSn)
       const order = createRepairOrder({
         id: `RMA-${result.rmaNo}`,
@@ -488,6 +497,7 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
       setErrorMessage(error.message)
     } finally {
       setIsSaving(false)
+      setReceiptSaveProgress("")
     }
   }
 
@@ -880,7 +890,7 @@ function Repair({ setPage, currentUser: signedInUser = null }) {
               返回工单
             </button>
             <button onClick={finishReceiptAndOpenParts} disabled={isSaving || !sn.trim()}>
-              {isSaving ? "正在保存..." : receiptAlreadyCompleted ? "核对项目号和 SN，继续" : "完成签收，选择处理方式"}
+              {isSaving ? receiptSaveProgress || "正在保存..." : receiptAlreadyCompleted ? "核对项目号和 SN，继续" : "完成签收，选择处理方式"}
             </button>
           </div>
         </div>

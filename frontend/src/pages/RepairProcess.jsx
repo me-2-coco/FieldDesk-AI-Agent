@@ -301,7 +301,6 @@ function RepairProcess({ setPage }) {
                 </div>
               ))}
             </dl>
-            <p className="dry-run-notice">责任判定保持空白；系统不会自动点击瑞云“确认”。</p>
           </div>
         )}
 
@@ -341,9 +340,6 @@ function RepairProcess({ setPage }) {
           )}
         </div>
 
-        <p className="dry-run-notice">
-          “检测”完成瑞云寄修单检测；进入处理结果前会创建瑞云维修服务单并改派，仅维修方式添加配件
-        </p>
       </div>
 
     </div>
