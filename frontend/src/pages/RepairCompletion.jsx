@@ -127,6 +127,7 @@ function RepairCompletion({ setPage, currentUser }) {
   const [completionConfirmOpen, setCompletionConfirmOpen] = useState(false)
   const [contextLoading, setContextLoading] = useState(true)
   const [descriptionRetry, setDescriptionRetry] = useState(0)
+  const [descriptionLoading, setDescriptionLoading] = useState(false)
   const [descriptionReady, setDescriptionReady] = useState(false)
   const [reportedFault, setReportedFault] = useState("")
   const [syncStatus, setSyncStatus] = useState(null)
@@ -136,9 +137,12 @@ function RepairCompletion({ setPage, currentUser }) {
 
   useEffect(() => {
     let active = true
-    setContextLoading(true)
-    getRepairCompletionContext(repairOrder.crmOrderNo).then((context) => {
+    let needsDescription = false
+    if (!descriptionRetry) setContextLoading(true)
+    else setDescriptionLoading(true)
+    getRepairCompletionContext(repairOrder.crmOrderNo, { localOnly: !descriptionRetry }).then((context) => {
       if (!active) return
+      needsDescription = !context.order?.reportedFault?.trim()
       setDescriptionReady(Boolean(context.order?.reportedFault?.trim()))
       setReportedFault(context.order?.reportedFault || "")
       if (context.order?.reportedFaultError) setErrorMessage(context.order.reportedFaultError)
@@ -207,7 +211,12 @@ function RepairCompletion({ setPage, currentUser }) {
         if (!descriptionRetry) setAttachments(approvalAttachments)
       }
     }).catch((error) => active && setErrorMessage(error.message))
-      .finally(() => active && setContextLoading(false))
+      .finally(() => {
+        if (!active) return
+        setContextLoading(false)
+        setDescriptionLoading(false)
+        if (!descriptionRetry && needsDescription) setDescriptionRetry(1)
+      })
     return () => { active = false }
   }, [descriptionRetry, completedDetail, isAbandoned, isInspectionOnly, repairOrder.crmOrderNo, repairOrder.originalFault, treatmentMode, treatmentPreset])
 
@@ -690,7 +699,7 @@ function RepairCompletion({ setPage, currentUser }) {
         {errorMessage && !/^缺少必填字段/.test(errorMessage) && <p className="error-message">{errorMessage}</p>}
         {message && <p role="status">{message}</p>}
         {!completedDetail && <div className="completion-actions">
-          {!descriptionReady && <button className="secondary-btn" disabled={busy || contextLoading} onClick={() => setDescriptionRetry(value => value + 1)}>{contextLoading ? "正在读取报修描述…" : "重新读取描述"}</button>}
+          {!descriptionReady && <button className="secondary-btn" disabled={busy || contextLoading || descriptionLoading} onClick={() => setDescriptionRetry(value => value + 1)}>{descriptionLoading ? "正在后台读取报修描述…" : "重新读取描述"}</button>}
           <button className="secondary-btn" disabled={busy} onClick={() => save(false)}>保存草稿</button>
           {isOutOfWarranty && !pricing?.canPrice
             ? <button type="button" className="fee-review-jump" disabled={busy} onClick={showPricingSummary}>查看费用明细</button>

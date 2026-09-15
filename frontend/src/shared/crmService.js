@@ -429,8 +429,8 @@ export async function confirmLocalPartReturn(requestId) {
   return request("/api/inventory/returns/confirm", { requestId })
 }
 
-export async function getRepairCompletionContext(rmaNo) {
-  return request("/api/repairs/completion/context", { rmaNo })
+export async function getRepairCompletionContext(rmaNo, options = {}) {
+  return request("/api/repairs/completion/context", { rmaNo, localOnly: options.localOnly === true })
 }
 
 export async function getFaultCatalog() {

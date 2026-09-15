@@ -672,6 +672,7 @@ function runRecloudPool(coordinator, connector, operation, options, requestedCha
       reject,
       priority: Number(options.queuePriority || 0),
       sequence: pool.nextSequence++,
+      queuedAt: Date.now(),
     };
     pool.waiting.push(job);
     if (options.deadlineAt) {
@@ -694,6 +695,9 @@ function runRecloudPool(coordinator, connector, operation, options, requestedCha
         const job = pool.waiting.shift();
         clearTimeout(job.queueTimer);
         worker.busy = true;
+        const startedAt = Date.now();
+        console.info('RECLOUD_QUEUE_TIMING', JSON.stringify({ channel: requestedChannel,
+          job: job.sequence, phase: 'started', queueMs: startedAt - job.queuedAt, waiting: pool.waiting.length }));
         const current = executeRecloudOperation(
           connector,
           job.operation,
@@ -701,7 +705,15 @@ function runRecloudPool(coordinator, connector, operation, options, requestedCha
           coordinator,
           worker.channel
         );
-        current.then(job.resolve, job.reject);
+        current.then(value => {
+          console.info('RECLOUD_QUEUE_TIMING', JSON.stringify({ channel: requestedChannel,
+            job: job.sequence, phase: 'completed', executionMs: Date.now() - startedAt }));
+          job.resolve(value);
+        }, error => {
+          console.info('RECLOUD_QUEUE_TIMING', JSON.stringify({ channel: requestedChannel,
+            job: job.sequence, phase: 'failed', executionMs: Date.now() - startedAt, code: error.code || 'UNKNOWN' }));
+          job.reject(error);
+        });
         current.catch((error) => {
           if (error.recloudDrainPromise) {
             // The timed-out page has already been closed. Retire this channel
@@ -4948,7 +4960,7 @@ function createApp(
       const rmaNo = String(req.body?.rmaNo || "").trim();
       let order = (await receiptStore.readAll()).find((item) => item.rmaNo === rmaNo);
       if (!order) throw createApiError("RECEIPT_PREPARATION_NOT_FOUND", "未找到待维修工单", 404);
-      try { order = await loadReportedFault(order); }
+      try { if (req.body?.localOnly !== true) order = await loadReportedFault(order); }
       catch (error) { order = { ...order, reportedFaultError: error.code === 'RECLOUD_LOGIN_REQUIRED'
         ? '瑞云登录已失效，报修描述尚未同步；恢复登录后请点击重新读取描述'
         : error.code === 'REPORTED_FAULT_EMPTY' ? error.message
