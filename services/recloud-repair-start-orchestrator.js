@@ -46,7 +46,14 @@ async function orchestrateRepairStart(payload, adapter, options = {}) {
       throw startError("缺少负责人改派执行器", "RECLOUD_REPAIR_ASSIGNMENT_ADAPTER_INVALID", "ASSIGNMENT");
     }
     assertRecloudOperationAllowed({ action: assignmentPlan.action, target: assignmentPlan.servicePerson });
-    await adapter.assignResponsible(assignmentPlan);
+    const assignment = await adapter.assignResponsible(assignmentPlan);
+    if (assignment?.fallback === true) {
+      if (assignment.assignee !== require('./recloud-assignment-fallback').DEFAULT_ASSIGNEE) {
+        throw startError('未经授权的兜底负责人', 'RECLOUD_ASSIGNMENT_FALLBACK_INVALID', 'ASSIGNMENT');
+      }
+      assignmentPlan.servicePerson = assignment.assignee;
+      payload = { ...payload, assignmentSource: 'NAME_NOT_FOUND_FALLBACK' };
+    }
     assignee = await adapter.readAssignee();
     assignmentRequired = String(assignee || "").replace(/\s/g, "") !== assignmentPlan.servicePerson.replace(/\s/g, "");
     if (assignmentRequired) {

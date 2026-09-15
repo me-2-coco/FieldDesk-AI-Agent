@@ -456,16 +456,42 @@ function createRecloudRepairPageAdapter(page, context = {}) {
       const dialog = await waitForDialog(page, before);
       const input = await locateDialogInput(dialog, "服务人员");
       if (!input) throw adapterError("改派窗口缺少服务人员搜索框", "RECLOUD_ASSIGNMENT_INPUT_NOT_FOUND", "ASSIGNMENT");
-      const rows = await searchTargetTechnician(dialog, plan.servicePerson, async (query) => {
+      const search = async (query) => {
         await input.fill(query);
         const searchButtons = dialog.getByRole("button", { name: exactText("搜索") }).filter({ visible: true });
         if (await searchButtons.count() === 1) await searchButtons.first().click({ timeout: 5000 });
         else await input.press("Enter");
         await page.waitForTimeout?.(500);
-      });
-      if (rows.length !== 1) {
-        throw adapterError(`瑞云中没有唯一匹配的师傅：${plan.servicePerson}`, "RECLOUD_ASSIGNMENT_TARGET_NOT_UNIQUE", "ASSIGNMENT");
-      }
+      };
+      const target = await require('../services/recloud-assignment-fallback').resolveAssignmentTarget(
+        plan.servicePerson,
+        name => searchTargetTechnician(dialog, name, search),
+        async name => {
+          // A missing DOM row is not evidence of absence. Require a successful
+          // fresh search response containing this query AND explicit empty UI.
+          const responsePromise = page.waitForResponse(response => {
+            const request = response.request();
+            if (!['xhr', 'fetch'].includes(request.resourceType())) return false;
+            let query = request.url() + ' ' + (request.postData() || '');
+            try { query = decodeURIComponent(query); } catch {}
+            return query.includes(name);
+          }, {timeout:10000}).catch(() => null);
+          await search(name);
+          const response = await responsePromise;
+          if (!response?.ok()) return false;
+          const data = await response.json().catch(() => null);
+          if (!data || data.success === false || data.error
+            || !(data.success === true || [0,200,'0','200'].includes(data.code))) return false;
+          const empty = dialog.locator('.el-table__empty-text:visible, .rt-table__empty-text:visible, .ant-empty-description:visible');
+          const busy = dialog.locator('.el-loading-mask:visible, .rt-loading-mask:visible, .ant-spin-spinning:visible');
+          const isEmpty = async () => await input.inputValue() === name && await busy.count() === 0
+            && await empty.count() === 1 && /暂无数据|无数据|No Data/i.test(await empty.first().innerText());
+          if (!await isEmpty()) return false;
+          await page.waitForTimeout(1000);
+          return isEmpty();
+        }
+      );
+      const rows = target.rows;
       let responsibleCandidates = rows[0]
         .getByRole("button", { name: exactText("负责人") })
         .filter({ visible: true });
@@ -494,6 +520,7 @@ function createRecloudRepairPageAdapter(page, context = {}) {
       }
       await dialog.waitFor({ state: "hidden", timeout: 8000 });
       await page.waitForTimeout?.(500);
+      return { assignee: target.name, fallback: target.fallback };
     },
 
     async confirmWarrantyConversion(options = {}) {
