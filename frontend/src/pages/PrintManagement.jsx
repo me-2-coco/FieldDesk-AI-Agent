@@ -207,7 +207,7 @@ function PrintManagement({ setPage }) {
 
     <section className="card print-terminal-card">
       <div className="section-title-row"><div><small>实时状态</small><h2>共享打印机</h2></div><span>{terminals.filter((item) => item.online).length}/{terminals.length} 在线</span></div>
-      <div className="print-terminal-list">{terminals.map((terminal) => <article key={terminal.id}>
+      <div className="print-terminal-list" role="region" aria-label="共享打印机列表" tabIndex={0}>{terminals.map((terminal) => <article key={terminal.id}>
         <button type="button" className="print-terminal-main" onClick={() => edit(terminal)}>
           <i className={terminal.online ? "online" : "offline"} />
           <span><strong>{terminal.name}</strong><small>{terminal.printerName} · {(terminal.memberUserIds || []).length} 名师傅</small></span>
