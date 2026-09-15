@@ -11176,15 +11176,9 @@ async function getRmaAttachmentCard(page) {
 
 async function readRmaAttachments(page) {
   const card = await getRmaAttachmentCard(page);
-  const items = card.locator('.file-detail:visible, .rtxpc-file-detail:visible');
-  const result = [];
-  for (let index = 0; index < await items.count(); index += 1) {
-    const item = items.nth(index);
-    const name = normalizeText(await item.locator('.item-name').first().textContent().catch(() => ""));
-    const sizeText = normalizeText(await item.locator('.uploadTime-and-operation span').first().textContent().catch(() => ""));
-    if (name) result.push({ name, size: parseAttachmentSize(sizeText) });
-  }
-  return result;
+  const items = await card.evaluate(require('./recloud-rma-attachment-snapshot').readRmaAttachmentItems);
+  return items.map(item => ({ name: normalizeText(item.name), size: parseAttachmentSize(item.sizeText) }))
+    .filter(item => item.name);
 }
 
 async function uploadRmaAttachments(page, attachments = [], options = {}) {
