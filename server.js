@@ -6200,13 +6200,13 @@ if (require.main === module) {
       String(process.env.RECLOUD_RECOVERY_WATCHDOG_ENABLED || "true").toLowerCase() !== "false",
     recloudRepairPageAdapterFactory: createRecloudRepairPageAdapter,
     recloudRepairAdapterProvider: {
-      run: (task, work) => withRecloud(recloudConnector, async (page) => {
+      run: (task, work) => withRecloud(recloudConnector, async (page) => require('./services/recloud-phase-timing').withRecloudTimingContext(task, async () => {
         const operationStartedAt = Date.now();
-        const opened = await recloudConnector.openExistingRepairServiceOrder(page, {
+        const opened = await require('./services/recloud-phase-timing').timeRecloudPhase(task.rmaNo, 'completion_open_service_order', () => recloudConnector.openExistingRepairServiceOrder(page, {
           rmaNo: task.rmaNo,
           logisticsNo: task.logisticsNo,
           serviceOrderNo: task.payload?.serviceOrderNo,
-        });
+        }));
         console.info(
           `RECLOUD_REPAIR_TIMING: rma=${task.rmaNo} phase=open_service_order ms=${Date.now() - operationStartedAt} direct=${Boolean(task.payload?.serviceOrderNo)} alreadyOpen=${opened.alreadyOpen === true}`
         );
@@ -6229,7 +6229,7 @@ if (require.main === module) {
           `RECLOUD_REPAIR_TIMING: rma=${task.rmaNo} phase=complete_work ms=${Date.now() - workStartedAt} totalMs=${Date.now() - operationStartedAt}`
         );
         return result;
-      }, {
+      }), {
         background: true,
         channel: "business-write",
         priority: true,

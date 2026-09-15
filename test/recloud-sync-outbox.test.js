@@ -85,6 +85,8 @@ test("outbox stores required safe fields and enforces idempotency", async (t) =>
 });
 
 test("completion stays pending until its Recloud preparation dependency is ready", async (t) => {
+  const timing = [];
+  t.mock.method(console, 'info', (tag, json) => timing.push({ tag, ...JSON.parse(json) }));
   const outbox = await outboxFixture(t);
   const delayed = [];
   let ready = false;
@@ -111,6 +113,11 @@ test("completion stays pending until its Recloud preparation dependency is ready
   await delayed.shift()();
   assert.equal((await outbox.get(task.id)).status, TASK_STATUS.SUCCESS);
   assert.equal(calls, 1);
+  const checks = timing.filter(row => row.tag === 'RECLOUD_DEPENDENCY_TIMING');
+  assert.deepEqual(checks.map(row => row.ready), [false, true]);
+  assert.ok(checks.every(row => row.taskId === task.id && row.taskAgeMs >= 0));
+  assert.equal(timing.filter(row => row.phase === 'sync_execute_total').length, 1);
+  assert.ok(timing.some(row => row.phase === 'sync_persist_remote_result' && row.taskId === task.id));
 });
 
 test("reopened orders cancel stale sync tasks and can enqueue a new local completion record", async (t) => {

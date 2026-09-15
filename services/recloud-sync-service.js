@@ -1,4 +1,5 @@
 const { TASK_STATUS } = require("../database/recloud-sync-outbox");
+const { timeRecloudPhase, withRecloudTimingContext } = require('./recloud-phase-timing');
 const { MAPPING_VERSION, buildNodePayload } = require("../connectors/recloud-sync-mapping");
 
 const NODE_METHODS = Object.freeze({
@@ -228,7 +229,7 @@ class RecloudSyncService {
       }
       this.activeOrderKeys.add(orderKey);
       ownedOrderKey = orderKey;
-      return await this.processTaskOnce(taskId);
+      return await withRecloudTimingContext(task, () => this.processTaskOnce(taskId));
     } finally {
       if (ownedOrderKey) this.activeOrderKeys.delete(ownedOrderKey);
       this.activeTaskIds.delete(taskId);
@@ -242,10 +243,23 @@ class RecloudSyncService {
     // Completion can be submitted in FieldDesk before the independent Recloud
     // repair-preparation job has finished. Keep it pending without consuming a
     // retry or opening a competing browser flow until that dependency is ready.
-    if (!task.localRecoveryResult && this.canProcessTask && !(await this.canProcessTask(task))) {
+    const dependencyReady = task.localRecoveryResult || !this.canProcessTask || await this.canProcessTask(task);
+    if (task.nodeType === 'REPAIR_COMPLETED') {
+      console.info('RECLOUD_DEPENDENCY_TIMING', JSON.stringify({
+        taskId: task.id, orderKey: task.rmaNo, retryCount: task.retryCount || 0,
+        checkedAt: new Date().toISOString(), ready: Boolean(dependencyReady),
+        createdAt: task.createdAt,
+        taskAgeMs: Number.isFinite(Date.parse(task.createdAt)) ? Math.max(0, Date.now() - Date.parse(task.createdAt)) : null,
+      }));
+    }
+    if (!dependencyReady) {
       this.scheduleTask(task.id, (work) => this.retryScheduler(work, this.dependencyPollMs));
       return task;
     }
+    return timeRecloudPhase(task.rmaNo, 'sync_execute_total', () => this.executeReadyTask(task));
+  }
+
+  async executeReadyTask(task) {
     // A retry may happen minutes after the task was first queued.  Always rebuild
     // failed-task payloads from the current order so recovery sees preparation,
     // attachments and fee changes made after the original attempt.
@@ -268,7 +282,7 @@ class RecloudSyncService {
     try {
       let result = task.localRecoveryResult;
       if (!result) {
-        result = await this.adapter[method](task);
+        result = await timeRecloudPhase(task.rmaNo, 'sync_adapter_total', () => this.adapter[method](task));
         remoteReturned = true;
         // Only retain fields used by local finalization, not raw browser data.
         const localRecoveryResult = {
@@ -278,7 +292,7 @@ class RecloudSyncService {
           reviewReasons: Array.isArray(result?.reviewReasons) ? result.reviewReasons.map(item => ({ step: item?.step })) : [],
           informationClerkAction: String(result?.informationClerkAction || ""),
         };
-        task = await this.outbox.update(task.id, { localRecoveryResult });
+        task = await timeRecloudPhase(task.rmaNo, 'sync_persist_remote_result', () => this.outbox.update(task.id, { localRecoveryResult }));
       }
       const resultStatus = String(result?.status || "");
       if (task.nodeType === "REPAIR_COMPLETED" && resultStatus === "AWAITING_PARTS") {

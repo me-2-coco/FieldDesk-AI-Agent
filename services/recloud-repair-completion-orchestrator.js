@@ -40,7 +40,7 @@ function repairCompletionFingerprint(orderKey, payload) {
 }
 
 async function saveCheckpoint(store, checkpoint) {
-  if (store && typeof store.save === "function") await store.save(checkpoint);
+  if (store && typeof store.save === "function") await timeRecloudPhase(checkpoint.orderKey, `completion_checkpoint_${checkpoint.status}`, () => store.save(checkpoint));
 }
 
 async function waitForRemoteSubmitReady(adapter, options = {}) {
@@ -131,7 +131,7 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
   // FieldDesk 完工编排也不得把它写入瑞云。
   const originalMainAttachments = (payload.attachments || []).filter((item) => item?.source !== "INSPECTION_REPORT");
   const desiredMainAttachments = typeof adapter.prepareAttachmentIdentities === 'function'
-    ? await adapter.prepareAttachmentIdentities(originalMainAttachments) : originalMainAttachments;
+    ? await timeRecloudPhase(orderKey, "completion_attachment_identity", () => adapter.prepareAttachmentIdentities(originalMainAttachments)) : originalMainAttachments;
   let attachmentsPlan = buildRecloudRepairAttachmentsPlan(desiredMainAttachments, remote.attachments);
   const knownMissingParts = Array.isArray(options.missingParts) ? [...options.missingParts] : [];
   // Every unavailable part follows the same terminal rule: omit that part,
@@ -266,7 +266,7 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
 
   // 瑞云会在没有维修附件时拒绝保存整张服务报告。必须先上传附件，
   // 再写费用与维修字段，否则字段保存失败、附件步骤又永远无法执行。
-  let remoteAttachments = await readRemoteAttachments(adapter, RECLOUD_WORK_ORDER_OPERATION_POLICY.attachmentTarget);
+  let remoteAttachments = await timeRecloudPhase(orderKey, "completion_attachment_precheck", () => readRemoteAttachments(adapter, RECLOUD_WORK_ORDER_OPERATION_POLICY.attachmentTarget));
   if (prior?.status === 'ATTACHMENTS_UPLOADING' && !require('./repair-attachment-identity').verifiedRepairManifest(desiredMainAttachments, remoteAttachments, prior.attachmentManifest)) {
     throw orchestratorError('维修附件再次核对不一致，停止恢复', 'RECLOUD_REPAIR_ATTACHMENT_UPLOAD_UNCERTAIN', 'RECONCILE', { resultUnknown: true, permanent: true });
   }
@@ -284,10 +284,10 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
       attachmentManifest: desiredMainAttachments.map(file => file.fileName),
     });
     try {
-      await adapter.uploadAttachments(attachmentsPlan, {
+      await timeRecloudPhase(orderKey, "completion_upload_total", () => adapter.uploadAttachments(attachmentsPlan, {
         target: RECLOUD_WORK_ORDER_OPERATION_POLICY.attachmentTarget,
-      });
-      remoteAttachments = await readRemoteAttachments(adapter, RECLOUD_WORK_ORDER_OPERATION_POLICY.attachmentTarget);
+      }));
+      remoteAttachments = await timeRecloudPhase(orderKey, "completion_attachment_postcheck", () => readRemoteAttachments(adapter, RECLOUD_WORK_ORDER_OPERATION_POLICY.attachmentTarget));
       attachmentsPlan = buildRecloudRepairAttachmentsPlan(desiredMainAttachments, remoteAttachments);
       if (!attachmentsPlan.readyToUpload || attachmentsPlan.additions.length) {
         throw orchestratorError("附件上传后远端复核失败", "RECLOUD_REPAIR_ATTACHMENT_POSTVERIFY_FAILED", "ATTACHMENTS");
@@ -321,13 +321,13 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
     const verificationAttempts = Math.max(1, Number(options.fieldVerificationAttempts || 5));
     const verificationIntervalMs = Math.max(0, Number(options.fieldVerificationIntervalMs || 500));
     for (let attempt = 0; attempt < verificationAttempts; attempt += 1) {
-      repairFieldsVerified = await adapter.verifyRepairFields(formPlan);
+      repairFieldsVerified = await timeRecloudPhase(orderKey, `completion_field_verify_attempt_${attempt + 1}`, () => adapter.verifyRepairFields(formPlan));
       if (repairFieldsVerified) break;
       if (attempt + 1 < verificationAttempts && verificationIntervalMs > 0) {
         if (typeof adapter.waitForTimeout === "function") {
-          await adapter.waitForTimeout(verificationIntervalMs);
+          await timeRecloudPhase(orderKey, "completion_field_verify_retry_wait", () => adapter.waitForTimeout(verificationIntervalMs));
         } else {
-          await new Promise((resolve) => setTimeout(resolve, verificationIntervalMs));
+          await timeRecloudPhase(orderKey, "completion_field_verify_retry_wait", () => new Promise((resolve) => setTimeout(resolve, verificationIntervalMs)));
         }
       }
     }
@@ -427,7 +427,7 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
     orderKey, fingerprint, status: "WAITING_SUBMIT_READY", completedSteps: [...completedSteps],
   });
 
-  const submitReady = await waitForRemoteSubmitReady(adapter, options);
+  const submitReady = await timeRecloudPhase(orderKey, "completion_wait_submit_ready", () => waitForRemoteSubmitReady(adapter, options));
   if (!submitReady) {
     throw orchestratorError("瑞云点击完工后未进入可提交状态", "RECLOUD_REPAIR_SUBMIT_NOT_READY", "WAIT_SUBMIT_READY");
   }
@@ -441,7 +441,7 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
       throw orchestratorError('缺少瑞云返厂标记读取器，不能跳过标签', 'RECLOUD_RETURN_READER_REQUIRED', 'OLD_PART_LABELS');
     }
     const { selectRemoteReturnParts } = require('../connectors/recloud-repair-parts-reader');
-    const remoteReturnParts = await adapter.readOldPartReturnRequirements();
+    const remoteReturnParts = await timeRecloudPhase(orderKey, "completion_read_return_flags", () => adapter.readOldPartReturnRequirements());
     const presentParts = payload.usedParts.filter(part => {
       const code = String(part.partCode || '').trim().toUpperCase();
       // Existing explicit shortage authorizations apply only to absent parts,
@@ -505,5 +505,5 @@ async function orchestrateRepairCompletion(orderKey, payload, adapter, options =
 module.exports = {
   repairCompletionFingerprint,
   validateRemotePlans,
-  orchestrateRepairCompletion,
+  orchestrateRepairCompletion: (orderKey, payload, adapter, options) => timeRecloudPhase(orderKey, 'completion_orchestrator_total', () => orchestrateRepairCompletion(orderKey, payload, adapter, options)),
 };
