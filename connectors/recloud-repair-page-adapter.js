@@ -142,7 +142,9 @@ async function openServiceReport(page, timeoutMs = 15000) {
       }
     }
     if (lastError) throw lastError;
-    await page.waitForTimeout?.(500);
+    // Continue as soon as the actual report content is ready, not after a
+    // fixed delay. Keep a bounded wait and fail closed if it never appears.
+    await partsHeading.waitFor({ state: 'visible', timeout: timeoutMs });
   }
 }
 
@@ -177,7 +179,8 @@ async function dismissBlockingRepairMessageBoxes(page, options = {}) {
   const selector = ".el-message-box__wrapper:visible, .rt-message-box__wrapper:visible";
   const maxDialogs = Number(options.maxDialogs || 3);
   let dismissed = 0;
-  await page.waitForTimeout?.(Number(options.settleMs || 250));
+  const settleMs = Math.max(0, Number(options.settleMs ?? 250));
+  if (settleMs > 0) await page.waitForTimeout?.(settleMs);
   for (let attempt = 0; attempt < maxDialogs; attempt += 1) {
     const dialogs = page.locator(selector);
     if (await dialogs.count() === 0) break;
@@ -1106,6 +1109,7 @@ function createRecloudRepairPageAdapter(page, context = {}) {
 }
 
 module.exports = {
+  openServiceReport,
   enrichExpectedAttachmentMetadata,
   clickAfterLoadingSettles,
   clickApprovalFlowInput,

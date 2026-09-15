@@ -1830,7 +1830,7 @@ function createApp(
               }
             }
             try {
-              result = await connector.startRepair(page, { dryRun: false, writeEnabled: true, onBeforeCreate: () => { creationAttempted = true; } });
+              result = await require('./services/recloud-phase-timing').timeRecloudPhase(rmaNo, 'preparation_create_service_order', () => connector.startRepair(page, { dryRun: false, writeEnabled: true, onBeforeCreate: () => { creationAttempted = true; } }));
             } catch (error) {
               // Recloud may keep the just-confirmed detection page visible
               // before refreshing its operation column. Reuse is only an
@@ -1848,7 +1848,7 @@ function createApp(
               if (detail.rmaNo && detail.rmaNo !== rmaNo) {
                 throw createApiError("RECLOUD_REPAIR_ORDER_MISMATCH", "瑞云查询结果与当前寄修单不一致", 409);
               }
-              result = await connector.startRepair(page, { dryRun: false, writeEnabled: true, onBeforeCreate: () => { creationAttempted = true; } });
+              result = await require('./services/recloud-phase-timing').timeRecloudPhase(rmaNo, 'preparation_create_service_order_retry', () => connector.startRepair(page, { dryRun: false, writeEnabled: true, onBeforeCreate: () => { creationAttempted = true; } }));
             }
             if (!result?.serviceOrderCreated) {
               throw createApiError("RECLOUD_SERVICE_ORDER_NOT_CREATED", "瑞云未确认创建维修服务单", 502);
@@ -1872,7 +1872,7 @@ function createApp(
             assignmentSource: order.recloudRepairPreparation?.assignmentSource,
             warrantyConversionRequested: order.recloudRepairPreparation?.warrantyConversionRequested === true,
             usedParts: order.recloudRepairPreparation?.usedParts || [],
-          }, adapter, { writeEnabled: true });
+          }, adapter, { writeEnabled: true, orderKey: rmaNo });
           return result;
         }, {
           ...businessWriteOptions,
