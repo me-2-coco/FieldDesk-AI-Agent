@@ -2304,6 +2304,8 @@ function createApp(
       const query = orderQuery(order);
       return connector.queryRmaByLogisticsNo(page, query.identifier, {
         ...query.options, revealPhoneEnabled: false, phoneRevealTimeout: 0,
+        expectedRmaNo: order.rmaNo, preserveDetailPage: true,
+        fastDomRead: true, skipPendingReceiptProbe: true,
       });
     }, { ...foregroundQueryOptions, totalTimeoutMs: 30000 }),
     save: (rmaNo, fault) => receiptStore.saveReportedFault(rmaNo, fault),

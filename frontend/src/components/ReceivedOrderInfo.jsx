@@ -9,6 +9,6 @@ export default function ReceivedOrderInfo({ order }) {
       <div><dt>寄修单号</dt><dd>{order.crmOrderNo || "未提供"}</dd></div>
       {order.address && <div className="received-order-wide"><dt>用户地址</dt><dd>{order.address}</dd></div>}
     </dl>
-    <div className="received-order-fault"><span>用户报修的故障描述</span><p>{order.originalFault || "未提供"}</p></div>
+    <div className="received-order-fault"><span>用户报修的故障描述</span><p>{order.originalFault || "报修描述尚未同步，请重新读取"}</p></div>
   </section>
 }
