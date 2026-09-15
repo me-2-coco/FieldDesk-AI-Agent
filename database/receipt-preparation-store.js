@@ -622,6 +622,8 @@ class JsonReceiptPreparationStore {
       const updated = {
         ...existing,
         recloudReceiptAttachmentSyncStatus: "SYNCING",
+        recloudReceiptAttachmentRecoveryAttempts: Number(existing.recloudReceiptAttachmentRecoveryAttempts || 0)
+          + Number(existing.recloudReceiptAttachmentSyncStatus === 'RESULT_UNKNOWN'),
         recloudReceiptAttachmentAttemptedAt: timestamp,
         recloudReceiptAttachmentLastError: null,
         updatedAt: timestamp,

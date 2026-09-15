@@ -790,6 +790,7 @@ function timestampAgeMs(value, now = Date.now()) {
 
 function shouldAutoResumeReceipt(order, now = Date.now()) {
   if (!order?.receiptCompletedAt || !RECEIPT_RECOVERY_STATUSES.has(order.status)) return false;
+  if (require('./services/receipt-attachment-recovery').canRecoverAttachments(order, now)) return true;
   if ([order.recloudReceiptSyncStatus, order.recloudReceiptAttachmentSyncStatus,
     order.recloudProjectVerificationStatus].includes("RESULT_UNKNOWN")) return false;
   const missingDependency = !order.recloudReceiptConfirmedAt
@@ -1235,7 +1236,8 @@ function createApp(
       !isRecloudReceiptWriteEnabled(runtimeEnv) ||
       (!receiptNeedsSync && !projectNeedsSync && !attachmentsNeedSync) ||
       (receiptNeedsSync && order.recloudReceiptSyncStatus === "RESULT_UNKNOWN") ||
-      (attachmentsNeedSync && order.recloudReceiptAttachmentSyncStatus === "RESULT_UNKNOWN") ||
+      (attachmentsNeedSync && order.recloudReceiptAttachmentSyncStatus === "RESULT_UNKNOWN"
+        && !require('./services/receipt-attachment-recovery').canRecoverAttachments(order)) ||
       (projectNeedsSync && order.recloudProjectVerificationStatus === "RESULT_UNKNOWN") ||
       activeReceiptSyncs.has(rmaNo)
     ) {
@@ -1248,6 +1250,11 @@ function createApp(
       let receiptRemoteConfirmed = false;
       let attachmentsRemoteConfirmed = false;
       try {
+        // Persist the bounded recovery attempt before any remote query, so
+        // login/read failures and process restarts cannot create an infinite loop.
+        if (order.recloudReceiptAttachmentSyncStatus === 'RESULT_UNKNOWN') {
+          await receiptStore.markRecloudReceiptAttachmentsSyncing(rmaNo);
+        }
         const result = await withRecloud(connector, async (page) => {
           let projectVerified = !projectNeedsSync;
           let detail = await connector.queryRmaByLogisticsNo(
@@ -1485,11 +1492,18 @@ function createApp(
                 ...attachment,
                 buffer: await receiptAttachmentStore.read(rmaNo, attachment),
               })));
+              if (order.recloudReceiptAttachmentSyncStatus === 'RESULT_UNKNOWN') {
+                const files = require('./services/receipt-attachment-identity').receiptUploadFiles(rmaNo, hydrated);
+                const first = await connector.readRmaReceiptAttachmentSnapshot(page, rmaNo);
+                await page.waitForTimeout(2000);
+                const second = await connector.readRmaReceiptAttachmentSnapshot(page, rmaNo);
+                require('./services/receipt-attachment-recovery').verifyRecoverySnapshots(rmaNo, files, first, second);
+              }
               attachmentUploadTriggered = true;
               attachmentResult = await connector.uploadRmaAttachments(
                 page,
                 hydrated,
-                { writeEnabled: true, rmaNo }
+                { writeEnabled: true, rmaNo, timeoutMs: 120000 }
               );
               attachmentsRemoteConfirmed = true;
               await receiptStore.markRecloudReceiptAttachmentsConfirmed(rmaNo, {
@@ -1538,7 +1552,8 @@ function createApp(
           await receiptStore.markRecloudReceiptAttachmentsFailed(rmaNo, {
             code: failureCode,
             resultUnknown:
-              attachmentsRemoteConfirmed || attachmentUploadTriggered
+              order.recloudReceiptAttachmentSyncStatus === 'RESULT_UNKNOWN'
+              || attachmentsRemoteConfirmed || attachmentUploadTriggered
               && (error.resultUnknown === true || error.code === "RECLOUD_RECEIPT_TIMEOUT"),
           }).catch(() => {});
         }
