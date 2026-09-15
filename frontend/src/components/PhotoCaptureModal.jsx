@@ -89,9 +89,8 @@ function PhotoCaptureModal({ open, onCapture, onClose, title = "拍摄签收照�
       </header>
       <footer className="fd-photo-controls">
         {error && <p role="alert">{error}</p>}
-        <span role="status">{busy ? "正在定位并生成水印，请稍候…" : "照片底部强制添加拍摄时间与定位经纬度"}</span>
+        {busy && <span role="status">正在定位并生成水印，请稍候…</span>}
         <button type="button" className="fd-photo-shutter" aria-label="拍照" onClick={takePhoto} disabled={busy || !cameraTrack}><CameraIcon size={28} /></button>
-        <span>拍照 · 请允许位置权限</span>
       </footer>
   </div>, document.body)
 }
